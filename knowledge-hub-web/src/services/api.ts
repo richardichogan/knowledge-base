@@ -1251,10 +1251,11 @@ export class KnowledgeHubApi {
     audioBase64: string,
     mimeType: string,
     language?: string,
-  ): Promise<ApiResponse<{ text: string; provider: string }>> {
-    const r = await this.client.post<ApiResponse<{ text: string; provider: string }>>(
+    durationMilliseconds?: number,
+  ): Promise<ApiResponse<{ text: string; provider: string; durationMilliseconds?: number }>> {
+    const r = await this.client.post<ApiResponse<{ text: string; provider: string; durationMilliseconds?: number }>>(
       '/api/voice/transcribe',
-      { audioBase64, mimeType, language },
+      { audioBase64, mimeType, language: language ?? 'en-GB', durationMilliseconds },
       { timeout: CHAT_TIMEOUT_MS },
     );
     return r.data;
@@ -1264,11 +1265,12 @@ export class KnowledgeHubApi {
   async synthesizeVoice(
     text: string,
     voice?: string,
+    signal?: AbortSignal,
   ): Promise<ApiResponse<{ audioBase64: string; mimeType: string; provider: string }>> {
     const r = await this.client.post<ApiResponse<{ audioBase64: string; mimeType: string; provider: string }>>(
       '/api/voice/synthesize',
       { text, voice },
-      { timeout: CHAT_TIMEOUT_MS },
+      { timeout: CHAT_TIMEOUT_MS, ...(signal !== undefined && { signal }) },
     );
     return r.data;
   }

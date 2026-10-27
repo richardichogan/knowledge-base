@@ -826,6 +826,28 @@ async function runDiagramChecks(): Promise<string[]> {
   check(messagesBox.scrollTop > 0, 'Overflowing conversation remains scrollable');
   finishChat!();
   await waitFor(() => !composer!.disabled);
+  if (innerWidth >= 1024) {
+    await delay(450);
+    const chatHost = window.document.querySelector<HTMLElement>('.dg-chat-host')!;
+    let hostMoved = false;
+    const observer = new MutationObserver(records => {
+      hostMoved ||= records.some(record => [...record.removedNodes, ...record.addedNodes].includes(chatHost));
+    });
+    observer.observe(chatHost.parentElement!, { childList: true });
+    try {
+      messagesBox.scrollTop = Math.floor((messagesBox.scrollHeight - messagesBox.clientHeight) / 2);
+      const position = messagesBox.scrollTop;
+      check(position > 0, 'Long chat has a reading position away from the top');
+      for (const shape of [...window.document.querySelectorAll<SVGGElement>('g.dg-node')].slice(0, 2)) {
+        shape.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 1 }));
+        window.document.querySelector('svg.dg-canvas')!.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));
+        await delay(100);
+        check(window.document.querySelector('.dg-athena .ai-messages') === messagesBox, 'Shape selection preserves the chat DOM');
+        check(Math.abs(messagesBox.scrollTop - position) < 1, 'Shape selection preserves the chat reading position');
+      }
+      check(!hostMoved, 'Selection context updates never detach or reinsert the chat host');
+    } finally { observer.disconnect(); }
+  }
   clickButton('Close Athena');
   await waitFor(() => window.document.querySelector('.dg-properties') !== null);
   await runDiagramPropertiesChecks();

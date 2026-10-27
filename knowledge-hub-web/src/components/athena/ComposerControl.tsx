@@ -1,8 +1,8 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { useAnchoredPopovers } from '../../hooks/useAnchoredPopovers';
 
-export function ComposerControl({ label, icon, active = false, children }: {
-  label: string; icon: React.ReactNode; active?: boolean; children: React.ReactNode;
+export function ComposerControl({ label, icon, active = false, closeOnChange = true, children }: {
+  label: string; icon: React.ReactNode; active?: boolean; closeOnChange?: boolean; children: React.ReactNode;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -11,7 +11,7 @@ export function ComposerControl({ label, icon, active = false, children }: {
   useAnchoredPopovers(root, open ? '.kh-composer-control__panel' : null);
   useEffect(() => {
     if (!open) return;
-    root.current?.querySelector<HTMLSelectElement>('select')?.focus();
+    root.current?.querySelector<HTMLElement>('select, input')?.focus();
     const dismiss = (event: MouseEvent): void => {
       if (!root.current?.contains(event.target as Node)) setOpen(false);
     };
@@ -34,7 +34,7 @@ export function ComposerControl({ label, icon, active = false, children }: {
       aria-label={label} title={label} aria-expanded={open} aria-controls={open ? id : undefined}
       onClick={() => { setOpen(value => !value); }}>{icon}</button>
     {open && <div id={id} className="kh-composer-control__panel" role="group" aria-label={label}
-      onChange={() => { setOpen(false); trigger.current?.focus(); }}>
+      onChange={() => { if (closeOnChange) { setOpen(false); trigger.current?.focus(); } }}>
       <span className="kh-composer-control__label">{label}</span>
       {children}
     </div>}

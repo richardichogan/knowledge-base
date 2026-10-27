@@ -16,17 +16,22 @@ import type { ApiSuccess } from '../types/apiResponse.js';
 
 const router = Router();
 
-// POST /api/voice/transcribe  { audioBase64, mimeType, language? } -> { text, provider }
+// POST /api/voice/transcribe -> complete recording text, provider and duration.
 router.post('/transcribe', (req: Request, res: Response, next: NextFunction): void => {
   void (async () => {
     try {
-      const { audioBase64, mimeType, language } = req.body as {
+      const { audioBase64, mimeType, language, durationMilliseconds } = req.body as {
         audioBase64?: string;
         mimeType?: string;
         language?: string;
+        durationMilliseconds?: unknown;
       };
       if (!audioBase64 || typeof audioBase64 !== 'string') {
         throw new ValidationError('audioBase64 (string) is required', { audioBase64: 'required' });
+      }
+      if (durationMilliseconds !== undefined && (typeof durationMilliseconds !== 'number'
+        || !Number.isFinite(durationMilliseconds) || durationMilliseconds <= 0)) {
+        throw new ValidationError('Recording duration must be a positive number of milliseconds.');
       }
 
       const provider = VoiceProviderFactory.create();
@@ -34,6 +39,7 @@ router.post('/transcribe', (req: Request, res: Response, next: NextFunction): vo
         audioBase64,
         mimeType: typeof mimeType === 'string' ? mimeType : 'audio/wav',
         ...(typeof language === 'string' && { language }),
+        ...(typeof durationMilliseconds === 'number' && { durationMilliseconds }),
       });
 
       const body: ApiSuccess<typeof result> = { success: true, data: result };

@@ -960,6 +960,34 @@ does not publish, schedule, generate drafts or automatically add material to
 podcast preparation. Existing Saved articles are not automatically moved into
 the pool. This first version accepts Discover articles only.
 
+## Chat microphone transcription
+
+Chat microphone recordings use **UK English (`en-GB`)** explicitly, with the
+same backend default for older clients. Audio is resampled to mono 16 kHz WAV
+using Web Audio's filtered conversion, not nearest-sample decimation.
+Azure Speech **fast transcription** processes the complete uploaded recording
+and returns the combined transcript, rather than using the short-audio endpoint
+with its 60-second limit. The existing Speech resource, regional credentials,
+microphone controls and send/review behaviour are retained. No enhanced or MAI
+transcription model is implicitly selected.
+
+The client supplies the recording duration. Invalid responses, missing speech
+and processed-duration differences greater than one second fail visibly rather
+than sending partial text. This detects incomplete file processing, not every
+recognition mistake. The existing 20 MB voice JSON upload budget and 60-second
+Speech request timeout still apply. Missing credentials fail explicitly;
+canned transcripts are available only with explicit `VOICE_PROVIDER=mock`.
+
+Spoken replies play in order with at most one chunk prepared ahead. A failed
+synthesis is retried once; persistent synthesis failures and audio playback
+errors stop with a visible message instead of silently omitting words. Muting,
+changing chats or closing the chat cancels playback and pending client requests.
+The existing speaker toggle remains off initially. Its adjacent **Volume**
+slider adjusts current and subsequent spoken audio from 0 to 100%, without
+changing microphone or system volume. The level is shared between chat views
+and remembered locally on this device (initially 100%). Compact panels and
+mobile chat open the slider from a volume-settings icon beside the speaker.
+
 ## Teleprompter text and preferences
 
 Each open Think note's **Actions** menu includes **Pop out** for a read-only
@@ -975,6 +1003,9 @@ that browser's local storage; blocked storage shows an error. These preferences
 are not cross-device sync and do not resume playback or a previous scroll position.
 
 ## Blueprint regeneration and navigation
+
+Selecting diagram shapes or connectors updates Athena's selection context without
+moving the chat container or changing the current conversation reading position.
 
 Notes, specs, use cases and Blueprints share an 858px maximum column width
 (10% wider than the previous 780px), shrinking to fit narrower editor panes.

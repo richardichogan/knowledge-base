@@ -2,6 +2,35 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-27 12:26 UTC, voice and diagram chat fixes):**
+- User requested deployment, including UK-English full-recording transcription,
+  stable diagram chat scroll, remembered device-local voice volume and ordered
+  playback with one-chunk lookahead, one synthesis retry and visible failures.
+- Existing ACA/SWA application targets only; no infrastructure, dependency,
+  migration, identity, registry authentication or secret changes.
+- All validation checks pass:
+  - [x] Azure CLI installed/authenticated; production read confirms v260,
+    ready revision 0000257, identity None in the existing subscription.
+  - [x] Fetch/merge origin/main: already current at 7961523. Shared git
+    maintenance lock warning retained; no shared lock removed.
+  - [x] Backend typecheck and lint non-regression: 552/623.
+  - [x] Frontend typecheck and lint non-regression: 22/41.
+  - [x] Full isolated release suites, once per application: frontend 247/247
+    plus 49/49 bundled UI cases. Backend 690/691 initially; the sole failure
+    was a new fixture attempting to assign a getter-only credential. Corrected
+    to mock getters and reran only voice-transcription.test.ts: 4/4 passed.
+    No unresolved failures or repeated full suites.
+  - [x] Both production builds passed; unchanged Dockerfile/lockfiles use existing
+    ACR remote build recipe.
+  - [x] Bicep/template/what-if/policy and static RBAC changes: not applicable
+    to this application-only update of the approved production targets.
+- No browser launch or live microphone/speaker test authorised; do not claim
+  actual recognition quality, physical playback or browser scroll verification.
+- Preserve unrelated `.impeccable/hook.cache.json`. Confirm runtime startup,
+  revision health/traffic and served frontend bytes after deployment.
+- Evidence: session files/voice-release-backend.log, voice-release-frontend.log,
+  voice-release-web-build.log, and the targeted 4/4 transcription rerun output.
+
 **Deployment outcome (2026-10-27, podcast scheduling and draft controls):**
 - Release commit `f2802c0` pushed atomically to the feature branch and main.
 - ACR run `ca86` built `kh-prod-api:v260`; backend revision

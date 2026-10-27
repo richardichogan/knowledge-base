@@ -10,25 +10,28 @@
  * the chat agent has no voice-aware logic.
  *
  * Speech<->text uses the Azure Speech REST API directly (no browser-native
- * fallback), matching the client-demo decision. A MockVoiceProvider is
- * provided so the seam is testable without reaching Azure and so the app
- * stays operable locally when Speech credentials aren't configured.
+ * fallback). MockVoiceProvider is explicitly opt-in for isolated testing;
+ * missing Speech credentials fail rather than substituting invented words.
  */
 
 import { env } from '../../config/env.js';
+import { ConfigurationError, IntegrationError, ValidationError } from '../../types/errors.js';
 
 export interface TranscribeRequest {
   /** Base64-encoded audio payload (no data: URL prefix). */
   audioBase64: string;
   /** MIME type of the audio, e.g. 'audio/wav', 'audio/webm', 'audio/mp4'. */
   mimeType: string;
-  /** Optional BCP-47 language hint, e.g. 'en-US'. */
+  /** BCP-47 language hint; defaults to UK English (en-GB). */
   language?: string;
+  /** Duration of the uploaded recording, used to reject incomplete processing. */
+  durationMilliseconds?: number;
 }
 
 export interface TranscribeResult {
   text: string;
   provider: string;
+  durationMilliseconds?: number;
 }
 
 export interface SynthesizeRequest {
@@ -50,8 +53,8 @@ export interface VoiceProvider {
 }
 
 /**
- * Mock provider — deterministic, no network. Used when Speech credentials are
- * not configured. Transcription echoes a fixed transcript; synthesis returns a
+ * Mock provider — deterministic, no network. Enabled only by VOICE_PROVIDER=mock.
+ * Transcription echoes a fixed transcript; synthesis returns a
  * tiny silent WAV so the playback path is exercisable end-to-end.
  */
 export class MockVoiceProvider implements VoiceProvider {
@@ -107,12 +110,33 @@ function speechApiKey(): string {
 }
 
 const VOICE_TIMEOUT_MS = 60_000;
+const STT_DURATION_TOLERANCE_MS = 1_000;
+const BASE64_BLOCK_CHARS = 4;
+
+function transcribedAudio(data: unknown, expectedDuration?: number): TranscribeResult {
+  if (typeof data !== 'object' || data === null || !('durationMilliseconds' in data)
+    || typeof data.durationMilliseconds !== 'number' || !Number.isFinite(data.durationMilliseconds)
+    || data.durationMilliseconds <= 0 || !('combinedPhrases' in data) || !Array.isArray(data.combinedPhrases)) {
+    throw new IntegrationError('Azure Speech', 'Transcription returned an invalid full-recording result.');
+  }
+  if (expectedDuration !== undefined && Math.abs(data.durationMilliseconds - expectedDuration) > STT_DURATION_TOLERANCE_MS) {
+    throw new IntegrationError('Azure Speech', 'The complete recording was not processed. No partial transcript was sent.');
+  }
+  const text = data.combinedPhrases.map((phrase: unknown) => {
+    if (typeof phrase !== 'object' || phrase === null || !('text' in phrase) || typeof phrase.text !== 'string') {
+      throw new IntegrationError('Azure Speech', 'Transcription returned an invalid phrase.');
+    }
+    return phrase.text.trim();
+  }).filter(Boolean).join('\n');
+  if (!text) throw new ValidationError('No speech was recognised. Your existing draft is unchanged.');
+  return { text, provider: 'Azure Speech (fast transcription)', durationMilliseconds: data.durationMilliseconds };
+}
 
 /**
  * Azure Speech Service provider.
  *
- * Uses the Azure Cognitive Services Speech REST API — the same underlying
- * service that backs MAI-Voice-2 and MAI-Transcribe-1.
+ * Uses Azure Speech fast transcription for the complete recording.
+ * No MAI or enhanced transcription model is implicitly selected.
  *
  * MAI-Voice-2 is the preferred TTS voice (`en-US-Harper:MAI-Voice-2` by
  * default, via AZURE_SPEECH_VOICE). It uses the same cognitiveservices/v1
@@ -123,8 +147,8 @@ const VOICE_TIMEOUT_MS = 60_000;
  * TTS:  POST https://{region}.tts.speech.microsoft.com/cognitiveservices/v1
  *       Body: SSML with mstts namespace, headers: Ocp-Apim-Subscription-Key + X-Microsoft-OutputFormat
  *
- * STT:  POST https://{region}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1
- *       Body: binary audio, headers: Ocp-Apim-Subscription-Key + Content-Type
+ * STT:  POST https://{region}.api.cognitive.microsoft.com/speechtotext/transcriptions:transcribe
+ *       Multipart audio and definition; all recognised phrases are retained.
  */
 export class AzureSpeechProvider implements VoiceProvider {
   name = 'Azure Speech';
@@ -138,55 +162,45 @@ export class AzureSpeechProvider implements VoiceProvider {
   }
 
   async transcribe(request: TranscribeRequest): Promise<TranscribeResult> {
+    if (!request.audioBase64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(request.audioBase64) || request.audioBase64.length % BASE64_BLOCK_CHARS !== 0) {
+      throw new ValidationError('Provide a complete base64-encoded audio recording.');
+    }
     const audio = Buffer.from(request.audioBase64, 'base64');
-    const lang = request.language ?? 'en-US';
-    // Map browser MIME type → Content-Type the Speech REST API expects.
-    // Safari records audio/mp4; Chrome records audio/webm;codecs=opus; our
-    // AudioContext capture path sends audio/wav.
-    const mime = request.mimeType || 'audio/wav';
-    const contentType = mime.startsWith('audio/wav')
-      ? 'audio/wav; codecs=audio/pcm; samplerate=16000'
-      : mime.startsWith('audio/ogg')
-        ? 'audio/ogg; codecs=opus'
-        : mime.startsWith('audio/mp4') || mime.startsWith('audio/mpeg')
-          ? 'audio/mp4'
-          : 'audio/webm; codecs=opus';
+    const lang = request.language ?? 'en-GB';
+    if (!/^[a-z]{2,3}(?:-[a-zA-Z0-9]{2,8})+$/.test(lang)) throw new ValidationError('Provide a valid speech locale, such as en-GB.');
+    if (request.durationMilliseconds !== undefined
+      && (!Number.isFinite(request.durationMilliseconds) || request.durationMilliseconds <= 0)) {
+      throw new ValidationError('Recording duration must be a positive number of milliseconds.');
+    }
+    const mime = request.mimeType.split(';')[0]?.trim().toLowerCase();
+    const extensions: Record<string, string> = { 'audio/wav': 'wav', 'audio/ogg': 'ogg', 'audio/mp4': 'mp4', 'audio/mpeg': 'mp3', 'audio/webm': 'webm' };
+    const extension = mime ? extensions[mime] : undefined;
+    if (!mime || !extension) throw new ValidationError('Unsupported recording format. Use WAV, OGG, MP4, MP3 or WebM audio.');
+    const form = new FormData();
+    form.append('audio', new Blob([new Uint8Array(audio)], { type: mime }), `recording.${extension}`);
+    form.append('definition', JSON.stringify({ locales: [lang] }));
 
     const controller = new AbortController();
     const tid = setTimeout(() => controller.abort(), VOICE_TIMEOUT_MS);
     try {
-      // Use simple format — detailed format omits top-level DisplayText and
-      // puts the transcript under NBest[0].Display instead.
-      const url =
-        `https://${this.region}.stt.speech.microsoft.com/speech/recognition/conversation` +
-        `/cognitiveservices/v1?language=${lang}&format=simple`;
+      const url = `https://${this.region}.api.cognitive.microsoft.com/speechtotext/transcriptions:transcribe?api-version=2025-10-15`;
       const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Ocp-Apim-Subscription-Key': this.key,
-          'Content-Type': contentType,
+          'Accept': 'application/json',
         },
-        body: audio as unknown as BodyInit,
+        body: form,
         signal: controller.signal,
       });
       if (!response.ok) {
-        const err = await response.text();
-        throw new Error(`Azure Speech STT error (${response.status}): ${err}`);
+        console.error(`[AzureSpeechProvider] Fast transcription failed (HTTP ${response.status}).`);
+        throw new IntegrationError('Azure Speech', `Full-recording transcription failed (HTTP ${response.status}). No partial transcript was sent.`);
       }
-      const data = (await response.json()) as {
-        DisplayText?: string;
-        RecognitionStatus?: string;
-        NBest?: Array<{ Display?: string }>;
-      };
-      if (data.RecognitionStatus !== undefined && data.RecognitionStatus !== 'Success') {
-        throw new Error(`Speech recognition failed: ${data.RecognitionStatus}`);
-      }
-      // Simple format → DisplayText; detailed format fallback → NBest[0].Display
-      const text = data.DisplayText ?? data.NBest?.[0]?.Display ?? '';
-      return { text, provider: this.name };
+      return transcribedAudio(await response.json(), request.durationMilliseconds);
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`Azure Speech STT timed out after ${VOICE_TIMEOUT_MS}ms`);
+        throw new IntegrationError('Azure Speech', 'Full-recording transcription timed out. No partial transcript was sent.');
       }
       throw error;
     } finally {
@@ -351,8 +365,7 @@ export class VoiceProviderFactory {
       return new MockVoiceProvider();
     }
     if (env.AZURE_SPEECH_KEY === undefined && env.AZURE_OPENAI_API_KEY === undefined) {
-      console.warn('[VoiceProviderFactory] No Speech key configured — falling back to mock voice provider');
-      return new MockVoiceProvider();
+      throw new ConfigurationError('AZURE_SPEECH_KEY (or AZURE_OPENAI_API_KEY)');
     }
     if (env.AZURE_TTS_ENDPOINT !== undefined && env.AZURE_TTS_API_KEY !== undefined) {
       return new OpenAiTtsProvider();

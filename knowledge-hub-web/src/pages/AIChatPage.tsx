@@ -45,7 +45,10 @@ import { AtRiskChatCard } from '../features/plan/AtRiskChatCard';
 import type { PaneWidthOptions } from '../hooks/usePersistedState';
 import { useChatDraft } from '../hooks/useChatDraft';
 import { sendChatTurn, followChatTurn, TurnDetachedError, type LiveTurnHandlers } from '../services/chatTurns';
-import { encodeWav, blobToBase64, stripMarkdownForSpeech, splitForSpeech } from '../components/athena/speech';
+import { encodeWav, resampleVoiceAudio, blobToBase64, stripMarkdownForSpeech, splitForSpeech } from '../components/athena/speech';
+import { playSpeechChunks, type SpeechPlaybackAudio } from '../components/athena/speechPlayback';
+import { getVoiceVolume, MAX_VOICE_VOLUME, useVoiceVolume } from '../components/athena/voiceVolume';
+import { VoiceVolumeControl } from '../components/athena/VoiceVolumeControl';
 import { CHAT_IMAGE_TYPES, isChatImage, clipboardImageName } from '../components/athena/attachments';
 import { createNote } from '../notes/noteStorage';
 import type { ContentType } from '../notes/constants';
@@ -119,10 +122,7 @@ interface AIChatPageProps {
   onBusyChange?: ((busy: boolean) => void) | undefined;
 }
 
-// Azure Speech STT reliably handles PCM WAV only, so we capture raw 16kHz mono
-// PCM via AudioContext and encode a WAV ourselves — same approach as the
-// client-demo FNOL/Steward voice components, ported for this app's Foundry
-// Speech instance.
+// Send filtered 16kHz mono WAV to full-recording transcription.
 const STT_SAMPLE_RATE = 16000;
 // Cap on how much of an attached file's text we send as pageContext.detail.
 // Was 12,000 chars — far too small for meeting transcripts (a ~52KB transcript
@@ -380,6 +380,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [voiceOutputOn, setVoiceOutputOn] = useState(false);
+  const [voiceVolume, setVoiceVolume] = useVoiceVolume();
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
   const promptScrollFrameRef = useRef(0);
@@ -417,9 +419,12 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const pcmChunksRef = useRef<Float32Array[]>([]);
-  const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
-  // Bumped on every new reply / stop so an older reply's remaining chunks never play.
-  const ttsRunRef = useRef(0);
+  const ttsAudioRef = useRef<SpeechPlaybackAudio | null>(null);
+  const ttsControllerRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    if (ttsAudioRef.current) ttsAudioRef.current.volume = voiceVolume / MAX_VOICE_VOLUME;
+  }, [voiceVolume]);
+  useEffect(() => () => { ttsControllerRef.current?.abort(); }, []);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const appliedPromptRef = useRef<number | null>(null);
@@ -784,46 +789,36 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   }
 
   function stopTts(): void {
-    ttsRunRef.current++;
-    const audio = ttsAudioRef.current;
-    if (audio) {
-      audio.pause();
-      audio.src = '';
-      ttsAudioRef.current = null;
-    }
+    ttsControllerRef.current?.abort();
+    ttsControllerRef.current = null;
+    ttsAudioRef.current?.pause();
+    ttsAudioRef.current = null;
+    setVoiceError(null);
   }
 
-  /**
-   * Speaks the reply progressively: every chunk is synthesised at once (in
-   * parallel), and playback starts as soon as the short first chunk is ready.
-   */
   function playReply(text: string): void {
     if (!voiceOutputOn) return;
     const clean = stripMarkdownForSpeech(text);
     if (clean === '') return;
     stopTts();
-    const run = ttsRunRef.current;
-    const pending = splitForSpeech(clean).map((chunk) => api.synthesizeVoice(chunk).catch(() => null));
-    void (async () => {
-      for (const next of pending) {
-        const result = await next;
-        if (ttsRunRef.current !== run) return;
-        // Voice output is a nice-to-have — skip a failed chunk rather than surfacing an error.
-        if (result === null || !result.success) continue;
-        const audio = new Audio(`data:${result.data.mimeType};base64,${result.data.audioBase64}`);
+    const controller = new AbortController();
+    ttsControllerRef.current = controller;
+    void playSpeechChunks(splitForSpeech(clean),
+      async (chunk, signal) => requireApiData(await api.synthesizeVoice(chunk, undefined, signal)),
+      controller.signal,
+      audio => {
+        if (ttsControllerRef.current !== controller) return;
+        if (audio) audio.volume = getVoiceVolume() / MAX_VOICE_VOLUME;
         ttsAudioRef.current = audio;
-        const finished = new Promise<void>((resolve) => { audio.onended = () => { resolve(); }; audio.onerror = () => { resolve(); }; });
-        try {
-          await audio.play();
-        } catch {
-          // Autoplay can be blocked without a user gesture — non-fatal, text reply still shown.
-          return;
-        }
-        await finished;
-        if (ttsRunRef.current !== run) return;
-        ttsAudioRef.current = null;
+      },
+    ).catch((error: unknown) => {
+      if (!controller.signal.aborted) {
+        setVoiceError(`Spoken reply stopped. The full reply is still available as text. ${describeApiError(error)}`);
       }
-    })();
+    }).finally(() => {
+      controller.abort();
+      if (ttsControllerRef.current === controller) ttsControllerRef.current = null;
+    });
   }
 
   const chatMutation = useMutation({
@@ -1589,6 +1584,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
 
 
   function handleNewChat(): void {
+    stopTts();
     setHistoryError(null);
     setIsMobileSidebarOpen(false);
     detachLiveTurn();
@@ -1776,10 +1772,13 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   });
 
   async function startRecording(): Promise<void> {
+    let stream: MediaStream | undefined;
+    let ctx: AudioContext | undefined;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const AudioContextCtor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const ctx = new AudioContextCtor();
+      ctx = new AudioContextCtor();
+      await ctx.resume();
       const source = ctx.createMediaStreamSource(stream);
       // ScriptProcessorNode is deprecated but remains the most broadly supported
       // way to get raw PCM samples synchronously — same choice as client-demo.
@@ -1796,7 +1795,12 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       processorRef.current = processor;
       streamRef.current = stream;
       setIsRecording(true);
-    } catch {
+    } catch (error) {
+      stream?.getTracks().forEach(track => track.stop());
+      if (ctx && ctx.state !== 'closed') await ctx.close().catch(closeError => {
+        console.error('[Voice input] Could not close failed capture:', closeError);
+      });
+      console.error('[Voice input] Microphone capture failed:', error);
       appendMessage('assistant', '⚠️ Could not access the microphone. Check your browser permissions and try again.');
     }
   }
@@ -1813,38 +1817,28 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     voiceLevelRef.current = 0;
     stream?.getTracks().forEach((t) => t.stop());
     const nativeSampleRate = ctx.sampleRate;
-    await ctx.close();
     audioCtxRef.current = null;
     processorRef.current = null;
     streamRef.current = null;
     setIsRecording(false);
 
-    const chunks = pcmChunksRef.current;
-    pcmChunksRef.current = [];
-    const totalLen = chunks.reduce((sum, c) => sum + c.length, 0);
-    if (totalLen === 0) {
-      reviewRecordingRef.current = false;
-      if (reviewOnly) throw new Error('No audio was captured. Your draft is unchanged.');
-      return;
-    }
-    const merged = new Float32Array(totalLen);
-    let offset = 0;
-    for (const c of chunks) {
-      merged.set(c, offset);
-      offset += c.length;
-    }
-    // Downsample to 16kHz mono for the Azure Speech REST API.
-    const ratio = nativeSampleRate / STT_SAMPLE_RATE;
-    const resampled = new Float32Array(Math.round(merged.length / ratio));
-    for (let i = 0; i < resampled.length; i++) {
-      resampled[i] = merged[Math.min(merged.length - 1, Math.round(i * ratio))] ?? 0;
-    }
-    const wavBlob = encodeWav(resampled, STT_SAMPLE_RATE);
-
     setIsTranscribing(true);
     try {
+      await ctx.close();
+      const chunks = pcmChunksRef.current;
+      pcmChunksRef.current = [];
+      const totalLen = chunks.reduce((sum, c) => sum + c.length, 0);
+      if (totalLen === 0) throw new Error('No audio was captured. Your draft is unchanged.');
+      const merged = new Float32Array(totalLen);
+      let offset = 0;
+      for (const c of chunks) {
+        merged.set(c, offset);
+        offset += c.length;
+      }
+      const resampled = await resampleVoiceAudio(merged, nativeSampleRate, STT_SAMPLE_RATE);
+      const wavBlob = encodeWav(resampled, STT_SAMPLE_RATE);
       const audioBase64 = await blobToBase64(wavBlob);
-      const result = await api.transcribeVoice(audioBase64, 'audio/wav');
+      const result = await api.transcribeVoice(audioBase64, 'audio/wav', 'en-GB', resampled.length / STT_SAMPLE_RATE * 1000);
       if (!result.success) throw new Error(result.error.message);
       const text = result.success ? result.data.text.trim() : '';
       if (text !== '') {
@@ -1863,9 +1857,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         });
         return;
       }
-      if (reviewOnly) throw new Error('No speech was detected. Your existing draft is unchanged.');
+      throw new Error('No speech was recognised. Your existing draft is unchanged.');
     } catch (error) {
-      appendMessage('assistant', reviewOnly && error instanceof Error ? `⚠️ ${error.message}` : '⚠️ Could not transcribe that recording. Please try again or type your message.');
+      console.error('[Voice input] Transcription failed:', error);
+      appendMessage('assistant', `⚠️ ${describeApiError(error)}`);
       if (reviewOnly) throw error;
     } finally {
       reviewRecordingRef.current = false;
@@ -2096,6 +2091,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         className="ai-voice-toggle"
         onClick={() => { stopTts(); setVoiceOutputOn((v) => !v); }}
       />
+      <VoiceVolumeControl value={voiceVolume} onChange={setVoiceVolume} />
     </>
   );
 
@@ -2204,6 +2200,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         <AthenaPresence mood={mood} phase={motionPhase} pending={chatMutation.isPending}
           dock={presenceDock} thinker={presenceThinker} voiceLevel={voiceLevelRef} />
         <JobChatConfirmations sessionId={sessionId} />
+        {voiceError !== null && <div className="ai-voice-error" role="alert">{voiceError}</div>}
         {pendingActions.map((action) => (
           <Tile key={action.id} className="ai-action-banner">
             <p className="ai-action-desc">{action.description}</p>

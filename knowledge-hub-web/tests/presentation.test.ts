@@ -2,6 +2,40 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { presentationScript } from '../src/features/autocue/presentationScript';
 import { appendVoiceTranscript, finishVoiceTranscript, finishDesktopVoiceTranscript } from '../src/services/voiceTranscript';
+import { encodeWav, resampleVoiceAudio } from '../src/components/athena/speech';
+
+test('voice resampling delegates rate conversion to Web Audio without dropping input samples', async () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'OfflineAudioContext');
+  const samples = new Float32Array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6]);
+  const copied = new Float32Array(samples.length);
+  const rendered = new Float32Array([0.2, 0.5]);
+  let started = false;
+  class OfflineFixture {
+    destination = {};
+    constructor(channels: number, length: number, rate: number) {
+      assert.deepEqual([channels, length, rate], [1, 2, 16000]);
+    }
+    createBuffer(channels: number, length: number, rate: number) {
+      assert.deepEqual([channels, length, rate], [1, 6, 48000]);
+      return { getChannelData: () => copied };
+    }
+    createBufferSource() { return { buffer: null, connect: () => undefined, start: () => { started = true; } }; }
+    async startRendering() { assert.ok(started); return { getChannelData: () => rendered }; }
+  }
+  Object.defineProperty(globalThis, 'OfflineAudioContext', { configurable: true, value: OfflineFixture });
+  try {
+    assert.equal(await resampleVoiceAudio(samples, 48000, 16000), rendered);
+    assert.deepEqual(copied, samples);
+    assert.equal(await resampleVoiceAudio(samples, 16000, 16000), samples);
+    await assert.rejects(resampleVoiceAudio(new Float32Array(), 48000, 16000), /No valid microphone audio/);
+    const wav = new DataView(await encodeWav(rendered, 16000).arrayBuffer());
+    assert.equal(wav.getUint32(24, true), 16000);
+    assert.equal(wav.getUint32(40, true), rendered.length * 2);
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'OfflineAudioContext', original);
+    else Reflect.deleteProperty(globalThis, 'OfflineAudioContext');
+  }
+});
 
 test('explicit voice review mode preserves the draft; on-screen mode remains send', () => {
   let draft = 'Existing unsent work';

@@ -925,6 +925,39 @@ p, h1, h2, h3, h4, h5, h6, dl, dt, dd, blockquote {
   }
 }
 
+.ai-voice-volume {
+  flex-shrink: 0;
+  &__compact { display: none; }
+  &__slider { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--cds-text-secondary); font-size: var(--kh-text-meta); }
+  &__value { min-width: 4ch; font-variant-numeric: tabular-nums; }
+  input[type='range'] {
+    appearance: none; width: 80px; min-width: 0; height: 32px; margin: 0; padding: 0;
+    background: transparent; cursor: pointer; border-radius: var(--kh-radius-sm);
+    &::-webkit-slider-runnable-track { height: 4px; background: var(--cds-border-strong-01); border-radius: var(--kh-radius-sm); }
+    &::-moz-range-track { height: 4px; background: var(--cds-border-strong-01); border-radius: var(--kh-radius-sm); }
+    &::-webkit-slider-thumb { appearance: none; width: 12px; height: 12px; margin-top: -4px; border: 0; border-radius: 50%; background: var(--kh-accent); }
+    &::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: var(--kh-accent); }
+    &:hover { background: var(--cds-layer-hover-01); }
+    &:active { background: var(--kh-accent-bg); }
+    &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 2px; }
+    &:disabled { opacity: 0.45; cursor: not-allowed; }
+  }
+  .kh-composer-control__panel input { flex: 1; }
+}
+.ai-new-chat-row--compact .ai-voice-volume {
+  &__inline { display: none; }
+  &__compact { display: block; }
+}
+@media (max-width: 600px) {
+  .ai-voice-volume__inline { display: none; }
+  .ai-voice-volume__compact { display: block; }
+}
+.ai-voice-error {
+  flex-shrink: 0; margin: 8px 0; padding: 8px 12px;
+  border: 1px solid var(--cds-support-error); border-radius: var(--kh-radius-md);
+  background: var(--cds-layer-01); color: var(--cds-text-primary); font-size: var(--kh-text-body);
+}
+
 // Code block copy button — shared by AIChatPage (.ai-bubble-text--md) and
 // DocumentsPage (.docs-viewer__content), both of which render output from
 // utils/markdown.ts's renderMarkdown(), which wraps fenced code in this div.

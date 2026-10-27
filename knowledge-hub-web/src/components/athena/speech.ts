@@ -4,6 +4,23 @@
  * natural text for text-to-speech.
  */
 
+export async function resampleVoiceAudio(samples: Float32Array, sourceRate: number, targetRate: number): Promise<Float32Array> {
+  if (!samples.length || !Number.isFinite(sourceRate) || sourceRate <= 0 || !Number.isFinite(targetRate) || targetRate <= 0) {
+    throw new Error('No valid microphone audio was captured.');
+  }
+  if (sourceRate === targetRate) return samples;
+  // The browser's audio resampler filters before reducing the sample rate.
+  const context = new OfflineAudioContext(1, Math.max(1, Math.round(samples.length * targetRate / sourceRate)), targetRate);
+  const buffer = context.createBuffer(1, samples.length, sourceRate);
+  buffer.getChannelData(0).set(samples);
+  const source = context.createBufferSource();
+  source.buffer = buffer;
+  source.connect(context.destination);
+  source.start();
+  const rendered = await context.startRendering();
+  return rendered.getChannelData(0);
+}
+
 export function encodeWav(samples: Float32Array, sampleRate: number): Blob {
   const pcm = new Int16Array(samples.length);
   for (let i = 0; i < samples.length; i++) {

@@ -21,12 +21,15 @@ export function DiagramChatProvider({ children }: { children: React.ReactNode })
     remove: key => { setTargets(current => current.filter(item => item.key !== key)); },
   }), []);
   const active = targets[targets.length - 1];
+  const activeElement = active?.element;
   if (active) last.current = active;
   useLayoutEffect(() => {
     host.className = 'dg-chat-host';
-    if (active) active.element.appendChild(host);
+    if (activeElement) {
+      if (host.parentElement !== activeElement) activeElement.appendChild(host);
+    }
     else host.remove();
-  }, [host, active]);
+  }, [host, activeElement]);
   // A stable portal container preserves the actual chat component, draft and live turn.
   return <DiagramChatContext.Provider value={scope}>
     {children}
