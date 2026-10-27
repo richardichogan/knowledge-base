@@ -4,8 +4,8 @@ import { BLOG_WRITING_RULES } from '../ai/blogHouseStyle.js';
 import { findWeeklyTropes } from '../ai/styleCheck.js';
 import { editorialServices, EDITORIAL_SCHEMAS, requestEditorialJson } from '../publishing/editorial.js';
 const WEEKLY_LIMITS = { revisions: 2, reviewTokens: 10_000, editTokens: 24_000, timeoutMs: 240_000 } as const;
-import { parsePublishBody } from '../services/blogPublisher.js';
-import { composeBlueskyText } from '../integrations/social/bluesky.js';
+import { blogLinkForCopyBudget, parsePublishBody } from '../services/blogPublisher.js';
+import { blueskyCopyAllowance, composeBlueskyText } from '../integrations/social/bluesky.js';
 import { composeLinkedInText } from '../integrations/social/linkedin.js';
 import { ValidationError } from '../types/errors.js';
 import { object, text, JOB_LIMITS } from './contracts.js';
@@ -108,11 +108,16 @@ Pass requires findings: []. Revise or hold requires at least one unresolved find
       reviews[check] = { outcome: String(result.outcome), findings: result.findings };
     }
     const validation: string[] = [];
+    let blueskyAllowance: number | undefined;
     try {
       if (artifacts.blog) parsePublishBody(materializeWeeklyPackage(content));
       else text(content.content, 'weekly update', JOB_LIMITS.markdown);
       if (artifacts.blog) text(materializeWeeklyPackage(content).markdown, 'weekly CMS package', JOB_LIMITS.markdown);
-      if ('bluesky' in content) composeBlueskyText(text(content.bluesky, 'Bluesky copy', JOB_LIMITS.socialCopy), null);
+      if ('bluesky' in content) {
+        const url = artifacts.blog ? blogLinkForCopyBudget(content) : null;
+        blueskyAllowance = blueskyCopyAllowance(url);
+        composeBlueskyText(text(content.bluesky, 'Bluesky copy', JOB_LIMITS.socialCopy), url);
+      }
       if ('linkedin' in content) composeLinkedInText(text(content.linkedin, 'LinkedIn copy', JOB_LIMITS.linkedinCopy), null);
       if ('slackText' in content) text(content.slackText, 'Slack summary', JOB_LIMITS.slackText);
     } catch (error) { if (!(error instanceof ValidationError)) throw error; validation.push(error.message); }
@@ -142,6 +147,7 @@ Only revise genuinely rhetorical triplets in authored commentary. Factual enumer
 Preserve the full weekly round-up, not a quick-take format. Social and Slack copy remain plain text.
 Edit bodyMarkdown for article prose; never edit derived HTML or the rendered CMS document.
 Keep all unaffected fields intact. Address every concrete finding in this batch, including deterministic validation and style findings.
+${blueskyAllowance === undefined ? '' : `Bluesky copy must fit within ${blueskyAllowance} graphemes including spaces, with no URL. The full blog URL and two line breaks are reserved separately within the 300-grapheme total.`}
 ${BLOG_WRITING_RULES}\n${preferences}\nSaved editorial guidance:\n${guidance}`;
     let edits = await service.chat(repairSystem,
       { sources: artifacts.sources, content, findings: review }, WEEKLY_LIMITS.editTokens, editsSchema);

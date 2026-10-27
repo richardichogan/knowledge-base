@@ -7,6 +7,7 @@ import { IntegrationError, ValidationError } from '../../types/errors.js';
 import { fetchPublic } from '../discovery/feedReader.js';
 
 export const BLUESKY_POST_LIMIT = 300;
+const LINK_SEPARATOR = '\n\n';
 const CARD_TITLE_CHARS = 300;
 const CARD_DESCRIPTION_CHARS = 300;
 const PAGE_TIMEOUT_MS = 8_000;
@@ -30,6 +31,12 @@ export function graphemeLength(text: string): number {
   return [...segmenter.segment(text)].length;
 }
 
+export function blueskyCopyAllowance(url: string | null): number {
+  const allowance = BLUESKY_POST_LIMIT - (url ? graphemeLength(LINK_SEPARATOR + url) : 0);
+  if (allowance < 1) throw new ValidationError('The link leaves no room for Bluesky copy.');
+  return allowance;
+}
+
 export function blueskyConfigured(): boolean {
   return Boolean(env.BLUESKY_IDENTIFIER && env.BLUESKY_APP_PASSWORD);
 }
@@ -37,7 +44,7 @@ export function blueskyConfigured(): boolean {
 /** Composes the visible post text: the copy, a blank line, then the link (as on "Copy post + link"). */
 export function composeBlueskyText(copy: string, url: string | null): string {
   if (!copy.trim()) throw new ValidationError('Write the post before sending it to Bluesky.');
-  const text = [copy.trim(), url].filter(Boolean).join('\n\n');
+  const text = [copy.trim(), url].filter(Boolean).join(LINK_SEPARATOR);
   if (graphemeLength(text) > BLUESKY_POST_LIMIT) {
     throw new ValidationError(`The post and link are ${graphemeLength(text).toString()} characters; Bluesky allows ${BLUESKY_POST_LIMIT.toString()}.`);
   }

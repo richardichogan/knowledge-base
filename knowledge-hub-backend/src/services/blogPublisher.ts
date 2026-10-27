@@ -8,6 +8,7 @@ import { ValidationError } from '../types/errors.js';
 import { POST_TYPES, type PostType } from '../ai/blogDraft.js';
 import { BLOG_CATEGORIES, resolveBlogCategory } from '../ai/blogHouseStyle.js';
 import { findTropes, findWeeklyTropes, fixDashes } from '../ai/styleCheck.js';
+import { resolvePostUrl } from '../types/cmsPost.js';
 
 export interface BlogPublishBody { slug?: string; sourceUrl?: string; excerpt: string; status: 'draft' | 'published'; postType: PostType; title: string; content: string; summary: string; keyTakeaways: string[]; categories: string[]; tags: string[] }
 
@@ -26,6 +27,15 @@ const BLOG_POST_TIMEOUT_MS = 30_000;
 const QUICK_MAX_WORDS = 600;
 const QUICK_MAX_TITLE = 60;
 const QUICK_MAX_TAKEAWAYS = 2;
+const BLOG_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/** Budget with the CMS permalink before publication; delivery must still check the returned URL. */
+export function blogLinkForCopyBudget(post: { slug?: unknown }, date = new Date()): string {
+  if (typeof post.slug !== 'string' || !BLOG_SLUG.test(post.slug)) {
+    throw new ValidationError('A valid blog slug is required to budget the Bluesky post and link before approval.');
+  }
+  return new URL(resolvePostUrl({ slug: post.slug, date: date.toISOString() }), new URL(env.BLOG_POSTS_URL).origin).href;
+}
 
 export function parsePublishBody(body: unknown): BlogPublishBody {
   const o = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
@@ -40,7 +50,7 @@ export function parsePublishBody(body: unknown): BlogPublishBody {
   }
   if (!parsed.title || !parsed.content || !parsed.summary) throw new ValidationError('Title, summary and content are required to publish.');
   const slug = text(o['slug']);
-  if (slug && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) throw new ValidationError('Slug must use lowercase letters, numbers and single hyphens.');
+  if (slug && !BLOG_SLUG.test(slug)) throw new ValidationError('Slug must use lowercase letters, numbers and single hyphens.');
   const sourceUrl = text(o['sourceUrl']);
   if (sourceUrl) {
     let url: URL;

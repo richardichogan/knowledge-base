@@ -2,6 +2,34 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-27T05:41:18Z, Bluesky blog-link budgeting):**
+- User requested deployment. Backend-only application update to the existing
+  ACA target; no infrastructure, credentials, dependencies or migrations change.
+  Do not rewrite or resend the previously failed approved post.
+- All validation checks pass:
+  - [x] Fetch/merge of origin/main before validation and before release:
+    already current at `33af13c`.
+  - [x] Both `npx tsc --noEmit` checks passed after the final runtime changes;
+    reused because subsequent corrections affect test fixtures only.
+  - [x] Backend production build passed; lint non-regression passed, 552/623.
+  - [x] One full isolated backend run: 646 passed, two fixture failures and
+    one cancelled nested test. Removed the invalid getter mock and moved the
+    nested regression to top level. Only the three affected tests reran: 3/3.
+    Weekly pre-approval teaser repair passed in the original full run.
+  - [x] Frontend source is unchanged; reuse the prior release's validation and
+    deployment. Public HTML returns 200 and its served `index-CaT7ubgV.js`
+    matches SHA256 `a002491264d4ab6045b8ba7c1f9334ce0cc008fe0912ac7313f38bca46c8fade`.
+  - [x] `git diff --check` passed. No real social post or browser launched.
+- Azure CLI is authenticated to Alliance Tenant Reporting
+  (`c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28`). Current backend is v257/revision
+  0000254, identity None; existing registry secret-reference auth remains.
+  Provisioning, Bicep/what-if, policy and RBAC changes are not applicable.
+  Dockerfile and lockfile are unchanged; ACR builds the synced GitHub source.
+- Push matching source to feature/main, build v258 from GitHub main, deploy
+  the backend, verify revision/startup/migration readiness, then stop.
+  Preserve unrelated `.impeccable/hook.cache.json`. Evidence is in session
+  files/bluesky-release-tests.log and bluesky-release-affected-tests.log.
+
 **Release scope and Section 7: Validation Proof (2026-10-26T21:49:16Z, Athena routing and Discover):**
 - User requested deployment, merge and push. Release the existing local search,
   competitor history, morning roundup, model-led routing and archive-query fix

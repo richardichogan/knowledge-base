@@ -15,6 +15,8 @@ const store = await import('../src/jobs/store.js');
 const { executeRun, step, UnconfirmedDelivery, completedSyncWithSourceErrors } = await import('../src/jobs/runner.js');
 const { reviewWeeklyJob } = await import('../src/jobs/editorial.js');
 const { materializeWeeklyPackage, parseWeeklyPackage } = await import('../src/jobs/weeklyPackage.js');
+const { blogLinkForCopyBudget } = await import('../src/services/blogPublisher.js');
+const { blueskyCopyAllowance, composeBlueskyText } = await import('../src/integrations/social/bluesky.js');
 const { applyEditorialEdits } = await import('../src/publishing/editorial.js');
 const { env } = await import('../src/config/env.js');
 const migration = readFileSync(new URL('../src/db/migrations/099_managed_jobs.sql', import.meta.url), 'utf8');
@@ -86,6 +88,39 @@ test('weekly editorial checks repair only the flagged passage and re-review the 
     assert.equal(saved[1]!.content.markdown, markdown.replace('In plain terms, ', ''));
   } finally { await pg.close(); }
 });
+test('weekly editorial repairs an overlength blog teaser before approval, leaving the article intact', async () => {
+  const { pg, db } = await fixture();
+  try {
+    const blog = { title: 'Azure update', summary: 'Microsoft updated Azure.', excerpt: 'An Azure update.',
+      bodyMarkdown: 'Microsoft updated Azure.', categories: ['Microsoft Azure'], tags: ['Azure'], keyTakeaways: ['Azure has changed.'],
+      slug: 'github-tightens-the-screws-microsoft-chases-supply-chain-fallout',
+      imagePrompt: 'An Azure illustration.', featuredImageUrl: 'None available, use the image prompt',
+      linkedin: 'Microsoft updated Azure.', twitterCopy: 'Microsoft updated Azure.', postType: 'weekly', status: 'published' };
+    const original = 'A practical Microsoft week: GitHub shipped governance and security changes, while Microsoft published three security posts worth proper attention on the LiteLLM compromise, Storm-0940’s use of agentic AI in cloud intrusion, and agent security controls.';
+    const revised = 'GitHub updated governance and security; Microsoft covered LiteLLM, cloud intrusion and agent security.';
+    const saved: Array<{ content: Record<string, unknown>; validation: string[]; outcome: string }> = [];
+    const link = blogLinkForCopyBudget(blog);
+    const passed = await reviewWeeklyJob(db, { blog, bluesky: original, sources: [] }, '',
+      async (content, review) => { saved.push({ content, validation: review.validation, outcome: review.outcome }); }, {
+        preferences: async () => '',
+        chat: async (system, _input, _tokens, schema) => {
+          if (schema.name === 'editorial_passage_edits') {
+            assert.ok(system.includes(`${blueskyCopyAllowance(link)} graphemes`));
+            return { edits: [{ field: 'bluesky', before: original, after: revised }] };
+          }
+          return { outcome: 'pass', findings: [] };
+        },
+      });
+    assert.equal(passed, true);
+    assert.deepEqual(saved.map(item => item.outcome), ['revise', 'pass']);
+    assert.match(saved[0]!.validation.join(' '), /Bluesky allows 300/);
+    assert.equal(saved[1]!.content.bluesky, revised);
+    assert.equal(saved[1]!.content.bodyMarkdown, blog.bodyMarkdown);
+    assert.equal(saved[1]!.content.slug, blog.slug);
+    assert.equal(composeBlueskyText(revised, link), `${revised}\n\n${link}`);
+  } finally { await pg.close(); }
+});
+
 test('weekly editorial hold retains draft and findings without attempting a rewrite', async () => {
   const { pg, db } = await fixture();
   try {

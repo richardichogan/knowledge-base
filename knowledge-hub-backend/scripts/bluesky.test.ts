@@ -2,7 +2,8 @@ import 'dotenv/config';
 import assert from 'node:assert/strict';
 import { mock, test } from 'node:test';
 import express from 'express';
-import { BLUESKY_POST_LIMIT, composeBlueskyText, graphemeLength } from '../src/integrations/social/bluesky.js';
+import { BLUESKY_POST_LIMIT, blueskyCopyAllowance, composeBlueskyText, graphemeLength } from '../src/integrations/social/bluesky.js';
+import { blogLinkForCopyBudget } from '../src/services/blogPublisher.js';
 import { blueskyLength } from '../../knowledge-hub-web/src/components/discover/socialLength.js';
 import { ValidationError } from '../src/types/errors.js';
 import { env } from '../src/config/env.js';
@@ -28,6 +29,27 @@ test('counts graphemes the way Bluesky does, and the UI agrees', () => {
 test('rejects empty and over-length posts before signing in', () => {
   assert.throws(() => composeBlueskyText('   ', url), ValidationError);
   assert.throws(() => composeBlueskyText('x'.repeat(BLUESKY_POST_LIMIT), url), /Bluesky allows 300/);
+});
+
+test('reserves the complete CMS permalink and separator for a long blog slug', () => {
+  const slug = 'github-tightens-the-screws-microsoft-chases-supply-chain-fallout';
+  assert.equal(blogLinkForCopyBudget({ slug }, new Date('2026-10-26T13:00:00Z')),
+    new URL(`/2026/10/${slug}/`, env.BLOG_POSTS_URL).href);
+  const link = `https://themicrosoftcloudblog.com/2026/10/${slug}/`;
+  assert.equal(graphemeLength(link), 107);
+  assert.equal(blueskyCopyAllowance(link), 191);
+  assert.throws(() => composeBlueskyText('x'.repeat(252), link), /361 characters/);
+  const copy = '👍🏽'.repeat(blueskyCopyAllowance(link));
+  assert.equal(graphemeLength(composeBlueskyText(copy, link)), 300);
+  assert.throws(() => composeBlueskyText(copy + 'x', link), /301 characters/);
+  assert.throws(() => composeBlueskyText(copy, link.replace(/\/$/, '-2/')), /302 characters/);
+  assert.throws(() => blogLinkForCopyBudget({}), /slug is required/);
+});
+
+test('copy budgets handle absent links and reject links which leave no room', () => {
+  assert.equal(blueskyCopyAllowance(null), 300);
+  assert.equal(blueskyCopyAllowance('x'.repeat(297)), 1);
+  assert.throws(() => blueskyCopyAllowance('x'.repeat(298)), /no room/);
 });
 
 test('post route claims the article atomically so concurrent or repeat requests cannot double-post', async () => {

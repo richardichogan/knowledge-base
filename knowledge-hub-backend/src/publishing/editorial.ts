@@ -4,8 +4,8 @@ import { buildStandingInstructionsBlock } from '../ai/athenaMemory.js';
 import { BLOG_WRITING_RULES } from '../ai/blogHouseStyle.js';
 import { quickTakeRules } from '../ai/blogDraft.js';
 import { findTropes } from '../ai/styleCheck.js';
-import { parsePublishBody } from '../services/blogPublisher.js';
-import { BLUESKY_POST_LIMIT, composeBlueskyText, graphemeLength } from '../integrations/social/bluesky.js';
+import { blogLinkForCopyBudget, parsePublishBody } from '../services/blogPublisher.js';
+import { blueskyCopyAllowance, composeBlueskyText, graphemeLength } from '../integrations/social/bluesky.js';
 import { composeLinkedInText } from '../integrations/social/linkedin.js';
 import { readPublicPage } from '../utils/articleReading.js';
 import { isMicrosoftRelevant } from '../utils/microsoftRelevance.js';
@@ -31,7 +31,6 @@ export const editorialServices: EditorialServices = {
 };
 const OUTPUT_RETRY_MULTIPLIER = 2;
 const ERROR_PASSAGE_PREVIEW_LENGTH = 100;
-const LINK_SEPARATOR_LENGTH = 2;
 const TWITTER_CHARACTER_LIMIT = 280;
 const MAX_SOCIAL_EMOJIS = 2;
 const MIN_LINKEDIN_WORDS = 120;
@@ -47,16 +46,13 @@ const stringField = { type: 'string' };
 const stringList = { type: 'array', items: stringField };
 const socialSchema = jsonObject({ copy: stringField });
 const blueskySchema = jsonObject({ copy: { ...stringField, maxLength: PUBLISH_LIMITS.maxBlueCopy } });
-function blueskyAllowance(variant: Draft['variant'], sources: Source[]): number {
-  const limit = variant === 'source'
-    ? Math.min(PUBLISH_LIMITS.maxBlueCopy, BLUESKY_POST_LIMIT - graphemeLength(sources[0]!.url) - LINK_SEPARATOR_LENGTH)
-    : PUBLISH_LIMITS.maxBlueCopy;
-  if (limit < 1) throw new ValidationError('The original source URL leaves no room for Bluesky copy.');
-  return limit;
+function blueskyAllowance(variant: Draft['variant'], sources: Source[], blog?: Record<string, unknown>): number {
+  const url = variant === 'source' ? sources[0]!.url : blog ? blogLinkForCopyBudget(blog) : null;
+  return Math.min(PUBLISH_LIMITS.maxBlueCopy, blueskyCopyAllowance(url));
 }
-function destinationSchema(destination: Draft['destination'], variant: Draft['variant'], sources: Source[]): LlmJsonSchema {
+function destinationSchema(destination: Draft['destination'], variant: Draft['variant'], sources: Source[], blog?: Record<string, unknown>): LlmJsonSchema {
   if (destination !== 'bluesky') return destination === 'blog' ? EDITORIAL_SCHEMAS.blog : EDITORIAL_SCHEMAS.social;
-  return { ...EDITORIAL_SCHEMAS.bluesky, schema: jsonObject({ copy: { ...stringField, maxLength: blueskyAllowance(variant, sources) } }) };
+  return { ...EDITORIAL_SCHEMAS.bluesky, schema: jsonObject({ copy: { ...stringField, maxLength: blueskyAllowance(variant, sources, blog) } }) };
 }
 const blogSchema = jsonObject({
   title: { ...stringField, maxLength: 60 }, slug: stringField, excerpt: stringField, summary: stringField, content: stringField,
@@ -286,10 +282,10 @@ Social copy is plain text without URLs. Bluesky copy must fit within 240 graphem
 For LinkedIn, write a hook for the supplied companion blog, not a separate article.
 ${BLOG_WRITING_RULES}\n${destinationRules(draft.destination)}
 ${draft.variant === 'blog' ? quickDestinationRules(draft.destination) : ''}
-${draft.destination === 'bluesky' ? `Copy allowance including spaces: ${blueskyAllowance(draft.variant, sources)} characters; the source URL uses the rest.` : ''}
+${draft.destination === 'bluesky' ? `Copy allowance including spaces: ${blueskyAllowance(draft.variant, sources, companion?.content)} graphemes; the full destination URL and two line breaks use the rest.` : ''}
 ${preferences}\nSaved editorial guidance:\n${feed.policy.guidance}`,
     { sources, destination: draft.destination, variant: draft.variant, blog: companion?.content }, PUBLISH_LIMITS.draftTokens,
-    destinationSchema(draft.destination, draft.variant, sources));
+    destinationSchema(draft.destination, draft.variant, sources, companion?.content));
     await editDraft(db, draft.id, draft.version, generated, 'editorial-recovery', undefined, true);
     draft = (await drafts(db, draft.topicId)).find(d => d.id === draft.id)!;
   }
@@ -321,7 +317,8 @@ Return {outcome:"pass"|"revise"|"hold",findings:[specific findings]}.`, {
     try {
       parseDraftContent(draft.destination, draft.content);
       validateQuickPackage(draft, sources);
-      if (draft.destination === 'bluesky') composeBlueskyText(String(draft.content.copy), draft.variant === 'source' ? sources[0]!.url : null);
+      if (draft.destination === 'bluesky') composeBlueskyText(String(draft.content.copy),
+        draft.variant === 'source' ? sources[0]!.url : blogLinkForCopyBudget(companions.find(d => d.destination === 'blog')?.content ?? {}));
       if (draft.destination === 'linkedin') composeLinkedInText(String(draft.content.copy), null);
     }
     catch (error) { if (!(error instanceof ValidationError)) throw error; validation.push(error.message); }
@@ -356,7 +353,7 @@ For social copy, preserve the other paragraphs and include no URLs or HTML.
 ${BLOG_WRITING_RULES}
 ${draft.variant === 'blog' ? quickDestinationRules(draft.destination) : ''}
 ${draft.destination === 'bluesky' ? `${BLUESKY_COMMENTARY}\nPreserve the existing comment when repairing another passage; if the comment is missing, add it by editing only the relevant sentence or paragraph.` : ''}
-${draft.destination === 'bluesky' ? `Copy allowance including spaces: ${blueskyAllowance(draft.variant, sources)} characters; the source URL uses the rest.` : ''}
+${draft.destination === 'bluesky' ? `Copy allowance including spaces: ${blueskyAllowance(draft.variant, sources, companions.find(d => d.destination === 'blog')?.content)} graphemes; the full destination URL and two line breaks use the rest.` : ''}
 ${preferences}`,
       { content: draft.content, destination: draft.destination, sources, blog: companions.find(d => d.destination === 'blog')?.content,
         findings: review, style, validation, guidance: feed.policy.guidance }, PUBLISH_LIMITS.draftTokens, EDITORIAL_SCHEMAS.edits);
@@ -466,10 +463,11 @@ Create ONLY selected destinations. Return {blog:{title,slug,excerpt,summary,cont
 Set blog/linkedin to null unless selected.blog=true; set bluesky to null unless selected.bluesky=true.
 ${QUICK_PACKAGE_RULES}
 LinkedIn is a hook for the blog argument, never a standalone article. Do not include a URL: the verified blog URL is appended later.
-Bluesky copy must be at most ${copyAllowance} characters including spaces, no URL in copy; the actual source URL uses the rest of its 300-character post allowance.
+Bluesky copy must be at most ${copyAllowance} graphemes including spaces, with no URL in copy.
+The full destination URL and two line breaks must fit in its 300-grapheme total. For a blog hook, reserve the blog site's origin plus /YYYY/MM/slug/ using the generated blog slug; shorten the hook accordingly. The exact allowance is checked during review.
 ${BLUESKY_COMMENTARY}
 If blog selected, Bluesky (if selected) promotes its distinct argument, not a second announcement. Otherwise Bluesky links to the first original source.
-Never manufacture personal authority.`, { selected: selection, sources }, PUBLISH_LIMITS.draftTokens, packageSchema);
+Never manufacture personal authority.`, { selected: selection, sources, blogOrigin: `https://${destinationAccount('blog')}` }, PUBLISH_LIMITS.draftTokens, packageSchema);
   const blogContent = selection.blog ? prepareContent('blog', packageData.blog) : null;
   const linkedInContent = selection.blog ? prepareContent('linkedin', packageData.linkedin) : null;
   const blueskyContent = selection.bluesky ? prepareContent('bluesky', packageData.bluesky) : null;

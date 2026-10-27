@@ -301,6 +301,28 @@ test('Bluesky generation carries the exact copy length ceiling in its strict sch
   });
   assert.ok(JSON.stringify(editorial.EDITORIAL_SCHEMAS.package).includes('"maxLength":240'));
 });
+test('blog-linked Bluesky review cannot pass copy which exceeds the combined permalink limit', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db); const s = await source(f.db, t.id);
+    const b = await draft(f.db, t.id, 'blog', 'blog');
+    await f.db.query(`UPDATE publishing_drafts SET content=content || $2::jsonb WHERE id=$1`,
+      [b.id, JSON.stringify({ slug: 'github-tightens-the-screws-microsoft-chases-supply-chain-fallout' })]);
+    const blue = await draft(f.db, t.id, 'bluesky', 'blog');
+    blue.content.copy = 'x'.repeat(230);
+    await f.db.query('UPDATE publishing_drafts SET content=$2 WHERE id=$1', [blue.id, JSON.stringify(blue.content)]);
+    await editorial.reviewDraft(f.db, blue, [s], {
+      ...editorial.editorialServices, preferences: async () => '',
+      chat: async () => ({ outcome: 'pass', findings: [] }),
+    }, false);
+    const result = await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE id=$1`, [blue.id]);
+    assert.equal(result.rows[0]!.review, 'hold');
+    assert.equal(result.rows[0]!.content.copy, blue.content.copy);
+    assert.equal(result.rows[0]!.approval, 'approved');
+    const history = await f.db.query<{ reviews: unknown }>('SELECT reviews FROM publishing_versions WHERE draft_id=$1 AND version=$2', [blue.id, blue.version]);
+    assert.match(JSON.stringify(history.rows[0]!.reviews), /Bluesky allows 300/);
+  } finally { await f.close(); }
+});
 test('editorial repairs patch only exact passages and leave all other text and metadata untouched', () => {
   const original = { ...blog, content: '<article><p>Keep this opening.</p><p>Fix this claim. Keep the qualification.</p><p>Keep this ending.</p></article>',
     keyTakeaways: ['Keep this takeaway.', 'Fix this takeaway.'], tags: ['Original tag'] };

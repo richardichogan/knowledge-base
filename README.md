@@ -885,6 +885,12 @@ within the embedded Blueprint without navigating away from the preview.
 
 ## Scheduled sync and weekly editorial review
 
+Blog-linked Bluesky drafts budget the copy, two line breaks and the complete
+CMS permalink together against the 300-grapheme limit. Managed jobs and Discover
+publishing check the generated slug's permalink before approval; editorial
+repairs shorten only unapproved copy. Delivery checks the actual returned blog
+URL again and never truncates links or silently rewrites approved posts.
+
 A completed content sync with individual source errors is shown as **Succeeded
 with source errors**, retaining per-source counts and diagnostics. Total source
 failure still fails the job. Older completed partial-sync runs use the same
