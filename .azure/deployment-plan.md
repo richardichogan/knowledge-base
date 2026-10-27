@@ -2,6 +2,20 @@
 
 **Status:** Validated
 
+**Deployment outcome (2026-10-27, hexagon shape):**
+- Release commit `c99afef` pushed atomically to the feature branch and main.
+- ACR run `ca89` built backend v263 from that exact commit. Revision
+  `kh-prod-api-vnet--0000260` is latest and ready, Healthy /
+  RunningAtMaxScale, receiving 100% traffic. Startup logs confirm migration
+  completion and the database pool ready at 8/8 connections.
+- Matching frontend deployed to `kh-prod-web`.
+  https://athena.themicrosoftcloudblog.com/ returns HTTP 200 and serves
+  `/assets/index-C1RvjUkQ.js` matching local release bytes, SHA256
+  `d09bdbf45af71016dc1070ed25af79c203726a938f9b0b8605a3af71a9b57cda`.
+- Existing diagrams, infrastructure, credentials and delivery settings retained.
+  No desktop rebuild required; reload the hosted application for the new picker.
+  No browser launch or live content/model test. Unrelated hook cache preserved.
+
 **Release scope and Section 7: Validation Proof (2026-10-27 17:35 UTC, hexagon shape):**
 - User requested deployment of the labelled Hexagon in the existing shape picker,
   including persistence, connectors, Athena tools and native/export rendering.
