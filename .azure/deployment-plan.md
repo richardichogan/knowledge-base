@@ -2,6 +2,15 @@
 
 **Status:** Validated
 
+**Deployment outcome (2026-10-27, diagram chat routing):**
+- Release commit `223e186` pushed atomically to the feature branch and main.
+- Frontend deployed to `kh-prod-web`. https://athena.themicrosoftcloudblog.com/
+  returns HTTP 200 and serves `/assets/index-PmUnS77q.js` matching the local
+  build, SHA256 `fc11dd5d8d71af8569c4df3d092d7aa36370f0b51d4a7d7f4c0dbd55bafc45e0`.
+- Backend v262, desktop and Stream Deck releases are unchanged. Reload the
+  hosted application to receive the fix; no installer update is required.
+- No live model request or browser launch. Unrelated hook cache preserved.
+
 **Release scope and Section 7: Validation Proof (2026-10-27 16:25 UTC, diagram chat routing):**
 - User requested deployment of the standalone-diagram chat routing fix and
   underlying send-error reporting. Frontend-only; retain backend v262 and the
