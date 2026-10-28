@@ -118,6 +118,27 @@
 .dc-action--linkedin:hover:not(:disabled) { background: var(--kh-accent-bg); border-color: var(--kh-accent-border); }
 .dc-action--linkedin:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 2px; }
 
+.dc-blog-fields {
+  min-width: 0; margin: 0; padding: 0; border: 0;
+  &:disabled { opacity: 0.7; }
+}
+.dc-blog-verification {
+  margin: 16px 0; padding: 12px; border-inline-start: 3px solid var(--cds-support-warning);
+  background: var(--cds-layer-01); color: var(--cds-text-primary); line-height: 1.6;
+  p { margin: 0; }
+  ul { margin: 8px 0 0; padding-inline-start: var(--kh-list-indent); list-style: disc; }
+  li { display: list-item; overflow-wrap: anywhere; }
+}
+.dc-blog-workflow {
+  margin: 16px 0; padding: 12px; background: var(--cds-layer-01); color: var(--cds-text-secondary);
+  font-size: var(--kh-text-body); line-height: 1.6;
+  summary { cursor: pointer; color: var(--cds-text-primary); font-weight: 600; }
+  summary:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+  p { margin: 8px 0 0; }
+  ul { margin: 8px 0 0; padding-inline-start: var(--kh-list-indent); list-style: disc; }
+  li { display: list-item; overflow-wrap: anywhere; }
+}
+
 .dc-blog-editor {
   margin-block: 16px;
   &__toolbar {
@@ -14918,7 +14939,8 @@ fieldset.proj-modal-body {
   background-color: #ffffff;
   background-image: radial-gradient(circle, #e0e0e0 1px, transparent 1px);
   background-size: 24px 24px;
-  &--panning { cursor: grabbing; }
+  &--pan-ready, &--pan-ready .cv-card { cursor: grab; }
+  &--panning, &--panning .cv-card { cursor: grabbing; }
   &:focus-visible { box-shadow: inset 0 0 0 2px #0f62fe; }
 }
 

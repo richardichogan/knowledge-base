@@ -34,6 +34,7 @@ import { DocumentTitleSync } from './navigation/PageTitle';
 import { deferredView } from './utils/deferredView';
 import { SettingsDialog } from './components/SettingsDialog';
 import { settingsBackground, settingsView } from './navigation/settings';
+import { BlogJobHost } from './components/discover/BlogJobHost';
 
 const DiscoverPage = deferredView('Discover', async () => ({ default: (await import('./pages/DiscoverPage')).DiscoverPage }));
 const PlanPage = deferredView('Plan', async () => ({ default: (await import('./pages/PlanPage')).PlanPage }));
@@ -111,6 +112,7 @@ const App: React.FC = () => {
             <DocumentTitleSync />
             <AthenaJobNotice />
             <AgentJobFeed />
+            <BlogJobHost />
             <GlobalContextMenuProvider>
             <WorkspaceRoutes />
             </GlobalContextMenuProvider>

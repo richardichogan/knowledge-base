@@ -43,18 +43,60 @@ const TROPES: Array<{ label: string; pattern: RegExp }> = [
   { label: 'em or en dash', pattern: /[—–]/ },
 ];
 
-/** Returns every banned trope found in the given texts (HTML is stripped), each with the offending words quoted. */
-export function findTropes(...texts: string[]): string[] {
-  // Citation labels are source titles, not authored prose. Do not rewrite them to satisfy house style.
-  return [...new Set(texts.map(text => text
+interface StyleOccurrence { label: string; text: string; field: number; block: number; start: number; end: number }
+
+function styleOccurrences(texts: string[], article = false): StyleOccurrence[] {
+  const patterns = article
+    ? [...TROPES, { label: '"less like X, more like Y" construction', pattern: /\bless like\b[^.!?]{1,80}\bmore like\b/i }]
+    : TROPES;
+  return texts.map(text => text
     .replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi, ' citation ')
     .replace(/\[[^\n]*?\]\(https?:\/\/[^)\s]+\)/g, ' citation ')
     .replace(/<blockquote\b[^>]*>[\s\S]*?<\/blockquote>|<q\b[^>]*>[\s\S]*?<\/q>/gi, ' quotation ')
     .replace(/"[^"\n]+"|“[^”\n]+”|‘[^’\n]+’/g, ' quotation '))
-    .flatMap(text => text.split(/<\/(?:p|h[1-6]|li)>|\n\s*\n/i)).flatMap(text => TROPES.flatMap(t =>
-    [...plain(text).matchAll(new RegExp(t.pattern.source, `${t.pattern.flags}g`))]
-      .map(m => `${t.label}: "${m[0].trim()}"`),
-  )))];
+    .flatMap((text, field) => text.split(/<\/(?:p|h[1-6]|li)>|\n\s*\n/i).flatMap((blockText, block) =>
+      patterns.flatMap(t => [...plain(blockText).matchAll(new RegExp(t.pattern.source, `${t.pattern.flags}g`))]
+        .map(m => ({ label: t.label, text: m[0].trim(), field, block, start: m.index!, end: m.index! + m[0].length })))));
+}
+
+/** Returns every banned trope found in the given texts (HTML is stripped), each with the offending words quoted. */
+export function findTropes(...texts: string[]): string[] {
+  // Citation labels and quotations are not authored prose.
+  return [...new Set(styleOccurrences(texts).map(item => `${item.label}: "${item.text}"`))];
+}
+
+/** Full articles permit occasional rhetorical patterns; substantive lists are reviewed in context. */
+export function findBlogTropes(postType: string, ...texts: string[]): string[] {
+  if (postType !== 'article') return findTropes(...texts);
+  const occurrences = styleOccurrences(texts, true).filter(item =>
+    item.label !== 'triplet list' && item.label !== '"rather than / instead of" contrast');
+  const category = (label: string): 'triplet' | 'contrast' | undefined => {
+    if (label === 'rhythmic triplet of fragments') return 'triplet';
+    if (label === '"not X, it\'s Y" construction' || label === '"isn\'t X, it\'s Y" construction'
+      || label === '"not just X but Y" construction' || label === '"the question isn\'t X, it\'s Y" construction'
+      || label === '"not because X, but because Y" construction' || label === '"less about X, more about Y" construction'
+      || label === '"less like X, more like Y" construction') return 'contrast';
+    return undefined;
+  };
+  const allowed = new Set<StyleOccurrence>(occurrences.filter(item => category(item.label) && item.field !== 3));
+  for (const kind of ['triplet', 'contrast'] as const) {
+    const matches = occurrences.filter(item => category(item.label) === kind && item.field === 3)
+      .sort((a, b) => a.field - b.field || a.block - b.block || a.start - b.start || b.end - a.end);
+    let count = 0;
+    let prior: StyleOccurrence | undefined;
+    let end = -1;
+    for (const item of matches) {
+      if (!prior || item.field !== prior.field || item.block !== prior.block || item.start >= end) {
+        count++;
+        end = item.end;
+      } else {
+        end = Math.max(end, item.end);
+      }
+      if (count <= 2) allowed.add(item);
+      prior = item;
+    }
+  }
+  return [...new Set(occurrences.filter(item => !allowed.has(item)).map(item => `${item.label}: "${item.text}"`))];
 }
 
 /** A factual roundup needs enumerations; the voice reviewer judges rhetoric in context. */

@@ -7,7 +7,7 @@ import { env } from '../config/env.js';
 import { ValidationError } from '../types/errors.js';
 import { POST_TYPES, type PostType } from '../ai/blogDraft.js';
 import { BLOG_CATEGORIES, resolveBlogCategory } from '../ai/blogHouseStyle.js';
-import { findTropes, findWeeklyTropes, fixDashes } from '../ai/styleCheck.js';
+import { findBlogTropes, findWeeklyTropes, fixDashes } from '../ai/styleCheck.js';
 import { resolvePostUrl } from '../types/cmsPost.js';
 
 export interface BlogPublishBody { slug?: string; sourceUrl?: string; excerpt: string; status: 'draft' | 'published'; postType: PostType; title: string; content: string; summary: string; keyTakeaways: string[]; categories: string[]; tags: string[] }
@@ -38,10 +38,21 @@ export function blogLinkForCopyBudget(post: { slug?: unknown }, date = new Date(
 }
 
 export function parsePublishBody(body: unknown, preservePodcastCopy = false): BlogPublishBody {
+  return parseBlogBody(body, preservePodcastCopy, false);
+}
+
+export function parseBlogReviewBody(body: unknown): BlogPublishBody {
+  return parseBlogBody(body, false, true);
+}
+
+function parseBlogBody(body: unknown, preservePodcastCopy: boolean, reviewOnly: boolean): BlogPublishBody {
   const o = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
   const list = (v: unknown): string[] => Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '').map(x => x.trim()) : [];
   const text = (v: unknown): string => typeof v === 'string' ? v.trim() : '';
   const postType = POST_TYPES.find(t => t === o['postType']) ?? 'article';
+  if (reviewOnly && text(o['excerpt']).length > MAX_EXCERPT) {
+    throw new ValidationError('The excerpt exceeds 300 characters. Shorten it before rechecking; the saved draft has not been changed.');
+  }
   if (preservePodcastCopy && postType === 'podcast' && text(o['excerpt']).length > MAX_EXCERPT) {
     throw new ValidationError('The authored podcast excerpt exceeds 300 characters. It has not been shortened.');
   }
@@ -60,7 +71,7 @@ export function parsePublishBody(body: unknown, preservePodcastCopy = false): Bl
     try { url = new URL(sourceUrl); } catch { throw new ValidationError('Source URL must be a valid public article URL.'); }
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new ValidationError('Source URL must be an HTTP or HTTPS article URL without credentials.');
   }
-  if (postType === 'quick') {
+  if (!reviewOnly && postType === 'quick') {
     const words = parsed.content.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length;
     if (words > QUICK_MAX_WORDS || parsed.title.length > QUICK_MAX_TITLE || parsed.keyTakeaways.length > QUICK_MAX_TAKEAWAYS || /<(?:h[1-6]|ul|ol)\b/i.test(parsed.content)) {
       throw new ValidationError('Quick takes allow at most 600 words, a 60-character title and two takeaways, with paragraphs rather than headings or lists.');
@@ -71,13 +82,14 @@ export function parsePublishBody(body: unknown, preservePodcastCopy = false): Bl
     throw new ValidationError(`Unknown blog categories: ${unknown.join(', ')}. Use any of: ${BLOG_CATEGORIES.join(', ')}. Other topics such as Dynamics 365 belong in tags. Quick take is a post type, not a category.`);
   }
   parsed.categories = [...new Set(parsed.categories.map(category => resolveBlogCategory(category)!))];
-  if (preservePodcastCopy && postType === 'podcast') {
+  if (reviewOnly || (preservePodcastCopy && postType === 'podcast')) {
     return { ...parsed, ...(slug ? { slug } : {}), ...(sourceUrl ? { sourceUrl } : {}) };
   }
   parsed.title = fixDashes(parsed.title); parsed.excerpt = fixDashes(parsed.excerpt); parsed.summary = fixDashes(parsed.summary);
   parsed.content = fixDashes(parsed.content); parsed.keyTakeaways = parsed.keyTakeaways.map(fixDashes);
   const ownContent = parsed.content.replace(/<hr>\s*<p><em>Source:[\s\S]*?<\/em><\/p>\s*$/i, '');
-  const tropes = (postType === 'weekly' ? findWeeklyTropes : findTropes)(parsed.title, parsed.excerpt, parsed.summary, ownContent, ...parsed.keyTakeaways);
+  const texts = [parsed.title, parsed.excerpt, parsed.summary, ownContent, ...parsed.keyTakeaways];
+  const tropes = postType === 'weekly' ? findWeeklyTropes(...texts) : findBlogTropes(postType, ...texts);
   if (tropes.length > 0) throw new ValidationError(`Not sent: the post still contains banned AI writing patterns. Edit these out first: ${tropes.join('; ')}.`);
   return { ...parsed, ...(slug ? { slug } : {}), ...(sourceUrl ? { sourceUrl } : {}) };
 }

@@ -28,6 +28,7 @@ import { SideTabsPanel } from '../../components/SideTabsPanel';
 import { CANVAS_SIDE_WIDTH, IconBtn, Segmented } from '../diagram/DiagramControls';
 import { download, exportFileName } from '../diagram/diagramExport';
 import { snapMovingBounds, type AlignmentGuide, type SpacingIndicator } from '../diagram/diagramAlignment';
+import { isCanvasPanGesture } from '../diagram/canvasPan';
 import { diagramMural } from '../diagram/diagramMural';
 import { MURAL_QUERY, loadMuralStatus } from '../../components/MuralIntegration';
 import { MuralExportDestination } from '../../components/MuralExportDestination';
@@ -44,6 +45,7 @@ import { readCanvasItem, readPlainText } from './canvasClipboard';
 import { CanvasPreviewTab, CanvasSuggestionsTab, CanvasDetailsTab } from './CanvasSidePanel';
 import { KIND_LABEL, SUGGESTION_DRAG_TYPE, cardIcon, cardKindLabel, ideaCardType, hasFootnote } from './mapVisuals';
 import { setActiveCanvas } from './activeCanvas';
+import { ideaTitleChange } from './canvasTitle';
 
 const MIN_ZOOM = 0.15;
 const MAX_ZOOM = 2.5;
@@ -111,6 +113,7 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState({ x: 0, y: 0, zoom: 1 });
   const [drag, setDrag] = useState<Drag | null>(null);
+  const [spaceDown, setSpaceDown] = useState(false);
   const [guides, setGuides] = useState<AlignmentGuide[]>([]);
   const [spacing, setSpacing] = useState<SpacingIndicator[]>([]);
   const [snapOpen, setSnapOpen] = useState(false);
@@ -130,11 +133,13 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
   const [tabRequest, setTabRequest] = useState<{ id: string; seq: number } | undefined>(openTab !== undefined ? { id: openTab, seq: 1 } : undefined);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const spaceRef = useRef(false);
+  const pointerOverCanvas = useRef(false);
   const cardEls = useRef(new Map<string, HTMLDivElement>());
   const undoStack = useRef<MapOp[][]>([]);
   const redoStack = useRef<MapOp[][]>([]);
   const newIdeaId = useRef<string | null>(null);
-  /** Set while the card being named is dragged, so the drag doesn't end naming (which discards an unnamed new idea). */
+  /** Set while the card being named is dragged, so the drag doesn't end naming. */
   const draggingEdited = useRef(false);
   const pending = useRef(0);
   const needsReload = useRef(false);
@@ -359,16 +364,9 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
     const label = draftLabel.trim();
     const isNew = newIdeaId.current === id;
     newIdeaId.current = null;
-    if (isNew && (label === '' || !save)) {
-      undoStack.current.pop();
-      syncHistory();
-      commit([{ op: 'delete', id }], { undoable: false });
-      setSelectedId(connectedIds(mapRef.current.edges, id)[0] ?? null);
-      return;
-    }
     // Naming the first idea of an untitled canvas names the canvas too.
     if (save && label !== '' && mapRef.current.title === 'Untitled canvas' && mapRef.current.nodes[0]?.id === id) void renameCanvas(label);
-    if (save && label !== '' && label !== (n.label ?? '')) {
+    if (ideaTitleChange(n.label, draftLabel, save) !== undefined) {
       // For a new idea, fold the title into the "add" so one ⌘Z removes it.
       commit([{ op: 'update', id, label }], { undoable: !isNew });
     }
@@ -454,6 +452,12 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
   function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>): void {
     if (editingId !== null || e.target !== containerRef.current) return;
     const mod = e.metaKey || e.ctrlKey;
+    if (e.key === ' ' && !mod && !e.altKey) {
+      e.preventDefault();
+      spaceRef.current = true;
+      setSpaceDown(true);
+      return;
+    }
     if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
     if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
     if (e.key === 'Escape') { setSelectedId(null); setSelectedLinkId(null); return; }
@@ -474,6 +478,28 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
     if (e.key.startsWith('Arrow')) { e.preventDefault(); const next = nearestInDirection(e.key); if (next !== null) setSelectedId(next); return; }
     if (e.key.length === 1 && !mod && !e.altKey && byId.get(id)?.refType === null) { e.preventDefault(); startEditing(id, e.key); }
   }
+
+  useEffect(() => {
+    const reset = (): void => { spaceRef.current = false; setSpaceDown(false); };
+    const keyDown = (event: KeyboardEvent): void => {
+      if (event.code !== 'Space' || event.ctrlKey || event.metaKey || event.altKey || !pointerOverCanvas.current
+        || !(event.target instanceof Element) || !containerRef.current?.contains(event.target)
+        || event.target.closest('input, textarea, select, button, a, [contenteditable=""], [contenteditable="true"]')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      spaceRef.current = true;
+      setSpaceDown(true);
+    };
+    const keyUp = (event: KeyboardEvent): void => { if (event.code === 'Space' || event.key === ' ') reset(); };
+    window.addEventListener('keydown', keyDown, true);
+    window.addEventListener('keyup', keyUp, true);
+    window.addEventListener('blur', reset);
+    return () => {
+      window.removeEventListener('keydown', keyDown, true);
+      window.removeEventListener('keyup', keyUp, true);
+      window.removeEventListener('blur', reset);
+    };
+  }, []);
 
   // Paste: a hub item ("copy to canvas") becomes a card; text lines become idea cards — connected to the selection.
   useEffect(() => {
@@ -508,9 +534,30 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
     return el?.dataset['cardId'] ?? null;
   }
 
+  function onDoubleClick(e: React.MouseEvent<HTMLDivElement>): void {
+    const target = document.elementFromPoint(e.clientX, e.clientY);
+    if (target?.closest('.mm-no-drag, [data-handle]')) return;
+    const id = cardAt(e.clientX, e.clientY);
+    if (id === null) return;
+    const node = mapRef.current.nodes.find(card => card.id === id);
+    if (!node) return;
+    setSelectedId(id);
+    if (node.refType === null) startEditing(id);
+    else requestTab('preview');
+  }
+
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>): void {
-    if (e.button !== 0) return;
     const target = e.target as HTMLElement;
+    if (isCanvasPanGesture(e.button, spaceRef.current)) {
+      if (target.closest('input, textarea, select, button, a, [contenteditable=""], [contenteditable="true"]')) return;
+      e.preventDefault();
+      containerRef.current?.focus();
+      containerRef.current?.setPointerCapture(e.pointerId);
+      userMovedView.current = true;
+      setDrag({ kind: 'pan', startX: e.clientX, startY: e.clientY, viewX: view.x, viewY: view.y });
+      return;
+    }
+    if (e.button !== 0) return;
     if (target.closest('.mm-no-drag') !== null) return;
     const cardEl = target.closest<HTMLElement>('[data-card-id]');
     const grabbingEdited = cardEl !== null && cardEl.dataset['cardId'] === editingId;
@@ -518,8 +565,6 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
     containerRef.current?.setPointerCapture(e.pointerId);
     if (cardEl === null) {
       setSelectedLinkId(null);
-      userMovedView.current = true;
-      setDrag({ kind: 'pan', startX: e.clientX, startY: e.clientY, viewX: view.x, viewY: view.y });
       return;
     }
     const id = cardEl.dataset['cardId'] ?? '';
@@ -564,7 +609,7 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
   }
 
   function onPointerUp(e: React.PointerEvent<HTMLDivElement>): void {
-    containerRef.current?.releasePointerCapture(e.pointerId);
+    if (containerRef.current?.hasPointerCapture(e.pointerId)) containerRef.current.releasePointerCapture(e.pointerId);
     const d = drag;
     setDrag(null);
     setGuides([]);
@@ -836,7 +881,7 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
           )} />
         <div
           ref={containerRef}
-          className={`mm-surface${drag?.kind === 'pan' ? ' mm-surface--panning' : ''}`}
+          className={`mm-surface${spaceDown ? ' mm-surface--pan-ready' : ''}${drag?.kind === 'pan' ? ' mm-surface--panning' : ''}`}
           style={{
             backgroundImage: map.brainstormSettings.grid ? undefined : 'none',
             backgroundSize: `${map.brainstormSettings.gridSize * view.zoom}px ${map.brainstormSettings.gridSize * view.zoom}px`,
@@ -845,11 +890,15 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
           tabIndex={0}
           role="application"
           aria-label={`Canvas ${map.title}. Tab adds an idea connected to the selected card; drag from a card's edge dot to connect; Delete removes.`}
+          aria-description="Hold Space and drag to pan the canvas. Middle mouse drag also pans."
           onKeyDown={onKeyDown}
+          onPointerEnter={() => { pointerOverCanvas.current = true; }}
+          onPointerLeave={() => { pointerOverCanvas.current = false; }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={() => { setDrag(null); setGuides([]); setSpacing([]); draggingEdited.current = false; }}
+          onDoubleClick={onDoubleClick}
           onWheel={onWheel}
           onDragOver={(e) => {
             if (!e.dataTransfer.types.includes(SUGGESTION_DRAG_TYPE)) return;
@@ -889,7 +938,10 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
                   <path
                     className="mm-link-hit mm-no-drag"
                     d={l.d}
-                    onPointerDown={(ev) => { ev.stopPropagation(); setSelectedLinkId(l.edge.id); containerRef.current?.focus(); }}
+                    onPointerDown={(ev) => {
+                      if (isCanvasPanGesture(ev.button, spaceRef.current)) return;
+                      ev.stopPropagation(); setSelectedLinkId(l.edge.id); containerRef.current?.focus();
+                    }}
                   />
                 </g>
               ))}
@@ -965,7 +1017,6 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
                     left: p.x - s.w / 2, top: p.y - s.h / 2,
                     ...(type !== null && { '--cv-tint': type.tint, '--cv-icon': type.colour, '--cv-ink': type.ink } as React.CSSProperties),
                   }}
-                  onDoubleClick={() => { if (isIdea) startEditing(n.id); else requestTab('preview'); }}
                 >
                   {!isRoot && <span className="cv-card__tile" aria-hidden="true"><Icon size={16} /></span>}
                   <div className="cv-card__body">
@@ -1059,7 +1110,7 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
             )}
           </div>
 
-          <p className="mm-hint">Drag cards to arrange · drag from a card’s edge dot to connect · click a connection to type it · Tab adds an idea · Del removes · ⌘Z undo · ⇧⌘Z redo</p>
+          <p className="mm-hint">Drag from a card’s edge dot to connect · click a connection to type it · Tab adds an idea · Del removes · ⌘Z undo · ⇧⌘Z redo</p>
 
           {error !== null && (
             <div className="mm-error mm-no-drag" role="alert" onPointerDown={(e) => { e.stopPropagation(); }}>

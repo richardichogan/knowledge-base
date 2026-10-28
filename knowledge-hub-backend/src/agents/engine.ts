@@ -328,33 +328,33 @@ async function runJob(db: Pool, row: JobRow): Promise<void> {
                 progress = (SELECT COALESCE(jsonb_agg(value ORDER BY n), '[]'::jsonb) FROM (
                   SELECT value, n FROM jsonb_array_elements(progress || jsonb_build_array($2::text)) WITH ORDINALITY AS p(value, n)
                    ORDER BY n DESC LIMIT ${MAX_PROGRESS}) recent)
-          WHERE id = $1 AND status = 'running' RETURNING *`,
-        [row.id, text],
+          WHERE id = $1 AND status = 'running' AND attempts = $3 RETURNING *`,
+        [row.id, text, row.attempts],
       );
       if (rows[0]) emit(rows[0]);
     }).catch((error: unknown) => { console.error('[agents] Could not save progress:', error); });
   };
   try {
     if (!specialist) throw new ValidationError(`The ${row.specialist} specialist is not available on this server.`);
-    const outcome = await specialist.run({ db, jobId: row.id, subjectId: row.subject_id, input: row.input, progress, signal: shutdown.signal });
+    const outcome = await specialist.run({ db, jobId: row.id, attempt: row.attempts, subjectId: row.subject_id, input: row.input, progress, signal: shutdown.signal });
     await writes;
     const done = await record(db,
       `UPDATE agent_jobs SET status = 'done', result = $2, error = NULL, finished_at = NOW(), updated_at = NOW()
-        WHERE id = $1 RETURNING *`,
-      [row.id, JSON.stringify({ data: outcome.data, summary: outcome.summary })],
+        WHERE id = $1 AND status = 'running' AND attempts = $3 RETURNING *`,
+      [row.id, JSON.stringify({ data: outcome.data, summary: outcome.summary }), row.attempts],
     );
     if (done) await finish(db, done);
   } catch (error) {
     await writes;
     if (shutdown.signal.aborted) {
-      await record(db, `UPDATE agent_jobs SET status = 'queued', updated_at = NOW() WHERE id = $1 AND status = 'running' RETURNING *`, [row.id]);
+      await record(db, `UPDATE agent_jobs SET status = 'queued', updated_at = NOW() WHERE id = $1 AND status = 'running' AND attempts = $2 RETURNING *`, [row.id, row.attempts]);
       return;
     }
     const message = error instanceof KnowledgeHubError ? error.message : 'The specialist hit an unexpected error.';
     if (!(error instanceof KnowledgeHubError)) console.error(`[agents] ${row.specialist} job ${row.id} failed:`, error);
     const failed = await record(db,
-      `UPDATE agent_jobs SET status = 'failed', error = $2, finished_at = NOW(), updated_at = NOW() WHERE id = $1 RETURNING *`,
-      [row.id, message],
+      `UPDATE agent_jobs SET status = 'failed', error = $2, finished_at = NOW(), updated_at = NOW() WHERE id = $1 AND status = 'running' AND attempts = $3 RETURNING *`,
+      [row.id, message, row.attempts],
     );
     if (failed) await finish(db, failed);
   }
@@ -364,7 +364,9 @@ async function runJob(db: Pool, row: JobRow): Promise<void> {
 async function finish(db: Pool, row: JobRow): Promise<void> {
   const job = toJob(row);
   if (row.conversation_id && row.requested_by === 'chat' && (!row.is_step || row.status === 'failed')) {
-    const link = row.subject_url ? `[${row.subject_title || 'Open it'}](${row.subject_url})` : row.subject_title;
+    const data = row.result?.['data'];
+    const resultUrl = data && typeof data === 'object' && 'url' in data && typeof data.url === 'string' ? data.url : row.subject_url;
+    const link = resultUrl ? `[${row.subject_title || 'Open it'}](${resultUrl})` : row.subject_title;
     const text = row.status === 'done'
       ? `${job.specialistName} has finished${link ? ` on ${link}` : ''}. ${job.summary ?? ''}`.trim()
       : `${job.specialistName} could not finish${link ? ` on ${link}` : ''}. ${row.error ?? ''}`.trim();

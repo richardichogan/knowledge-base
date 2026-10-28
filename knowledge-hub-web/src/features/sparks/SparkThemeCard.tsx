@@ -177,7 +177,6 @@ export const SparkThemeCard: React.FC<{
       {blogOpen && (
         <BlogPublishModal title={theme.theme} onClose={() => { setBlogOpen(false); }} source={{
           key: `spark-theme:${theme.id}`,
-          draft: (len) => api.createSparkThemeBlogDraft(theme.id, len),
           publish: (post) => api.publishSparkThemeBlogPost(theme.id, post),
           onSent: refresh,
         }} />

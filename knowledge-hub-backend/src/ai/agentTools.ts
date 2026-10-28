@@ -27,6 +27,7 @@ export function agentToolDefinitions(): LlmToolDefinition[] {
             specialist: { type: 'string', enum: specialists.map((s) => s.id) },
             subjectId: { type: 'string', description: 'ID of what to work on. Omit in a Design conversation to use the open Design.' },
             instruction: { type: 'string', description: 'Optional direction for the specialist, e.g. what the Blueprint should emphasise.' },
+            length: { type: 'string', enum: ['short', 'long'], description: 'For the blog writer: short is Quick take, long is Article. Ask which before starting.' },
             confirmed: { type: 'boolean', description: 'He agreed to a plan that replaces existing work.' },
           },
           required: ['specialist'],
@@ -90,7 +91,7 @@ export async function executeAgentTool(
     const result = await handOff(db, {
       specialist: specialist.id,
       subjectId,
-      input: instruction ? { instruction } : {},
+      input: { ...(instruction ? { instruction } : {}), ...(typeof args['length'] === 'string' ? { length: args['length'] } : {}) },
       conversationId: turn.sessionId ?? null,
       requestedBy: 'chat',
       confirmed: args['confirmed'] === true,

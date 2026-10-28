@@ -83,6 +83,7 @@ import './diagram.scss';
 import { IconBtn, Segmented, CANVAS_SIDE_WIDTH } from './DiagramControls';
 import { SideTabsPanel } from '../../components/SideTabsPanel';
 import { diagramGridSize, gridSnapEnabled, shapeSnapEnabled, snapMovingBounds, type AlignmentGuide, type SpacingIndicator } from './diagramAlignment';
+import { isCanvasPanGesture } from './canvasPan';
 import { pasteReadableText } from '../../utils/clipboardText';
 import { useAnchoredPopovers } from '../../hooks/useAnchoredPopovers';
 import { ImageViewer, type ImagePreview } from '../../components/ImageViewer';
@@ -1317,7 +1318,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       svgRef.current?.setPointerCapture(pointerId);
       setDrag(d);
     };
-    if (e.button === 1 || (e.button === 0 && spaceRef.current)) {
+    if (isCanvasPanGesture(e.button, spaceRef.current)) {
       begin({ kind: 'pan', pointerId, start: toScreen(e.clientX, e.clientY), origin: cur.viewport });
       return;
     }

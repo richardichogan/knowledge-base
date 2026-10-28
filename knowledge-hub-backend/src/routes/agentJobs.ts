@@ -9,6 +9,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { getDb } from '../db/db.js';
 import { ValidationError } from '../types/errors.js';
 import { acknowledgeAgentJob, agentJobEvents, getAgentJob, handOff, listAgentJobs, listLiveAgentJobs, listSpecialists, type AgentJob } from '../agents/index.js';
+import { queueBlogRecheck } from '../services/blogJobs.js';
 
 export const agentJobsRouter = Router();
 const HEARTBEAT_MS = 15_000;
@@ -86,6 +87,8 @@ agentJobsRouter.get('/stream', (_req, res) => {
 });
 
 agentJobsRouter.get('/:id', wrap((req) => getAgentJob(getDb(), jobId(req))));
+
+agentJobsRouter.post('/:id/blog-recheck', wrap((req) => queueBlogRecheck(getDb(), jobId(req), req.body)));
 
 agentJobsRouter.post('/:id/ack', wrap(async (req) => {
   await acknowledgeAgentJob(getDb(), jobId(req));

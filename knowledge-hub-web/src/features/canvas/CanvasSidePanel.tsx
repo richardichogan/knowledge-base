@@ -10,6 +10,7 @@ import { api } from '../../services/api';
 import type { CanvasFullApi, CanvasNodeApi, MapSuggestionApi } from '../../services/api';
 import { renderMarkdown } from '../../utils/markdown';
 import { LINK_TYPES, linkStyle, connectedIds } from './canvasGraph';
+import { ideaTitleChange } from './canvasTitle';
 import { KIND_LABEL, SUGGESTION_DRAG_TYPE, suggestionIcon, cardKindLabel, CARD_TYPES, ideaCardType, hasFootnote } from './mapVisuals';
 
 function formatDate(iso: string | null): string {
@@ -277,7 +278,12 @@ export const CanvasDetailsTab: React.FC<DetailsProps> = ({ map, node, isRoot, fo
           className="mm-field__input"
           value={label}
           onChange={(e) => { setLabel(e.target.value); }}
-          onBlur={() => { if (label.trim() !== '' && label !== (node.label ?? '')) onUpdate(node.id, { label }); }}
+          onBlur={() => {
+            if (node.refType === null) {
+              const next = ideaTitleChange(node.label, label, true);
+              if (next !== undefined) onUpdate(node.id, { label: next });
+            } else if (label.trim() !== '' && label !== (node.label ?? '')) onUpdate(node.id, { label });
+          }}
           onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
         />
       </label>

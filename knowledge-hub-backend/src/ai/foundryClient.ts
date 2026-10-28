@@ -192,8 +192,10 @@ export class FoundryClient {
     maxTokens = AI_DEFAULT_MAX_TOKENS,
     timeoutMs?: number,
     signal?: AbortSignal,
+    jsonSchema?: LlmJsonSchema,
+    route?: ModelRoute,
   ): Promise<string> {
-    const data = await this.request(model, messages, undefined, maxTokens, 'auto', timeoutMs, undefined, signal);
+    const data = await this.request(model, messages, undefined, maxTokens, 'auto', timeoutMs, jsonSchema, signal, route);
     if (data.choices[0]?.finish_reason === 'length') throw new AiOutputLimitError();
     if (data.choices[0]?.finish_reason !== 'stop') throw new AiError('AI response was incomplete or refused');
     const content = data.choices[0]?.message.content;
@@ -481,14 +483,15 @@ export class FoundryClient {
     timeoutMsOverride?: number,
     jsonSchema?: LlmJsonSchema,
     signal?: AbortSignal,
+    route?: ModelRoute,
   ): Promise<ChatCompletionResponse> {
     const startedAt = Date.now();
-    const deployment = this.getDeployment(model);
-    const api = model === 'reasoning' && env.AZURE_OPENAI_GPT54_API === 'responses' ? 'responses' : 'chat';
+    const deployment = route?.deployment ?? this.getDeployment(model);
+    const api = model === 'reasoning' && (route?.api ?? env.AZURE_OPENAI_GPT54_API) === 'responses' ? 'responses' : 'chat';
     let usage: TokenUsage | undefined;
     try {
       signal?.throwIfAborted();
-      const data = await this.requestRaw(model, messages, tools, maxTokens, toolChoice, timeoutMsOverride, jsonSchema, signal);
+      const data = await this.requestRaw(model, messages, tools, maxTokens, toolChoice, timeoutMsOverride, jsonSchema, signal, route);
       usage = tokenUsageFrom(data.usage);
       if (tools === undefined) {
         if (data.choices[0]?.finish_reason === 'length') throw new AiOutputLimitError();
@@ -514,12 +517,13 @@ export class FoundryClient {
     timeoutMsOverride?: number,
     jsonSchema?: LlmJsonSchema,
     signal?: AbortSignal,
+    route?: ModelRoute,
   ): Promise<ChatCompletionResponse> {
-    const deployment = this.getDeployment(model);
+    const deployment = route?.deployment ?? this.getDeployment(model);
     const { endpoint, apiKey } = this.getConnection(model);
     const timeoutMs = timeoutMsOverride ?? this.getDefaultTimeoutMs(model);
-    if (model === 'reasoning' && env.AZURE_OPENAI_GPT54_API === 'responses') {
-      return this.requestViaResponses(model, deployment, endpoint, apiKey, messages, tools, maxTokens, toolChoice, timeoutMs, signal);
+    if (model === 'reasoning' && (route?.api ?? env.AZURE_OPENAI_GPT54_API) === 'responses') {
+      return this.requestViaResponses(model, deployment, endpoint, apiKey, messages, tools, maxTokens, toolChoice, timeoutMs, signal, jsonSchema);
     }
     const url = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`;
 
@@ -580,6 +584,7 @@ export class FoundryClient {
     toolChoice: LlmToolChoice,
     timeoutMs: number,
     signal?: AbortSignal,
+    jsonSchema?: LlmJsonSchema,
   ): Promise<ChatCompletionResponse> {
     let response: Response;
     try {
@@ -589,7 +594,10 @@ export class FoundryClient {
           'Content-Type': 'application/json',
           ...(apiKey !== undefined && { 'api-key': apiKey }),
         } as Record<string, string>,
-        body: JSON.stringify(responsesBody(deployment, messages, tools, maxTokens, toolChoice)),
+        body: JSON.stringify({
+          ...responsesBody(deployment, messages, tools, maxTokens, toolChoice),
+          ...(jsonSchema ? { text: { format: { type: 'json_schema', ...jsonSchema, strict: true } } } : {}),
+        }),
         signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
       });
     } catch (err) {
@@ -612,6 +620,9 @@ export class FoundryClient {
       usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number; input_tokens_details?: { cached_tokens?: number }; output_tokens_details?: { reasoning_tokens?: number } };
     };
     const output = data.output ?? [];
+    if (output.some(item => item.content?.some(part => part.type === 'refusal'))) {
+      throw new AiError('AI response was incomplete or refused');
+    }
     const text = output
       .filter((o) => o.type === 'message')
       .flatMap((o) => o.content ?? [])
@@ -623,7 +634,8 @@ export class FoundryClient {
       .map((o) => ({ id: o.call_id ?? '', type: 'function', function: { name: o.name ?? '', arguments: o.arguments ?? '{}' } }));
     const finishReason = toolCalls.length > 0
       ? 'tool_calls'
-      : data.status === 'incomplete' && data.incomplete_details?.reason === 'max_output_tokens' ? 'length' : 'stop';
+      : data.status === 'incomplete' && data.incomplete_details?.reason === 'max_output_tokens' ? 'length'
+        : data.status === 'completed' ? 'stop' : 'error';
     return {
       choices: [{ message: { role: 'assistant', content: text === '' ? null : text, ...(toolCalls.length > 0 && { tool_calls: toolCalls }) }, finish_reason: finishReason }],
       usage: data.usage === undefined ? undefined : {

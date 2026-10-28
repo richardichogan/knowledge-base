@@ -11,9 +11,10 @@ import { readFeed } from '../integrations/discovery/feedReader.js';
 import { discoverRankSql, discoverDiversitySql } from '../integrations/cms/discoverRank.js';
 import { interestSql } from '../services/discoverInterests.js';
 import { generateLinkedInDraft, generateShortSocialDraft, sourceUrl, type LinkedInSource } from '../ai/linkedInDraft.js';
-import { findEarlierPosts, generateBlogDraft, readBlogSource } from '../ai/blogDraft.js';
+import { handOff } from '../agents/index.js';
 import { BLOG_CATEGORIES } from '../ai/blogHouseStyle.js';
 import { parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
+import { assertVerifiedBlogJob } from '../services/blogJobs.js';
 import { ConflictError, NotFoundError, ValidationError, WriteActionNotConfirmedError } from '../types/errors.js';
 import { BlueskyPostUnconfirmedError, blueskyConfigured, postToBluesky } from '../integrations/social/bluesky.js';
 import { LINKEDIN_POST_LIMIT, LinkedInPostUnconfirmedError, composeLinkedInText, getLinkedInMember, linkedinConfigured, postToLinkedIn } from '../integrations/social/linkedin.js';
@@ -93,7 +94,6 @@ const VALID_STATES: WorkflowState[] = ['to-review', 'saved', 'blog', 'archived',
 const DISCOVER_PAGE_SIZE_DEFAULT = 50;
 const DISCOVER_PAGE_SIZE_MAX = 100;
 const DISCOVER_ENUM_MAX_LENGTH = 32;
-const BLOG_RELATED_SOURCE_CHARS = 2000;
 const BLUESKY_REQUEST_MAX_CHARS = 2000;
 const VIDEO_URL_MAX_CHARS = 2048;
 const DISCOVER_FILTER_MAX_LENGTH = 256;
@@ -301,15 +301,10 @@ discoverRouter.post('/:id/blog-draft', (req: Request, res: Response, next: NextF
     try {
       const id = req.params['id'];
       if (!id || !UUID.test(id)) throw new ValidationError('Invalid Discover item ID');
-      const { rows } = await getDb().query<LinkedInSource>(
-        `SELECT title, body, source, url FROM content_items WHERE id = $1 AND source IN ('email', 'discovered-article')`, [id],
-      );
-      const source = rows[0];
-      if (!source) throw new NotFoundError('Discover item');
-      if (!source.body.trim()) throw new ValidationError('This source has no content to draft from.');
-      const length = (req.body as { length?: unknown } | undefined)?.length === 'long' ? 'long' : 'short';
-      const earlier = length === 'short' ? await findEarlierPosts(getDb(), `${source.title} ${source.body.slice(0, BLOG_RELATED_SOURCE_CHARS)}`) : [];
-      res.json({ success: true, data: await generateBlogDraft(await readBlogSource(source), sourceUrl(source.url), length, earlier) });
+      const length = (req.body as { length?: unknown } | undefined)?.length;
+      if (length !== 'short' && length !== 'long') throw new ValidationError('Choose Quick take or Article before starting.');
+      const data = await handOff(getDb(), { specialist: 'blog-writer', subjectId: `discover:${id}`, input: { length }, requestedBy: 'app' });
+      res.status(202).json({ success: true, data });
     } catch (err) { next(err); }
   })();
 });
@@ -322,6 +317,7 @@ discoverRouter.post('/:id/blog-publish', (req: Request, res: Response, next: Nex
       const post = parsePublishBody(req.body);
       const item = await getDb().query(`SELECT id FROM content_items WHERE id=$1 AND source IN ('email','discovered-article')`, [id]);
       if (item.rows.length === 0) throw new NotFoundError('Discover item');
+      await assertVerifiedBlogJob(getDb(), (req.body as { jobId?: unknown } | undefined)?.jobId, `discover:${id.toLowerCase()}`, post);
       const sent = await sendToBlog(post);
       if (sent.payload.success && post.status === 'published') {
         await getDb().query(`UPDATE content_items SET workflow_state='published' WHERE id=$1 AND source='discovered-article'`, [id]);

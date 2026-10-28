@@ -13,6 +13,7 @@ import type { Pool } from 'pg';
 export interface SpecialistContext {
   db: Pool;
   jobId: string;
+  attempt: number;
   subjectId: string;
   input: Record<string, unknown>;
   progress: (message: string) => void;

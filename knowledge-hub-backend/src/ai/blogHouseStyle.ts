@@ -101,3 +101,17 @@ export const BLOG_PACKAGE_RULES = [
 
 /** The universal writing rules only, without the CMS field contract. */
 export const BLOG_WRITING_RULES = BLOG_PACKAGE_RULES.split('### CMS output package')[0] ?? '';
+
+/** Full articles allow occasional constructions without relaxing other formats. */
+export function blogWritingRules(postType: string): string {
+  if (postType !== 'article') return BLOG_WRITING_RULES;
+  return BLOG_WRITING_RULES
+    .replace('- No "not X, it\'s Y" or negative parallelism constructions.',
+      '- Across the article body, allow at most two "not X, it\'s Y" or negative parallelism constructions; avoid overuse.')
+    .replace('- No rhythmic triplets designed to sound conclusive, and no lists of three ("process, policy, and evidence"); use two items or name the one that matters.',
+      '- Across the article body, use at most two rhetorical triplets. Ordinary substantive lists, quotes and source titles are not rhetorical triplets and should remain accurate.')
+    .replace('- No "rather than" or "instead of" contrasts, and no signposting such as "my read is", "this matters", ',
+      '- Avoid formulaic contrasts and signposting such as "my read is", "this matters", ')
+    .replace('no "the question isn\'t X", no "not because X, but because Y", and no "this matters because" signposting.',
+      'count "the question isn\'t X" and "not because X, but because Y" towards the negative parallelism allowance, and use no "this matters because" signposting.');
+}

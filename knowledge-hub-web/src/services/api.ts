@@ -679,6 +679,19 @@ export interface BlogDraft {
   postType: 'article' | 'weekly' | 'newsletter' | 'podcast' | 'quick'; sourceUrl: string | null;
 }
 
+export interface BlogJobResult {
+  url: string;
+  subjectId: string;
+  draft: BlogDraft;
+  verification: { verified: boolean; issues: string[] };
+  workflow?: {
+    originalAvailable: boolean;
+    remediationUsed: boolean;
+    stages: Array<{ stage: string; result: unknown; at: string }>;
+  };
+  verifiedSignature?: string;
+}
+
 export class KnowledgeHubApi {
   async jobs<T>(path = '', method: 'GET' | 'POST' | 'PUT' = 'GET', data?: unknown): Promise<T> {
     const response = await this.client.request<ApiResponse<T>>({ url: `/api/jobs${path}`, method, data, timeout: 120_000 });
@@ -1969,15 +1982,15 @@ export class KnowledgeHubApi {
     return (await this.client.delete<ApiResponse<void>>(`/api/notes/${noteId}/extractions/${extractionId}`)).data;
   }
 
-  async createBlogDraft(id: string, length: 'short' | 'long' = 'short'): Promise<ApiResponse<BlogDraft>> {
-    return (await this.client.post<ApiResponse<BlogDraft>>(`/api/discover/${id}/blog-draft`, { length }, { timeout: CHAT_TIMEOUT_MS })).data;
+  async createBlogDraft(id: string, length: 'short' | 'long'): Promise<ApiResponse<AgentHandOffResult>> {
+    return (await this.client.post<ApiResponse<AgentHandOffResult>>(`/api/discover/${id}/blog-draft`, { length })).data;
   }
 
   async getBlogCategories(): Promise<ApiResponse<string[]>> {
     return (await this.client.get<ApiResponse<string[]>>('/api/discover/blog-categories')).data;
   }
 
-  async publishBlogPost(id: string, post: Omit<BlogDraft, 'sourceUrl'> & { status: 'draft' | 'published' }): Promise<ApiResponse<{ editUrl: string | null; url: string | null; status: 'draft' | 'published' }>> {
+  async publishBlogPost(id: string, post: Omit<BlogDraft, 'sourceUrl'> & { status: 'draft' | 'published'; jobId: string }): Promise<ApiResponse<{ editUrl: string | null; url: string | null; status: 'draft' | 'published' }>> {
     return (await this.client.post<ApiResponse<{ editUrl: string | null; url: string | null; status: 'draft' | 'published' }>>(`/api/discover/${id}/blog-publish`, post, { timeout: CHAT_TIMEOUT_MS })).data;
   }
 
@@ -2181,11 +2194,11 @@ export class KnowledgeHubApi {
     return (await this.client.post<ApiResponse<{ theme: SparkCluster; output: SparkOutput }>>(`/api/spark-clusters/${id}/graduate`, { target }, { timeout: CHAT_TIMEOUT_MS })).data;
   }
 
-  async createSparkThemeBlogDraft(id: string, length: 'short' | 'long' = 'short'): Promise<ApiResponse<BlogDraft>> {
-    return (await this.client.post<ApiResponse<BlogDraft>>(`/api/spark-clusters/${id}/blog-draft`, { length }, { timeout: CHAT_TIMEOUT_MS })).data;
+  async createSparkThemeBlogDraft(id: string, length: 'short' | 'long'): Promise<ApiResponse<AgentHandOffResult>> {
+    return (await this.client.post<ApiResponse<AgentHandOffResult>>(`/api/spark-clusters/${id}/blog-draft`, { length })).data;
   }
 
-  async publishSparkThemeBlogPost(id: string, post: Omit<BlogDraft, 'sourceUrl'> & { status: 'draft' | 'published' }): Promise<ApiResponse<{ editUrl: string | null; url: string | null; status: 'draft' | 'published' }>> {
+  async publishSparkThemeBlogPost(id: string, post: Omit<BlogDraft, 'sourceUrl'> & { status: 'draft' | 'published'; jobId: string }): Promise<ApiResponse<{ editUrl: string | null; url: string | null; status: 'draft' | 'published' }>> {
     return (await this.client.post<ApiResponse<{ editUrl: string | null; url: string | null; status: 'draft' | 'published' }>>(`/api/spark-clusters/${id}/blog-publish`, post, { timeout: CHAT_TIMEOUT_MS })).data;
   }
 
@@ -2583,6 +2596,12 @@ export class KnowledgeHubApi {
   }
   async handOffToSpecialist(specialist: string, subjectId: string, input: Record<string, unknown> = {}, confirmed = false): Promise<ApiResponse<AgentHandOffResult>> {
     return (await this.client.post<ApiResponse<AgentHandOffResult>>('/api/agent-jobs', { specialist, subjectId, input, confirmed })).data;
+  }
+  async getAgentJob(id: string): Promise<ApiResponse<AgentJob>> {
+    return (await this.client.get<ApiResponse<AgentJob>>(`/api/agent-jobs/${encodeURIComponent(id)}`)).data;
+  }
+  async recheckBlogJob(id: string, post: Omit<BlogDraft, 'sourceUrl'>): Promise<ApiResponse<AgentJob>> {
+    return (await this.client.post<ApiResponse<AgentJob>>(`/api/agent-jobs/${encodeURIComponent(id)}/blog-recheck`, post, { timeout: CHAT_TIMEOUT_MS })).data;
   }
   async acknowledgeAgentJob(id: string): Promise<void> {
     await this.client.post(`/api/agent-jobs/${encodeURIComponent(id)}/ack`, {});

@@ -36,7 +36,8 @@ export function notifyAthenaJobFinished(tag: string, startedAt: number, title: s
     const notification = new Notification(title, { body, tag });
     notification.onclick = () => {
       window.focus();
-      if (`${window.location.pathname}${window.location.search}` !== url) window.location.assign(url);
+      const destination = specialistLink(url, window.location.href);
+      if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== destination) window.location.assign(destination);
       notification.close();
     };
     notification.onerror = event => { console.warn('Athena job notification could not be displayed.', event); };
@@ -44,3 +45,4 @@ export function notifyAthenaJobFinished(tag: string, startedAt: number, title: s
     console.warn('Athena job notification could not be created.', error);
   }
 }
+import { specialistLink } from '../navigation/specialistLink';

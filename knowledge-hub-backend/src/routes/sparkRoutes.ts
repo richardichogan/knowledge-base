@@ -24,8 +24,9 @@ import { ValidationError } from '../types/errors.js';
 import { createSpark, listSparks, deleteSpark, updateSpark, relatedSparks, listThemes, updateTheme, mergeThemes, createTheme } from '../services/sparkService.js';
 import { MIN_THEME_SIZE } from '../jobs/clusteringJob.js';
 import { graduateTheme, getTheme, type GraduationTarget } from '../services/sparkGraduation.js';
-import { findEarlierPosts, generateIdeasBlogDraft } from '../ai/blogDraft.js';
+import { handOff } from '../agents/index.js';
 import { parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
+import { assertVerifiedBlogJob } from '../services/blogJobs.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 import type { Spark, SparkOutput, ThemeStatus, UpdateSparkInput, UpdateThemeInput } from '../services/sparkService.js';
 import { readDiscoverArgument } from '../services/sparkSourceReading.js';
@@ -259,11 +260,10 @@ sparkClusterRouter.post('/:id/graduate', (req: Request, res: Response, next: Nex
 sparkClusterRouter.post('/:id/blog-draft', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
-      const theme = await getTheme(getDb(), req.params['id']!);
-      if (theme.sparks.length === 0) throw new ValidationError('This theme has no sparks to draft from.');
-      const length = (req.body as { length?: unknown } | undefined)?.length === 'long' ? 'long' : 'short';
-      const earlier = length === 'short' ? await findEarlierPosts(getDb(), [theme.theme, ...theme.sparks.map(sp => sp.body)].join(' ')) : [];
-      res.json({ success: true, data: await generateIdeasBlogDraft(theme.theme, theme.sparks, length, earlier) });
+      const length = (req.body as { length?: unknown } | undefined)?.length;
+      if (length !== 'short' && length !== 'long') throw new ValidationError('Choose Quick take or Article before starting.');
+      const data = await handOff(getDb(), { specialist: 'blog-writer', subjectId: `spark-theme:${req.params['id'] ?? ''}`, input: { length }, requestedBy: 'app' });
+      res.status(202).json({ success: true, data });
     } catch (err) { next(err); }
   })();
 });
@@ -277,6 +277,7 @@ sparkClusterRouter.post('/:id/blog-publish', (req: Request, res: Response, next:
       const id = req.params['id']!;
       await getTheme(db, id);
       const post = parsePublishBody(req.body);
+      await assertVerifiedBlogJob(db, (req.body as { jobId?: unknown } | undefined)?.jobId, `spark-theme:${id.toLowerCase()}`, post);
       const sent = await sendToBlog(post);
       if (sent.payload.success) {
         const url = sent.payload.data.url ?? sent.payload.data.editUrl;

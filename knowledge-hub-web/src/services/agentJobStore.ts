@@ -7,7 +7,7 @@
  */
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { api } from './api';
-import { announceAthenaJob } from '../components/athena/AthenaJobNotice';
+import { announceAthenaJob, clearAthenaJobProgress, updateAthenaJobProgress } from '../components/athena/AthenaJobNotice';
 import { isActiveAgentJob, type AgentJob } from '../types/agentJobs';
 
 const RETRY_MIN_MS = 2_000;
@@ -41,6 +41,10 @@ function receive(job: AgentJob): void {
   const previous = jobs.get(job.id);
   jobs.set(job.id, job);
   changed();
+  if (job.specialist === 'blog-writer' && isActiveAgentJob(job)) {
+    updateAthenaJobProgress(job.id, 'Blog writer is working', job.progress[job.progress.length - 1] ?? 'Preparing the blog draft');
+  }
+  if (job.specialist === 'blog-writer' && !isActiveAgentJob(job)) clearAthenaJobProgress(job.id);
   if (isActiveAgentJob(job) || (previous && previous.status === job.status)) return;
   for (const listener of finishListeners) listener(job);
   if (job.conversationId) window.dispatchEvent(new CustomEvent('athena-conversation-updated', { detail: { sessionId: job.conversationId } }));

@@ -3,11 +3,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
 import { alertDialog, confirmDialog } from '../../services/appDialogs';
 import { Launch, Renew, Upload } from '@carbon/icons-react';
-import { api, type BlogDraft } from '../../services/api';
+import { api, type BlogDraft, type BlogJobResult } from '../../services/api';
 import type { ApiResponse } from '../../types';
 import { describeApiError } from '../../services/apiError';
 import { AppDialog } from '../AppDialog';
 import { BlogPostEditor } from './BlogPostEditor';
+import { rememberAgentJob } from '../../services/agentJobStore';
 
 interface Edits { excerpt?: string; postType?: BlogDraft['postType']; title?: string; summary?: string; content?: string; takeaways?: string; categories?: string; tags?: string }
 
@@ -16,24 +17,119 @@ const commas = (value: string): string[] => value.split(',').map(v => v.trim()).
 
 type PublishResult = { editUrl: string | null; url: string | null; status: 'draft' | 'published' };
 
+const stageLabels: Record<string, string> = {
+  paragraphReview: 'Paragraph review',
+  paragraphReviewError: 'Paragraph review error',
+  paragraphRecheck: 'Read-only paragraph recheck',
+  paragraphRecheckError: 'Paragraph recheck error',
+  paragraphFieldRecheck: 'Read-only changed passage recheck',
+  factReview: 'Fact review', styleReview: 'Style review', consolidation: 'Editorial consolidation',
+  draftGeneration: 'Complete draft', validation: 'Initial validation', remediation: 'Remediation',
+  postRemediationfactReview: 'Fact recheck', postRemediationstyleReview: 'Style recheck',
+  recheckfactReview: 'Fact recheck', recheckstyleReview: 'Style recheck',
+  recheckfactReviewError: 'Fact recheck error', recheckstyleReviewError: 'Style recheck error',
+  finalValidation: 'Final validation', publicationValidation: 'Publication validation', error: 'Review error',
+  factReviewError: 'Fact review error', styleReviewError: 'Style review error', remediationError: 'Remediation error',
+  postRemediationfactReviewError: 'Fact recheck error', postRemediationstyleReviewError: 'Style recheck error',
+};
+
+function stageDetails(result: unknown): string[] {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return [];
+  const value = result as Record<string, unknown>;
+  const details: string[] = [];
+  if (typeof value['id'] === 'string' && typeof value['field'] === 'string' && typeof value['action'] === 'string') {
+    const kind = typeof value['kind'] === 'string' ? `, ${value['kind']}` : '';
+    details.push(`${value['id']} (${value['field']}${kind}): ${value['action']}`);
+    if (typeof value['before'] === 'string' && value['action'] !== 'keep') details.push(`Original: ${value['before']}`);
+    if (typeof value['after'] === 'string' && value['after']) details.push(`Proposed: ${value['after']}`);
+  }
+  if (Array.isArray(value['findings'])) {
+    for (const finding of value['findings']) {
+      if (finding && typeof finding === 'object' && 'reason' in finding && typeof finding.reason === 'string') {
+        const passage = 'before' in finding && typeof finding.before === 'string' ? finding.before
+          : 'claim' in finding && typeof finding.claim === 'string' ? finding.claim : '';
+        details.push(passage ? `${finding.reason} (${passage})` : finding.reason);
+        if ('sourcePassages' in finding && Array.isArray(finding.sourcePassages)) {
+          for (const source of finding.sourcePassages) {
+            if (source && typeof source === 'object' && 'id' in source && 'text' in source
+              && typeof source.id === 'string' && typeof source.text === 'string') {
+              details.push(`Source ${source.id}: ${source.text}`);
+            }
+          }
+        }
+      }
+    }
+    if (!value['findings'].length) details.push('No findings.');
+  }
+  if (Array.isArray(value['issues'])) details.push(...value['issues'].filter((item): item is string => typeof item === 'string'));
+  if (typeof value['message'] === 'string') details.push(value['message']);
+  if (Array.isArray(value['edits'])) details.push(`${value['edits'].length} targeted correction(s) proposed.`);
+  if ('verified' in value && typeof value['verified'] === 'boolean') details.push(value['verified'] ? 'Automated checks passed.' : 'Automated checks incomplete or findings remain.');
+  if (value['verification'] && typeof value['verification'] === 'object' && 'verified' in value['verification']) {
+    details.push(value['verification'].verified === true ? 'Automated checks passed.' : 'Automated checks incomplete or findings remain.');
+    if ('issues' in value['verification'] && Array.isArray(value['verification'].issues)) {
+      details.push(...value['verification'].issues.filter((issue): issue is string => typeof issue === 'string'));
+    }
+  }
+  if (value['draft']) details.push('Complete draft saved.');
+  return [...new Set(details)];
+}
+
 /** Where the draft comes from and where the post is sent; defaults to a Discover item. */
 export interface BlogPublishSource {
   key: string;
-  draft: (length: 'short' | 'long') => Promise<ApiResponse<BlogDraft>>;
-  publish: (post: Omit<BlogDraft, 'sourceUrl'> & { status: 'draft' | 'published' }) => Promise<ApiResponse<PublishResult>>;
+  publish: (post: Omit<BlogDraft, 'sourceUrl'> & { status: 'draft' | 'published'; jobId: string }) => Promise<ApiResponse<PublishResult>>;
   onSent?: (result: PublishResult) => void;
 }
 
-export const BlogPublishModal: React.FC<{ itemId?: string; source?: BlogPublishSource; title: string; onClose: () => void }> = ({ itemId, source, title, onClose }) => {
+type Props = { itemId?: string; source?: BlogPublishSource; title: string; onClose: () => void };
+
+async function startBlogJob(subjectId: string, length: 'short' | 'long'): Promise<void> {
+  const response = await api.handOffToSpecialist('blog-writer', subjectId, { length });
+  if (!response.success) throw new Error(response.error?.message ?? 'Could not start the blog specialist.');
+  if (response.data.status === 'needs_confirmation') throw new Error(response.data.message);
+  if (response.data.status === 'already_running') throw new Error('A blog draft is already being written for this source. You will be notified when it is ready.');
+  rememberAgentJob(response.data.job);
+}
+
+export const BlogPublishModal: React.FC<Props> = ({ itemId, source, title, onClose }) => {
+  const [length, setLength] = useState<'short' | 'long' | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const subjectId = source?.key ?? `discover:${itemId ?? ''}`;
+  async function start(): Promise<void> {
+    if (!length) return;
+    setStarting(true);
+    setError(null);
+    try { await startBlogJob(subjectId, length); onClose(); }
+    catch (e) { setError(describeApiError(e)); setStarting(false); }
+  }
+  return <AppDialog title="Publish to blog" onClose={onClose} actions={<>
+    <button type="button" className="kh-dialog__button" disabled={starting} onClick={onClose}>Cancel</button>
+    <button type="button" className="kh-dialog__button kh-dialog__button--primary" disabled={!length || starting}
+      onClick={() => { void start(); }}>{starting ? 'Starting...' : 'Start drafting'}</button>
+  </>}>
+    <p className="dc-linkedin__source-title">{title}</p>
+    <p className="dc-linkedin__status">Choose a format. Athena will notify you when the draft is ready to review.</p>
+    <div className="dc-linkedin__formats" role="group" aria-label="Post length">
+      <button type="button" disabled={starting} aria-pressed={length === 'short'} onClick={() => { setLength('short'); }}>Quick take</button>
+      <button type="button" disabled={starting} aria-pressed={length === 'long'} onClick={() => { setLength('long'); }}>Article</button>
+    </div>
+    {error && <p className="dc-linkedin__error" role="alert">{error}</p>}
+  </AppDialog>;
+};
+
+export const BlogDraftEditor: React.FC<Props & { jobId: string; initial: BlogJobResult }> = ({ itemId, source, title, onClose, jobId, initial }) => {
   const target: BlogPublishSource = source ?? {
     key: `discover:${itemId ?? ''}`,
-    draft: (len) => api.createBlogDraft(itemId ?? '', len),
     publish: (post) => api.publishBlogPost(itemId ?? '', post),
   };
   const queryClient = useQueryClient();
   const [edits, setEdits] = useState<Edits>({});
-  const [length, setLength] = useState<'short' | 'long'>('short');
+  const job = initial;
   const [publishing, setPublishing] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PublishResult | null>(null);
   const categories = useQuery({
@@ -45,16 +141,7 @@ export const BlogPublishModal: React.FC<{ itemId?: string; source?: BlogPublishS
     },
     retry: false, refetchOnWindowFocus: false,
   });
-  const draft = useQuery({
-    queryKey: ['blog-draft', target.key, length],
-    queryFn: async () => {
-      const r = await target.draft(length);
-      if (!r.success) throw new Error(r.error?.message ?? 'Could not generate the blog draft.');
-      return r.data;
-    },
-    staleTime: Infinity, retry: false, refetchOnWindowFocus: false,
-  });
-  const d = draft.data;
+  const d = job.draft;
   const value = {
     postType: edits.postType ?? d?.postType ?? 'article',
     title: edits.title ?? d?.title ?? '',
@@ -69,6 +156,31 @@ export const BlogPublishModal: React.FC<{ itemId?: string; source?: BlogPublishS
     const next = e.target.value;
     setEdits(c => ({ ...c, [key]: next }));
   };
+  const post = {
+    postType: value.postType, title: value.title.trim(), excerpt: value.excerpt.trim(), summary: value.summary.trim(),
+    content: value.content.trim(), keyTakeaways: lines(value.takeaways), categories: commas(value.categories), tags: commas(value.tags),
+  };
+  const signature = JSON.stringify([post.postType, post.title, post.excerpt, post.summary, post.content, post.keyTakeaways, post.categories, post.tags]);
+  const verified = job.verification.verified && job.verifiedSignature === signature;
+
+  async function recheck(): Promise<void> {
+    setChecking(true);
+    setError(null);
+    try {
+      const response = await api.recheckBlogJob(jobId, post);
+      if (!response.success) throw new Error(response.error?.message ?? 'Could not recheck the draft.');
+      rememberAgentJob(response.data);
+      onClose();
+    } catch (e) { setError(describeApiError(e)); }
+    finally { setChecking(false); }
+  }
+
+  async function generateAgain(): Promise<void> {
+    setStarting(true);
+    setError(null);
+    try { await startBlogJob(target.key, d.postType === 'quick' ? 'short' : 'long'); onClose(); }
+    catch (e) { setError(describeApiError(e)); setStarting(false); }
+  }
 
   async function publish(status: 'draft' | 'published'): Promise<void> {
     if (!categories.data || invalidCategories.length > 0) {
@@ -86,9 +198,7 @@ export const BlogPublishModal: React.FC<{ itemId?: string; source?: BlogPublishS
     try {
       const r = await target.publish({
         status,
-        postType: value.postType,
-        title: value.title.trim(), excerpt: value.excerpt.trim(), summary: value.summary.trim(), content: value.content.trim(),
-        keyTakeaways: lines(value.takeaways), categories: commas(value.categories), tags: commas(value.tags),
+        ...post, jobId,
       });
       if (!r.success) throw new Error(r.error?.message ?? 'Could not publish the post.');
       setResult(r.data);
@@ -111,37 +221,53 @@ export const BlogPublishModal: React.FC<{ itemId?: string; source?: BlogPublishS
   const invalidCategories = commas(value.categories).filter(category =>
     !categories.data?.some(accepted => accepted.toLowerCase() === category.toLowerCase()));
   const ready = !!(value.title.trim() && value.summary.trim() && value.content.trim() && categories.data && invalidCategories.length === 0);
+  const busy = publishing || checking || starting;
   return <AppDialog title="Publish to blog" wide onClose={onClose}
     actions={<>
-      <button type="button" className="kh-dialog__button" disabled={publishing} onClick={onClose}>Close</button>
+      <button type="button" className="kh-dialog__button" disabled={busy} onClick={onClose}>Close</button>
       {!result && <>
-        <button type="button" className="kh-dialog__button" disabled={draft.isFetching || publishing}
-          onClick={() => { setEdits({}); void draft.refetch(); }}>
-          <Renew size={16} /> {draft.isFetching ? 'Writing...' : 'Generate again'}
+        <button type="button" className="kh-dialog__button" disabled={busy} onClick={() => { void generateAgain(); }}>
+          <Renew size={16} /> {starting ? 'Starting...' : 'Generate again'}
+        </button>
+        <button type="button" className="kh-dialog__button" disabled={busy || verified || !ready} onClick={() => { void recheck(); }}>
+          <Renew size={16} /> {checking ? 'Checking...' : 'Recheck draft'}
         </button>
         <button type="button" className="kh-dialog__button"
-          disabled={!ready || draft.isFetching || draft.isError || publishing} onClick={() => { void publish('draft'); }}>
+          disabled={!ready || !verified || busy} onClick={() => { void publish('draft'); }}>
           <Upload size={16} /> {publishing ? 'Sending...' : 'Save as draft'}
         </button>
         <button type="button" className="kh-dialog__button kh-dialog__button--primary"
-          disabled={!ready || draft.isFetching || draft.isError || publishing} onClick={() => { void publish('published'); }}>
+          disabled={!ready || !verified || busy} onClick={() => { void publish('published'); }}>
           <Launch size={16} /> Publish live
         </button>
       </>}
     </>}>
     <p className="dc-linkedin__source-title">{title}</p>
-    {!result && <div className="dc-linkedin__formats" role="group" aria-label="Post length">
-      <button type="button" disabled={publishing || draft.isFetching} aria-pressed={length === 'short'} onClick={() => { setLength('short'); setEdits({}); }}>Quick take</button>
-      <button type="button" disabled={publishing || draft.isFetching} aria-pressed={length === 'long'} onClick={() => { setLength('long'); setEdits({}); }}>Article</button>
-    </div>}
-    {draft.isFetching && <div className="dc-loading" role="status"><InlineLoading description={`Athena is writing ${length === 'short' ? 'a quick take' : 'an article'} in the blog house style...`} /></div>}
+    {checking && <div className="dc-loading" role="status"><InlineLoading description="Starting the draft recheck..." /></div>}
     {publishing && <div className="dc-loading" role="status"><InlineLoading description="Sending to The Microsoft Cloud Blog..." /></div>}
-    {draft.isError && <p className="dc-linkedin__error" role="alert">{describeApiError(draft.error)}</p>}
+    {!result && !verified && <div className="dc-blog-verification" role="status">
+      <p>Draft saved. Review is incomplete or has unresolved findings. Recheck the current draft before sending it to the blog.</p>
+      {job.verification.issues.length > 0 && <ul>{job.verification.issues.map((issue, index) => <li key={`${index.toString()}-${issue}`}>{issue}</li>)}</ul>}
+    </div>}
+    {!result && verified && <p className="dc-linkedin__status" role="status">
+      Automated checks found no unresolved issues in this draft. They do not independently prove every claim or guarantee the intended voice; review it before publishing.
+    </p>}
+    {!result && job.workflow && <details className="dc-blog-workflow">
+      <summary>Review stages</summary>
+      {!job.workflow.originalAvailable && <p>The original draft was not recorded for this older job.</p>}
+      <ul>{job.workflow.stages.filter(stage => stageLabels[stage.stage]).map((stage, index) => {
+        const details = stageDetails(stage.result);
+        return <li key={`${stage.stage}-${stage.at}-${index.toString()}`}>
+          <strong>{stageLabels[stage.stage]}</strong>
+          {details.length > 0 && <ul>{details.map((detail, i) => <li key={`${i.toString()}-${detail}`}>{detail}</li>)}</ul>}
+        </li>;
+      })}</ul>
+    </details>}
     {categories.isError && <p className="dc-linkedin__error" role="alert">
       Blog categories could not be loaded: {describeApiError(categories.error)}{' '}
       <button type="button" className="kh-dialog__button" onClick={() => { void categories.refetch(); }}>Retry categories</button>
     </p>}
-    {d && !draft.isFetching && !draft.isError && !result && <>
+    {!result && <fieldset className="dc-blog-fields" disabled={busy}>
       <label className="dc-linkedin__label" htmlFor="blog-type">Post type</label>
       <select id="blog-type" className="dc-filter-select" value={value.postType}
         onChange={(e) => { const next = e.target.value as BlogDraft['postType']; setEdits(c => ({ ...c, postType: next })); }}>
@@ -154,7 +280,7 @@ export const BlogPublishModal: React.FC<{ itemId?: string; source?: BlogPublishS
       <textarea id="blog-excerpt" className="dc-linkedin__copy" rows={2} value={value.excerpt} onChange={set('excerpt')} />
       <label className="dc-linkedin__label" htmlFor="blog-summary">{value.postType === 'quick' ? 'Summary (search and AI only, not shown on quick takes)' : 'Summary'}</label>
       <textarea id="blog-summary" className="dc-linkedin__copy" rows={2} value={value.summary} onChange={set('summary')} />
-      <BlogPostEditor value={value.content} disabled={publishing}
+      <BlogPostEditor value={value.content} disabled={busy}
         onChange={content => { setEdits(current => ({ ...current, content })); }} />
       <label className="dc-linkedin__label" htmlFor="blog-takeaways">{value.postType === 'quick' ? 'Key takeaways (optional, not shown on quick takes)' : 'Key takeaways (one per line)'}</label>
       <textarea id="blog-takeaways" className="dc-linkedin__copy" rows={4} value={value.takeaways} onChange={set('takeaways')} />
@@ -171,7 +297,7 @@ export const BlogPublishModal: React.FC<{ itemId?: string; source?: BlogPublishS
       <label className="dc-linkedin__label" htmlFor="blog-tags">Tags (comma separated)</label>
       <input id="blog-tags" className="dc-linkedin__url" value={value.tags} onChange={set('tags')} />
       <p className="dc-linkedin__status">Save as draft to review it in the blog admin first, or Publish live to post it straight away.</p>
-    </>}
+    </fieldset>}
     {error && <p className="dc-linkedin__error" role="alert">{error}</p>}
     {result && <p className="dc-linkedin__status" role="status">
       {result.status === 'published' ? 'Published live.' : 'Draft created on the blog.'}{' '}
