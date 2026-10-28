@@ -2,6 +2,22 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-28, passage tagging):**
+- User requested merge, push and production deployment of the completed note
+  passage-tagging and font-colour changes.
+- Both apps passed `npx tsc --noEmit`, production builds and lint non-regression
+  (backend 547/623; frontend 22/41). Backend isolated suite passed 728/728;
+  frontend isolated suite passed. The separately run passage and GitHub-note
+  tests passed after correcting the GitHub fixture. `git diff --check` passed.
+- Migration 115 was already applied to the shared production database with the
+  user's approval. Local tagging and task creation/removal were verified; not all
+  client interaction paths were exercised.
+- Existing application-only AZCLI recipe: push matching feature/main source,
+  build the next backend image from synced GitHub main, update the existing ACA,
+  deploy the matching frontend and verify health, startup and served assets.
+  No infrastructure provisioning or desktop rebuild. Preserve unrelated hook cache.
+- Evidence: session files/passage-release-*.log.
+
 **Release scope and Section 7: Validation Proof (2026-10-28, brainstorm and Definition):**
 - User explicitly requested merge, push and production deployment of the existing
   completed changes: brainstorm card tree, shared diagram panel, card types,

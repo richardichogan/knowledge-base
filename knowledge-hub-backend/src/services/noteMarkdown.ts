@@ -27,7 +27,10 @@ export function noteMarkdown(content: string, noteId: string): Promise<string> {
       const record = value as Record<string, unknown>;
       return Object.fromEntries(Object.entries(record).map(([key, child]) => [
         key, key === 'href' && typeof child === 'string' && /^\/(?:think|projects)\?/.test(child)
-          ? new URL(child, env.FRONTEND_BASE_URL).href : absoluteLinks(child),
+          ? new URL(child, env.FRONTEND_BASE_URL).href
+          : key === 'styles' && child !== null && typeof child === 'object' && !Array.isArray(child)
+            ? Object.fromEntries(Object.entries(child).filter(([style]) => !['important', 'followUp', 'question', 'risk', 'issue'].includes(style)))
+            : absoluteLinks(child),
       ]));
     }
     // The exporter validates block types and props against the default schema.

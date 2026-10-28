@@ -32,7 +32,8 @@ import { api } from '../services/api';
 import type { CanvasSummaryApi } from '../services/api';
 import { extractTasksWithAI } from '../utils/aiTaskExtraction';
 import { addWorkingDays, toISODateString } from '../utils/dates';
-import { getActiveBlockNoteSelectedText, clearActiveBlockNoteSelectionSnapshot, suspendBlockNoteSelectionCapture, resumeBlockNoteSelectionCapture, hasBlockNoteCellSelection, getActiveBlockNoteEditor } from '../utils/activeBlockNoteEditor';
+import { getActiveBlockNoteSelectedText, clearActiveBlockNoteSelectionSnapshot, suspendBlockNoteSelectionCapture, resumeBlockNoteSelectionCapture, hasBlockNoteCellSelection, getActiveBlockNoteEditor, capturePassageSelection, applyPassageTag, type PassageSelection } from '../utils/activeBlockNoteEditor';
+import { PASSAGE_TAGS, type PassageTag } from '../notes/passageTags';
 import { isMisspelled, isSpellableWord, loadSpelling, spellingSuggestions } from '../utils/spelling';
 import { copyImage } from '../utils/imageClipboard';
 import { ImageViewer, type ImagePreview } from '../components/ImageViewer';
@@ -53,6 +54,7 @@ export interface CtxItemData {
   fromSelection?: boolean | undefined;
   /** Selection made inside an Athena chat (no Discuss action there). */
   fromChat?: boolean | undefined;
+  passageSelection?: PassageSelection | undefined;
 }
 
 interface MenuState { x: number; y: number; item: CtxItemData; }
@@ -237,7 +239,8 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
         // What is visibly selected right now (the editor's own state can lag a
         // click behind, and it remembers old selections).
         const browserWord = isBrowserWordSelection();
-        const hasSelection = !browserWord && (sel.length > 2 || hasBlockNoteCellSelection());
+        const inNote = (e.target as HTMLElement | null)?.closest('.bn-editor') != null;
+        const hasSelection = !browserWord && (sel.length > 2 || (inNote && sel.length > 0) || hasBlockNoteCellSelection());
         nativeMenuForThisClick.current = e.shiftKey || (inEditable && !hasSelection);
         // Let the browser place the caret on the word under the cursor, which is
         // what its context menu needs to offer spelling corrections.
@@ -402,15 +405,19 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
         return true;
       }
       const liveSel = window.getSelection()?.toString().trim() ?? '';
+      const candidate = target.closest('.bn-editor') ? capturePassageSelection() : null;
+      const passageSelection = candidate && target.closest('[data-ctx-ref-type="note"]')?.getAttribute('data-ctx-ref-id') === candidate.noteId
+        ? candidate : null;
       // BlockNote/ProseMirror table cell-range selections don't populate the
       // native browser Selection object correctly — ask the editor directly
       // first (covers both plain text and table selections in notes).
       const editorSel = getActiveBlockNoteSelectedText();
       const inChatArea = target.closest('.ai-messages') !== null;
-      const sel = inChatArea && liveSel.length > 2 ? liveSel
+      const sel = passageSelection?.text ?? (inChatArea && liveSel.length > 2 ? liveSel
         : editorSel.length > 2 ? editorSel
         : liveSel.length > 2 ? liveSel
-        : lastMouseDownSelection.current;
+        : lastMouseDownSelection.current);
+      const hasSelection = passageSelection !== null || sel.length > 2;
 
       // 1. Walk DOM for data-ctx-title
       let el: HTMLElement | null = target;
@@ -423,7 +430,7 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
         e.preventDefault();
         // If user has selected text inside this element, that selection is the body.
         // The element's title/url/ref become the source context.
-        const body = sel.length > 2 ? sel : (el.getAttribute('data-ctx-body') ?? undefined);
+        const body = hasSelection ? sel : (el.getAttribute('data-ctx-body') ?? undefined);
         const rawTags = el.getAttribute('data-ctx-tags');
         const tags = rawTags ? rawTags.split(',').map((t) => t.trim()).filter(Boolean) : undefined;
         const rawTagIds = el.getAttribute('data-ctx-tag-ids');
@@ -433,7 +440,8 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
           item: {
             title:   ctxTitle,
             ...(body                                  ? { body                                         } : {}),
-            ...(sel.length > 2                        ? { fromSelection: true                          } : {}),
+            ...(hasSelection                          ? { fromSelection: true                          } : {}),
+            ...(passageSelection ? { passageSelection } : {}),
             ...(el.getAttribute('data-ctx-source')   ? { source:  el.getAttribute('data-ctx-source')! } : {}),
             ...(el.getAttribute('data-ctx-url')      ? { url:     el.getAttribute('data-ctx-url')!    } : {}),
             ...(el.getAttribute('data-ctx-ref-id')   ? { refId:   el.getAttribute('data-ctx-ref-id')! } : {}),
@@ -655,7 +663,7 @@ function SpellingMenu({ x, y, edit, spelling, onClose }: SpellMenuState & { onCl
   );
 }
 
-type PanelState = 'menu' | 'picker';
+type PanelState = 'menu' | 'picker' | 'tags';
 
 function GlobalCtxMenu({ x, y, item, onClose, onUseCase, onContact, onViewImage }: { x: number; y: number; item: CtxItemData; onClose: () => void; onUseCase: (launch: UseCaseLaunch) => void; onContact: (text: string) => void; onViewImage: (image: ImagePreview) => void }) {
   const [panel, setPanel]   = useState<PanelState>('menu');
@@ -850,6 +858,9 @@ function GlobalCtxMenu({ x, y, item, onClose, onUseCase, onContact, onViewImage 
           : item.source && item.fromSelection !== true && <span className="gctx__source">{item.source}</span>}
       </div>
       <div className="gctx__divider" />
+      {item.passageSelection && <button type="button" className="gctx__item" onClick={() => { setPanel('tags'); }}>
+        Tag selected passage…
+      </button>}
       <button className="gctx__item" onClick={() => setPanel('picker')}>
         <Diagram size={15} /> {savedSpark ? 'Send Spark to Canvas…' : 'Add to linked canvas…'}
       </button>
@@ -920,6 +931,22 @@ function GlobalCtxMenu({ x, y, item, onClose, onUseCase, onContact, onViewImage 
       {actionError && <p className="gctx__error" role="alert">{actionError}</p>}
     </div>
   );
+
+  if (panel === 'tags') return <div ref={ref} className="gctx gctx--picker" style={posStyle} role="menu" aria-label="Tag selected passage">
+    <div className="gctx__picker-header">
+      <button type="button" className="gctx__picker-back" aria-label="Back" onClick={() => { setPanel('menu'); }}>←</button>
+      <span>Tag selected passage</span>
+    </div>
+    {(Object.keys(PASSAGE_TAGS) as PassageTag[]).map(kind => <button key={kind} type="button" role="menuitem"
+      className="gctx__item" onClick={() => {
+        const selection = item.passageSelection;
+        if (!selection) return;
+        void applyPassageTag(kind, selection).then(onClose).catch((error: unknown) => {
+          setActionError(error instanceof Error ? error.message : 'Could not tag the passage.');
+        });
+      }}><span aria-hidden="true">{PASSAGE_TAGS[kind].icon}</span> {PASSAGE_TAGS[kind].label}</button>)}
+    {actionError && <p className="gctx__error" role="alert">{actionError}</p>}
+  </div>;
 
   return (
     <div ref={ref} className="gctx gctx--picker" style={posStyle}>

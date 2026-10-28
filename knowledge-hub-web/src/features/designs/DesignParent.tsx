@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { AppDialog } from '../../components/AppDialog';
@@ -18,6 +18,7 @@ import type { AgentJob } from '../../types/agentJobs';
 import { AthenaRibbon } from '../../components/athena/AthenaRibbon';
 import { requestCompletionNotifications } from '../../chat/completionNotification';
 import { confirmDialog } from '../../services/appDialogs';
+import { passageNavigationSnapshot, subscribePassageNavigation } from '../../notes/passageNavigation';
 
 const NoteEditor = deferredView('Design document', async () => ({ default: (await import('../../notes/NoteEditor')).NoteEditor }));
 const DiagramEditor = deferredView('Design diagram', async () => ({ default: (await import('../diagram/DiagramEditor')).DiagramEditor }));
@@ -51,6 +52,8 @@ export const DesignParent: React.FC<{
   const registerDiagramSave = useCallback((save: (() => Promise<boolean>) | null) => { diagramSave.current = save; }, []);
   const uid = useId();
   const tabsRef = useRef<HTMLDivElement>(null);
+  const passageRequest = useSyncExternalStore(subscribePassageNavigation, passageNavigationSnapshot);
+  const passageSwitch = useRef(0);
   const query = useQuery({ queryKey: ['design', id], queryFn: async () => requireApiData(await api.getDesign(id)) });
   const design = query.data;
   const { active: job, jobs: liveJobs } = useAgentJobs(design?.id);
@@ -141,6 +144,16 @@ export const DesignParent: React.FC<{
     } catch (err) { setError(describeApiError(err)); }
     finally { setSwitching(false); }
   };
+  useEffect(() => {
+    if (!design || !passageRequest || passageSwitch.current === passageRequest.sequence || busy || switching) return;
+    const requestedTab = params.get('tab');
+    const requestedAsset = params.get('asset');
+    if (params.get('design') !== id || !isTab(requestedTab) || requestedAsset !== passageRequest.noteId) return;
+    passageSwitch.current = passageRequest.sequence;
+    if (tab !== requestedTab || targetId !== requestedAsset) void switchTo(requestedTab, requestedAsset);
+    // switchTo operates on the current render's editor and save state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [design, passageRequest, busy, switching, params, id, tab, targetId]);
   const selection = useMutation({
     mutationFn: async (sourceId: string) => {
       await prepare();

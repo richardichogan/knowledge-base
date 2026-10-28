@@ -141,10 +141,10 @@ export function fromApiNote(note: import('../types/contentItem').Note): NoteDocu
   return { ...deserialise(note.content, note.id, note.createdAt, note.updatedAt, note.projectId), revision: note.revision ?? 0 };
 }
 
-export async function saveNote(doc: NoteDocument): Promise<NoteDocument> {
+export async function saveNote(doc: NoteDocument, passageTagsSupported = false): Promise<NoteDocument> {
   // No tags argument: taxonomy tags live in note_tags, and sending [] here
   // wiped the note's stored tags on every autosave.
-  const result = await api.patchNote(doc.id, serialise(doc), undefined, doc.projectId ?? null, doc.revision ?? 0);
+  const result = await api.patchNote(doc.id, serialise(doc), undefined, doc.projectId ?? null, doc.revision ?? 0, passageTagsSupported);
   if (!result.success) throw new Error(result.error.message);
   return fromApiNote(result.data);
 }

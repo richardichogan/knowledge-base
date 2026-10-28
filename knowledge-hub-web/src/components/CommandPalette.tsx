@@ -130,7 +130,14 @@ const OpenCommandPalette: React.FC<Props> = ({ open, onClose, onNavigationAction
     staleTime: 10_000,
     retry: false,
   });
-  const fetching = searching && (!settled || entityQuery.isFetching || chatQuery.isFetching || searchQuery.isFetching);
+  const passageQuery = useQuery({
+    queryKey: ['passage-search', searchTerm],
+    queryFn: async ({ signal }) => requireApiData(await api.searchNotePassages(searchTerm, signal)),
+    enabled: open && searching && settled,
+    staleTime: 10_000,
+    retry: false,
+  });
+  const fetching = searching && (!settled || entityQuery.isFetching || chatQuery.isFetching || searchQuery.isFetching || passageQuery.isFetching);
 
   const go = useCallback(
     (path: string) => {
@@ -177,6 +184,16 @@ const OpenCommandPalette: React.FC<Props> = ({ open, onClose, onNavigationAction
   if (actions.length > 0) sections.push({ title: 'Actions', items: actions });
 
   if (searching && settled) {
+    const passages = passageQuery.data?.items ?? [];
+    if (passages.length > 0) {
+      sections.push({ title: 'Tagged passages', items: passages.map(passage => ({
+        id: `passage-${passage.noteId}-${passage.kind}-${passage.id}`,
+        label: passage.text,
+        sublabel: `${passage.label} · ${passage.noteTitle}`,
+        icon: <Notebook size={16} />,
+        action: () => { go(`/think?noteId=${encodeURIComponent(passage.noteId)}&passageId=${encodeURIComponent(passage.id)}`); },
+      })) });
+    }
     const entities = entityQuery.data ?? [];
     if (entities.length > 0) {
       sections.push({ title: 'Athena items', items: entities.map((item) => targetItem({ kind: item.type, id: item.id, title: item.title, href: item.href }, 'item')) });
@@ -196,7 +213,7 @@ const OpenCommandPalette: React.FC<Props> = ({ open, onClose, onNavigationAction
       })) });
     }
     for (const [label, result] of [
-      ['Athena items', entityQuery], ['Athena chats', chatQuery], ['Library', searchQuery],
+      ['Athena items', entityQuery], ['Athena chats', chatQuery], ['Library', searchQuery], ['Tagged passages', passageQuery],
     ] as const) {
       if (result.isError) {
         sections.push({

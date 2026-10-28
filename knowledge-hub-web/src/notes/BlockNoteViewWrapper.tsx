@@ -23,5 +23,5 @@ interface Props {
 }
 
 export const BlockNoteViewWrapper: React.FC<Props> = ({ editor, theme, editable = true, children }) => (
-  <BlockNoteView editor={editor} theme={theme} editable={editable}>{children}</BlockNoteView>
+  <BlockNoteView editor={editor} theme={theme} editable={editable} formattingToolbar={false}>{children}</BlockNoteView>
 );

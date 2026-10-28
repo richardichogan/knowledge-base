@@ -6,6 +6,7 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { confirmDialog } from '../services/appDialogs';
 import { TextInput } from '@carbon/react';
+import { useQuery } from '@tanstack/react-query';
 import { TrashCan, Close, SortAscending, GroupObjects, View, ChevronDown, ChevronRight } from '@carbon/icons-react';
 import type { ThinkListItem } from './types';
 import { useTaxonomy } from '../hooks/useTaxonomy';
@@ -14,6 +15,8 @@ import { readStored, writeStored, usePersistedBoolean, usePersistedChoice } from
 import { contentTypeIcon, ctxTags, identitiesFor, useIdentity } from '../identity';
 import { activateNoteOnKeyDown, NOTE_SORT_OPTIONS, NOTE_BUCKET_STORAGE_KEY, noteDateBuckets, noteListDate, parseCollapsedNoteBuckets, type NoteSortKey, type NoteListQuery } from './noteListState';
 import './noteList.scss';
+import { api } from '../services/api';
+import { describeApiError, requireApiData } from '../services/apiError';
 
 const SORT_LABELS: Record<NoteSortKey, string> = {
   modified: 'Modified',
@@ -25,6 +28,7 @@ interface NoteListProps {
   notes: ThinkListItem[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onSelectPassage?: (noteId: string, passageId: string) => void;
   onDelete: (id: string) => void;
   deletingId?: string | null;
   /** Bumped by the parent to pull focus into the search box (e.g. after expanding from the rail). */
@@ -58,6 +62,7 @@ export const NoteList: React.FC<NoteListProps> = ({
   notes,
   selectedId,
   onSelect,
+  onSelectPassage,
   onDelete,
   deletingId = null,
   focusSearchSignal = 0,
@@ -76,6 +81,17 @@ export const NoteList: React.FC<NoteListProps> = ({
   onLoadMoreDefinitions,
 }) => {
   const [filter, setFilter] = useState('');
+  const [passageFilter, setPassageFilter] = useState('');
+  useEffect(() => {
+    const timer = window.setTimeout(() => { setPassageFilter(filter.trim()); }, 250);
+    return () => { window.clearTimeout(timer); };
+  }, [filter]);
+  const passageQuery = useQuery({
+    queryKey: ['passage-search', passageFilter],
+    queryFn: async ({ signal }) => requireApiData(await api.searchNotePassages(passageFilter, signal)),
+    enabled: onSelectPassage !== undefined && passageFilter.length >= 2 && passageFilter === filter.trim(),
+    retry: false,
+  });
   const [definitionsOpen, setDefinitionsOpen] = usePersistedBoolean('kh_notes_definitions_open', false);
   const definitionSelected = definitions.some(note => note.id === selectedId);
   useEffect(() => { if (definitionSelected) setDefinitionsOpen(true); }, [definitionSelected, setDefinitionsOpen]);
@@ -277,8 +293,25 @@ export const NoteList: React.FC<NoteListProps> = ({
       </div>
 
       <div className="notes-list">
+        {passageFilter.length >= 2 && passageFilter === filter.trim() && <>
+          {passageQuery.isFetching && <p className="notes-list-progress" role="status">Searching tagged passages…</p>}
+          {passageQuery.isError && <p className="notes-passage-search__error" role="alert">
+            Tagged passages unavailable: {describeApiError(passageQuery.error)}{' '}
+            <button type="button" onClick={() => { void passageQuery.refetch(); }}>Retry</button>
+          </p>}
+          {(passageQuery.data?.items.length ?? 0) > 0 && <section className="notes-passage-search" aria-label="Tagged passages">
+            <p className="notes-group__label">Tagged passages</p>
+            {passageQuery.data?.items.map(passage => <button key={`${passage.noteId}:${passage.kind}:${passage.id}`}
+              type="button" className="notes-passage-search__item"
+              onClick={() => { onSelectPassage?.(passage.noteId, passage.id); }}>
+              <span>{passage.text}</span><small>{passage.label} · {passage.noteTitle}</small>
+            </button>)}
+            {passageQuery.data?.hasMore && <p className="notes-list-progress">More results available; refine your search.</p>}
+          </section>}
+        </>}
         {loading && <p className="notes-list-progress" role="status">Loading notes...</p>}
-        {!loading && !unavailable && sortedNotes.length === 0 && definitions.length === 0 && (
+        {!loading && !unavailable && sortedNotes.length === 0 && definitions.length === 0
+          && (passageQuery.data?.items.length ?? 0) === 0 && (
           <div className="notes-list-empty">No documents found</div>
         )}
         {groupByProject

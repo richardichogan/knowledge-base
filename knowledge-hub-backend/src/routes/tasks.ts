@@ -87,46 +87,44 @@ export function rowToTask(row: Record<string, unknown>): Task {
  * previously tasks lived only in the `tasks` table with their own dedicated
  * structured tool, invisible to Athena's general knowledge-base search.
  */
-function syncTaskToTimeline(db: ReturnType<typeof getDb>, task: Task): void {
-  void (async (): Promise<void> => {
-    try {
-      const summary = task.body ? task.body.slice(0, 500) : `Status: ${task.status}`;
-      const body = [task.title, task.body].filter(Boolean).join('\n\n');
-      const projectContext = task.projectId || 'personal';
-      const url = `${env.FRONTEND_BASE_URL}/plan?taskId=${task.id}`;
-      const { id: contentItemId } = await upsertContentItem(db, {
-        source: 'task',
-        sourceId: task.id,
-        title: task.title,
-        summary,
-        body,
-        publishedAt: task.updatedAt,
-        url,
-        projectContext,
-        metadata: { taskId: task.id, status: task.status, priority: task.priority, dueDate: task.dueDate },
-        tags: task.tags,
-      });
+export async function syncTaskToTimeline(db: ReturnType<typeof getDb>, task: Task): Promise<void> {
+  try {
+    const summary = task.body ? task.body.slice(0, 500) : `Status: ${task.status}`;
+    const body = [task.title, task.body].filter(Boolean).join('\n\n');
+    const projectContext = task.projectId || 'personal';
+    const url = `${env.FRONTEND_BASE_URL}/plan?taskId=${task.id}`;
+    const { id: contentItemId } = await upsertContentItem(db, {
+      source: 'task',
+      sourceId: task.id,
+      title: task.title,
+      summary,
+      body,
+      publishedAt: task.updatedAt,
+      url,
+      projectContext,
+      metadata: { taskId: task.id, status: task.status, priority: task.priority, dueDate: task.dueDate },
+      tags: task.tags,
+    });
 
-      void indexContentItem({
-        id: contentItemId,
-        source: 'task',
-        sourceId: task.id,
-        title: task.title,
-        summary,
-        body,
-        publishedAt: task.updatedAt,
-        indexedAt: new Date().toISOString(),
-        url,
-        projectContext,
-        metadata: { taskId: task.id, status: task.status },
-        tags: task.tags,
-      }).catch((err: unknown) => {
-        console.error('[tasks] Foundry IQ index push failed:', err instanceof Error ? err.message : err);
-      });
-    } catch (err) {
-      console.error('[tasks] Failed to sync task to content_items:', err instanceof Error ? err.message : err);
-    }
-  })();
+    void indexContentItem({
+      id: contentItemId,
+      source: 'task',
+      sourceId: task.id,
+      title: task.title,
+      summary,
+      body,
+      publishedAt: task.updatedAt,
+      indexedAt: new Date().toISOString(),
+      url,
+      projectContext,
+      metadata: { taskId: task.id, status: task.status },
+      tags: task.tags,
+    }).catch((err: unknown) => {
+      console.error('[tasks] Foundry IQ index push failed:', err instanceof Error ? err.message : err);
+    });
+  } catch (err) {
+    console.error('[tasks] Failed to sync task to content_items:', err instanceof Error ? err.message : err);
+  }
 }
 
 router.get('/', (req: Request, res: Response, next: NextFunction): void => {
@@ -206,7 +204,7 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
       }
       const body: ApiSuccess<Task> = { success: true, data: task };
       res.status(HTTP_STATUS.CREATED).json(body);
-      syncTaskToTimeline(getDb(), task);
+      void syncTaskToTimeline(getDb(), task);
       queueAutoTag(getDb(), 'task', task.id);
     } catch (err) {
       if (client !== undefined) await client.query('ROLLBACK').catch((rollbackError: unknown) => {
@@ -338,8 +336,8 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       client = undefined;
       const body: ApiSuccess<Task> = { success: true, data: task };
       res.status(HTTP_STATUS.OK).json(body);
-      syncTaskToTimeline(getDb(), task);
-      for (const spawned of spawnedTasks) syncTaskToTimeline(getDb(), spawned);
+      void syncTaskToTimeline(getDb(), task);
+      for (const spawned of spawnedTasks) void syncTaskToTimeline(getDb(), spawned);
       if (input.title !== undefined || input.body !== undefined) queueAutoTag(getDb(), 'task', String(id));
     } catch (err) {
       if (client !== undefined) {
@@ -367,7 +365,7 @@ router.post('/:id/archive', (req: Request, res: Response, next: NextFunction): v
       const task = rowToTask(result.rows[0] as Record<string, unknown>);
       const body: ApiSuccess<Task> = { success: true, data: task };
       res.status(HTTP_STATUS.OK).json(body);
-      syncTaskToTimeline(db, task);
+      void syncTaskToTimeline(db, task);
     } catch (err) { next(err); }
   })();
 });

@@ -53,6 +53,11 @@ import { DocumentHtmlView, DocumentViewToggle, type DocumentViewMode } from '../
 import { DocumentReview } from '../components/DocumentReview';
 import { applyReviewedNoteText } from '../utils/noteEditApplier';
 import { runNoteAction } from '../utils/activeBlockNoteEditor';
+import { PassageTagManager } from './PassageTagManager';
+import { consumePassageNavigation, passageNavigationSnapshot, subscribePassageNavigation } from './passageNavigation';
+import { prepareTaggedPaste } from './passageTags';
+import { passageTagKeys } from './passageTagModel';
+import { notifyPastedPassages } from '../utils/activeBlockNoteEditor';
 
 interface NoteEditorProps {
   hideProperties?: boolean;
@@ -194,6 +199,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   const flatTags = useFlatTags();
   const { data: projects = [] } = useProjects();
   const [notification, setNotification] = useState<{ kind: 'success' | 'error'; msg: string } | null>(null);
+  const passageRequest = useSyncExternalStore(subscribePassageNavigation, passageNavigationSnapshot);
+  const passageError = useCallback((msg: string) => { setNotification({ kind: 'error', msg }); }, []);
   const [githubPath, setGithubPath] = useState<string | undefined>(doc.githubPath);
   const [publication, setPublication] = useState<GitHubPublication | null>(null);
   const [githubBusy, setGithubBusy] = useState(false);
@@ -249,6 +256,13 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
       pasteHandler: ({ event, editor: ed, defaultPasteHandler }) => {
         const plain = event.clipboardData?.getData('text/plain');
         const html = event.clipboardData?.getData('text/html');
+        const blockNoteHtml = event.clipboardData?.getData('blocknote/html');
+        const tagged = prepareTaggedPaste(blockNoteHtml || html || '', ed.document);
+        if (tagged) {
+          ed.pasteHTML(tagged.html, Boolean(blockNoteHtml));
+          queueMicrotask(() => { notifyPastedPassages(doc.id, tagged.followUpIds); });
+          return true;
+        }
         // Teams transcripts: the HTML flavour flattens into one paragraph, so
         // rebuild one block per speaker turn from the plain-text flavour.
         if (plain) {
@@ -481,13 +495,14 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
     const submittedLocal = localDraftRef.current;
     isDirtyRef.current = false;
     let failure = 'Save failed - your draft is retained; will retry';
-    const saving = saveNote(liveDocument()).then(saved => {
+    const saving = saveNote(liveDocument(), true).then(saved => {
       savedDocRef.current = saved;
       void queryClient.invalidateQueries({ queryKey: ['note-backlinks'] });
       void queryClient.invalidateQueries({ queryKey: ['unlinked-mentions'] });
       void queryClient.invalidateQueries({ queryKey: ['entity-link'] });
       void queryClient.invalidateQueries({ queryKey: ['entity-link-search'] });
       void queryClient.invalidateQueries({ queryKey: ['link-preview'] });
+      void queryClient.invalidateQueries({ queryKey: ['passage-search'] });
       try {
         if (isDirtyRef.current) persistDraft();
         else if (submittedLocal) removeNoteDraftIfUnchanged(localStorage, submittedLocal.draft, submittedLocal.raw);
@@ -527,6 +542,20 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { onSaveReady?.(doSave); return () => { onSaveReady?.(null); }; }, [doSave, onSaveReady]);
+
+  useEffect(() => {
+    if (!passageRequest || passageRequest.noteId !== doc.id) return;
+    if (showingHtml) { setDocumentView('md'); return; }
+    const frame = window.requestAnimationFrame(() => {
+      const target = editorScrollRef.current?.querySelector<HTMLElement>(
+        `[data-passage-id="${CSS.escape(passageRequest.passageId)}"]`);
+      consumePassageNavigation(passageRequest.sequence);
+      if (!target) { passageError('The tagged passage is no longer in this note.'); return; }
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target.focus({ preventScroll: true });
+    });
+    return () => { window.cancelAnimationFrame(frame); };
+  }, [doc.id, passageError, passageRequest, showingHtml]);
 
   useEffect(() => {
     if (doc.id !== savedDocRef.current.id || (doc.revision ?? 0) <= (savedDocRef.current.revision ?? 0)) return;
@@ -747,8 +776,17 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
     URL.revokeObjectURL(url);
   }
 
+  async function confirmMarkdownWithoutTags(action: 'export' | 'copy' | 'share' | 'publish'): Promise<boolean> {
+    if (passageTagKeys(editorRef.current.document).size === 0) return true;
+    return confirmDialog(
+      'Markdown does not include passage tags. The tags remain in the Think note, but cannot be restored from the Markdown.',
+      { title: 'Passage tags in Markdown', confirmLabel: `${action[0]!.toUpperCase()}${action.slice(1)} without tags` },
+    );
+  }
+
   async function handleExportMarkdown(): Promise<void> {
     setExportMenuOpen(false);
+    if (!await confirmMarkdownWithoutTags('export')) return;
     setExporting(true);
     try {
       await prepareEntityLinkExport(editor.document);
@@ -767,6 +805,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   }
 
   async function handleCopyNote(): Promise<void> {
+    if (!await confirmMarkdownWithoutTags('copy')) return;
     setCopying(true);
     try {
       const blocks = editorRef.current.document;
@@ -788,6 +827,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
 
   const [preparingEmail, setPreparingEmail] = useState(false);
   async function shareNoteText(): Promise<void> {
+    if (!await confirmMarkdownWithoutTags('share')) return;
     setPreparingEmail(true); setExportMenuOpen(false);
     try {
       const blocks = structuredClone(editorRef.current.document);
@@ -844,6 +884,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   async function handleGitHubConfirm(repo: string, filePath: string, commitMessage: string): Promise<void> {
     setGithubModalOpen(false);
     if (githubBusy) return;
+    if (!await confirmMarkdownWithoutTags('publish')) return;
     setGithubBusy(true);
     try {
       if (!await doSave()) return;
@@ -879,6 +920,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
 
   async function resolveGitHub(choice: 'think' | 'github'): Promise<void> {
     if (!githubReview || githubBusy) return;
+    if (choice === 'think' && !await confirmMarkdownWithoutTags('publish')) return;
     setGithubBusy(true);
     try {
       if (!await doSave()) return;
@@ -1195,6 +1237,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
               theme={BLOCKNOTE_G100_THEME}
               editable={!historyBusy && !externalBusy}
             >
+              <PassageTagManager editor={editor} noteId={doc.id} save={doSave} onError={passageError}
+                githubPublished={publication !== null} />
               <EntityLinkMenu editor={editor} noteId={doc.id} projectId={projectId}
                 onError={msg => { setNotification({ kind: 'error', msg }); }} />
             </BlockNoteViewWrapper>

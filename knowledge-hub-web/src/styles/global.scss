@@ -5520,7 +5520,7 @@ body.kh-pane-resizing {
         font-size: 2rem !important;
         font-weight: 600 !important;
         line-height: 1.25;
-        color: var(--cds-text-primary);
+        &:is(:not([data-text-color]), [data-text-color="default"]) { color: var(--cds-text-primary); }
       }
     }
 
@@ -5567,6 +5567,10 @@ body.kh-pane-resizing {
     font-size: 0.9375rem;
     line-height: 1.75;
     color: var(--cds-text-secondary);
+  }
+
+  .bn-editor [data-content-type][data-text-color]:not([data-text-color="default"]) p {
+    color: inherit;
   }
 }
 
@@ -18220,3 +18224,76 @@ select optgroup {
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
 }
+/* Inline passage tags use marks rather than changing the author's text colour. */
+.bn-editor [data-passage-tag] { position: relative; }
+.bn-editor [data-passage-tag]::after {
+  content: attr(data-passage-icon);
+  color: var(--kh-accent);
+  font-size: 0.7em;
+  font-weight: 600;
+  margin-inline: 0.15em;
+  vertical-align: super;
+}
+
+.bn-editor [data-passage-tag]:hover::before,
+.bn-editor [data-passage-tag]:focus-visible::before {
+  content: attr(title);
+  position: absolute;
+  z-index: 20;
+  bottom: 100%;
+  left: 0;
+  padding: 4px 6px;
+  background: var(--cds-layer-02);
+  border: 1px solid var(--cds-border-subtle-01);
+  color: var(--cds-text-primary);
+  font-size: 0.75rem;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.bn-editor [data-passage-tag]:focus-visible {
+  outline: 1px solid var(--cds-focus);
+  outline-offset: 2px;
+}
+
+.note-passage-menu { position: relative; display: inline-flex; }
+.note-passage-menu__trigger,
+.note-passage-menu__item {
+  border: 0;
+  background: transparent;
+  color: var(--cds-text-primary);
+  cursor: pointer;
+  font: inherit;
+}
+.note-passage-menu__trigger { padding: 6px 8px; }
+.note-passage-menu__list {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  right: 0;
+  min-width: 150px;
+  padding: 4px;
+  background: var(--cds-layer-02);
+  border: 1px solid var(--cds-border-subtle-01);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+.note-passage-menu__item { display: flex; gap: 8px; width: 100%; padding: 8px; text-align: left; }
+.note-passage-menu__item span { width: 16px; color: var(--kh-accent); text-align: center; }
+.note-passage-menu__trigger:hover, .note-passage-menu__item:hover { background: var(--cds-layer-hover-02); }
+.note-passage-menu__trigger:focus-visible, .note-passage-menu__item:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: -2px; }
+.note-passage-menu__error { display: block; padding: 8px; color: var(--cds-support-error); }
+.note-passage-status { padding: 8px 16px; color: var(--cds-text-secondary); font-size: 0.75rem; }
+.note-passage-status p { margin: 0 0 4px; }
+.note-passage-status [role="alert"] { color: var(--cds-support-error); }
+.note-passage-status__row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.note-passage-status__row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-passage-status button, .notes-passage-search__error button {
+  border: 0;
+  padding: 4px;
+  background: transparent;
+  color: var(--kh-accent);
+  cursor: pointer;
+  font: inherit;
+}
+.note-passage-status button:disabled { color: var(--cds-text-disabled); cursor: not-allowed; }
+.note-passage-status button:focus-visible, .notes-passage-search__error button:focus-visible { outline: 2px solid var(--cds-focus); }

@@ -908,6 +908,38 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
+  async searchNotePassages(q: string, signal?: AbortSignal): Promise<ApiResponse<{
+    items: Array<{ id: string; kind: 'important' | 'followUp' | 'question' | 'risk' | 'issue'; label: string; text: string; noteId: string; noteTitle: string }>;
+    hasMore: boolean;
+  }>> {
+    return (await this.client.get('/api/notes/passage-tags/search', { params: { q }, ...(signal && { signal }) })).data;
+  }
+
+  async getPassageFollowups(noteId: string): Promise<ApiResponse<Array<{
+    tagId: string; taskId: string | null; state: 'pending' | 'created'; taskTitle: string | null;
+  }>>> {
+    return (await this.client.get(`/api/notes/${encodeURIComponent(noteId)}/passage-followups`)).data;
+  }
+
+  async savePassageFollowup(noteId: string, tagId: string, task?: { title: string; body: string; projectId: string; passageText: string }): Promise<ApiResponse<{
+    taskId: string | null; state: 'pending' | 'created';
+  }>> {
+    return (await this.client.post(`/api/notes/${encodeURIComponent(noteId)}/passage-followups/${encodeURIComponent(tagId)}`, task ?? {})).data;
+  }
+
+  async draftPassageFollowup(noteId: string, tagId: string): Promise<ApiResponse<{
+    title: string; body: string; projectId: string; passageText: string;
+  }>> {
+    return (await this.client.post(`/api/notes/${encodeURIComponent(noteId)}/passage-followups/${encodeURIComponent(tagId)}/draft`,
+      {}, { timeout: CHAT_TIMEOUT_MS })).data;
+  }
+
+  async removePassageFollowup(noteId: string, tagId: string, deleteTask: boolean, expectedTaskId: string | null): Promise<ApiResponse<{ removed: boolean }>> {
+    return (await this.client.delete(`/api/notes/${encodeURIComponent(noteId)}/passage-followups/${encodeURIComponent(tagId)}`, {
+      params: { deleteTask, expectedTaskId: expectedTaskId ?? '' },
+    })).data;
+  }
+
   async restoreArchivedNote(id: string, expectedRevision: number): Promise<ApiResponse<{ note: Note; restored: boolean }>> {
     return (await this.client.post<ApiResponse<{ note: Note; restored: boolean }>>(`/api/notes/${encodeURIComponent(id)}/restore-archive`, { expectedRevision })).data;
   }
@@ -954,8 +986,8 @@ export class KnowledgeHubApi {
   }
 
   /** Updates a note. `tags` is only sent when given — omitting it leaves the stored tags untouched. */
-  async patchNote(id: string, content: string, tags?: string[], projectId?: string | null, expectedRevision?: number): Promise<ApiResponse<Note>> {
-    const body: Record<string, unknown> = { content, expectedRevision };
+  async patchNote(id: string, content: string, tags?: string[], projectId?: string | null, expectedRevision?: number, passageTagsSupported = false): Promise<ApiResponse<Note>> {
+    const body: Record<string, unknown> = { content, expectedRevision, passageTagsSupported };
     if (tags !== undefined) body['tags'] = tags;
     if (projectId !== undefined) body['projectId'] = projectId;
     const r = await this.client.patch<ApiResponse<Note>>(`/api/notes/${id}`, body);

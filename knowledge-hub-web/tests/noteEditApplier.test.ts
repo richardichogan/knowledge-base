@@ -54,6 +54,21 @@ test('wording corrections preserve rich inline styles, links, block identity, li
   assert.deepEqual(editor.document[0], title());
 });
 
+test('Athena text edits preserve passage tags and structural redrafts refuse to erase them', () => {
+  const tag = '11111111-1111-4111-8111-111111111111';
+  const original: Block[] = [title(), { id: 'section', type: 'heading', props: { level: 2 }, content: [text('Details')] },
+    { id: 'body', type: 'paragraph', content: [text('Review this', { followUp: tag })] }];
+  const { editor, apply } = fixture(original);
+  const corrected = apply([{ action: 'replace_text', find: 'Review', markdown: 'Check', summary: 'Improve wording' }]);
+  assert.equal(corrected.applied, 1);
+  assert.deepEqual(editor.document[2]?.content, [text('Check this', { followUp: tag })]);
+  const before = structuredClone(editor.document);
+  const deleted = apply([{ action: 'delete_section', heading: 'Details', summary: 'Delete section' }]);
+  assert.equal(deleted.applied, 0);
+  assert.match(deleted.failed[0]!, /tagged passages/);
+  assert.deepEqual(editor.document, before);
+});
+
 test('an authorised whole-body redraft preserves the original title heading', () => {
   const { editor, apply } = fixture([title(), { id: 'body', type: 'paragraph', content: [text('Old body')] }]);
   assert.equal(apply([{ action: 'replace_all', markdown: '# Wi-Fi\nNew instructions', summary: 'Redraft body' }]).applied, 1);

@@ -3,6 +3,7 @@ import type { Pool, PoolClient } from 'pg';
 import type { Note } from '../types/index.js';
 import { ConflictError, NotFoundError, ValidationError } from '../types/index.js';
 import { scheduleGitHubPublish } from './noteGitHubService.js';
+import { notePassageTags } from '../utils/notePassageTags.js';
 
 export const NOTE_HISTORY_INTERVAL_MS = 1_800_000;
 export const NOTE_HISTORY_LIMIT = 30;
@@ -84,6 +85,7 @@ export interface NoteWrite {
   protect?: boolean; restoreId?: string; appendBlocks?: unknown[]; importGitHub?: boolean;
   restoreWriting?: Writing;
   protectBefore?: boolean;
+  passageTagsSupported?: boolean;
 }
 /** All note writing and checkpoint decisions share the locked note transaction. */
 export async function writeNote(db: Pool, id: string, input: NoteWrite): Promise<Note> {
@@ -131,6 +133,13 @@ export async function writeNoteInTransaction(client: PoolClient, id: string, inp
         contentJson: JSON.stringify([...(JSON.parse(before.contentJson) as unknown[]), ...input.appendBlocks]) });
     }
     const after = parseWriting(content);
+    if (!input.passageTagsSupported) {
+      const currentTags = notePassageTags(row.content);
+      const nextTags = new Set(notePassageTags(content).map(tag => `${tag.kind}:${tag.id}`));
+      if (currentTags.some(tag => !nextTags.has(`${tag.kind}:${tag.id}`))) {
+        throw new ConflictError('This change would remove tagged passages. Open the note in the updated editor before making this change.', 'NOTE_PASSAGE_TAG_CONFLICT');
+      }
+    }
     const changed = writingFingerprint(before) !== writingFingerprint(after);
     const time = await client.query<{ now: Date }>('SELECT clock_timestamp() AS now');
     const due = changed && automaticCheckpointDue(row.last_history_at, time.rows[0]!.now);

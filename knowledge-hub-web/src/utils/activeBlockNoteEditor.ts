@@ -22,6 +22,45 @@
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 import type { BlockNoteEditor } from '@blocknote/core';
 import { CellSelection, TableMap } from 'prosemirror-tables';
+import { TextSelection } from '@tiptap/pm/state';
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
+import type { PassageTag } from '../notes/passageTags';
+
+export interface PassageSelection {
+  noteId: string;
+  doc: ProseMirrorNode;
+  from: number;
+  to: number;
+  text: string;
+}
+
+let passageBridge: { noteId: string; apply: (kind: PassageTag, selection: PassageSelection) => Promise<void>; pasted: (ids: string[]) => void } | null = null;
+
+export function setPassageTagBridge(noteId: string, apply: (kind: PassageTag, selection: PassageSelection) => Promise<void>, pasted: (ids: string[]) => void): () => void {
+  const bridge = { noteId, apply, pasted };
+  passageBridge = bridge;
+  return () => { if (passageBridge === bridge) passageBridge = null; };
+}
+
+export function notifyPastedPassages(noteId: string, ids: string[]): void {
+  if (passageBridge?.noteId === noteId && activeNoteId === noteId) passageBridge.pasted(ids);
+}
+
+export function capturePassageSelection(): PassageSelection | null {
+  if (!activeEditor || !activeNoteId) return null;
+  const state = activeEditor._tiptapEditor.state;
+  const selection = state.selection;
+  if (!(selection instanceof TextSelection) || selection.empty) return null;
+  const text = state.doc.textBetween(selection.from, selection.to, '\n').trim();
+  return text ? { noteId: activeNoteId, doc: state.doc, from: selection.from, to: selection.to, text } : null;
+}
+
+export async function applyPassageTag(kind: PassageTag, selection: PassageSelection): Promise<void> {
+  if (!passageBridge || passageBridge.noteId !== selection.noteId || activeNoteId !== selection.noteId) {
+    throw new Error('The selected note is no longer open. Select the passage again.');
+  }
+  await passageBridge.apply(kind, selection);
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let activeEditor: BlockNoteEditor<any, any, any> | null = null;

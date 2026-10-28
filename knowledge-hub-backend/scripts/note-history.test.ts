@@ -49,6 +49,20 @@ test('isolated PostgreSQL migration and full transactional policy', async () => 
   const create = async (content: string) => (await db.query('INSERT INTO notes (content) VALUES ($1) RETURNING id', [content])).rows[0].id as string;
   const id = await create(body('Original'));
   const other = await create(body('Other'));
+  const taggedBody = JSON.stringify({ title: 'Tagged', contentType: 'note', contentJson: JSON.stringify([
+    { type: 'paragraph', content: [{ type: 'text', text: 'Keep me', styles: {
+      followUp: '11111111-1111-4111-8111-111111111111',
+    } }] },
+  ]) });
+  const taggedId = await create(taggedBody);
+  await assert.rejects(writeNote(pool, taggedId, { content: body('Older client'), expectedRevision: 0 }), /remove tagged passages/);
+  const unchanged = (await db.query('SELECT content, revision FROM notes WHERE id = $1', [taggedId])).rows[0];
+  assert.equal(unchanged.content, taggedBody);
+  assert.equal(unchanged.revision, 0);
+  const deliberatelyEdited = await writeNote(pool, taggedId, {
+    content: body('Updated editor'), expectedRevision: 0, passageTagsSupported: true,
+  });
+  assert.equal(deliberatelyEdited.revision, 1);
   const project = '11111111-1111-4111-8111-111111111111';
   await db.query('UPDATE notes SET project_id = $2, linked_items = ARRAY[$3::uuid] WHERE id = $1', [id, project, other]);
   const count = async () => (await listNoteVersions(pool, id)).length;

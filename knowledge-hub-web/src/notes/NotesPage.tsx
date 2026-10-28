@@ -43,6 +43,7 @@ import { describeApiError, requireApiData } from '../services/apiError';
 import { AppDialog } from '../components/AppDialog';
 import { NoteEditorHost } from './NoteEditorHost';
 import { slidePanels } from '../utils/panelTransition';
+import { requestPassageNavigation } from './passageNavigation';
 
 const NoteEditor = deferredView('Note editor', async () => ({ default: (await import('./NoteEditor')).NoteEditor }));
 const CanvasEditor = deferredView('Brainstorm', async () => ({ default: (await import('../features/canvas/CanvasEditor')).CanvasEditor }));
@@ -209,6 +210,8 @@ export const NotesPage: React.FC = () => {
     }
     const linkedId = searchParams.get('noteId');
     if (linkedId !== null) {
+      const passageId = searchParams.get('passageId');
+      if (passageId) requestPassageNavigation(linkedId, passageId);
       if (searchParams.get('panel') === 'campaign') {
         setCampaignRequest(previous => ({ noteId: linkedId, sequence: (previous?.sequence ?? 0) + 1 }));
         searchParams.delete('panel');
@@ -217,6 +220,7 @@ export const NotesPage: React.FC = () => {
       setMobilePane('editor');
       void handleSelectNote(linkedId);
       searchParams.delete('noteId');
+      searchParams.delete('passageId');
       setSearchParams(searchParams, { replace: true });
       return;
     }
@@ -230,7 +234,7 @@ export const NotesPage: React.FC = () => {
   const latestSelectRef = useRef<string | null>(null);
 
   async function handleSelectNote(id: string): Promise<void> {
-    if (id === selectedId && openDoc?.id === id && openDoc.contentType !== 'design') return;
+    if (!selectedDesign && id === selectedId && openDoc?.id === id && openDoc.contentType !== 'design') return;
     latestSelectRef.current = id;
     setLoadingNoteId(id);
     setSelectedId(id); // highlight immediately; the body follows
@@ -730,6 +734,7 @@ export const NotesPage: React.FC = () => {
               notes={notes}
               selectedId={selectedDesign ?? selectedId}
               onSelect={(id) => { setMobilePane('editor'); void handleSelectNote(id); }}
+              onSelectPassage={(id, passageId) => { setSearchParams({ noteId: id, passageId }); }}
               onDelete={(id) => { void handleDeleteNote(id); }}
               deletingId={deletingNoteId}
               focusSearchSignal={focusSearchSignal}

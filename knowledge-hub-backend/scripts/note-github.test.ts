@@ -34,6 +34,13 @@ test('Markdown export and import preserve rich writing; paths reject traversal a
   assert.match(markdown, /[-*] A list item/);
   assert.match(markdown, /```typescript\nconst value = 42;/);
   assert.ok(JSON.stringify(await githubMarkdownBlocks(markdown)).includes('Full prose'));
+  const tagged = JSON.stringify({ title: 'Tagged', contentType: 'note', contentJson: JSON.stringify([
+    { type: 'paragraph', content: [{ type: 'text', text: 'Important text', styles: {
+      bold: true, important: '11111111-1111-4111-8111-111111111111',
+    } }] },
+  ]) });
+  const taggedMarkdown = await noteMarkdown(tagged, '11111111-1111-4111-8111-111111111111');
+  assert.match(taggedMarkdown, /\*\*Important text\*\*/);
   const unsafe = JSON.stringify(await githubMarkdownBlocks('[Unsafe](javascript:alert(1))\n\n<script>alert(1)</script>'));
   assert.ok(!unsafe.includes('"href":"javascript:'), 'GitHub imports use the existing safe Markdown parser');
   assert.ok(unsafe.includes('<script>'), 'Raw HTML stays inert source text');
@@ -56,7 +63,7 @@ test('real GitHub HTTP contract, note saves, conflicts, revision safety and sing
       status TEXT NOT NULL DEFAULT 'active', project_id UUID);
     CREATE TABLE content_items (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), source TEXT, source_id TEXT,
       title TEXT, summary TEXT, body TEXT, published_at TIMESTAMPTZ, indexed_at TIMESTAMPTZ DEFAULT now(),
-      updated_at TIMESTAMPTZ DEFAULT now(), url TEXT, project_context TEXT, metadata JSONB, tags TEXT[], search_vector TSVECTOR,
+      updated_at TIMESTAMPTZ DEFAULT now(), foundry_indexed_at TIMESTAMPTZ, url TEXT, project_context TEXT, metadata JSONB, tags TEXT[], search_vector TSVECTOR,
       UNIQUE(source, source_id));
     CREATE TABLE nodes (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), ref_id TEXT, ref_type TEXT);
     CREATE TABLE sync_state (source TEXT PRIMARY KEY, last_sync_at TIMESTAMPTZ, item_count INTEGER, last_error TEXT, last_cursor TEXT, updated_at TIMESTAMPTZ DEFAULT now());
@@ -98,6 +105,8 @@ test('real GitHub HTTP contract, note saves, conflicts, revision safety and sing
   const repositoryReads: string[] = [];
   const searchEndpoint = env.FOUNDRY_IQ_SEARCH_ENDPOINT;
   const searchKey = env.FOUNDRY_IQ_SEARCH_ADMIN_KEY;
+  let currentSearchKey = searchKey;
+  const searchKeyMock = mock.getter(env, 'FOUNDRY_IQ_SEARCH_ADMIN_KEY', () => currentSearchKey);
   const originalFetch = globalThis.fetch;
   const fetchMock = mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
@@ -280,12 +289,13 @@ test('real GitHub HTTP contract, note saves, conflicts, revision safety and sing
     const oldest = await insert('github-content-store', 'old-hash', 'plain.md');
     const duplicate = await insert('github-content-store', 'new-hash', 'plain.md');
     const deleted = await insert('github-content-store', 'deleted-hash', 'deleted.md');
+    await db.query("UPDATE content_items SET indexed_at = NOW() - INTERVAL '1 minute' WHERE id = $1", [oldest]);
     await db.query("UPDATE content_items SET search_vector = to_tsvector('english', 'DuplicateSentinel') WHERE id = $1", [shadow]);
     assert.deepEqual(await getContentItemsByIds(pool, [shadow]), [], 'A stale vector result cannot reintroduce a published copy');
     assert.deepEqual(await getRagItems(pool, 'DuplicateSentinel', 5), [], 'FTS cannot duplicate a linked note even before cleanup');
     await db.query("INSERT INTO nodes (ref_id, ref_type) VALUES ($1, 'document')", [shadow]);
     env.FOUNDRY_IQ_SEARCH_ENDPOINT = 'https://search.invalid';
-    env.FOUNDRY_IQ_SEARCH_ADMIN_KEY = 'test-only';
+    currentSearchKey = 'test-only';
     failVectorDeletion = true;
     await assert.rejects(reconcileContentStore(pool, repo, new Set([path, 'plain.md']), new Set([path])), /503/);
     assert.equal((await db.query('SELECT id FROM content_items')).rows.length, 4, 'Keep IDs until vector deletion succeeds, so cleanup can retry');
@@ -293,7 +303,7 @@ test('real GitHub HTTP contract, note saves, conflicts, revision safety and sing
     await reconcileContentStore(pool, repo, new Set([path, 'plain.md']), new Set([path]));
     assert.ok([shadow, duplicate, deleted].every(id => vectorDeletes.includes(id)), 'Remove stale copies from vector search too');
     env.FOUNDRY_IQ_SEARCH_ENDPOINT = searchEndpoint;
-    env.FOUNDRY_IQ_SEARCH_ADMIN_KEY = searchKey;
+    currentSearchKey = searchKey;
     const remaining = await db.query<{ id: string; source_id: string }>('SELECT id, source_id FROM content_items');
     assert.deepEqual(remaining.rows, [{ id: oldest, source_id: `${repo}::plain.md` }]);
     assert.equal((await db.query('SELECT * FROM nodes')).rows.length, 0);
@@ -312,7 +322,7 @@ test('real GitHub HTTP contract, note saves, conflicts, revision safety and sing
     assert.deepEqual(secondIds, firstIds, 'Content-store updates preserve one stable ID');
   } finally {
     env.FOUNDRY_IQ_SEARCH_ENDPOINT = searchEndpoint;
-    env.FOUNDRY_IQ_SEARCH_ADMIN_KEY = searchKey;
+    searchKeyMock.mock.restore();
     await new Promise<void>((resolve, reject) => { server.close(err => { if (err) reject(err); else resolve(); }); });
     queryMock.mock.restore();
     connectMock.mock.restore();

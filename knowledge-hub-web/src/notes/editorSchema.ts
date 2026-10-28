@@ -1,6 +1,7 @@
-import { BlockNoteSchema, createCodeBlockSpec, defaultBlockSpecs, defaultInlineContentSpecs, type BlockSpec } from '@blocknote/core';
+import { BlockNoteSchema, createCodeBlockSpec, defaultBlockSpecs, defaultInlineContentSpecs, defaultStyleSpecs, type BlockSpec } from '@blocknote/core';
 import { codeBlockOptions } from '@blocknote/code-block';
 import { entityMentionSpec, noteMentionSpec } from './EntityMention';
+import { passageTagStyles } from './passageTags';
 
 // BlockNote 0.47 declares this optional key as possibly undefined; the runtime
 // spec is concrete. Preserve the optional runtime flag without erasing schema types.
@@ -22,4 +23,5 @@ export const editorSchema = BlockNoteSchema.create({
     noteMention: noteMentionSpec,
     entityMention: entityMentionSpec,
   },
+  styleSpecs: { ...defaultStyleSpecs, ...passageTagStyles },
 });

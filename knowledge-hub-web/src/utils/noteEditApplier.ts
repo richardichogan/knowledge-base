@@ -6,6 +6,7 @@
  */
 import type { BlockNoteEditor } from '@blocknote/core';
 import type { NoteEdit } from '../types';
+import { passageTagKeys } from '../notes/passageTagModel';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Editor = BlockNoteEditor<any, any, any>;
@@ -56,8 +57,18 @@ export function applyReviewedNoteText(editor: Editor, find: string, replacement:
   if (current.split(find).length !== 2) {
     throw new Error('The selection crosses formatting boundaries. Select a smaller passage or edit in MD.');
   }
+  if (passageTagKeys(target.content).size > 0) {
+    throw new Error('This passage contains tags. Edit it directly in MD to preserve them.');
+  }
   const next = editor.tryParseMarkdownToBlocks(current.replace(find, () => replacement));
   editor.transact(() => { editor.replaceBlocks([target], next); });
+}
+
+function preservePassageTags(before: unknown, after: unknown): void {
+  const remaining = passageTagKeys(after);
+  if ([...passageTagKeys(before)].some(key => !remaining.has(key))) {
+    throw new Error('This change would remove a tagged passage. Edit it directly in the note instead.');
+  }
 }
 
 function norm(s: string): string {
@@ -161,6 +172,7 @@ function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined)
       if (i < 0) throw new Error(`Section “${edit.heading ?? ''}” not found`);
       if (blocks[i].id === titleId) throw new Error('Athena body edits cannot replace the note title. Edit the title directly.');
       const body = sectionBody(blocks, i);
+      if (passageTagKeys([blocks[i], ...body]).size > 0) throw new Error('This section contains tagged passages. Edit it directly in the note instead.');
       const replacement = parse(editor, withoutLeadingHeading(md, edit.heading));
       // If the new content brings its own heading, replace the heading too.
       if (replacement[0]?.type === 'heading') {
@@ -176,13 +188,18 @@ function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined)
       const i = findHeading(blocks, edit.heading ?? '');
       if (i < 0) throw new Error(`Section “${edit.heading ?? ''}” not found`);
       if (blocks[i].id === titleId) throw new Error('Athena body edits cannot delete the note title.');
-      editor.removeBlocks([blocks[i], ...sectionBody(blocks, i)]);
+      const section = [blocks[i], ...sectionBody(blocks, i)];
+      if (passageTagKeys(section).size > 0) throw new Error('This section contains tagged passages. Edit it directly in the note instead.');
+      editor.removeBlocks(section);
       return;
     }
     case 'replace_all': {
       // A full redraft: the whole note body becomes the new content (one ⌘Z step with the rest).
       const replacement = parse(editor, md);
       if (replacement.length > 0) {
+        if (passageTagKeys(blocks.filter(block => block.id !== titleId)).size > 0) {
+          throw new Error('This note contains tagged passages. Edit it directly in the note instead.');
+        }
         if (titleBlock !== undefined) {
           if (replacement[0]?.type === 'heading' && norm(inlineText(replacement[0])) === norm(inlineText(titleBlock))) replacement.shift();
           editor.replaceBlocks(blocks, [titleBlock, ...replacement]);
@@ -197,7 +214,9 @@ function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined)
       if (!find || matches.length !== 1 || inlineText(target).split(find).length !== 2) throw new Error('The passage is missing or no longer unique. Ask Athena for a current, exact text edit.');
       if (target.id === titleId) throw new Error('Athena body edits cannot rename the note. Edit its title directly.');
       if (/[\r\n]/.test(md)) throw new Error('Text edits must stay within the existing paragraph or list item.');
-      editor.updateBlock(target, { content: replaceInlineText(target.content, find, md) });
+      const content = replaceInlineText(target.content, find, md);
+      preservePassageTags(target.content, content);
+      editor.updateBlock(target, { content });
       return;
     }
   }
