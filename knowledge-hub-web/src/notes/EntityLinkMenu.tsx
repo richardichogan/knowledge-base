@@ -13,7 +13,7 @@ import { EMPTY_PERSON } from '../types/people';
 
 type Editor = BlockNoteEditor<typeof editorSchema.blockSchema, typeof editorSchema.inlineContentSchema, typeof editorSchema.styleSchema>;
 type Item = { title: string; detail: string } & (
-  { kind: 'existing'; target: EntityLinkTarget } | { kind: 'create'; text: string; entityType: 'note' | 'person' | 'company' } | { kind: 'athena' } | { kind: 'message' }
+  { kind: 'existing'; target: EntityLinkTarget } | { kind: 'create'; text: string; entityType: 'note' | 'definition' | 'person' | 'company' } | { kind: 'athena' } | { kind: 'message' }
 );
 
 function LinkSuggestions({ items, selectedIndex, onItemClick, loadingState }: SuggestionMenuProps<Item>): React.ReactElement {
@@ -78,7 +78,7 @@ export function EntityLinkMenu({ editor, noteId, projectId, onError }: {
         const company = requireApiData(await api.saveCompany({ name: item.text, description: '', website: '', projectIds: [] }));
         return { type: 'company', id: company.id, title: company.name, href: `/companies?companyId=${encodeURIComponent(company.id)}` };
       }
-      const note = await createNote({ title: item.text, contentType: 'note',
+      const note = await createNote({ title: item.text, contentType: item.entityType === 'definition' ? 'definition' : 'note',
         contentJson: JSON.stringify([{ type: 'heading', props: { level: 1 }, content: item.text }]) }, projectId || undefined);
       if (!note) throw new Error('The new note was not returned.');
       return { type: 'note', id: note.id, title: note.title, href: `/think?noteId=${encodeURIComponent(note.id)}` };
@@ -130,6 +130,7 @@ export function EntityLinkMenu({ editor, noteId, projectId, onError }: {
     const items: Item[] = targets.map(target => ({ kind: 'existing', title: target.title, detail: ENTITY_LINK_LABELS[target.type], target }));
     if (text && !targets.some(target => target.type === 'note' && target.title.toLocaleLowerCase() === text.toLocaleLowerCase())) {
       items.push({ kind: 'create', entityType: 'note', title: `Create note "${text}"`, detail: 'Create and link; stay in this note', text });
+      items.push({ kind: 'create', entityType: 'definition', title: `Create definition "${text}"`, detail: 'Create a definition and link; stay in this note', text });
     }
     if (text) for (const entityType of ['person', 'company'] as const) {
       if (!targets.some(target => target.type === entityType && target.title.toLocaleLowerCase() === text.toLocaleLowerCase())) {

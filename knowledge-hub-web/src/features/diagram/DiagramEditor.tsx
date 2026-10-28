@@ -80,6 +80,8 @@ import {
 } from './diagramAiFlowBadges';
 import { AiFlowProperties, AiFlowGovernance, AiFlowKey } from './DiagramAiFlowPanels';
 import './diagram.scss';
+import { IconBtn, Segmented, CANVAS_SIDE_WIDTH } from './DiagramControls';
+import { SideTabsPanel } from '../../components/SideTabsPanel';
 import { diagramGridSize, gridSnapEnabled, shapeSnapEnabled, snapMovingBounds, type AlignmentGuide, type SpacingIndicator } from './diagramAlignment';
 import { pasteReadableText } from '../../utils/clipboardText';
 import { useAnchoredPopovers } from '../../hooks/useAnchoredPopovers';
@@ -372,23 +374,11 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const muralQuery = useQuery({ queryKey: MURAL_QUERY, queryFn: loadMuralStatus, enabled: menu === 'export', staleTime: 0 });
   const [exportBg, setExportBg] = useState<'white' | 'transparent'>('white');
   const [exportGrid, setExportGrid] = useState(false);
-  const [propertiesOpen, setPropertiesOpen] = useState(true);
   const [drilldown, setDrilldown] = useState<{ canvasId: string; shapeTitle: string } | null>(null);
   const [openingDrilldown, setOpeningDrilldown] = useState(false);
   const openingDrilldownRef = useRef(false);
-  const [athenaOpen, setAthenaOpen] = useState(false);
-  const [athenaMounted, setAthenaMounted] = useState(false);
-  const [designOpen, setDesignOpen] = useState(false);
-  const designTabs = designPanel && <div className="kh-design-panel-tabs" role="tablist" aria-label="Diagram side panel">
-    {(['Athena', 'Design', 'Properties'] as const).map(label => {
-      const active = label === 'Design' ? designOpen : label === 'Athena' ? athenaOpen && !designOpen : !athenaOpen && !designOpen;
-      return <button type="button" key={label} role="tab" aria-selected={active} className="notes-meta-tab"
-        onClick={() => {
-          setDesignOpen(label === 'Design'); setAthenaOpen(label === 'Athena'); setPropertiesOpen(true);
-          if (label === 'Athena') setAthenaMounted(true);
-        }}>{label}</button>;
-    })}
-  </div>;
+  const [tabRequest, setTabRequest] = useState<{ id: string; seq: number } | undefined>(undefined);
+  const requestTab = useCallback((id: string) => { setTabRequest((r) => ({ id, seq: (r?.seq ?? 0) + 1 })); }, []);
   const [athenaPrompt, setAthenaPrompt] = useState<{ prompt: string; sequence: number } | undefined>(undefined);
   const [notesHidden, setNotesHidden] = useState(false);
   const [keyFilter, setKeyFilter] = useState<string | null>(null);
@@ -1069,11 +1059,9 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     const what = node !== undefined ? `the “${label || 'unlabelled'}” shape` : `the “${label || 'unlabelled'}” connector`;
     const prompt = `Tell me about ${what} in this diagram${description === '' ? '' : ` (described as: ${description})`}. What does it connect to, what might be missing, and how could it be explained better?`;
     setSel(node !== undefined ? { nodes: [targetId], edges: [] } : { nodes: [], edges: [targetId] });
-    setAthenaMounted(true);
-    setDesignOpen(false);
-    setAthenaOpen(true);
+    requestTab('athena');
     setAthenaPrompt((p) => ({ prompt, sequence: (p?.sequence ?? 0) + 1 }));
-  }, [setSel]);
+  }, [setSel, requestTab]);
 
   function selectFootnoteTarget(targetId: string): void {
     const cur = docRef.current;
@@ -2013,6 +2001,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   return (<>
     {imagePreview && <ImageViewer image={imagePreview} onClose={() => { setImagePreview(null); }} />}
     {emailContent && <ShareEmailModal content={emailContent} onClose={() => { setEmailContent(null); }} />}
+    <div className={`dg-layout${presenting !== null ? ' dg-layout--presenting' : ''}`}>
     <div
       ref={rootRef}
       className={`dg-editor${presenting !== null ? ' dg-editor--presenting' : ''}`}
@@ -2093,7 +2082,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
               {menu === 'governance' && (
                 <div className="dg-popover dg-popover--end dg-popover--wide" role="dialog" aria-label="Governance findings">
                   <AiFlowGovernance findings={aiFindings}
-                    onSelect={(targetId) => { selectAndRevealTarget(targetId); setDesignOpen(false); setAthenaOpen(false); setPropertiesOpen(true); }} />
+                    onSelect={(targetId) => { selectAndRevealTarget(targetId); requestTab('properties'); }} />
                 </div>
               )}
             </div>
@@ -2144,8 +2133,6 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           </div>
         </div>
         <div className="dg-header__panels">
-          <button type="button" className="dg-text-btn" aria-expanded={propertiesOpen && !athenaOpen && !designOpen} onClick={() => { setDesignOpen(false); setAthenaOpen(false); setPropertiesOpen(designOpen || athenaOpen || !propertiesOpen); }}>Properties</button>
-          <button type="button" className={`dg-text-btn${athenaOpen ? ' dg-text-btn--active' : ''}`} aria-expanded={athenaOpen && !designOpen} onClick={() => { setDesignOpen(false); setAthenaMounted(true); setAthenaOpen(!athenaOpen); }}>Athena</button>
           <div className="dg-anchor">
             <button type="button" className={`dg-text-btn${menu === 'export' ? ' dg-text-btn--active' : ''}`} aria-expanded={menu === 'export'} aria-haspopup="dialog" onClick={() => { setMenu(menu === 'export' ? null : 'export'); }}>
               <Download size={16} /> Export
@@ -2756,22 +2743,45 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         </div>
       </div>
 
-      {designPanel && designOpen && <aside className="dg-properties" aria-label="Design">
-        {designTabs}
-        <div className="dg-properties__heading"><h3>Design</h3><IconBtn label="Close Design" onClick={() => { setDesignOpen(false); setPropertiesOpen(false); }}><Close size={16} /></IconBtn></div>
-        {designPanel}
-      </aside>}
-      {athenaMounted && <aside className="dg-athena" aria-label="Diagram Athena" hidden={!athenaOpen || designOpen}>
-        {designTabs}
-        <div className="dg-properties__heading"><h3>Athena</h3><IconBtn label="Close Athena" onClick={() => { setAthenaOpen(false); }}><Close size={16} /></IconBtn></div>
-        <p className="dg-athena__hint">{saveStatus === 'saved'
-          ? 'Athena reads saved shapes, descriptions and connectors, and can compare other diagrams.'
-          : 'Changes are not saved yet. Athena can only read the last saved diagram.'}</p>
-        <DiagramChatTarget context={athenaContext} prompt={athenaPrompt} visible={athenaOpen} />
-      </aside>}
-      {propertiesOpen && !athenaOpen && !designOpen && <aside className="dg-properties" aria-label="Diagram properties">
-        {designTabs}
-        <div className="dg-properties__heading"><h3>Properties</h3><IconBtn label="Close properties" onClick={() => { setPropertiesOpen(false); }}><Close size={16} /></IconBtn></div>
+      </div>
+
+      <input
+        ref={fileInputRef} type="file" accept="image/png,image/svg+xml" multiple hidden
+        onChange={(e) => {
+          const files = [...(e.target.files ?? [])];
+          const replaceId = replaceTargetRef.current;
+          replaceTargetRef.current = null;
+          e.target.value = '';
+          if (replaceId !== null && files[0] !== undefined) { void uploadImage(files[0], { replaceId }); return; }
+          uploadFiles(files, viewCenter());
+        }}
+      />
+      {drilldown !== null && <DiagramDrilldown canvasId={drilldown.canvasId} shapeTitle={drilldown.shapeTitle}
+        parentTitle={savedTitle} parentContext={athenaContext} onOpenNote={onOpenNote} onClose={() => {
+          setDrilldown(null);
+          void queryClient.invalidateQueries({ queryKey: ['diagram-drilldowns', canvasId] });
+          rootRef.current?.focus({ preventScroll: true });
+        }} />}
+    </div>
+    <SideTabsPanel
+      storageKey="diagram-side"
+      label="Diagram side panel"
+      defaultTab="properties"
+      width={CANVAS_SIDE_WIDTH}
+      selectTab={tabRequest}
+      tabs={[
+        {
+          id: 'athena', label: 'Athena', keepMounted: true, fill: true,
+          content: <div className="dg-athena">
+            <p className="dg-athena__hint">{saveStatus === 'saved'
+              ? 'Athena reads saved shapes, descriptions and connectors, and can compare other diagrams.'
+              : 'Changes are not saved yet. Athena can only read the last saved diagram.'}</p>
+            <DiagramChatTarget context={athenaContext} prompt={athenaPrompt} visible />
+          </div>,
+        },
+        {
+          id: 'properties', label: 'Properties',
+          content: <div className="dg-properties">
         {canvas !== undefined && <DiagramMetadata canvas={canvas} onSaved={(summary) => {
           queryClient.setQueryData<CanvasFullApi>(['canvas', canvasId], current => current === undefined ? undefined : { ...current, ...summary });
           void queryClient.invalidateQueries({ queryKey: ['canvases'] });
@@ -2905,26 +2915,11 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         </div>}
         </details>
         <DiagramNoteLinks canvasId={canvasId} notes={canvas?.linkedNotes ?? []} onOpenNote={onOpenNote} />
-      </aside>}
-      </div>
-
-      <input
-        ref={fileInputRef} type="file" accept="image/png,image/svg+xml" multiple hidden
-        onChange={(e) => {
-          const files = [...(e.target.files ?? [])];
-          const replaceId = replaceTargetRef.current;
-          replaceTargetRef.current = null;
-          e.target.value = '';
-          if (replaceId !== null && files[0] !== undefined) { void uploadImage(files[0], { replaceId }); return; }
-          uploadFiles(files, viewCenter());
-        }}
-      />
-      {drilldown !== null && <DiagramDrilldown canvasId={drilldown.canvasId} shapeTitle={drilldown.shapeTitle}
-        parentTitle={savedTitle} parentContext={athenaContext} onOpenNote={onOpenNote} onClose={() => {
-          setDrilldown(null);
-          void queryClient.invalidateQueries({ queryKey: ['diagram-drilldowns', canvasId] });
-          rootRef.current?.focus({ preventScroll: true });
-        }} />}
+          </div>,
+        },
+        ...(designPanel ? [{ id: 'design', label: 'Design', content: <div className="dg-properties">{designPanel}</div> }] : []),
+      ]}
+    />
     </div>
   </>);
 };
@@ -3369,36 +3364,6 @@ function AiFindingMark({ at, severity, title }: { at: P; severity: AiFlowSeverit
       <circle cx={at.x} cy={at.y} r={AI_FINDING_RADIUS} fill={c.fill} stroke="#ffffff" strokeWidth={2} />
       <text x={at.x} y={at.y} fontSize={10} fontWeight={700} fill={c.text} textAnchor="middle" dominantBaseline="central">{severity === 'info' ? 'i' : '!'}</text>
     </g>
-  );
-}
-
-function IconBtn({ label, onClick, disabled, pressed, danger, children }: {
-  label: string; onClick: () => void; disabled?: boolean | undefined; pressed?: boolean | undefined; danger?: boolean | undefined; children: React.ReactNode;
-}): React.ReactElement {
-  const cls = ['dg-btn', pressed === true ? 'dg-btn--active' : '', danger === true ? 'dg-btn--danger' : ''].filter(Boolean).join(' ');
-  return (
-    <button type="button" className={cls} title={label} aria-label={label} aria-pressed={pressed} disabled={disabled} onClick={onClick}>
-      {children}
-    </button>
-  );
-}
-
-function Segmented<T extends string>({ label, value, options, onChange, compact }: {
-  label: string; value: string; options: readonly { value: T; label: string; glyph?: React.ReactNode }[];
-  onChange: (value: T) => void; compact?: boolean | undefined;
-}): React.ReactElement {
-  return (
-    <div className={`dg-segment${compact === true ? ' dg-segment--compact' : ''}`} role="radiogroup" aria-label={label}>
-      {options.map((o) => (
-        <button
-          key={o.value} type="button" role="radio" aria-checked={value === o.value} title={o.label} aria-label={o.label}
-          className={`dg-segment__option${value === o.value ? ' dg-segment__option--selected' : ''}`}
-          onClick={() => { onChange(o.value); }}
-        >
-          {o.glyph ?? o.label}
-        </button>
-      ))}
-    </div>
   );
 }
 

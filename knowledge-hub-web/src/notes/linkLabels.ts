@@ -20,6 +20,12 @@ export function linkLabel(type: EntityLinkType, id: string): string {
   return titles.get(key(type, id)) ?? `Unavailable ${type}`;
 }
 
+/** Athena's view of a link chip: its title plus the reference she can follow. */
+export function athenaLinkText(type: string, id: string): string {
+  const title = ENTITY_LINK_TYPES.some(t => t === type) ? titles.get(key(type as EntityLinkType, id)) : undefined;
+  return title ? `[Linked ${type}: ${title} (${type} id ${id})]` : `[Linked ${type} (${type} id ${id})]`;
+}
+
 export function inlineText(value: unknown): string {
   if (Array.isArray(value)) return value.map(inlineText).join('');
   if (!value || typeof value !== 'object') return typeof value === 'string' ? value : '';

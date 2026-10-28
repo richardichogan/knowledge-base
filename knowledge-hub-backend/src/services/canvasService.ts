@@ -61,6 +61,12 @@ export interface CanvasNode {
   label: string | null;
   /** Your annotation on the card. */
   body: string | null;
+  /** Brainstorm card type for idea cards (topic, idea, question …); null means the default. */
+  cardType: CardType | null;
+  /** Footnote text, numbered on the card. */
+  footnote: string | null;
+  /** True when the card's children are hidden. */
+  collapsed: boolean;
   url: string | null;
   tags: string[] | null;
   x: number;
@@ -89,13 +95,20 @@ export interface CanvasFull extends CanvasSummary {
   elementNotes: ElementNote[];
 }
 
+export const CARD_TYPES = ['topic', 'subject', 'idea', 'question', 'option', 'pro', 'con', 'risk', 'action', 'decision'] as const;
+export type CardType = typeof CARD_TYPES[number];
+const CARD_TYPE_LABEL: Record<CardType, string> = {
+  topic: 'topic', subject: 'subject', idea: 'idea', question: 'question', option: 'option', pro: 'pro', con: 'con', risk: 'risk', action: 'action', decision: 'decision',
+};
+
 /** One change to a canvas. Ids are client-generated UUIDs, so changes apply optimistically. */
 export type MapOp =
   | { op: 'add'; id: string; label?: string; body?: string; nodeType?: NodeType; refType?: RefType; refId?: string; url?: string;
       /** e.g. ['Meeting'] — the card's kind, shown on the card. */
-      tags?: string[];
+      tags?: string[]; cardType?: string; footnote?: string; collapsed?: boolean;
       x?: number; y?: number; connectTo?: { nodeId: string; edgeId: string; type?: string } }
-  | { op: 'update'; id: string; label?: string; body?: string }
+  /** An empty cardType or footnote clears it. */
+  | { op: 'update'; id: string; label?: string; body?: string; cardType?: string; footnote?: string; collapsed?: boolean }
   | { op: 'position'; id: string; x: number; y: number }
   | { op: 'delete'; id: string }
   | { op: 'link'; id: string; sourceId: string; targetId: string; type?: string; label?: string }
@@ -153,6 +166,9 @@ function rowToNode(r: Record<string, unknown>): CanvasNode {
     refId:     (r['ref_id'] as string | null) ?? null,
     label:     (r['label'] as string | null) ?? null,
     body:      (r['body'] as string | null) ?? null,
+    cardType:  CARD_TYPES.includes(r['card_type'] as CardType) ? r['card_type'] as CardType : null,
+    footnote:  (r['footnote'] as string | null) ?? null,
+    collapsed: r['collapsed'] === true,
     url:       (r['url'] as string | null) ?? null,
     tags,
     x:         Number(r['x'] ?? 0),
@@ -481,6 +497,19 @@ async function insertLink(client: PoolClient, canvasId: string, id: string, sour
   );
 }
 
+const FOOTNOTE_MAX_CHARS = 2000;
+
+function cardType(value: unknown): CardType | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string' || !CARD_TYPES.includes(value as CardType)) throw new MapOpError('card type: unknown type');
+  return value as CardType;
+}
+
+function cleanFootnote(value: unknown): string | null {
+  if (typeof value !== 'string' || value.trim() === '') return null;
+  return value.trim().slice(0, FOOTNOTE_MAX_CHARS);
+}
+
 async function applyOne(client: PoolClient, canvasId: string, op: MapOp): Promise<void> {
   switch (op.op) {
     case 'add': {
@@ -488,12 +517,13 @@ async function applyOne(client: PoolClient, canvasId: string, op: MapOp): Promis
       const x = finite(op.x);
       const y = finite(op.y);
       await client.query(
-        `INSERT INTO canvas_nodes (id, canvas_id, node_type, ref_type, ref_id, label, body, url, x, y, placed, meta_tags)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        `INSERT INTO canvas_nodes (id, canvas_id, node_type, ref_type, ref_id, label, body, url, x, y, placed, meta_tags, card_type, footnote, collapsed)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
          ON CONFLICT (id) DO NOTHING`,
         [id, canvasId, op.nodeType ?? (op.refType !== undefined ? 'hub_ref' : 'text'), op.refType ?? null, op.refId ?? null,
           (op.label ?? '').slice(0, LABEL_MAX_CHARS), op.body ?? null, op.url ?? null, x ?? 0, y ?? 0, x !== null && y !== null,
-          Array.isArray(op.tags) ? JSON.stringify(op.tags.filter((t) => typeof t === 'string').slice(0, MAX_CARD_TAGS)) : null],
+          Array.isArray(op.tags) ? JSON.stringify(op.tags.filter((t) => typeof t === 'string').slice(0, MAX_CARD_TAGS)) : null,
+          cardType(op.cardType), cleanFootnote(op.footnote), op.collapsed === true],
       );
       if (op.connectTo !== undefined) {
         await insertLink(client, canvasId, op.connectTo.edgeId, requireId(op.connectTo.nodeId, 'add connectTo'), id, op.connectTo.type);
@@ -505,6 +535,9 @@ async function applyOne(client: PoolClient, canvasId: string, op: MapOp): Promis
       const vals: unknown[] = [];
       if (op.label !== undefined) { vals.push(op.label.slice(0, LABEL_MAX_CHARS)); sets.push(`label = $${vals.length.toString()}`); }
       if (op.body !== undefined) { vals.push(op.body.trim() === '' ? null : op.body); sets.push(`body = $${vals.length.toString()}`); }
+      if (op.cardType !== undefined) { vals.push(cardType(op.cardType)); sets.push(`card_type = $${vals.length.toString()}`); }
+      if (op.footnote !== undefined) { vals.push(cleanFootnote(op.footnote)); sets.push(`footnote = $${vals.length.toString()}`); }
+      if (op.collapsed !== undefined) { vals.push(op.collapsed === true); sets.push(`collapsed = $${vals.length.toString()}`); }
       if (sets.length === 0) return;
       vals.push(requireId(op.id, 'update'), canvasId);
       await client.query(`UPDATE canvas_nodes SET ${sets.join(', ')} WHERE id = $${(vals.length - 1).toString()} AND canvas_id = $${vals.length.toString()}`, vals);
@@ -572,8 +605,9 @@ const REF_LABEL: Record<RefType, string> = {
   note: 'Think note', content_item: 'document/meeting/post', spark: 'Spark', discover_item: 'Discover article', ai_session: 'Athena chat',
 };
 
-export function cardKind(node: Pick<CanvasNode, 'refType'>): string {
-  return node.refType !== null ? REF_LABEL[node.refType] : 'idea';
+export function cardKind(node: Pick<CanvasNode, 'refType'> & Partial<Pick<CanvasNode, 'cardType'>>): string {
+  if (node.refType !== null) return REF_LABEL[node.refType];
+  return node.cardType !== undefined && node.cardType !== null ? CARD_TYPE_LABEL[node.cardType] : 'idea';
 }
 
 /**
@@ -591,10 +625,12 @@ export function mapOutline(map: CanvasFull, selectedId?: string): { text: string
     idToAlias.set(n.id, alias);
   });
   const pinned = new Set(map.linkedNotes.map((n) => n.id));
-  const cards = map.nodes.map((n) => {
-    const tags = [cardKind(n), n.refType === 'note' && n.refId !== null && pinned.has(n.refId) ? 'pinned note' : ''].filter(Boolean).join(', ');
+  const cards = map.nodes.map((n, i) => {
+    const kind = cardKind(i === 0 && n.refType === null && n.cardType === null ? { ...n, cardType: 'topic' } : n);
+    const tags = [kind, n.collapsed ? 'children collapsed' : '', n.refType === 'note' && n.refId !== null && pinned.has(n.refId) ? 'pinned note' : ''].filter(Boolean).join(', ');
     const note = n.body !== null && n.body.trim() !== '' ? ` — note: ${n.body.replace(/\s+/g, ' ').slice(0, BODY_PREVIEW_CHARS)}` : '';
-    return `- [${idToAlias.get(n.id) ?? '?'}] ${n.label ?? '(untitled)'} (${tags})${note}${n.id === selectedId ? '  ← SELECTED' : ''}`;
+    const footnote = n.footnote !== null ? ` — footnote: ${n.footnote.replace(/\s+/g, ' ').slice(0, BODY_PREVIEW_CHARS)}` : '';
+    return `- [${idToAlias.get(n.id) ?? '?'}] ${n.label ?? '(untitled)'} (${tags})${note}${footnote}${n.id === selectedId ? '  ← SELECTED' : ''}`;
   });
   const links = map.edges.map((e) =>
     `- ${idToAlias.get(e.sourceId) ?? '?'} —${e.type}→ ${idToAlias.get(e.targetId) ?? '?'}${e.label !== null ? ` ("${e.label}")` : ''}`);

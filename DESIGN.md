@@ -306,6 +306,35 @@ Multi-selection supports shared colours, thickness, text size and line styles
 in Properties and contextual styling; mixed values stay unchanged until chosen.
 Preserve alignment guides and selectable 5/10/20/40 grid spacing (default 10).
 
+The brainstorm canvas follows the user-approved **Two-Sided Card Tree**
+reference on the same white, `#e0e0e0`-dotted sheet. Cards are white with
+1px `#c6c6c6` borders and 4px corners, a 26px tinted icon tile on the left,
+a mono uppercase type label in the type's ink and a 13.5px semibold title.
+Tiles: note `#d9fbfb`/`#007d79`, document `#edf5ff`/`#0f62fe`, idea
+`#fcf4d6`/`#b28600`. The first card is the root: `#f2fcfc` fill, 2px `#007d79`
+border, 16px semibold title. Connectors are rounded elbows (4px radius) in each
+connection type's sheet colour; typed lines are 1.75px, untyped `related`
+lines 1.25px `#a8a8a8`; labels are white pills outlined in that colour.
+Tidy arranges typed connections to the root's left, related cards to its
+right and deeper cards in further columns on their parent's side; cards stay
+freely draggable afterwards. No column headers or legend are shown.
+
+Idea cards have a brainstorm type, chosen from a dropdown (icon tile and name) in
+the Properties tab, with its own
+icon and tile tint/icon/ink: Topic `#d9fbfb`/`#007d79`/`#005d5d` (the root's
+default), Subject `#f4f4f4`/`#525252`/`#393939` (Bookmark), Idea `#fcf4d6`/`#b28600`/`#8e6a00` (the default), Question
+`#f6f2ff`/`#8a3ffc`/`#6929c4`, Option `#edf5ff`/`#0f62fe`/`#0043ce`, Pro
+`#defbe6`/`#24a148`/`#0e6027`, Con `#fff1f1`/`#da1e28`/`#a2191f`, Risk
+`#fff2e8`/`#eb6200`/`#8a3800`, Action `#e5f6ff`/`#0072c3`/`#00539a` and
+Decision `#fff0f7`/`#d02670`/`#9f1853`. Linked cards keep their source type.
+A non-root card with children shows a 20px white collapse knob on the line to
+its children, outside the connect dot; collapsed, it shows the hidden count in
+the card's ink. Footnotes match diagrams: a 20px `#0f62fe` numbered marker on
+the card's top-right corner and a dashed-divider Notes list below the cards.
+The header reuses the diagram header (`.dg-header`): Undo/Redo, Add idea,
+zoom and Fit, Tidy and Copy Markdown groups, then Export (PNG, SVG, Mural),
+Make a use case and Delete; pinned-note chips sit on the row beneath.
+
 ## Components
 
 **Buttons.** Prefer existing Carbon and Athena variants. The outlined accent

@@ -506,9 +506,16 @@ do not enable multiple replicas without lease/ownership recovery changes.
 editorial preparation; a request already in flight cannot be recalled.
 The existing 06:00 and 13:00 UK content sync supplies candidates and refreshes
 drafts; an independent production worker also selects, reads, drafts and reviews.
-The background worker assesses at most 12 topics per rolling 24 hours, four distinct sources per
+The background worker continues preparing candidates while the shortlist has
+space; there is no daily assessment allowance. It reads up to four distinct sources per
 topic, with at most two automatic revisions. Unreadable, oversized or excessive
-source evidence is held rather than silently omitted.
+source evidence is held rather than silently omitted. Like note review, sources
+are measured in model tokens rather than characters: every editorial review
+receives the complete originals, and only evidence whose combined tokens exceed
+the publishing model's context window is held for human review.
+YouTube videos remain in Discover but are excluded from publishing intake,
+draft refresh, the draft shortlist and background editorial preparation.
+Previously imported video candidates are excluded too; their history is retained.
 
 The Drafts workspace shows finished, editorially reviewed posts: a compact
 shortlist on the left and the complete selected post on the right, with destination
@@ -521,9 +528,12 @@ Sending an entry for scheduling removes its whole topic from Drafts, even when a
 optional social copy is still pending. Scheduled items are separate from the
 eight-entry draft limit and never fill Drafts again merely because they are blocked.
 Every content sync reselects the freshest Microsoft-first candidates and reviews
-the unscheduled shortlist. Each sync processes at most eight candidate topics,
-allowing up to eight new-topic assessments even when the background worker's
-rolling allowance is exhausted or Drafts is full. Newer reviewed drafts displace
+the unscheduled shortlist. Refresh first re-reviews up to eight saved unscheduled
+topics missing from the current shortlist, then assesses fresh candidates until
+the shortlist is full or its independent twelve-assessment budget is exhausted.
+Failed or rejected candidates consume that budget, not the eight draft slots.
+When Drafts starts full, refresh still considers at least eight fresh candidates
+within that budget so newer reviewed drafts can displace
 older proposals in the shortlist; existing draft history is retained. The
 background worker's limit and all editorial gates remain in place.
 Sync refresh cannot publish, approve or rewrite scheduled copies.

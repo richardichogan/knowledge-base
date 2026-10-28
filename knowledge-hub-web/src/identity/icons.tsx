@@ -76,6 +76,7 @@ const CONTENT_TYPE_ICON: Record<string, CarbonIconType> = {
   research: Microscope,
   spec: Report,
   'use-case': Task,
+  definition: Book,
   chat: Chat,
 };
 

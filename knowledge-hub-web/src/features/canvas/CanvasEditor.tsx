@@ -14,9 +14,10 @@
  * Athena (who reads everything on the canvas), Preview, Suggestions and Details.
  */
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
-import { ZoomIn, ZoomOut, FitToScreen, Undo, Copy, Close, Add, TrashCan, ChartNetwork, Pin, Rocket } from '@carbon/icons-react';
+import { ZoomIn, ZoomOut, FitToScreen, Undo, Redo, Copy, Close, Add, TrashCan, ChartNetwork, Pin, Rocket, Subtract, Download, InProgress } from '@carbon/icons-react';
 import { UseCaseLauncher } from '../useCases/UseCaseLauncher';
 import { api } from '../../services/api';
 import { confirmDialog } from '../../services/appDialogs';
@@ -24,30 +25,38 @@ import type { CanvasFullApi, CanvasNodeApi, MapOp, MapSuggestionApi } from '../.
 import { fetchNotes } from '../../notes/noteStorage';
 import type { NoteListItem } from '../../notes/types';
 import { SideTabsPanel } from '../../components/SideTabsPanel';
+import { CANVAS_SIDE_WIDTH, IconBtn, Segmented } from '../diagram/DiagramControls';
+import { download, exportFileName } from '../diagram/diagramExport';
+import { diagramMural } from '../diagram/diagramMural';
+import { MURAL_QUERY, loadMuralStatus } from '../../components/MuralIntegration';
+import { MuralExportDestination } from '../../components/MuralExportDestination';
+import { SettingsLink } from '../../navigation/SettingsLink';
+import { canvasExportBlob, canvasDiagramDocument } from './canvasExport';
+import '../diagram/diagram.scss';
 import { ThinkAthenaPanel } from '../../notes/ThinkAthenaPanel';
 import type { AthenaPageContext } from '../../context/AthenaContext';
-import type { PaneWidthOptions } from '../../hooks/usePersistedState';
 import {
-  applyOps, inverseOps, placeNear, initialPositions, mindMapLayout, curvePath, estimateSize, connectedIds, canvasMarkdown,
+  applyOps, inverseOps, placeNear, initialPositions, twoSidedLayout, cardTree, hiddenCards, descendants, elbowPath, estimateSize, connectedIds, canvasMarkdown,
   LINK_TYPES, linkStyle, DEFAULT_LINK_TYPE, type GraphState, type Point, type Size,
 } from './canvasGraph';
 import { readCanvasItem, readPlainText } from './canvasClipboard';
 import { CanvasPreviewTab, CanvasSuggestionsTab, CanvasDetailsTab } from './CanvasSidePanel';
-import { KIND_LABEL, SUGGESTION_DRAG_TYPE, cardIcon, cardKindLabel } from './mapVisuals';
+import { KIND_LABEL, SUGGESTION_DRAG_TYPE, cardIcon, cardKindLabel, ideaCardType, hasFootnote } from './mapVisuals';
 import { setActiveCanvas } from './activeCanvas';
 
-const SIDE_WIDTH: PaneWidthOptions = { compact: 380, wide: 460, min: 300, max: (viewport) => Math.round(viewport * 0.45) };
 const MIN_ZOOM = 0.15;
 const MAX_ZOOM = 2.5;
 const ZOOM_STEP = 1.2;
 const FIT_PADDING = 100;
+const NOTES_GAP = 48;
+const NOTES_MIN_WIDTH = 320;
 const DRAG_THRESHOLD_PX = 5;
 const WHEEL_ZOOM_SENSITIVITY = 0.006;
 const UNDO_LIMIT = 100;
 const MAX_PASTE_LINES = 30;
 const ARROW_SIZE = 8;
 const PRESET_TYPES = Object.keys(LINK_TYPES);
-const MARKER_COLOURS = [...new Set([...Object.values(LINK_TYPES).map((s) => s.colour), linkStyle('custom').colour])];
+const MARKER_COLOURS = [...new Set([...Object.values(LINK_TYPES).map((s) => s.sheet), linkStyle('custom').sheet])];
 
 interface Props {
   canvasId: string;
@@ -82,15 +91,6 @@ type Drag =
   | { kind: 'card'; id: string; startX: number; startY: number; from: Point; moved: boolean; at: Point }
   | { kind: 'link'; id: string; at: Point; overId: string | null };
 
-/** Where the line from `c` towards `towards` leaves a w×h box centred on `c`. */
-function clipToBox(c: Point, towards: Point, s: Size): Point {
-  const dx = towards.x - c.x;
-  const dy = towards.y - c.y;
-  if (dx === 0 && dy === 0) return c;
-  const t = Math.min(dx === 0 ? Infinity : (s.w / 2) / Math.abs(dx), dy === 0 ? Infinity : (s.h / 2) / Math.abs(dy));
-  return { x: c.x + dx * t, y: c.y + dy * t };
-}
-
 function markerId(colour: string): string {
   return `cv-arrow-${colour.replace('#', '')}`;
 }
@@ -114,17 +114,32 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
   const [sizes, setSizes] = useState<Map<string, Size>>(new Map());
   const [athenaBusy, setAthenaBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [history, setHistory] = useState({ canUndo: false, canRedo: false });
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<'png' | 'svg' | 'mural'>('png');
+  const [exportBg, setExportBg] = useState<'white' | 'transparent'>('white');
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
+  const [muralBoardUrl, setMuralBoardUrl] = useState<string | null>(null);
+  const [muralResult, setMuralResult] = useState('');
+  const muralQuery = useQuery({ queryKey: MURAL_QUERY, queryFn: loadMuralStatus, enabled: exportOpen, staleTime: 0 });
   const [tabRequest, setTabRequest] = useState<{ id: string; seq: number } | undefined>(openTab !== undefined ? { id: openTab, seq: 1 } : undefined);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const cardEls = useRef(new Map<string, HTMLDivElement>());
   const undoStack = useRef<MapOp[][]>([]);
+  const redoStack = useRef<MapOp[][]>([]);
   const newIdeaId = useRef<string | null>(null);
+  /** Set while the card being named is dragged, so the drag doesn't end naming (which discards an unnamed new idea). */
+  const draggingEdited = useRef(false);
   const pending = useRef(0);
   const chain = useRef<Promise<unknown>>(Promise.resolve());
   const fitted = useRef(false);
   const userMovedView = useRef(false);
 
+  const syncHistory = useCallback((): void => {
+    setHistory({ canUndo: undoStack.current.length > 0, canRedo: redoStack.current.length > 0 });
+  }, []);
   const requestTab = (id: string): void => { setTabRequest((t) => ({ id, seq: (t?.seq ?? 0) + 1 })); };
   const sizeOf = useCallback((n: CanvasNodeApi): Size => sizes.get(n.id) ?? estimateSize(n), [sizes]);
 
@@ -154,14 +169,22 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
   }, [selectedId, sizes]);
 
   /** Applies changes on screen now and saves them in order. */
-  const commit = useCallback((rawOps: MapOp[], opts: { undoable?: boolean } = {}): void => {
+  const commit = useCallback((rawOps: MapOp[], opts: { undoable?: boolean; history?: 'undo' | 'redo' } = {}): void => {
     if (rawOps.length === 0) return;
     const ops = withPositions(rawOps);
     const before = mapRef.current;
     const state: GraphState = { nodes: before.nodes, edges: before.edges };
-    if (opts.undoable !== false) {
+    if (opts.history !== undefined) {
+      // Undoing makes the change redoable; redoing makes it undoable again.
+      const stack = opts.history === 'undo' ? redoStack : undoStack;
+      stack.current.push(inverseOps(state, ops, canvasId));
+      if (stack.current.length > UNDO_LIMIT) stack.current.shift();
+      syncHistory();
+    } else if (opts.undoable !== false) {
       undoStack.current.push(inverseOps(state, ops, canvasId));
       if (undoStack.current.length > UNDO_LIMIT) undoStack.current.shift();
+      redoStack.current = [];
+      syncHistory();
     }
     setMap({ ...before, ...applyOps(state, ops, canvasId) });
     pending.current++;
@@ -178,10 +201,12 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
       .catch((err: unknown) => {
         pending.current = 0;
         undoStack.current = [];
+        redoStack.current = [];
+        syncHistory();
         setError(`Couldn’t save that change (${err instanceof Error ? err.message : 'error'}) — the canvas was reloaded.`);
         void reloadFromServer();
       });
-  }, [canvasId, queryClient, reloadFromServer, setMap, withPositions]);
+  }, [canvasId, queryClient, reloadFromServer, setMap, withPositions, syncHistory]);
 
   // Changes made elsewhere (e.g. Athena applied without the editor) arrive via the query.
   useEffect(() => {
@@ -195,7 +220,11 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
 
   const undo = useCallback((): void => {
     const inv = undoStack.current.pop();
-    if (inv !== undefined) commit(inv, { undoable: false });
+    if (inv !== undefined) commit(inv, { history: 'undo' });
+  }, [commit]);
+  const redo = useCallback((): void => {
+    const again = redoStack.current.pop();
+    if (again !== undefined) commit(again, { history: 'redo' });
   }, [commit]);
 
   // Cards that have never been placed (older canvases, "Send to Canvas") are arranged once and saved.
@@ -212,6 +241,15 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
   // ── Layout ─────────────────────────────────────────────────────────────────
 
   const byId = useMemo(() => new Map(map.nodes.map((n) => [n.id, n])), [map.nodes]);
+  const rootId = map.nodes[0]?.id;
+  const tree = useMemo(() => (rootId !== undefined ? cardTree(map.nodes, map.edges, rootId) : null), [map.nodes, map.edges, rootId]);
+  const hidden = useMemo(() => (tree !== null ? hiddenCards(map.nodes, tree) : new Set<string>()), [map.nodes, tree]);
+  /** Footnote numbers, in card order. */
+  const footnoteNumbers = useMemo(() => {
+    const numbers = new Map<string, number>();
+    for (const n of map.nodes) if (hasFootnote(n)) numbers.set(n.id, numbers.size + 1);
+    return numbers;
+  }, [map.nodes]);
   const posOf = useCallback((n: CanvasNodeApi): Point => {
     if (drag?.kind === 'card' && drag.id === n.id && drag.moved) return drag.at;
     return { x: n.x, y: n.y };
@@ -235,13 +273,14 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
     if (el === null || map.nodes.length === 0) return;
     let minX = Infinity; let maxX = -Infinity; let minY = Infinity; let maxY = -Infinity;
     for (const n of map.nodes) {
+      if (hidden.has(n.id)) continue;
       const s = sizeOf(n);
       minX = Math.min(minX, n.x - s.w / 2); maxX = Math.max(maxX, n.x + s.w / 2);
       minY = Math.min(minY, n.y - s.h / 2); maxY = Math.max(maxY, n.y + s.h / 2);
     }
     const zoom = Math.max(MIN_ZOOM, Math.min(1, (el.clientWidth - FIT_PADDING) / (maxX - minX), (el.clientHeight - FIT_PADDING) / (maxY - minY)));
     setView({ zoom, x: el.clientWidth / 2 - ((minX + maxX) / 2) * zoom, y: el.clientHeight / 2 - ((minY + maxY) / 2) * zoom });
-  }, [map.nodes, sizeOf]);
+  }, [map.nodes, sizeOf, hidden]);
 
   const fitRef = useRef(fit);
   fitRef.current = fit;
@@ -311,6 +350,7 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
     newIdeaId.current = null;
     if (isNew && (label === '' || !save)) {
       undoStack.current.pop();
+      syncHistory();
       commit([{ op: 'delete', id }], { undoable: false });
       setSelectedId(connectedIds(mapRef.current.edges, id)[0] ?? null);
       return;
@@ -358,16 +398,23 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
   }
 
   async function tidy(): Promise<void> {
-    if (!await confirmDialog('Tidy as a mind map? Every card except the first is rearranged around it, with branches fanning out (⌘Z undoes it).', { title: 'Tidy canvas', confirmLabel: 'Tidy' })) return;
+    if (!await confirmDialog('Tidy as a two-sided tree? Every card except the first is rearranged around it: typed connections on the left, related cards on the right (⌘Z undoes it).', { title: 'Tidy canvas', confirmLabel: 'Tidy' })) return;
     const nodes = mapRef.current.nodes;
     const root = nodes[0];
     if (root === undefined) return;
-    const next = mindMapLayout(nodes, mapRef.current.edges, root.id, { x: root.x, y: root.y });
+    const next = twoSidedLayout(nodes, mapRef.current.edges, root.id, { x: root.x, y: root.y }, sizeOf);
     commit(nodes.slice(1).map((n) => {
       const p = next.get(n.id) ?? { x: 0, y: 0 };
       return { op: 'position' as const, id: n.id, x: Math.round(p.x), y: Math.round(p.y) };
     }));
     window.setTimeout(() => { fitRef.current(); }, 50);
+  }
+
+  function toggleCollapse(id: string): void {
+    const n = byId.get(id);
+    if (n === undefined) return;
+    if (!n.collapsed && tree !== null && selectedId !== null && descendants(tree, id).includes(selectedId)) setSelectedId(id);
+    commit([{ op: 'update', id, collapsed: !n.collapsed }]);
   }
 
   // ── Keyboard ───────────────────────────────────────────────────────────────
@@ -396,7 +443,8 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
   function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>): void {
     if (editingId !== null || e.target !== containerRef.current) return;
     const mod = e.metaKey || e.ctrlKey;
-    if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); return; }
+    if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
+    if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
     if (e.key === 'Escape') { setSelectedId(null); setSelectedLinkId(null); return; }
     if (selectedLinkId !== null && (e.key === 'Delete' || e.key === 'Backspace')) {
       e.preventDefault();
@@ -454,7 +502,8 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
     const target = e.target as HTMLElement;
     if (target.closest('.mm-no-drag') !== null) return;
     const cardEl = target.closest<HTMLElement>('[data-card-id]');
-    containerRef.current?.focus();
+    const grabbingEdited = cardEl !== null && cardEl.dataset['cardId'] === editingId;
+    if (grabbingEdited) { draggingEdited.current = true; e.preventDefault(); } else containerRef.current?.focus();
     containerRef.current?.setPointerCapture(e.pointerId);
     if (cardEl === null) {
       setSelectedLinkId(null);
@@ -493,7 +542,12 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
     setDrag(null);
     if (d === null || d.kind === 'pan') return;
     if (d.kind === 'link') { if (d.overId !== null) connect(d.id, d.overId); return; }
-    if (d.moved) commit([{ op: 'position', id: d.id, x: Math.round(d.at.x), y: Math.round(d.at.y) }]);
+    const edited = draggingEdited.current && d.id === editingId;
+    draggingEdited.current = false;
+    // A new idea's move is undone with it, so it isn't a separate undo step.
+    if (d.moved) commit([{ op: 'position', id: d.id, x: Math.round(d.at.x), y: Math.round(d.at.y) }], { undoable: !(edited && newIdeaId.current === d.id) });
+    if (edited) cardEls.current.get(d.id)?.querySelector('textarea')?.focus();
+    else if (!d.moved) requestTab('properties');
   }
 
   function onWheel(e: React.WheelEvent<HTMLDivElement>): void {
@@ -585,6 +639,31 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
     window.setTimeout(() => { setCopied(false); }, 1500);
   }
 
+  async function runExport(destination?: string): Promise<void> {
+    if (exporting) return;
+    setExportError('');
+    setMuralResult('');
+    setExporting(true);
+    try {
+      if (exportFormat === 'mural') {
+        const payload = await diagramMural(canvasDiagramDocument(mapRef.current, sizeOf), new Map(), {
+          boardUrl: destination ?? muralBoardUrl ?? muralQuery.data?.boardUrl ?? '', title: mapRef.current.title.slice(0, 300), footnotes: false, legend: false,
+        });
+        const response = await api.exportMuralDiagram(payload);
+        if (!response.success) throw new Error(response.error.message);
+        setMuralResult(response.data.boardUrl);
+      } else {
+        const blob = await canvasExportBlob(mapRef.current, sizeOf, exportFormat, exportBg);
+        download(blob, exportFileName(mapRef.current.title, exportFormat));
+        setExportOpen(false);
+      }
+    } catch (err) {
+      setExportError(`Export failed: ${err instanceof Error ? err.message : 'unknown error'}`);
+    } finally {
+      setExporting(false);
+    }
+  }
+
   // ── Athena context ─────────────────────────────────────────────────────────
 
   const selected = selectedId !== null ? byId.get(selectedId) : undefined;
@@ -603,15 +682,13 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
   // ── Render ─────────────────────────────────────────────────────────────────
 
   const links = map.edges.flatMap((e) => {
+    if (hidden.has(e.sourceId) || hidden.has(e.targetId)) return [];
     const a = byId.get(e.sourceId);
     const b = byId.get(e.targetId);
     if (a === undefined || b === undefined) return [];
-    const pa = posOf(a);
-    const pb = posOf(b);
-    const start = clipToBox(pa, pb, sizeOf(a));
     const style = linkStyle(e.type);
-    const end = clipToBox(pb, pa, { w: sizeOf(b).w + (style.directed ? ARROW_SIZE : 0), h: sizeOf(b).h + (style.directed ? ARROW_SIZE : 0) });
-    return [{ edge: e, start, end, mid: { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 }, style }];
+    const { d, mid } = elbowPath(posOf(a), sizeOf(a), posOf(b), sizeOf(b), style.directed ? ARROW_SIZE : 0);
+    return [{ edge: e, d, mid, style }];
   });
   const selectedLink = links.find((l) => l.edge.id === selectedLinkId);
   const draftFrom = drag?.kind === 'link' ? byId.get(drag.id) : undefined;
@@ -620,7 +697,84 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
     <div className="mm-editor">
       <div className="mm-main">
         <CanvasHeader map={map} onDelete={() => { void deleteCanvas(); }} onRename={(t) => { void renameCanvas(t); }}
-          onPin={(id) => { void pinNote(id); }} onUnpin={(id) => { void unpinNote(id); }} onOpenNote={onOpenNote} />
+          onPin={(id) => { void pinNote(id); }} onUnpin={(id) => { void unpinNote(id); }} onOpenNote={onOpenNote}
+          tools={(
+            <div className="dg-header__actions kh-command-row" role="toolbar" aria-label="Brainstorm tools">
+              <div className="dg-header__group kh-command-row">
+                <IconBtn label="Undo (⌘Z)" disabled={!history.canUndo} onClick={undo}><Undo size={16} /></IconBtn>
+                <IconBtn label="Redo (⇧⌘Z)" disabled={!history.canRedo} onClick={redo}><Redo size={16} /></IconBtn>
+              </div>
+              <div className="dg-header__group kh-command-row">
+                <IconBtn label="Add an idea (Tab), connected to the selected card" onClick={() => { addIdea(selectedId); }}><Add size={16} /></IconBtn>
+              </div>
+              <div className="dg-header__group kh-command-row">
+                <IconBtn label="Zoom out" onClick={() => { zoomBy(1 / ZOOM_STEP); }}><ZoomOut size={16} /></IconBtn>
+                <span className="mm-zoom-readout" aria-live="polite">{Math.round(view.zoom * 100)}%</span>
+                <IconBtn label="Zoom in" onClick={() => { zoomBy(ZOOM_STEP); }}><ZoomIn size={16} /></IconBtn>
+                <IconBtn label="Fit the whole brainstorm" onClick={() => { userMovedView.current = false; fit(); }}><FitToScreen size={16} /></IconBtn>
+              </div>
+              <div className="dg-header__group kh-command-row">
+                <IconBtn label="Tidy the layout" onClick={tidy}><ChartNetwork size={16} /></IconBtn>
+                <IconBtn label={copied ? 'Copied as Markdown' : 'Copy as Markdown'} pressed={copied} onClick={() => { void copyMarkdown(); }}><Copy size={16} /></IconBtn>
+              </div>
+            </div>
+          )}
+          exportControl={(
+            <div className="dg-anchor">
+              <button type="button" className={`dg-text-btn${exportOpen ? ' dg-text-btn--active' : ''}`} aria-expanded={exportOpen} aria-haspopup="dialog"
+                onClick={() => { setExportOpen((v) => !v); setExportError(''); setMuralResult(''); }}>
+                <Download size={16} /> Export
+              </button>
+              {exportOpen && createPortal(
+                <div className="dg-popover dg-popover--end dg-export" role="dialog" aria-label="Export brainstorm"
+                  onKeyDown={(e) => { if (e.key === 'Escape') setExportOpen(false); }}>
+                  <div className="dg-export__header">
+                    <h2 className="dg-export__title">Export brainstorm</h2>
+                    <IconBtn label="Close export" onClick={() => { setExportOpen(false); }}><Close size={16} /></IconBtn>
+                  </div>
+                  <div className="dg-export__body">
+                    <section className="dg-popover__section">
+                      <h3 className="dg-popover__heading">Format</h3>
+                      <Segmented label="Export format" value={exportFormat} onChange={(v) => { setExportFormat(v); setExportError(''); setMuralResult(''); }}
+                        options={[{ value: 'png', label: 'PNG' }, { value: 'svg', label: 'SVG' }, { value: 'mural', label: 'Mural' }]} />
+                      {exportFormat !== 'mural' && <p className="dg-popover__hint">Exports what is shown: cards inside a collapsed branch are left out, and footnotes are listed under Notes.</p>}
+                      {exportFormat === 'mural' && (
+                        <div className="mural-integration">
+                          <p className="dg-export__description">Continue in Mural with the cards as editable shapes and the connections as connectors.</p>
+                          <p className="dg-popover__hint">Cards inside a collapsed branch and footnotes are not sent. Each export adds a new copy, not a synced brainstorm.</p>
+                          {muralQuery.isPending && <p className="dg-popover__hint" role="status">Checking Mural connection...</p>}
+                          {muralQuery.isError && <p className="connection-tokens__error" role="alert">Could not check Mural. <button type="button" className="dg-text-btn" onClick={() => { void muralQuery.refetch(); }}>Retry</button></p>}
+                          {muralQuery.data !== undefined && !muralQuery.data.connected && <p className="dg-popover__hint"><SettingsLink to="/my-work?sync=1">Set up or reconnect Mural in Connections and sync</SettingsLink></p>}
+                          {muralQuery.data?.connected === true && (
+                            <MuralExportDestination value={muralBoardUrl ?? muralQuery.data.boardUrl} title={map.title}
+                              disabled={exporting || map.nodes.length === 0}
+                              onChange={(url) => { setMuralBoardUrl(url); setMuralResult(''); }}
+                              onCreated={(url) => runExport(url)} />
+                          )}
+                          {muralResult !== '' && <p className="dg-popover__hint mural-integration__result" role="status">Brainstorm exported. <a href={muralResult} target="_blank" rel="noreferrer">Open board in Mural</a></p>}
+                        </div>
+                      )}
+                    </section>
+                    {exportFormat !== 'mural' && (
+                      <section className="dg-popover__section">
+                        <h3 className="dg-popover__heading">Background</h3>
+                        <Segmented label="Export background" value={exportBg} onChange={setExportBg} options={[{ value: 'white', label: 'White' }, { value: 'transparent', label: 'Transparent' }]} />
+                      </section>
+                    )}
+                  </div>
+                  <div className="dg-export__actions">
+                    {exportError !== '' && <p className="connection-tokens__error" role="alert">{exportError}</p>}
+                    <button type="button" className="dg-primary-btn"
+                      disabled={exporting || map.nodes.length === 0 || (exportFormat === 'mural' && (muralQuery.data?.connected !== true || (muralBoardUrl ?? muralQuery.data.boardUrl).trim() === ''))}
+                      onClick={() => { void runExport(); }}>
+                      {exporting ? <><InProgress size={16} className="dg-spin" /> Exporting…</> : <><Download size={16} /> {exportFormat === 'mural' ? 'Send to Mural' : `Export ${exportFormat.toUpperCase()}`}</>}
+                    </button>
+                    {map.nodes.length === 0 && <p className="dg-popover__hint">Add a card to export the brainstorm.</p>}
+                  </div>
+                </div>, document.body,
+              )}
+            </div>
+          )} />
         <div
           ref={containerRef}
           className={`mm-surface${drag?.kind === 'pan' ? ' mm-surface--panning' : ''}`}
@@ -661,15 +815,15 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
               {links.map((l) => (
                 <g key={l.edge.id}>
                   <path
-                    className={`cv-link${l.edge.id === selectedLinkId ? ' cv-link--selected' : ''}`}
-                    d={curvePath(l.start, l.end)}
-                    stroke={l.style.colour}
+                    className={`cv-link${l.edge.type === DEFAULT_LINK_TYPE ? ' cv-link--untyped' : ''}${l.edge.id === selectedLinkId ? ' cv-link--selected' : ''}`}
+                    d={l.d}
+                    stroke={l.style.sheet}
                     strokeDasharray={l.style.dashed ? '6 5' : undefined}
-                    markerEnd={l.style.directed ? `url(#${markerId(l.style.colour)})` : undefined}
+                    markerEnd={l.style.directed ? `url(#${markerId(l.style.sheet)})` : undefined}
                   />
                   <path
                     className="mm-link-hit mm-no-drag"
-                    d={curvePath(l.start, l.end)}
+                    d={l.d}
                     onPointerDown={(ev) => { ev.stopPropagation(); setSelectedLinkId(l.edge.id); containerRef.current?.focus(); }}
                   />
                 </g>
@@ -680,19 +834,25 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
             </svg>
 
             {links.filter((l) => l.edge.id !== selectedLinkId && (l.edge.type !== DEFAULT_LINK_TYPE || l.edge.label !== null)).map((l) => (
-              <span key={l.edge.id} className="cv-link-label" style={{ left: l.mid.x, top: l.mid.y, color: l.style.colour }}>
+              <span key={l.edge.id} className="cv-link-label" style={{ left: l.mid.x, top: l.mid.y, color: l.style.sheet }}>
                 {l.edge.type !== DEFAULT_LINK_TYPE ? l.edge.type : ''}{l.edge.type !== DEFAULT_LINK_TYPE && l.edge.label !== null ? ' · ' : ''}{l.edge.label}
               </span>
             ))}
 
             {map.nodes.map((n) => {
+              if (hidden.has(n.id)) return null;
               const p = posOf(n);
               const s = sizeOf(n);
               const isIdea = n.refType === null;
-              const Icon = cardIcon(n);
+              const isRoot = n.id === map.nodes[0]?.id;
+              const Icon = cardIcon(n, isRoot);
+              const type = ideaCardType(n, isRoot);
+              const footnote = footnoteNumbers.get(n.id);
+              const below = !isRoot && tree !== null ? descendants(tree, n.id).length : 0;
+              const outerSide = tree?.side.get(n.id) === -1 ? 'left' : 'right';
               const pinned = n.refType === 'note' && n.refId !== null && pinnedNoteIds.has(n.refId);
               const classes = [
-                'cv-card', isIdea ? 'cv-card--idea' : 'cv-card--content', n.id === map.nodes[0]?.id ? 'cv-card--root' : '', pinned ? 'cv-card--pinned' : '',
+                'cv-card', isIdea ? 'cv-card--idea' : 'cv-card--content', `cv-card--${n.refType ?? 'idea'}`, isRoot ? 'cv-card--root' : '', pinned ? 'cv-card--pinned' : '',
                 n.id === selectedId ? 'cv-card--selected' : '',
                 drag?.kind === 'card' && drag.id === n.id && drag.moved ? 'cv-card--dragging' : '',
                 (drag?.kind === 'link' && drag.overId === n.id) || dropTargetId === n.id ? 'cv-card--target' : '',
@@ -703,44 +863,90 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
                   ref={(el) => { if (el !== null) cardEls.current.set(n.id, el); else cardEls.current.delete(n.id); }}
                   data-card-id={n.id}
                   className={classes}
-                  style={{ left: p.x - s.w / 2, top: p.y - s.h / 2 }}
+                  style={{
+                    left: p.x - s.w / 2, top: p.y - s.h / 2,
+                    ...(type !== null && { '--cv-tint': type.tint, '--cv-icon': type.colour, '--cv-ink': type.ink } as React.CSSProperties),
+                  }}
                   onDoubleClick={() => { if (isIdea) startEditing(n.id); else requestTab('preview'); }}
                 >
-                  <div className="cv-card__kind">
-                    <Icon size={14} />
-                    <span>{cardKindLabel(n)}</span>
-                    {pinned && <span className="cv-card__pin" title="This canvas is pinned to this note"><Pin size={12} /></span>}
+                  {!isRoot && <span className="cv-card__tile" aria-hidden="true"><Icon size={16} /></span>}
+                  <div className="cv-card__body">
+                    <div className="cv-card__kind">
+                      {isRoot && <Icon size={14} />}
+                      <span>{cardKindLabel(n, isRoot)}</span>
+                      {pinned && <span className="cv-card__pin" title="This canvas is pinned to this note"><Pin size={12} /></span>}
+                    </div>
+                    {editingId === n.id ? (
+                      <textarea
+                        className="cv-card__input mm-no-drag"
+                        autoFocus
+                        rows={2}
+                        value={draftLabel}
+                        placeholder="New idea"
+                        onFocus={(ev) => { const v = ev.currentTarget.value; ev.currentTarget.setSelectionRange(v.length, v.length); }}
+                        onChange={(ev) => { setDraftLabel(ev.target.value); }}
+                        onBlur={() => { if (!draggingEdited.current) finishEditing(true); }}
+                        onKeyDown={(ev) => {
+                          ev.stopPropagation();
+                          if (ev.key === 'Escape') { ev.preventDefault(); finishEditing(false); return; }
+                          if ((ev.key === 'Enter' && !ev.shiftKey) || ev.key === 'Tab') {
+                            ev.preventDefault();
+                            const id = n.id;
+                            const named = draftLabel.trim() !== '';
+                            finishEditing(true);
+                            if (named && ev.key === 'Tab') addIdea(id);
+                          }
+                        }}
+                      />
+                    ) : (
+                      <p className="cv-card__title">{n.label !== null && n.label !== '' ? n.label : <em>Untitled</em>}</p>
+                    )}
+                    {n.body !== null && n.body.trim() !== '' && editingId !== n.id && <p className="cv-card__note">{n.body}</p>}
                   </div>
-                  {editingId === n.id ? (
-                    <textarea
-                      className="cv-card__input mm-no-drag"
-                      autoFocus
-                      rows={2}
-                      value={draftLabel}
-                      placeholder="New idea"
-                      onFocus={(ev) => { const v = ev.currentTarget.value; ev.currentTarget.setSelectionRange(v.length, v.length); }}
-                      onChange={(ev) => { setDraftLabel(ev.target.value); }}
-                      onBlur={() => { finishEditing(true); }}
-                      onKeyDown={(ev) => {
-                        ev.stopPropagation();
-                        if (ev.key === 'Escape') { ev.preventDefault(); finishEditing(false); return; }
-                        if ((ev.key === 'Enter' && !ev.shiftKey) || ev.key === 'Tab') {
-                          ev.preventDefault();
-                          const id = n.id;
-                          const named = draftLabel.trim() !== '';
-                          finishEditing(true);
-                          if (named && ev.key === 'Tab') addIdea(id);
-                        }
-                      }}
-                    />
-                  ) : (
-                    <p className="cv-card__title">{n.label !== null && n.label !== '' ? n.label : <em>Untitled</em>}</p>
-                  )}
-                  {n.body !== null && n.body.trim() !== '' && editingId !== n.id && <p className="cv-card__note">{n.body}</p>}
                   <span className="cv-card__handle mm-handle" data-handle title="Drag to another card to connect" />
+                  {footnote !== undefined && (
+                    <button type="button" className="cv-card__footnote mm-no-drag" title={`Footnote ${footnote.toString()}`} aria-label={`Show footnote ${footnote.toString()}`}
+                      onPointerDown={(ev) => { ev.stopPropagation(); }}
+                      onClick={(ev) => { ev.stopPropagation(); setSelectedId(n.id); requestTab('properties'); }}>
+                      {footnote}
+                    </button>
+                  )}
+                  {below > 0 && (
+                    <button type="button" className={`cv-card__collapse cv-card__collapse--${outerSide}${n.collapsed ? ' cv-card__collapse--collapsed' : ''} mm-no-drag`}
+                      title={n.collapsed ? `Expand: show ${below.toString()} hidden card${below === 1 ? '' : 's'}` : 'Collapse the cards below this one'}
+                      aria-label={n.collapsed ? `Expand ${below.toString()} hidden card${below === 1 ? '' : 's'}` : 'Collapse the cards below this one'}
+                      aria-expanded={!n.collapsed}
+                      onPointerDown={(ev) => { ev.stopPropagation(); }}
+                      onClick={(ev) => { ev.stopPropagation(); toggleCollapse(n.id); }}>
+                      {n.collapsed ? below : <Subtract size={12} />}
+                    </button>
+                  )}
                 </div>
               );
             })}
+
+            {footnoteNumbers.size > 0 && (() => {
+              const visible = map.nodes.filter((n) => !hidden.has(n.id));
+              const left = Math.min(...visible.map((n) => n.x - sizeOf(n).w / 2));
+              const right = Math.max(...visible.map((n) => n.x + sizeOf(n).w / 2));
+              const bottom = Math.max(...visible.map((n) => n.y + sizeOf(n).h / 2));
+              return (
+                <section className="cv-notes" aria-label="Footnotes" style={{ left, top: bottom + NOTES_GAP, width: Math.max(right - left, NOTES_MIN_WIDTH) }}>
+                  <h3 className="cv-notes__heading">Notes</h3>
+                  <ol className="cv-notes__list">
+                    {map.nodes.filter(hasFootnote).map((n) => (
+                      <li key={n.id}>
+                        <button type="button" className="cv-notes__item mm-no-drag" onPointerDown={(ev) => { ev.stopPropagation(); }}
+                          onClick={() => { setSelectedId(n.id); requestTab('properties'); }}>
+                          <span className="cv-notes__marker">{footnoteNumbers.get(n.id)}</span>
+                          <span className="cv-notes__text"><strong>{n.label !== null && n.label !== '' ? n.label : 'Untitled'}:</strong> {n.footnote}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+              );
+            })()}
 
             {selectedLink !== undefined && (
               <LinkEditor
@@ -755,21 +961,7 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
             )}
           </div>
 
-          <div className="mm-toolbar mm-no-drag" onPointerDown={(e) => { e.stopPropagation(); }}>
-            <button type="button" className="mm-icon-btn" title="Add an idea (Tab) — connected to the selected card" aria-label="Add an idea" onClick={() => { addIdea(selectedId); }}><Add size={16} /></button>
-            <span className="mm-toolbar__sep" />
-            <button type="button" className="mm-icon-btn" title="Zoom out" aria-label="Zoom out" onClick={() => { zoomBy(1 / ZOOM_STEP); }}><ZoomOut size={16} /></button>
-            <span className="mm-toolbar__zoom">{Math.round(view.zoom * 100)}%</span>
-            <button type="button" className="mm-icon-btn" title="Zoom in" aria-label="Zoom in" onClick={() => { zoomBy(ZOOM_STEP); }}><ZoomIn size={16} /></button>
-            <button type="button" className="mm-icon-btn" title="Fit the whole canvas" aria-label="Fit the whole canvas" onClick={() => { userMovedView.current = false; fit(); }}><FitToScreen size={16} /></button>
-            <button type="button" className="mm-icon-btn" title="Tidy the layout" aria-label="Tidy the layout" onClick={tidy}><ChartNetwork size={16} /></button>
-            <span className="mm-toolbar__sep" />
-            <button type="button" className="mm-icon-btn" title="Undo (⌘Z)" aria-label="Undo" onClick={undo}><Undo size={16} /></button>
-            <button type="button" className="mm-icon-btn" title="Copy as Markdown" aria-label="Copy as Markdown" onClick={() => { void copyMarkdown(); }}><Copy size={16} /></button>
-            {copied && <span className="mm-toolbar__note">Copied</span>}
-          </div>
-
-          <p className="mm-hint">Drag cards to arrange · drag from a card’s edge dot to connect · click a connection to type it · Tab adds an idea · Del removes · ⌘Z undo</p>
+          <p className="mm-hint">Drag cards to arrange · drag from a card’s edge dot to connect · click a connection to type it · Tab adds an idea · Del removes · ⌘Z undo · ⇧⌘Z redo</p>
 
           {error !== null && (
             <div className="mm-error mm-no-drag" role="alert" onPointerDown={(e) => { e.stopPropagation(); }}>
@@ -784,7 +976,7 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
         storageKey="canvas-side"
         label="Canvas side panel"
         defaultTab="suggestions"
-        width={SIDE_WIDTH}
+        width={CANVAS_SIDE_WIDTH}
         selectTab={tabRequest}
         tabs={[
           {
@@ -805,11 +997,13 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
             ),
           },
           {
-            id: 'details', label: 'Details',
+            id: 'properties', label: 'Properties',
             content: (
               <CanvasDetailsTab
                 map={map}
                 node={selected}
+                isRoot={selected !== undefined && selected.id === map.nodes[0]?.id}
+                footnoteNumber={selected !== undefined ? footnoteNumbers.get(selected.id) : undefined}
                 onUpdate={(id, patch) => { commit([{ op: 'update', id, ...patch }]); }}
                 onDelete={removeCard}
                 onSelect={(id) => { setSelectedId(id); }}
@@ -894,9 +1088,11 @@ interface HeaderProps {
   onPin: (noteId: string) => void;
   onUnpin: (noteId: string) => void;
   onOpenNote: (noteId: string) => void;
+  tools: React.ReactNode;
+  exportControl: React.ReactNode;
 }
 
-const CanvasHeader: React.FC<HeaderProps> = ({ map, onDelete, onRename, onPin, onUnpin, onOpenNote }) => {
+const CanvasHeader: React.FC<HeaderProps> = ({ map, onDelete, onRename, onPin, onUnpin, onOpenNote, tools, exportControl }) => {
   const [title, setTitle] = useState(map.title);
   const [picking, setPicking] = useState(false);
   const [query, setQuery] = useState('');
@@ -908,11 +1104,23 @@ const CanvasHeader: React.FC<HeaderProps> = ({ map, onDelete, onRename, onPin, o
   const matches = notes.filter((n) => !pinned.has(n.id) && (q === '' || n.title.toLowerCase().includes(q))).slice(0, 12);
 
   return (
-    <div className="mm-header">
-      <input className="mm-header__title" value={title} aria-label="Canvas title"
-        onChange={(e) => { setTitle(e.target.value); }}
-        onBlur={() => { onRename(title); }}
-        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
+    <div className="dg-header mm-header">
+      <div className="dg-header__row">
+        <div className="dg-header__main">
+          <input className="dg-header__title" value={title} aria-label="Canvas title"
+            onChange={(e) => { setTitle(e.target.value); }}
+            onBlur={() => { onRename(title); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
+        </div>
+        <div className="dg-header__toolbar">
+          {tools}
+          <div className="dg-header__panels">
+            {exportControl}
+            <IconBtn label="Make a use case from this canvas" onClick={() => { setUseCaseOpen(true); }}><Rocket size={16} /></IconBtn>
+            <IconBtn label="Delete canvas" danger onClick={onDelete}><TrashCan size={16} /></IconBtn>
+          </div>
+        </div>
+      </div>
       <div className="mm-header__notes">
         {map.linkedNotes.length === 0 && (
           <span className="mm-header__nudge">Not pinned to a note yet — pinning connects this canvas to your notes and the knowledge graph.</span>
@@ -943,9 +1151,6 @@ const CanvasHeader: React.FC<HeaderProps> = ({ map, onDelete, onRename, onPin, o
           )}
         </div>
       </div>
-      <button type="button" className="mm-icon-btn mm-header__use-case" title="Make a use case from this canvas" aria-label="Make a use case from this canvas"
-        onClick={() => { setUseCaseOpen(true); }}><Rocket size={16} /></button>
-      <button type="button" className="mm-icon-btn mm-header__delete" title="Delete canvas" aria-label="Delete canvas" onClick={onDelete}><TrashCan size={16} /></button>
       {useCaseOpen && (
         <UseCaseLauncher onClose={() => { setUseCaseOpen(false); }} launch={{
           title: map.title, sources: [{ sourceType: 'canvas', sourceId: map.id }], sourceLabel: `Canvas “${map.title}”`,

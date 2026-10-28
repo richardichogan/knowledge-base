@@ -9,7 +9,7 @@ import { articleProse, readPublicPage } from '../utils/articleReading.js';
 import { microsoftRelevanceSql } from '../utils/microsoftRelevance.js';
 import { assessTopic, editorialServices, readSources, reviewDraft, type EditorialServices } from './editorial.js';
 import { assertSocialOpportunity, BlogVerificationPending, deliver, destinationAccount, inWindow, PublicationDeferred, PublicationUnconfirmed, type DeliveryContext } from './delivery.js';
-import { deliveryColumns, draftColumns, event, feeds, holdTopic, intake, listTopics, sourceColumns, topicColumns, transaction } from './store.js';
+import { deliveryColumns, draftColumns, event, feeds, holdTopic, intake, listTopics, sourceColumns, topicColumns, transaction, writtenPublishingSourcesSql } from './store.js';
 import { PUBLISH_LIMITS, type Delivery, type Draft, type Source, type Topic } from './contracts.js';
 import { refreshSchedule } from './schedule.js';
 import { MS_PER_MINUTE } from '../config/constants.js';
@@ -186,11 +186,11 @@ export async function tickPublishing(db: Pool, editorial: EditorialServices = ed
     const lease = randomUUID();
     const topic = (await db.query<Topic>(`UPDATE publishing_topics SET state='assessing',lease=$1,lease_until=NOW()+INTERVAL '15 minutes'
       WHERE id=(SELECT id FROM publishing_topics WHERE state='pending'
-        AND $3
-        AND (SELECT COUNT(*) FROM publishing_events WHERE event='preparation-started' AND created_at>NOW()-INTERVAL '24 hours')<$2
+        AND ${writtenPublishingSourcesSql('publishing_topics.id')}
+        AND $2
         ORDER BY EXISTS(SELECT 1 FROM publishing_sources s WHERE s.topic_id=publishing_topics.id AND ${microsoftRelevanceSql('s')}) DESC,
           (SELECT MAX(discovered_at) FROM publishing_sources s WHERE s.topic_id=publishing_topics.id) DESC,priority DESC,created_at DESC LIMIT 1 FOR UPDATE SKIP LOCKED)
-      RETURNING ${topicColumns}`, [lease, PUBLISH_LIMITS.dailyAssessments, hasDraftCapacity])).rows[0];
+      RETURNING ${topicColumns}`, [lease, hasDraftCapacity])).rows[0];
     if (topic) {
       await event(db, topic.id, 'editorial-worker', 'preparation-started', {});
       try { await assessTopic(db, topic, editorial); }
@@ -201,6 +201,7 @@ export async function tickPublishing(db: Pool, editorial: EditorialServices = ed
       } finally { await db.query('UPDATE publishing_topics SET lease=NULL,lease_until=NULL WHERE id=$1 AND lease=$2', [topic.id, lease]); }
     }
     const review = (await db.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts WHERE review='pending' AND NOT held
+      AND ${writtenPublishingSourcesSql('publishing_drafts.topic_id')}
       AND topic_id IN(SELECT id FROM publishing_topics WHERE state='ready') ORDER BY updated_at LIMIT 1`)).rows[0];
     if (review) {
       const delivered = await db.query("SELECT id FROM publishing_deliveries WHERE draft_id=$1 AND status IN ('sent','sending','unconfirmed')", [review.id]);

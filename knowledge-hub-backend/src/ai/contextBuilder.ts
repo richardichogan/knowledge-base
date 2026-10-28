@@ -14,6 +14,7 @@ import { isCopilotImport, COPILOT_IMPORT_CAUTION } from './copilotImport.js';
 import { SHOW_NOTES_PERSONA_BLURB } from './showNotesPersona.js';
 import { DISCOVER_APP_GUIDANCE } from './discoveryContext.js';
 import { formatMemoryContext } from './memoryRetriever.js';
+import { formatDefinitionsContext } from './definitions.js';
 import { isIcaEnabled } from './icaClient.js';
 import { getSessionProjectId } from './chatSessionStore.js';
 import { loadCurrentProjectContext, formatCurrentProjectContext, type CurrentProjectContext } from './projectContext.js';
@@ -1310,6 +1311,10 @@ async function formatPageContext(pageContext: ChatPageContext | undefined, userM
     isCopilotImport(pageContext.title) ? COPILOT_IMPORT_CAUTION : '',
     pageContext.images ? `Images embedded in this document (described by vision analysis — treat these as what the images show):\n${pageContext.images}` : '',
     excerpt ? `Content:\n${excerpt}` : '',
+    excerpt.includes('[Linked ')
+      ? 'Entries like "[Linked note: Title (note id …)]" are links in the document: the title is part of its content. ' +
+        'When he asks about what a link covers, read it (read_knowledge_record kind note/project/task, read_diagram for diagrams) rather than asking him to paste it.'
+      : '',
     wasExcerpted
       ? 'Note: this document is very long, so the excerpts above were semantically selected as most relevant ' +
         'to the current question rather than sending the full text. If they don\'t contain what you need to ' +
@@ -1367,12 +1372,16 @@ export async function assembleMessages(
   ].join('\n\n');
 
   const pageContextBlock = await formatPageContext(pageContext, userMessage);
+  const definitionsBlock = await formatDefinitionsContext(
+    [userMessage, pageContext?.title ?? '', pageContext?.detail ?? ''].join('\n'),
+    pageContext?.title,
+  );
   const ragBlock = formatRagContext(context.ragItems, context.ragQuery);
   const memoryBlock = formatMemoryContext(context.memoryItems);
   // Page context (what the user is actually looking at) comes first and is
   // framed as the primary source; RAG/memory are separate, lower-priority
   // background that must not be blended into claims about it.
-  const dynamicBlocks = [pageContextBlock, ragBlock, memoryBlock].filter((b) => b !== '').join('\n\n---\n\n');
+  const dynamicBlocks = [pageContextBlock, definitionsBlock, ragBlock, memoryBlock].filter((b) => b !== '').join('\n\n---\n\n');
   // His actual message is marked as the thing to answer, so material placed above it
   // (background search results above all) is never mistaken for the request.
   const userMessageWithContext = dynamicBlocks === ''

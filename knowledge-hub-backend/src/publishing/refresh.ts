@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { assessTopic, editorialServices, readSources, reviewDraft, type EditorialServices } from './editorial.js';
-import { draftColumns, event, intake, listTopics, topicColumns } from './store.js';
+import { draftColumns, event, intake, listTopics, topicColumns, writtenPublishingSourcesSql } from './store.js';
 import { PUBLISH_LIMITS, type Draft, type Topic } from './contracts.js';
 import { microsoftRelevanceSql } from '../utils/microsoftRelevance.js';
 import { ConflictError } from '../types/errors.js';
@@ -17,22 +17,43 @@ export async function refreshPublishingDrafts(db: Pool, services: EditorialServi
     const auditStart = (await db.query<{ id: string }>('SELECT MAX(id)::text AS id FROM publishing_events')).rows[0]!.id;
     const assessed = new Set<string>();
     let assessmentAttempts = 0;
+    let savedReviewAttempts = 0;
+    const processed: Topic[] = [];
     await intake(db);
-    const candidates = (await db.query<Topic>(`SELECT ${topicColumns} FROM publishing_topics t
+    const initialShortlist = await listTopics(db, 0, true);
+    const candidates = (await db.query<Topic>(`WITH candidates AS (
+      SELECT t.*,EXISTS(SELECT 1 FROM publishing_drafts d WHERE d.topic_id=t.id) AS saved,
+        row_number() OVER(PARTITION BY EXISTS(SELECT 1 FROM publishing_drafts d WHERE d.topic_id=t.id)
+          ORDER BY EXISTS(SELECT 1 FROM publishing_sources s WHERE s.topic_id=t.id AND ${microsoftRelevanceSql('s')}) DESC,
+            (SELECT MAX(discovered_at) FROM publishing_sources s WHERE s.topic_id=t.id) DESC,
+            priority DESC,created_at DESC,id) AS position
+      FROM publishing_topics t
       WHERE state IN ('pending','ready')
+        AND NOT (t.id=ANY($2::uuid[]))
+        AND ${writtenPublishingSourcesSql('t.id')}
         AND NOT EXISTS(SELECT 1 FROM publishing_drafts d WHERE d.topic_id=t.id AND d.approval<>'pending')
         AND NOT EXISTS(SELECT 1 FROM publishing_drafts d WHERE d.topic_id=t.id
           AND (d.destination IN ('blog','linkedin') OR d.variant='source') AND d.held)
         AND NOT EXISTS(SELECT 1 FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id
           WHERE d.topic_id=t.id)
         AND NOT EXISTS(SELECT 1 FROM publishing_deliveries p WHERE p.topic_id=t.id)
-      ORDER BY EXISTS(SELECT 1 FROM publishing_sources s WHERE s.topic_id=t.id AND ${microsoftRelevanceSql('s')}) DESC,
+      ) SELECT ${topicColumns} FROM candidates t
+      WHERE position<=CASE WHEN saved THEN $3::int ELSE $1::int END
+      ORDER BY saved DESC,
+        EXISTS(SELECT 1 FROM publishing_sources s WHERE s.topic_id=t.id AND ${microsoftRelevanceSql('s')}) DESC,
         (SELECT MAX(discovered_at) FROM publishing_sources s WHERE s.topic_id=t.id) DESC,
-        priority DESC,created_at DESC,id LIMIT $1`, [PUBLISH_LIMITS.draftShortlist])).rows;
+        priority DESC,created_at DESC,id`,
+    [PUBLISH_LIMITS.refreshAssessments, initialShortlist.map(topic => topic.id), PUBLISH_LIMITS.draftShortlist])).rows;
     for (const topic of candidates) {
+      const shortlist = await listTopics(db, 0, true);
+      if (shortlist.length >= PUBLISH_LIMITS.draftShortlist
+        && (initialShortlist.length < PUBLISH_LIMITS.draftShortlist || assessmentAttempts >= PUBLISH_LIMITS.draftShortlist)) break;
       try {
         const saved = (await db.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts WHERE topic_id=$1
           ORDER BY CASE destination WHEN 'blog' THEN 0 WHEN 'linkedin' THEN 1 ELSE 2 END`, [topic.id])).rows;
+        if (saved.length ? savedReviewAttempts >= PUBLISH_LIMITS.draftShortlist
+          : assessmentAttempts >= PUBLISH_LIMITS.refreshAssessments) continue;
+        processed.push(topic);
         if (!saved.length) {
           const lease = randomUUID();
           const claimed = await db.query<Topic>(`UPDATE publishing_topics SET state='assessing',lease=$2,
@@ -43,12 +64,14 @@ export async function refreshPublishingDrafts(db: Pool, services: EditorialServi
             await event(db, topic.id, actor, 'draft-refresh-skipped', { reason: 'Topic changed or is no longer an unassessed pending candidate.' });
             continue;
           }
-          // The candidate limit bounds this sync independently of the background worker's rolling allowance.
+          // Failed and rejected candidates consume the bounded assessment budget,
+          // not the number of finished suggestions we are trying to replenish.
           assessmentAttempts++;
           await event(db, topic.id, actor, 'preparation-started', {});
           try { await assessTopic(db, claimed.rows[0]!, services); assessed.add(topic.id); }
           finally { await db.query('UPDATE publishing_topics SET lease=NULL,lease_until=NULL WHERE id=$1 AND lease=$2', [topic.id, lease]); }
         } else {
+          savedReviewAttempts++;
           const sources = await readSources(db, topic.id, services, true);
           for (const previous of saved) {
             const scheduled = await db.query(`SELECT id FROM publishing_drafts WHERE topic_id=$1 AND approval='approved'`, [topic.id]);
@@ -73,15 +96,15 @@ export async function refreshPublishingDrafts(db: Pool, services: EditorialServi
       SELECT topic_id AS "topicId",event,detail->>'draftId' AS "draftId" FROM publishing_events
       WHERE id>$1 AND topic_id=ANY($2::uuid[])
         AND event IN ('review-pass','review-revise','review-hold','review-error','draft-refresh-error')`,
-    [auditStart, candidates.map(topic => topic.id)])).rows;
+    [auditStart, processed.map(topic => topic.id)])).rows;
     const reviews = outcomes.filter(outcome => ['review-pass', 'review-revise', 'review-hold'].includes(outcome.event));
     const reviewed = new Set(reviews.map(outcome => outcome.topicId));
     const failed = new Set(outcomes.filter(outcome => outcome.event.endsWith('-error')).map(outcome => outcome.topicId));
     await event(db, null, actor, 'draft-refresh-completed', {
-      limit: PUBLISH_LIMITS.draftShortlist, selectedTopics: candidates.length, assessmentAttempts, assessedTopics: assessed.size,
+      limit: PUBLISH_LIMITS.draftShortlist, selectedTopics: processed.length, assessmentAttempts, assessedTopics: assessed.size,
       reviewedTopics: reviewed.size, reviewedDrafts: new Set(reviews.flatMap(outcome => outcome.draftId ? [outcome.draftId] : [])).size,
       failedTopics: failed.size,
-      skippedTopics: candidates.filter(topic => !assessed.has(topic.id) && !reviewed.has(topic.id) && !failed.has(topic.id)).length,
+      skippedTopics: processed.filter(topic => !assessed.has(topic.id) && !reviewed.has(topic.id) && !failed.has(topic.id)).length,
       drafts: shortlist.map(t => t.id),
     });
   } catch (error) {

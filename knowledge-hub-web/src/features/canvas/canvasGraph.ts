@@ -14,19 +14,20 @@ export interface Size { w: number; h: number }
 
 // ── Connection types ──────────────────────────────────────────────────────────
 
-export interface LinkTypeStyle { colour: string; directed: boolean; dashed: boolean }
+/** `colour` is for dark surfaces (side panel); `sheet` is the same hue for the light canvas sheet. */
+export interface LinkTypeStyle { colour: string; sheet: string; directed: boolean; dashed: boolean }
 
 export const LINK_TYPES: Record<string, LinkTypeStyle> = {
-  related:      { colour: '#8d8d8d', directed: false, dashed: false },
-  supports:     { colour: '#42be65', directed: true,  dashed: false },
-  contradicts:  { colour: '#fa4d56', directed: true,  dashed: true },
-  'depends on': { colour: '#f1c21b', directed: true,  dashed: false },
-  'part of':    { colour: '#4589ff', directed: true,  dashed: false },
-  'leads to':   { colour: '#be95ff', directed: true,  dashed: false },
-  'example of': { colour: '#3ddbd9', directed: true,  dashed: true },
+  related:      { colour: '#8d8d8d', sheet: '#a8a8a8', directed: false, dashed: false },
+  supports:     { colour: '#42be65', sheet: '#198038', directed: true,  dashed: false },
+  contradicts:  { colour: '#fa4d56', sheet: '#da1e28', directed: true,  dashed: true },
+  'depends on': { colour: '#f1c21b', sheet: '#b28600', directed: true,  dashed: false },
+  'part of':    { colour: '#4589ff', sheet: '#0f62fe', directed: true,  dashed: false },
+  'leads to':   { colour: '#be95ff', sheet: '#8a3ffc', directed: true,  dashed: false },
+  'example of': { colour: '#3ddbd9', sheet: '#007d79', directed: true,  dashed: true },
 };
 export const DEFAULT_LINK_TYPE = 'related';
-const CUSTOM_LINK_STYLE: LinkTypeStyle = { colour: '#ff7eb6', directed: true, dashed: false };
+const CUSTOM_LINK_STYLE: LinkTypeStyle = { colour: '#ff7eb6', sheet: '#d02670', directed: true, dashed: false };
 
 export function linkStyle(type: string): LinkTypeStyle {
   return LINK_TYPES[type] ?? CUSTOM_LINK_STYLE;
@@ -39,7 +40,10 @@ function newNode(op: Extract<MapOp, { op: 'add' }>, canvasId: string): CanvasNod
   return {
     id: op.id, canvasId, nodeType: op.nodeType ?? (op.refType !== undefined ? 'hub_ref' : 'text'),
     refType: op.refType ?? null, refId: op.refId ?? null, label: op.label ?? '', body: op.body ?? null,
-    url: op.url ?? null, tags: op.tags ?? null, x: op.x ?? 0, y: op.y ?? 0, placed, createdAt: new Date().toISOString(),
+    url: op.url ?? null, tags: op.tags ?? null,
+    cardType: op.cardType !== undefined && op.cardType !== '' ? op.cardType : null,
+    footnote: op.footnote !== undefined && op.footnote.trim() !== '' ? op.footnote.trim() : null,
+    collapsed: op.collapsed === true, x: op.x ?? 0, y: op.y ?? 0, placed, createdAt: new Date().toISOString(),
   };
 }
 
@@ -65,6 +69,9 @@ function applyOne(state: GraphState, op: MapOp, canvasId: string): GraphState {
           ...n,
           ...(op.label !== undefined && { label: op.label }),
           ...(op.body !== undefined && { body: op.body.trim() === '' ? null : op.body }),
+          ...(op.cardType !== undefined && { cardType: op.cardType === '' ? null : op.cardType }),
+          ...(op.footnote !== undefined && { footnote: op.footnote.trim() === '' ? null : op.footnote.trim() }),
+          ...(op.collapsed !== undefined && { collapsed: op.collapsed }),
         })),
         edges,
       };
@@ -111,6 +118,9 @@ export function inverseOps(before: GraphState, ops: MapOp[], canvasId: string): 
             op: 'update', id: n.id,
             ...(op.label !== undefined && { label: n.label ?? '' }),
             ...(op.body !== undefined && { body: n.body ?? '' }),
+            ...(op.cardType !== undefined && { cardType: n.cardType ?? '' }),
+            ...(op.footnote !== undefined && { footnote: n.footnote ?? '' }),
+            ...(op.collapsed !== undefined && { collapsed: n.collapsed }),
           }]);
         }
         break;
@@ -127,6 +137,7 @@ export function inverseOps(before: GraphState, ops: MapOp[], canvasId: string): 
             {
               op: 'add', id: n.id, label: n.label ?? '', nodeType: n.nodeType,
               ...(n.body !== null && { body: n.body }), ...(n.url !== null && { url: n.url }), ...(n.tags !== null && { tags: n.tags }),
+              ...(n.cardType !== null && { cardType: n.cardType }), ...(n.footnote !== null && { footnote: n.footnote }), ...(n.collapsed && { collapsed: true }),
               ...(n.refType !== null && n.refId !== null && { refType: n.refType, refId: n.refId }),
               ...(n.placed && { x: n.x, y: n.y }),
             },
@@ -274,85 +285,173 @@ export function arrange(
   return pos;
 }
 
-/** A smooth branch between two points, leaving and arriving along the longer axis. */
-export function curvePath(a: Point, b: Point): string {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const horizontal = Math.abs(dx) >= Math.abs(dy);
-  const c1 = horizontal ? { x: a.x + dx / 2, y: a.y } : { x: a.x, y: a.y + dy / 2 };
-  const c2 = horizontal ? { x: b.x - dx / 2, y: b.y } : { x: b.x, y: b.y - dy / 2 };
-  return `M${a.x},${a.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${b.x},${b.y}`;
-}
+const ELBOW_RADIUS = 4;
 
-const MIND_RING_STEP = 300;
-const MIND_ARC_SPACING = 80;
+/** A connector between two cards: the path, plus the midpoint of its bend (for its label). */
+export interface Elbow { d: string; mid: Point }
 
 /**
- * Mind-map layout: the root sits at its own position and each branch fans out
- * on rings around it, with every subtree given an angular sector sized by its
- * number of leaves. Cards not connected to the root go on an outer ring.
+ * A right-angled connector with rounded bends, from the side of card `a` that
+ * faces card `b` to the facing side of `b`, bending halfway across the gap.
+ * Cards that overlap horizontally are joined top/bottom instead. `endGap`
+ * leaves room before `b` for an arrowhead.
  */
-export function mindMapLayout(
-  nodes: CanvasNodeApi[],
-  edges: CanvasEdgeApi[],
-  rootId: string,
-  rootAt: Point,
-): Map<string, Point> {
+export function elbowPath(a: Point, as: Size, b: Point, bs: Size, endGap = 0): Elbow {
+  const horizontal = Math.abs(b.x - a.x) >= (as.w + bs.w) / 2;
+  if (horizontal) {
+    const s = b.x > a.x ? 1 : -1;
+    const x0 = a.x + (s * as.w) / 2;
+    const x1 = b.x - s * (bs.w / 2 + endGap);
+    const xm = (a.x + (s * as.w) / 2 + b.x - (s * bs.w) / 2) / 2;
+    const mid = { x: xm, y: (a.y + b.y) / 2 };
+    if (Math.abs(b.y - a.y) < 1) return { d: `M${x0},${a.y} H${x1}`, mid };
+    const d = b.y > a.y ? 1 : -1;
+    const r = Math.min(ELBOW_RADIUS, Math.abs(b.y - a.y) / 2, Math.abs(xm - x0), Math.abs(x1 - xm));
+    return {
+      d: `M${x0},${a.y} H${xm - s * r} Q${xm},${a.y} ${xm},${a.y + d * r} V${b.y - d * r} Q${xm},${b.y} ${xm + s * r},${b.y} H${x1}`,
+      mid,
+    };
+  }
+  const s = b.y > a.y ? 1 : -1;
+  const y0 = a.y + (s * as.h) / 2;
+  const y1 = b.y - s * (bs.h / 2 + endGap);
+  const ym = (a.y + (s * as.h) / 2 + b.y - (s * bs.h) / 2) / 2;
+  const mid = { x: (a.x + b.x) / 2, y: ym };
+  if (Math.abs(b.x - a.x) < 1) return { d: `M${a.x},${y0} V${y1}`, mid };
+  const d = b.x > a.x ? 1 : -1;
+  const r = Math.min(ELBOW_RADIUS, Math.abs(b.x - a.x) / 2, Math.abs(ym - y0), Math.abs(y1 - ym));
+  return {
+    d: `M${a.x},${y0} V${ym - s * r} Q${a.x},${ym} ${a.x + d * r},${ym} H${b.x - d * r} Q${b.x},${ym} ${b.x},${ym + s * r} V${y1}`,
+    mid,
+  };
+}
+
+const TREE_COLUMN_GAP = 70;
+const TREE_ROW_GAP = 24;
+
+export interface CardTree {
+  parent: Map<string, string>;
+  children: Map<string, string[]>;
+  depth: Map<string, number>;
+  /** -1 left of the root (typed connection), 1 right (untyped, or not connected). */
+  side: Map<string, -1 | 1>;
+}
+
+/**
+ * The drawn hierarchy: breadth-first from the root over connections. Cards
+ * not connected to the root hang off the root on the right.
+ */
+export function cardTree(nodes: CanvasNodeApi[], edges: CanvasEdgeApi[], rootId: string): CardTree {
+  const known = new Set(nodes.map((n) => n.id));
+  const parent = new Map<string, string>();
   const children = new Map<string, string[]>();
   const depth = new Map<string, number>([[rootId, 0]]);
+  const side = new Map<string, -1 | 1>();
   const queue = [rootId];
   for (let i = 0; i < queue.length; i++) {
     const id = queue[i] as string;
     const kids: string[] = [];
-    for (const nb of connectedIds(edges, id)) {
-      if (depth.has(nb)) continue;
+    for (const e of edges) {
+      const nb = e.sourceId === id ? e.targetId : e.targetId === id ? e.sourceId : null;
+      if (nb === null || depth.has(nb) || !known.has(nb)) continue;
       depth.set(nb, (depth.get(id) ?? 0) + 1);
+      side.set(nb, id === rootId ? (e.type === DEFAULT_LINK_TYPE ? 1 : -1) : (side.get(id) ?? 1));
+      parent.set(nb, id);
       kids.push(nb);
       queue.push(nb);
     }
     children.set(id, kids);
   }
-  const orphans = nodes.filter((n) => !depth.has(n.id)).map((n) => n.id);
-  const leaves = new Map<string, number>();
-  const countLeaves = (id: string): number => {
-    const kids = children.get(id) ?? [];
-    const n = kids.length === 0 ? 1 : kids.reduce((sum, k) => sum + countLeaves(k), 0);
-    leaves.set(id, n);
-    return n;
-  };
-  countLeaves(rootId);
-
-  const perDepth = new Map<number, number>();
-  for (const d of depth.values()) perDepth.set(d, (perDepth.get(d) ?? 0) + 1);
-  const radius = new Map<number, number>();
-  let prev = 0;
-  for (let d = 1; d <= Math.max(0, ...perDepth.keys()); d++) {
-    const needed = ((perDepth.get(d) ?? 0) * MIND_ARC_SPACING) / (2 * Math.PI);
-    prev = Math.max(prev + MIND_RING_STEP, needed);
-    radius.set(d, prev);
+  const rootKids = children.get(rootId) ?? [];
+  for (const n of nodes) {
+    if (depth.has(n.id)) continue;
+    depth.set(n.id, 1);
+    side.set(n.id, 1);
+    parent.set(n.id, rootId);
+    children.set(n.id, []);
+    rootKids.push(n.id);
   }
+  children.set(rootId, rootKids);
+  return { parent, children, depth, side };
+}
 
-  const pos = new Map<string, Point>([[rootId, { ...rootAt }]]);
-  const place = (id: string, start: number, end: number): void => {
+/** Every card below `id` in the tree. */
+export function descendants(tree: CardTree, id: string): string[] {
+  const out: string[] = [];
+  const walk = (at: string): void => { for (const k of tree.children.get(at) ?? []) { out.push(k); walk(k); } };
+  walk(id);
+  return out;
+}
+
+/** Cards hidden because a card above them is collapsed. */
+export function hiddenCards(nodes: CanvasNodeApi[], tree: CardTree): Set<string> {
+  const hidden = new Set<string>();
+  for (const n of nodes) if (n.collapsed && tree.depth.get(n.id) !== 0) for (const d of descendants(tree, n.id)) hidden.add(d);
+  return hidden;
+}
+
+/**
+ * Two-sided card tree: the root stays where it is; cards joined to it by a
+ * typed connection stack in a column to its left, cards joined by an untyped
+ * ("related") connection stack to its right, and deeper cards sit in further
+ * columns on their parent's side, centred on their parent. Cards not
+ * connected to the root are added to the bottom of the right-hand column.
+ */
+export function twoSidedLayout(
+  nodes: CanvasNodeApi[],
+  edges: CanvasEdgeApi[],
+  rootId: string,
+  rootAt: Point,
+  sizeOf: (n: CanvasNodeApi) => Size,
+): Map<string, Point> {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const size = (id: string): Size => {
+    const n = byId.get(id);
+    return n !== undefined ? sizeOf(n) : { w: CARD_W, h: CARD_H };
+  };
+  const { children: treeKids, depth, side } = cardTree(nodes, edges, rootId);
+  // Collapsed cards take no room for their hidden children.
+  const children = new Map([...treeKids].map(([id, kids]) => [id, id !== rootId && byId.get(id)?.collapsed === true ? [] : kids]));
+  const rootKids = children.get(rootId) ?? [];
+
+  // Each column is as wide as its widest card; columns step outwards from the root.
+  const colWidth = new Map<string, number>();
+  for (const [id, d] of depth) {
+    if (d === 0) continue;
+    const key = `${(side.get(id) ?? 1).toString()}:${d.toString()}`;
+    colWidth.set(key, Math.max(colWidth.get(key) ?? 0, size(id).w));
+  }
+  const colX = (s: -1 | 1, d: number): number => {
+    let offset = size(rootId).w / 2;
+    for (let k = 1; k <= d; k++) {
+      const w = colWidth.get(`${s.toString()}:${k.toString()}`) ?? CARD_W;
+      offset += TREE_COLUMN_GAP + (k === d ? w / 2 : w);
+    }
+    return rootAt.x + s * offset;
+  };
+
+  const block = new Map<string, number>();
+  const blockOf = (id: string): number => {
     const kids = children.get(id) ?? [];
-    const total = leaves.get(id) ?? 1;
-    let a = start;
-    for (const k of kids) {
-      const span = ((end - start) * (leaves.get(k) ?? 1)) / total;
-      const mid = a + span / 2;
-      const r = radius.get(depth.get(k) ?? 1) ?? MIND_RING_STEP;
-      pos.set(k, { x: rootAt.x + r * Math.cos(mid), y: rootAt.y + r * Math.sin(mid) * 0.8 });
-      place(k, a, a + span);
-      a += span;
+    const stacked = kids.reduce((sum, k) => sum + blockOf(k), 0) + TREE_ROW_GAP * Math.max(kids.length - 1, 0);
+    const h = Math.max(size(id).h, stacked);
+    block.set(id, h);
+    return h;
+  };
+  const pos = new Map<string, Point>([[rootId, { ...rootAt }]]);
+  const stack = (ids: string[], centreY: number): void => {
+    const total = ids.reduce((sum, k) => sum + blockOf(k), 0) + TREE_ROW_GAP * Math.max(ids.length - 1, 0);
+    let top = centreY - total / 2;
+    for (const id of ids) {
+      const h = block.get(id) ?? size(id).h;
+      const y = top + h / 2;
+      pos.set(id, { x: colX(side.get(id) ?? 1, depth.get(id) ?? 1), y });
+      stack(children.get(id) ?? [], y);
+      top += h + TREE_ROW_GAP;
     }
   };
-  place(rootId, -Math.PI, Math.PI);
-
-  const outer = (radius.get(Math.max(0, ...radius.keys())) ?? 0) + MIND_RING_STEP;
-  orphans.forEach((id, i) => {
-    const angle = (2 * Math.PI * i) / Math.max(orphans.length, 1);
-    pos.set(id, { x: rootAt.x + outer * Math.cos(angle), y: rootAt.y + outer * Math.sin(angle) * 0.8 });
-  });
+  stack(rootKids.filter((id) => side.get(id) === -1), rootAt.y);
+  stack(rootKids.filter((id) => side.get(id) !== -1), rootAt.y);
   return pos;
 }
 

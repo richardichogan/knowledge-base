@@ -2,15 +2,15 @@
  * features/canvas/CanvasSidePanel.tsx — the Preview, Suggestions and Details
  * tabs beside a canvas (Athena is the fourth tab, in CanvasEditor).
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
-import { Add, Renew, Launch, DocumentAdd, TrashCan, Close, ArrowRight, ArrowLeft } from '@carbon/icons-react';
+import { Add, Renew, Launch, DocumentAdd, TrashCan, Close, ArrowRight, ArrowLeft, ListNumbered, ChevronDown, Checkmark } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import type { CanvasFullApi, CanvasNodeApi, MapSuggestionApi } from '../../services/api';
 import { renderMarkdown } from '../../utils/markdown';
 import { LINK_TYPES, linkStyle, connectedIds } from './canvasGraph';
-import { KIND_LABEL, SUGGESTION_DRAG_TYPE, suggestionIcon, cardKindLabel } from './mapVisuals';
+import { KIND_LABEL, SUGGESTION_DRAG_TYPE, suggestionIcon, cardKindLabel, CARD_TYPES, ideaCardType, hasFootnote } from './mapVisuals';
 
 function formatDate(iso: string | null): string {
   if (iso === null) return '';
@@ -142,12 +142,82 @@ export const CanvasSuggestionsTab: React.FC<SuggestionsProps> = ({ canvasId, nod
   );
 };
 
+// ── Card type dropdown ────────────────────────────────────────────────────────
+
+const CardTypeSelect: React.FC<{ value: string; onChange: (id: string) => void }> = ({ value, onChange }) => {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const listId = useId();
+  const labelId = useId();
+  const current = CARD_TYPES.find((t) => t.id === value) ?? CARD_TYPES[0];
+  const CurrentIcon = current.icon;
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: PointerEvent): void => { if (rootRef.current !== null && !rootRef.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('pointerdown', close);
+    return () => { document.removeEventListener('pointerdown', close); };
+  }, [open]);
+
+  function show(): void { setActive(Math.max(0, CARD_TYPES.findIndex((t) => t.id === value))); setOpen(true); }
+  function choose(id: string): void { setOpen(false); buttonRef.current?.focus(); if (id !== value) onChange(id); }
+  function onKeyDown(e: React.KeyboardEvent): void {
+    if (!open) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') { e.preventDefault(); show(); }
+      return;
+    }
+    if (e.key === 'Escape') { e.preventDefault(); setOpen(false); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); setActive((i) => Math.min(CARD_TYPES.length - 1, i + 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((i) => Math.max(0, i - 1)); }
+    else if (e.key === 'Home') { e.preventDefault(); setActive(0); }
+    else if (e.key === 'End') { e.preventDefault(); setActive(CARD_TYPES.length - 1); }
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const t = CARD_TYPES[active]; if (t !== undefined) choose(t.id); }
+    else if (e.key === 'Tab') setOpen(false);
+  }
+
+  return (
+    <div className="mm-field cv-type-select" ref={rootRef}>
+      <span className="mm-field__label" id={labelId}>Card type</span>
+      <button ref={buttonRef} type="button" className="cv-type-select__button"
+        aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined} aria-labelledby={labelId}
+        aria-activedescendant={open ? `${listId}-${active.toString()}` : undefined}
+        onClick={() => { if (open) setOpen(false); else show(); }} onKeyDown={onKeyDown}>
+        <span className="cv-type-select__tile" style={{ '--cv-tint': current.tint, '--cv-icon': current.colour } as React.CSSProperties} aria-hidden="true"><CurrentIcon size={16} /></span>
+        <span className="cv-type-select__label">{current.label}</span>
+        <ChevronDown size={16} className="cv-type-select__chevron" aria-hidden="true" />
+      </button>
+      {open && (
+        <ul className="cv-type-select__menu" role="listbox" id={listId} aria-labelledby={labelId}>
+          {CARD_TYPES.map((t, i) => {
+            const Icon = t.icon;
+            return (
+              <li key={t.id} id={`${listId}-${i.toString()}`} role="option" aria-selected={t.id === value}
+                className={`cv-type-select__option${i === active ? ' cv-type-select__option--active' : ''}`}
+                onPointerEnter={() => { setActive(i); }}
+                onPointerDown={(e) => { e.preventDefault(); }}
+                onClick={() => { choose(t.id); }}>
+                <span className="cv-type-select__tile" style={{ '--cv-tint': t.tint, '--cv-icon': t.colour } as React.CSSProperties} aria-hidden="true"><Icon size={16} /></span>
+                <span className="cv-type-select__label">{t.label}</span>
+                {t.id === value && <Checkmark size={16} className="cv-type-select__check" aria-hidden="true" />}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+};
+
 // ── Details ───────────────────────────────────────────────────────────────────
 
 interface DetailsProps {
   map: CanvasFullApi;
   node: CanvasNodeApi | undefined;
-  onUpdate: (id: string, patch: { label?: string; body?: string }) => void;
+  isRoot: boolean;
+  footnoteNumber: number | undefined;
+  onUpdate: (id: string, patch: { label?: string; body?: string; cardType?: string; footnote?: string }) => void;
   onDelete: (id: string) => void;
   onSelect: (id: string) => void;
   onRetype: (edgeId: string, type: string) => void;
@@ -159,12 +229,16 @@ interface DetailsProps {
 
 const PRESET_TYPES = Object.keys(LINK_TYPES);
 
-export const CanvasDetailsTab: React.FC<DetailsProps> = ({ map, node, onUpdate, onDelete, onSelect, onRetype, onUnlink, onOpen, onToNote, onDeleteCanvas }) => {
+export const CanvasDetailsTab: React.FC<DetailsProps> = ({ map, node, isRoot, footnoteNumber, onUpdate, onDelete, onSelect, onRetype, onUnlink, onOpen, onToNote, onDeleteCanvas }) => {
   const [label, setLabel] = useState(node?.label ?? '');
   const [body, setBody] = useState(node?.body ?? '');
   const [busy, setBusy] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const [footnote, setFootnote] = useState(node?.footnote ?? '');
+  const [addingFootnote, setAddingFootnote] = useState(false);
   useEffect(() => { setLabel(node?.label ?? ''); setBody(node?.body ?? ''); setDone(null); }, [node?.id, node?.label, node?.body]);
+  useEffect(() => { setFootnote(node?.footnote ?? ''); }, [node?.id, node?.footnote]);
+  useEffect(() => { setAddingFootnote(false); }, [node?.id]);
 
   if (node === undefined) {
     return (
@@ -189,10 +263,16 @@ export const CanvasDetailsTab: React.FC<DetailsProps> = ({ map, node, onUpdate, 
     try { await fn(); setDone(doneText); } finally { setBusy(null); }
   }
 
+  const type = ideaCardType(node, isRoot);
+  const showFootnote = hasFootnote(node) || addingFootnote;
+
   return (
     <div className="mm-details">
+      {type !== null && (
+        <CardTypeSelect value={type.id} onChange={(id) => { onUpdate(node.id, { cardType: id }); }} />
+      )}
       <label className="mm-field">
-        <span className="mm-field__label">{cardKindLabel(node)} — title</span>
+        <span className="mm-field__label">{cardKindLabel(node, isRoot)} — title</span>
         <input
           className="mm-field__input"
           value={label}
@@ -212,6 +292,32 @@ export const CanvasDetailsTab: React.FC<DetailsProps> = ({ map, node, onUpdate, 
           onBlur={() => { if (body !== (node.body ?? '')) onUpdate(node.id, { body }); }}
         />
       </label>
+      {showFootnote ? (
+        <div className="mm-field">
+          <label className="mm-field__label" htmlFor="cv-footnote">{footnoteNumber !== undefined ? `Footnote ${footnoteNumber.toString()}` : 'New footnote'}</label>
+          <textarea
+            id="cv-footnote"
+            className="mm-field__input mm-field__textarea"
+            rows={3}
+            autoFocus={addingFootnote && !hasFootnote(node)}
+            placeholder="Source, caveat or detail, listed under Notes below the brainstorm"
+            value={footnote}
+            onChange={(e) => { setFootnote(e.target.value); }}
+            onBlur={() => {
+              if (footnote.trim() !== (node.footnote ?? '')) onUpdate(node.id, { footnote: footnote.trim() });
+              if (footnote.trim() === '') setAddingFootnote(false);
+            }}
+          />
+          {hasFootnote(node) && (
+            <button type="button" className="kb-import-btn cv-details__footnote-remove"
+              onClick={() => { setFootnote(''); setAddingFootnote(false); onUpdate(node.id, { footnote: '' }); }}>
+              <TrashCan size={16} /> Remove footnote
+            </button>
+          )}
+        </div>
+      ) : (
+        <button type="button" className="kb-import-btn" onClick={() => { setAddingFootnote(true); }}><ListNumbered size={16} /> Add footnote</button>
+      )}
       {node.refType !== null && (
         <button type="button" className="kb-import-btn cv-details__open" onClick={() => { onOpen(node); }}><Launch size={16} /> Open {cardKindLabel(node).toLowerCase()}</button>
       )}

@@ -22,7 +22,8 @@ export type ContentType =
   | 'meeting'
   | 'research'
   | 'spec'
-  | 'use-case';
+  | 'use-case'
+  | 'definition';
 
 export type ContentTypeGroup = 'Work' | 'Publishing' | 'Thinking';
 
@@ -47,6 +48,7 @@ export const CONTENT_TYPE_OPTIONS: ContentTypeOption[] = [
   { id: 'script',               label: 'Script',             group: 'Publishing' },
   { id: 'note',                 label: 'General note',       group: 'Thinking' },
   { id: 'research',             label: 'Research brief',     group: 'Thinking' },
+  { id: 'definition',           label: 'Definition',         group: 'Thinking' },
 ];
 
 export const CONTENT_TYPE_GROUPS: { label: ContentTypeGroup; options: ContentTypeOption[] }[] =
@@ -71,6 +73,7 @@ export const CONTENT_TYPE_TAG: Record<ContentType, 'green' | 'teal' | 'purple' |
   research:            'cyan',
   spec:                'magenta',
   'use-case':          'teal',
+  definition:          'gray',
 };
 
 // ── Use case template ─────────────────────────────────────────────────────────

@@ -29,14 +29,15 @@ const RETRY_INITIAL = 5;
 const RETRY_SECOND = 15;
 const RETRY_FINAL = 60;
 export const PUBLISH_LIMITS = {
-  intake: 10, sourceChars: 60_000, minimumSource: 800, recentTopics: 60, draftsPerTick: 1,
+  // Instructions, guidance and the largest saved draft (maxText) sent alongside sources.
+  intake: 10, promptTokens: 40_000, minimumSource: 800, recentTopics: 60, draftsPerTick: 1,
   selectionTokens: 1400, draftTokens: 5000, reviewTokens: 1800, revisions: 2,
   staleHours: 24, sameTopicHours: 24, blueskyCap: 4, linkedinCap: 3,
   blueskySpacingHours: 2, linkedinSpacingHours: 3, maxHistory: 50, maxGuidance: 4000,
   dayHours: 24, maxExpiry: 720, maxHour: 23, weekDays: 7, maxPriority: 100,
   maxText: 100_000, maxCopy: 2700, maxBlueCopy: 240, retryMinutes: [RETRY_INITIAL, RETRY_SECOND, RETRY_FINAL], leaseMinutes: 15,
   verificationChars: 120, serverError: 500,
-  dailyAssessments: 12,
+  refreshAssessments: 12,
   packageDestinations: 2, half: 2, historyOffset: 10_000,
   sourcesPerTopic: 4,
   alternatives: 3, exceptionPriority: 90,

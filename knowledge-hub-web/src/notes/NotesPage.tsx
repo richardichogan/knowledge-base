@@ -15,6 +15,7 @@ import { QuickSparkModal } from '../components/sparks/QuickSparkModal';
 import { fetchNotesPage, fetchNote, createNote, deleteNote, extractNoteBlockText, buildPreview } from './noteStorage';
 import { presentationScript } from '../features/autocue/presentationScript';
 import type { NoteContentBlock, NoteListPage } from './noteStorage';
+import { athenaLinkText, prepareEntityLinkExport } from './linkLabels';
 import { loadedNotes, nextNotesPage, noteListQuery, type NoteListQuery } from './noteListState';
 import type { NoteDocument, NoteListItem } from './types';
 import { SideTabsPanel } from '../components/SideTabsPanel';
@@ -136,12 +137,24 @@ export const NotesPage: React.FC = () => {
   const { data: notePages, isLoading, isError, error: listError, isFetching, refetch,
     hasNextPage, fetchNextPage, isFetchingNextPage, isFetchNextPageError } = useInfiniteQuery({
     queryKey: ['notes-list', 'designs', listQuery],
-    queryFn: ({ pageParam }) => fetchNotesPage(pageParam, listQuery, 'designs'),
+    queryFn: ({ pageParam }) => fetchNotesPage(pageParam, listQuery, 'designs', { excludeContentType: 'definition' }),
     initialPageParam: 1,
     getNextPageParam: nextNotesPage,
     staleTime: 30_000,
     retry: 1,
   });
+  // Definitions are reference entries, listed alphabetically in their own section rather than by date.
+  const definitionsQuery = useInfiniteQuery({
+    queryKey: ['notes-list', 'definitions', listQuery.q ?? ''],
+    queryFn: ({ pageParam }) => fetchNotesPage(pageParam, { ...(listQuery.q ? { q: listQuery.q } : {}), sort: 'title' }, 'flat',
+      { contentType: 'definition' }),
+    initialPageParam: 1,
+    getNextPageParam: nextNotesPage,
+    staleTime: 30_000,
+    retry: 1,
+  });
+  const definitions = useMemo(() => definitionsQuery.data === undefined ? NO_NOTES
+    : loadedNotes(definitionsQuery.data.pages), [definitionsQuery.data]);
   const notes = useMemo(() => {
     if (notePages === undefined) return NO_NOTES;
     return loadedNotes(notePages.pages);
@@ -503,35 +516,45 @@ export const NotesPage: React.FC = () => {
       // and falls back to (possibly stale/unindexed) RAG search instead.
       let blocks: unknown = [];
       try { blocks = JSON.parse(openDoc.contentJson); } catch { blocks = []; }
-      const bodyText = Array.isArray(blocks)
-        ? extractNoteBlockText(blocks as NoteContentBlock[]).slice(0, NOTE_CONTEXT_MAX_CHARS)
-        : '';
-      const bodyBlock = bodyText !== '' ? `\n\nContent:\n${bodyText}` : '';
+      // Link chips (e.g. a heading that links to another note) carry no text of their own,
+      // so Athena gets each one's title and id to read or follow.
+      const bodyBlock = (): string => {
+        const bodyText = Array.isArray(blocks)
+          ? extractNoteBlockText(blocks as NoteContentBlock[], athenaLinkText).slice(0, NOTE_CONTEXT_MAX_CHARS)
+          : '';
+        return bodyText !== '' ? `\n\nContent:\n${bodyText}` : '';
+      };
       const imageUrls = extractImageUrls(blocks);
       const imagesKey = imageUrls.join('|');
       const doc = openDoc;
+      let latestDescriptions: string[] | undefined;
 
       const publish = (descriptions: string[] | undefined): void => {
+        latestDescriptions = descriptions;
         const imageNote = imageUrls.length > 0
           ? `. Contains ${imageUrls.length.toString()} embedded image(s)`
           : '';
         setAthenaContext({
           type: 'note',
           title: doc.title,
-          detail: `Content type: ${doc.contentType}${imageNote}${bodyBlock}`,
+          detail: `Content type: ${doc.contentType}${imageNote}${bodyBlock()}`,
           id: doc.id,
           ...(doc.projectId ? { projectId: doc.projectId } : {}),
           ...(descriptions !== undefined && descriptions.length > 0 && { images: descriptions.join('\n\n') }),
         });
       };
 
+      let cancelled = false;
       const cached = imageDescriptionsRef.current.get(imagesKey);
       publish(cached);
+      if (JSON.stringify(blocks).includes('Mention"')) {
+        void prepareEntityLinkExport(blocks).then(() => { if (!cancelled) publish(latestDescriptions); })
+          .catch(() => { /* links stay as ids */ });
+      }
       if (imageUrls.length === 0 || cached !== undefined) {
-        return () => { setAthenaContext(null); };
+        return () => { cancelled = true; setAthenaContext(null); };
       }
 
-      let cancelled = false;
       void api.lookupImages(imageUrls).then((r) => {
         if (!r.success) return;
         const descriptions = r.data.items
@@ -719,6 +742,10 @@ export const NotesPage: React.FC = () => {
               loadMoreError={isFetchNextPageError}
               fetching={isFetching}
               onLoadMore={() => { void fetchNextPage({ cancelRefetch: false }); }}
+              definitions={definitions}
+              definitionsHasMore={definitionsQuery.hasNextPage}
+              definitionsLoadingMore={definitionsQuery.isFetchingNextPage}
+              onLoadMoreDefinitions={() => { void definitionsQuery.fetchNextPage({ cancelRefetch: false }); }}
             />
           )}
 

@@ -5,6 +5,7 @@ import { AppDialog } from '../../components/AppDialog';
 import { api } from '../../services/api';
 import { describeApiError, requireApiData } from '../../services/apiError';
 import { extractNoteBlockText, fetchNote, type NoteContentBlock } from '../../notes/noteStorage';
+import { athenaLinkText, prepareEntityLinkExport } from '../../notes/linkLabels';
 import { deferredView } from '../../utils/deferredView';
 import { setDesignChatBridge } from '../../utils/activeBlockNoteEditor';
 import { useAthenaContext } from '../../context/AthenaContext';
@@ -74,9 +75,15 @@ export const DesignParent: React.FC<{
     const note = document.data;
     const blocks: unknown = JSON.parse(note.contentJson);
     if (!Array.isArray(blocks)) return;
-    setAthenaContext({ type: 'note', id: note.id, conversationId: design.parentNoteId,
-      title: note.title, detail: extractNoteBlockText(blocks as NoteContentBlock[]),
-      ...(note.projectId ? { projectId: note.projectId } : {}) });
+    let cancelled = false;
+    const publish = (): void => {
+      setAthenaContext({ type: 'note', id: note.id, conversationId: design.parentNoteId,
+        title: note.title, detail: extractNoteBlockText(blocks as NoteContentBlock[], athenaLinkText),
+        ...(note.projectId ? { projectId: note.projectId } : {}) });
+    };
+    publish();
+    void prepareEntityLinkExport(blocks).then(() => { if (!cancelled) publish(); }).catch(() => { /* links stay as ids */ });
+    return () => { cancelled = true; };
   }, [document.data, design, setAthenaContext]);
   useEffect(() => () => { setAthenaContext(null); }, [setAthenaContext]);
   const prepare = useCallback(async (): Promise<void> => {

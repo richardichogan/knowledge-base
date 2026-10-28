@@ -232,7 +232,7 @@ export function exportFileName(name: string | undefined, format: DiagramExportFo
   return `${base === '' ? 'diagram' : base}.${format}`;
 }
 
-function download(blob: Blob, fileName: string): void {
+export function download(blob: Blob, fileName: string): void {
   const url = URL.createObjectURL(blob);
   const link = window.document.createElement('a');
   link.href = url; link.download = fileName;

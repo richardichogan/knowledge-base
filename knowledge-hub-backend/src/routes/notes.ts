@@ -29,8 +29,11 @@ import { GitHubClient } from '../integrations/github/githubClient.js';
 import { ConflictError } from '../types/errors.js';
 import { positiveInteger } from '../utils/queryValidation.js';
 import { noteLinksRouter } from './noteLinks.js';
+import { invalidateDefinitions } from '../ai/definitions.js';
 
 const router = Router();
+// Any note write can add, edit or remove a definition Athena relies on.
+router.use((req, _res, next) => { if (req.method !== 'GET') invalidateDefinitions(); next(); });
 router.use(noteLinksRouter);
 const MAX_REPOSITORY_PAGE = 100;
 function noteStatus(value: unknown): 'active' | 'archived' {
@@ -272,6 +275,11 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
       if (contentType !== undefined) {
         params.push(contentType);
         conditions.push(`note_list_metadata(n.content)->>'contentType' = $${params.length}`);
+      }
+      const excludeContentType = filterValue('excludeContentType');
+      if (excludeContentType !== undefined) {
+        params.push(excludeContentType);
+        conditions.push(`COALESCE(note_list_metadata(n.content)->>'contentType', 'note') <> $${params.length}`);
       }
       const parseTagIds = (name: string): string[] => {
         const value = filterValue(name);

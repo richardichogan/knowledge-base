@@ -2,6 +2,36 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-28, brainstorm and Definition):**
+- User explicitly requested merge, push and production deployment of the existing
+  completed changes: brainstorm card tree, shared diagram panel, card types,
+  footnotes, collapse, toolbar/export, Definition notes and publishing repairs.
+- All validation checks pass:
+  - [x] `git fetch origin` / `git merge --no-edit origin/main`: already current.
+  - [x] Both apps: `npx tsc --noEmit` and production builds passed.
+  - [x] Lint non-regression passed: backend 547/623; frontend 22/41.
+  - [x] Backend isolated release suite ran once: 721/722 initially. The sole
+    task-calendar failure coincided with delayed autotag fixture timers; the
+    unchanged affected file passed all 5 cases when rerun separately.
+  - [x] Frontend isolated release suite ran once: 243/244 initial cases passed.
+    Updated the content-type expectation to include the new Definition type;
+    all 5 affected cases passed. Completed bundled UI groups passed; the timed-out
+    publishingFeeds group and remaining UI groups passed separately (18 cases).
+  - [x] `git diff --check` passed. Dockerfile still copies all migrations and
+    package-lock.json is present. Migration 114 was already applied to the
+    shared production database with the user's approval.
+  - [x] Azure CLI authentication and established targets confirmed in Alliance
+    Tenant Reporting. Existing backend v263, identity None; preserve registry
+    authentication, infrastructure, secrets and delivery settings.
+- Existing application-only AZCLI recipe: no provisioning, Bicep/template,
+  policy, RBAC, network, identity or dependency changes. No desktop rebuild.
+- Push matching feature/main source, build backend v264 from synced GitHub main
+  through ACR, update existing ACA and deploy the matching frontend to kh-prod-web.
+  Confirm health/startup/migrations and served frontend bytes, then stop.
+- No browser launch, live model calls or production-content mutations during
+  release validation. Preserve unrelated hook cache.
+- Evidence: session files/brainstorm-release-*.log.
+
 **Deployment outcome (2026-10-27, hexagon shape):**
 - Release commit `c99afef` pushed atomically to the feature branch and main.
 - ACR run `ca89` built backend v263 from that exact commit. Revision

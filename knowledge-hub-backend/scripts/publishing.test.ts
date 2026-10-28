@@ -66,6 +66,21 @@ test('discard rejects only the pending Blog/LinkedIn package and retains source 
     assert.equal((await f.db.query("SELECT id FROM publishing_drafts WHERE topic_id=$1 AND approval='rejected' AND held", [t.id])).rowCount, 3);
   } finally { await f.close(); }
 });
+test('source reading keeps complete articles beyond 60,000 characters and holds only evidence that exceeds the model context', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db);
+    await source(f.db, t.id);
+    await f.db.query("UPDATE publishing_sources SET read_at=NOW()-INTERVAL '2 days' WHERE topic_id=$1", [t.id]);
+    const long = prose.repeat(Math.ceil(90_000 / prose.length));
+    const [read] = await editorial.readSources(f.db, t.id, { ...editorial.editorialServices, read: async () => ({ title: 'Long', text: long }) });
+    assert.equal(read!.body, long, 'the full original is kept, not truncated or held');
+    await f.db.query("UPDATE publishing_sources SET read_at=NOW()-INTERVAL '2 days' WHERE topic_id=$1", [t.id]);
+    await assert.rejects(editorial.readSources(f.db, t.id, { ...editorial.editorialServices, contextTokens: () => 60_000,
+      read: async () => ({ title: 'Long', text: long + 'Updated.' }) }), /full-reading context/);
+    assert.equal((await f.db.query('SELECT body FROM publishing_sources WHERE topic_id=$1', [t.id])).rows[0].body, long, 'oversized evidence is not saved');
+  } finally { await f.close(); }
+});
 test('discard refuses approved, scheduled and attempted topics without changing any saved draft', async () => {
   const f = await publishingFixture();
   try {
@@ -217,6 +232,42 @@ test('prepared drafts appear before newer candidates, before database pagination
     assert.equal(new Set([...first, ...second].map(t => t.id)).size, 61);
   } finally { await f.close(); }
 });
+
+test('YouTube stays in Discover but never enters publishing or consumes article intake slots', async () => {
+  const f = await publishingFixture();
+  try {
+    for (const url of ['https://www.youtube.com/watch?v=abcdefghijk', 'https://youtu.be/abcdefghijk',
+      'https://m.youtube.com/shorts/abcdefghijk', 'https://www.youtube.com/live/abcdefghijk']) {
+      await f.db.query(`INSERT INTO content_items(title,url,source) VALUES('Microsoft video',$1,'discovered-article')`, [url]);
+    }
+    await f.db.query(`INSERT INTO content_items(title,url,source,metadata) VALUES
+      ('Microsoft imported video','https://source.fixture.invalid/video','discovered-article','{"contentKind":"youtube-video"}'),
+      ('Microsoft written update','https://source.fixture.invalid/article','discovered-article','{}')`);
+    await store.intake(f.db);
+    assert.equal((await f.db.query('SELECT id FROM content_items')).rowCount, 6);
+    assert.deepEqual((await f.db.query('SELECT title FROM publishing_topics')).rows, [{ title: 'Microsoft written update' }]);
+    const imported = await topic(f.db);
+    await source(f.db, imported.id);
+    await f.db.query("UPDATE publishing_sources SET url='https://www.youtube.com/watch?v=abcdefghijk' WHERE topic_id=$1", [imported.id]);
+    await draft(f.db, imported.id);
+    await f.db.query("UPDATE publishing_drafts SET approval='pending' WHERE topic_id=$1", [imported.id]);
+    await f.db.query('DELETE FROM publishing_schedule');
+    assert.equal((await store.listTopics(f.db, 0, true)).length, 0);
+    await assert.rejects(editorial.readSources(f.db, imported.id, { ...editorial.editorialServices,
+      read: async () => { throw new Error('YouTube must not be fetched'); },
+    }), /written articles only/);
+    await refreshPublishingDrafts(f.db, { ...editorial.editorialServices,
+      preferences: async () => '',
+      chat: async system => {
+        assert.match(system, /Select BEFORE/);
+        return { relatedTopicId: null, blog: false, bluesky: false, priority: 10,
+          rationale: 'Not selected.', exceptionReason: null, distinctArgument: false };
+      },
+      read: async () => ({ title: 'Microsoft written update', text: prose }),
+    });
+    assert.equal((await f.db.query("SELECT id FROM publishing_events WHERE topic_id=$1 AND event='preparation-started'", [imported.id])).rowCount, 0);
+  } finally { await f.close(); }
+});
 test('Drafts has at most eight entries across all feeds, ordered by Microsoft relevance and freshness', async () => {
   const f = await publishingFixture();
   try {
@@ -355,6 +406,7 @@ test('refresh audit distinguishes selection, assessment, skipped claims and fail
           exceptionReason: null, distinctArgument: false };
       },
     });
+
     const detail = (await f.db.query<{ detail: Record<string, unknown> }>("SELECT detail FROM publishing_events WHERE event='draft-refresh-completed'")).rows[0]!.detail;
     assert.deepEqual(detail, { limit: 8, selectedTopics: 3, assessmentAttempts: 2, assessedTopics: 1,
       reviewedTopics: 0, reviewedDrafts: 0, skippedTopics: 1, failedTopics: 1, drafts: [] });
@@ -362,6 +414,53 @@ test('refresh audit distinguishes selection, assessment, skipped claims and fail
     assert.equal((await f.db.query('SELECT * FROM publishing_deliveries')).rowCount, 0);
   } finally { await f.close(); }
 });
+
+test('refresh restores saved drafts and reaches five new articles beyond failures and rejections within its budget', async () => {
+      const f = await publishingFixture();
+      let assessments = 0;
+      const written: string[] = [];
+      try {
+        const stale = await topic(f.db); await source(f.db, stale.id); await draft(f.db, stale.id);
+        await f.db.query('DELETE FROM publishing_schedule');
+        await f.db.query("UPDATE publishing_drafts SET approval='pending',reviewed_at=NOW()-INTERVAL '25 hours'");
+        for (let i = 0; i < 13; i++) {
+          const candidate = await topic(f.db); await source(f.db, candidate.id);
+          await f.db.query("UPDATE publishing_topics SET state='pending',title=$2 WHERE id=$1", [candidate.id, `Microsoft arrival ${i}`]);
+          await f.db.query(`UPDATE publishing_sources SET url=$2,read_at=NULL,discovered_at=NOW()-($3::int * INTERVAL '1 minute')
+            WHERE topic_id=$1`, [candidate.id, `https://source.fixture.invalid/${i < 4 ? 'failure' : i < 7 ? 'rejected' : 'useful'}-${i}`, i]);
+          if (i >= 7 && i < 12) written.push(candidate.id);
+        }
+        await refreshPublishingDrafts(f.db, { ...editorial.editorialServices,
+          preferences: async () => '',
+          read: async url => {
+            if (url.includes('/failure-')) throw new Error('Source unavailable');
+            return { title: 'Microsoft written article', text: prose };
+          },
+          chat: async (system, input) => {
+            if (system.includes('Select BEFORE')) {
+              assessments++;
+              const sources = (input as { sources: Source[] }).sources;
+              return { relatedTopicId: null, blog: false, bluesky: !sources[0]!.url.includes('/rejected-'),
+                priority: 80, rationale: 'Source-specific selection.', exceptionReason: null, distinctArgument: false };
+            }
+            if (system.includes('Create ONLY')) return { bluesky: { copy: 'Check the documented permissions before enabling this Microsoft capability.' } };
+            assert.match(system, /review only/);
+            return { outcome: 'pass', findings: [] };
+          },
+        });
+        const shortlist = await store.listTopics(f.db, 0, true);
+        assert.ok(shortlist.some(entry => entry.id === stale.id));
+        assert.ok(written.every(id => shortlist.some(entry => entry.id === id)), 'all five new usable articles reach the shortlist');
+        assert.equal(assessments, 8, 'four failed reads and eight model assessments exhaust twelve attempts');
+        assert.equal((await f.db.query("SELECT id FROM publishing_topics WHERE state='pending'")).rowCount, 1);
+        assert.equal((await f.db.query('SELECT id FROM publishing_deliveries')).rowCount, 0);
+        assert.equal((await f.db.query("SELECT id FROM publishing_drafts WHERE approval<>'pending'")).rowCount, 0);
+        const detail = (await f.db.query<{ detail: { assessmentAttempts: number; reviewedDrafts: number } }>(
+          "SELECT detail FROM publishing_events WHERE event='draft-refresh-completed'")).rows[0]!.detail;
+        assert.equal(detail.assessmentAttempts, 12);
+        assert.equal(detail.reviewedDrafts, 6);
+      } finally { await f.close(); }
+    });
 test('non-Microsoft topics need an exceptional explicit relevance rationale before drafting', async () => {
   const f = await publishingFixture();
   try {
@@ -797,7 +896,7 @@ test('legacy manual and Jobs successes count towards the same account ledger', a
     assert.equal((await f.db.query("SELECT * FROM publishing_deliveries WHERE identity LIKE 'discover:%'")).rows.length, 1);
   } finally { await f.close(); }
 });
-test('preparation is automatic; enabling alone never posts before exact-version human approval', async () => {
+test('preparation has no daily allowance; enabling alone never posts before exact-version human approval', async () => {
   const f = await publishingFixture();
   const { env } = await import('../src/config/env.js');
   const mode = env.NODE_ENV; env.NODE_ENV = 'production';
@@ -811,6 +910,7 @@ test('preparation is automatic; enabling alone never posts before exact-version 
   };
   try {
     await f.db.query("INSERT INTO content_items(title,url,source) VALUES('Practical Microsoft update','https://source.fixture.invalid/update','discovered-article')");
+    for (let i = 0; i < 20; i++) await store.event(f.db, null, 'editorial-worker', 'preparation-started', {});
     const editorialServices = { ...editorial.editorialServices, ...services, preferences: async () => '', chat: async (system: string) => {
       if (system.includes('Select BEFORE')) return { bluesky: true, blog: false, distinctArgument: false, priority: 80, rationale: 'A useful practical change.' };
       if (system.includes('Create ONLY')) return { bluesky: { copy: 'Check the scope of this practical administration change.' } };
@@ -819,7 +919,8 @@ test('preparation is automatic; enabling alone never posts before exact-version 
     await tickPublishing(f.db, editorialServices, services);
     assert.equal(sends, 0);
     const prepared = await store.listTopics(f.db);
-    assert.equal(prepared[0]!.state, 'ready'); assert.equal(prepared[0]!.drafts[0]!.review, 'pass');
+    assert.equal(prepared[0]!.state, 'ready', 'prior daily assessments never block new preparation');
+    assert.equal(prepared[0]!.drafts[0]!.review, 'pass');
     await enable(f.db);
     await tickPublishing(f.db, editorialServices, services);
     assert.equal(sends, 0, 'automation cannot send a post the user has not approved');

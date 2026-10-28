@@ -38,6 +38,11 @@ interface NoteListProps {
   loadMoreError?: boolean;
   fetching?: boolean;
   onLoadMore?: () => void;
+  /** Definition notes, shown in their own collapsible section below the dated list. */
+  definitions?: ThinkListItem[];
+  definitionsHasMore?: boolean;
+  definitionsLoadingMore?: boolean;
+  onLoadMoreDefinitions?: () => void;
 }
 
 function formatDate(iso: string): string {
@@ -65,8 +70,18 @@ export const NoteList: React.FC<NoteListProps> = ({
   loadMoreError = false,
   fetching = false,
   onLoadMore,
+  definitions = [],
+  definitionsHasMore = false,
+  definitionsLoadingMore = false,
+  onLoadMoreDefinitions,
 }) => {
   const [filter, setFilter] = useState('');
+  const [definitionsOpen, setDefinitionsOpen] = usePersistedBoolean('kh_notes_definitions_open', false);
+  const definitionSelected = definitions.some(note => note.id === selectedId);
+  useEffect(() => { if (definitionSelected) setDefinitionsOpen(true); }, [definitionSelected, setDefinitionsOpen]);
+  // Matches are shown while searching without changing the remembered collapsed state.
+  const definitionsExpanded = definitionsOpen || filter.trim() !== '';
+  const definitionsRowsId = useId();
 
   const [sortKey, setSortKey] = usePersistedChoice<NoteSortKey>(
     'kh_notes_sort',
@@ -263,7 +278,7 @@ export const NoteList: React.FC<NoteListProps> = ({
 
       <div className="notes-list">
         {loading && <p className="notes-list-progress" role="status">Loading notes...</p>}
-        {!loading && !unavailable && sortedNotes.length === 0 && (
+        {!loading && !unavailable && sortedNotes.length === 0 && definitions.length === 0 && (
           <div className="notes-list-empty">No documents found</div>
         )}
         {groupByProject
@@ -288,6 +303,25 @@ export const NoteList: React.FC<NoteListProps> = ({
               <div id={rowsId} hidden={collapsed}>{!collapsed && bucket.notes.map(renderNote)}</div>
             </div>;
           }) : sortedNotes.map(renderNote)}
+        {definitions.length > 0 && (
+          <div className="notes-date-bucket">
+            <button type="button" className="notes-date-bucket__header" aria-expanded={definitionsExpanded}
+              aria-controls={definitionsRowsId} onClick={() => { setDefinitionsOpen(!definitionsExpanded); }}>
+              <span>Definitions</span>
+              <span className="notes-date-bucket__count">{definitions.length}{definitionsHasMore ? '+' : ''}</span>
+              {definitionsExpanded ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}
+            </button>
+            <div id={definitionsRowsId} hidden={!definitionsExpanded}>
+              {definitionsExpanded && definitions.map(renderNote)}
+              {definitionsExpanded && definitionsHasMore && onLoadMoreDefinitions !== undefined && (
+                <button type="button" className="notes-list-pagination__more" disabled={definitionsLoadingMore}
+                  onClick={onLoadMoreDefinitions}>
+                  {definitionsLoadingMore ? 'Loading…' : 'Load more definitions'}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
       <div className="notes-list-pagination">
         <span className="notes-list-pagination__count" role="status">

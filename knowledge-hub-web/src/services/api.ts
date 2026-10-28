@@ -890,7 +890,7 @@ export class KnowledgeHubApi {
 
   /** Lightweight note list for the Think sidebar: titles/previews only, no bodies. */
   async getNoteSummaries(page = 1, pageSize = 100, filters?: {
-    q?: string; contentType?: string; projectId?: string; tagIds?: string; projectTagIds?: string;
+    q?: string; contentType?: string; excludeContentType?: string; projectId?: string; tagIds?: string; projectTagIds?: string;
     sort?: 'modified' | 'created' | 'title';
     status?: 'active' | 'archived';
     structure?: 'flat' | 'designs';
@@ -2803,6 +2803,11 @@ export interface CanvasNodeApi {
   refType: MapRefType | null; refId: string | null;
   label: string | null; body: string | null;
   url: string | null; tags: string[] | null;
+  /** Brainstorm card type for idea cards; null means the default (topic for the centre card, otherwise idea). */
+  cardType: string | null;
+  footnote: string | null;
+  /** The card's children are hidden. */
+  collapsed: boolean;
   x: number; y: number; placed: boolean;
   createdAt: string;
 }
@@ -2828,8 +2833,10 @@ export interface CanvasFullApi extends CanvasSummaryApi {
 /** One change to a canvas (ids are client-generated UUIDs). */
 export type MapOp =
   | { op: 'add'; id: string; label?: string; body?: string; nodeType?: string; refType?: MapRefType; refId?: string; url?: string;
-      tags?: string[]; x?: number; y?: number; connectTo?: { nodeId: string; edgeId: string; type?: string } }
-  | { op: 'update'; id: string; label?: string; body?: string }
+      tags?: string[]; cardType?: string; footnote?: string; collapsed?: boolean;
+      x?: number; y?: number; connectTo?: { nodeId: string; edgeId: string; type?: string } }
+  /** An empty cardType or footnote clears it. */
+  | { op: 'update'; id: string; label?: string; body?: string; cardType?: string; footnote?: string; collapsed?: boolean }
   | { op: 'position'; id: string; x: number; y: number }
   | { op: 'delete'; id: string }
   | { op: 'link'; id: string; sourceId: string; targetId: string; type?: string; label?: string }

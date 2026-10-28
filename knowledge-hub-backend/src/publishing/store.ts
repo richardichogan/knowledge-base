@@ -14,6 +14,14 @@ export const draftColumns = `id,topic_id AS "topicId",destination,variant,versio
 export const deliveryColumns = `id,identity,destination,topic_id AS "topicId",draft_id AS "draftId",version,account,status,
   attempted_at::text AS "attemptedAt",published_at::text AS "publishedAt",next_attempt_at::text AS "nextAttemptAt",attempts,receipt,error`;
 
+const YOUTUBE_URL = String.raw`^https?://([^/]+\.)?(youtube\.com|youtu\.be|youtube-nocookie\.com)([/:?#]|$)`;
+export function writtenPublishingSourcesSql(topicId: string): string {
+  return `NOT EXISTS(SELECT 1 FROM publishing_sources video
+    LEFT JOIN content_items item ON item.id=video.item_id
+    WHERE video.topic_id=${topicId} AND (video.url ~* '${YOUTUBE_URL}'
+      OR item.metadata->>'contentKind'='youtube-video'))`;
+}
+
 export async function transaction<T>(db: Pool, action: (c: PoolClient) => Promise<T>): Promise<T> {
   const c = await db.connect();
   try { await c.query('BEGIN'); const result = await action(c); await c.query('COMMIT'); return result; }
@@ -48,6 +56,7 @@ export async function listTopics(db: Pool, offset = 0, shortlist = false): Promi
       ORDER BY ${microsoft} DESC,${fresh} DESC,priority DESC,publishing_topics.created_at DESC,publishing_topics.id) AS position
     FROM publishing_topics JOIN publishing_drafts d ON d.topic_id=publishing_topics.id
     WHERE state='ready' AND d.destination IN ('bluesky','blog') AND d.review='pass' AND NOT d.held
+      AND ${writtenPublishingSourcesSql('publishing_topics.id')}
       AND d.approval='pending' AND d.reviewed_at>NOW()-INTERVAL '24 hours'
       AND NOT EXISTS(SELECT 1 FROM publishing_drafts scheduled
         WHERE scheduled.topic_id=d.topic_id AND scheduled.approval='approved')
@@ -103,6 +112,7 @@ export async function intake(db: Pool): Promise<void> {
   const rows = (await db.query<{ id: string; title: string; url: string; discoveredAt: string }>(`
     SELECT c.id,c.title,c.url,COALESCE(c.metadata->>'discoveredAt',c.indexed_at::text) AS "discoveredAt"
     FROM content_items c WHERE c.source='discovered-article' AND c.url IS NOT NULL
+      AND c.url !~* '${YOUTUBE_URL}' AND COALESCE(c.metadata->>'contentKind','')<>'youtube-video'
       AND c.indexed_at>NOW()-INTERVAL '48 hours' AND c.published_at>NOW()-INTERVAL '7 days'
       AND COALESCE(c.workflow_state,'to-review') NOT IN ('archived','shelved')
       AND NOT EXISTS(SELECT 1 FROM publishing_sources s WHERE s.item_id=c.id)

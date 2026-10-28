@@ -12,22 +12,25 @@ import { isMicrosoftRelevant } from '../utils/microsoftRelevance.js';
 import { object, text } from '../jobs/contracts.js';
 import { ValidationError, ConflictError, NotFoundError, IntegrationError, AiOutputLimitError } from '../types/errors.js';
 import { MS_PER_HOUR } from '../config/constants.js';
-import { draftColumns, event, feeds, saveDraft, sourceColumns, topicColumns, transaction } from './store.js';
+import { draftColumns, event, feeds, saveDraft, sourceColumns, topicColumns, transaction, writtenPublishingSourcesSql } from './store.js';
 import { PUBLISH_LIMITS, type Draft, type Source, type Topic } from './contracts.js';
 import { destinationAccount } from './delivery.js';
 import { getLinkedInMember } from '../integrations/social/linkedin.js';
 import { applyEditorialEdits } from './passageEdits.js';
+import { REVIEW_CONTEXT_RESERVE, textTokens } from '../ai/knowledge/reviewContext.js';
 export { applyEditorialEdits } from './passageEdits.js';
 
 export interface EditorialServices {
   read: typeof readPublicPage;
   chat(system: string, input: unknown, tokens: number, schema: LlmJsonSchema): Promise<Record<string, unknown>>;
+  contextTokens(): number;
   preferences(db: Pool): Promise<string>;
   member: typeof getLinkedInMember;
 }
 export const editorialServices: EditorialServices = {
   read: readPublicPage,
   chat: (system, input, tokens, schema) => requestEditorialJson(getFoundryClient('discover-editorial'), system, input, tokens, schema),
+  contextTokens: () => getFoundryClient('discover-editorial').bulkContextTokens(),
   preferences: db => buildStandingInstructionsBlock(db, { persona: 'general', projectId: 'microsoft-cloud-blog', includeExamples: false }),
   member: getLinkedInMember,
 };
@@ -182,17 +185,27 @@ function validateQuickPackage(draft: Draft, sources: Source[]): void {
   }
 }
 export async function readSources(db: Pool, topicId: string, service = editorialServices, draftsOnly = false): Promise<Source[]> {
+  const eligible = await db.query(`SELECT id FROM publishing_topics WHERE id=$1 AND ${writtenPublishingSourcesSql('publishing_topics.id')}`, [topicId]);
+  if (!eligible.rowCount) throw new ValidationError('Publishing accepts written articles only. YouTube videos remain available in Discover.');
   const count = (await db.query<{ count: number }>('SELECT COUNT(DISTINCT url)::int AS count FROM publishing_sources WHERE topic_id=$1', [topicId])).rows[0]!.count;
   if (count > PUBLISH_LIMITS.sourcesPerTopic) throw new Error('Coverage exceeds the four-source editorial budget. Hold for human review rather than omit evidence.');
   const sources = (await db.query<Source>(`SELECT DISTINCT ON (url) ${sourceColumns} FROM publishing_sources WHERE topic_id=$1 ORDER BY url,discovered_at LIMIT 4`, [topicId])).rows;
   if (!sources.length) throw new Error('No source evidence is available.');
+  const fresh = new Map<Source, string>();
   for (const source of sources) {
     if (source.readAt && Date.now() - new Date(source.readAt).getTime() < PUBLISH_LIMITS.staleHours * MS_PER_HOUR) continue;
     const page = await service.read(source.url);
-    if (page.text.length < PUBLISH_LIMITS.minimumSource || page.text.length > PUBLISH_LIMITS.sourceChars
-      || /verify you are human|enable javascript and cookies|checking your browser|sign in to continue reading|subscribe to continue reading/i.test(page.text)) throw new Error('Source cannot be fully read within the editorial budget. Hold for human review.');
-    const changed = source.body !== '' && source.body !== page.text;
-    source.body = page.text; source.readAt = new Date().toISOString();
+    if (page.text.length < PUBLISH_LIMITS.minimumSource
+      || /verify you are human|enable javascript and cookies|checking your browser|sign in to continue reading|subscribe to continue reading/i.test(page.text)) throw new Error('Source cannot be fully read. Hold for human review.');
+    fresh.set(source, page.text);
+  }
+  // Every review receives the complete originals, so their combined tokens must fit the model's context.
+  const sourceTokens = sources.reduce((total, source) => total + textTokens(fresh.get(source) ?? source.body), 0);
+  const available = service.contextTokens() - PUBLISH_LIMITS.draftTokens * OUTPUT_RETRY_MULTIPLIER - REVIEW_CONTEXT_RESERVE - PUBLISH_LIMITS.promptTokens;
+  if (sourceTokens > available) throw new Error('Source evidence exceeds the model\'s full-reading context. Hold for human review rather than omit evidence.');
+  for (const [source, body] of fresh) {
+    const changed = source.body !== '' && source.body !== body;
+    source.body = body; source.readAt = new Date().toISOString();
     await db.query('UPDATE publishing_sources SET body=$2,read_at=$3 WHERE item_id=$1', [source.itemId, source.body, source.readAt]);
     if (changed) await db.query(`UPDATE publishing_drafts SET review='pending',approval='pending',reviewed_at=NULL,reason='Source evidence changed; review and approval required.'
       WHERE topic_id=$1 AND approval<>'rejected' AND NOT held

@@ -152,6 +152,12 @@ export class FoundryClient {
     return reviewContextTokens(route?.deployment ?? this.getDeployment(model));
   }
 
+  /** Context window of the deployment chatBulk actually calls, including its gpt-4o mini fallback. */
+  public bulkContextTokens(): number {
+    const configured = (env.AZURE_OPENAI_ENDPOINT_GPT54 ?? '') !== '' && (env.AZURE_OPENAI_API_KEY_GPT54 ?? '') !== '';
+    return reviewContextTokens(configured ? env.AZURE_OPENAI_DEPLOYMENT_SCREEN_READ ?? 'gpt-5.4' : this.getDeployment('light'));
+  }
+
   private getDeployment(model: AiModel): string {
     if (model === 'standard') return env.AZURE_OPENAI_DEPLOYMENT_GPT4O;
     if (model === 'reasoning') return env.AZURE_OPENAI_DEPLOYMENT_GPT54;
