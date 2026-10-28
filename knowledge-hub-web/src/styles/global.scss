@@ -18224,19 +18224,17 @@ select optgroup {
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
 }
-/* Inline passage tags use marks rather than changing the author's text colour. */
-.bn-editor [data-passage-tag] { position: relative; }
-.bn-editor [data-passage-tag]::after {
-  content: attr(data-passage-icon);
+.bn-editor .note-passage-marker {
+  position: relative;
   color: var(--kh-accent);
-  font-size: 0.7em;
+  font-size: 0.9em;
   font-weight: 600;
-  margin-inline: 0.15em;
+  margin-inline: 0.2em;
   vertical-align: super;
 }
 
-.bn-editor [data-passage-tag]:hover::before,
-.bn-editor [data-passage-tag]:focus-visible::before {
+.bn-editor .note-passage-marker:hover::before,
+.bn-editor .note-passage-marker:focus-visible::before {
   content: attr(title);
   position: absolute;
   z-index: 20;
@@ -18251,7 +18249,7 @@ select optgroup {
   white-space: nowrap;
 }
 
-.bn-editor [data-passage-tag]:focus-visible {
+.bn-editor .note-passage-marker:focus-visible {
   outline: 1px solid var(--cds-focus);
   outline-offset: 2px;
 }
@@ -18267,11 +18265,11 @@ select optgroup {
 }
 .note-passage-menu__trigger { padding: 6px 8px; }
 .note-passage-menu__list {
-  position: absolute;
-  z-index: 20;
-  top: 100%;
-  right: 0;
+  position: fixed;
+  z-index: 10000;
   min-width: 150px;
+  max-height: calc(100dvh - 8px);
+  overflow-y: auto;
   padding: 4px;
   background: var(--cds-layer-02);
   border: 1px solid var(--cds-border-subtle-01);

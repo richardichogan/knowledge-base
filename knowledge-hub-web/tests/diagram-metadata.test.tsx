@@ -15,7 +15,7 @@ const canvas: CanvasFullApi = {
   id: 'test', canvasType: 'diagram', title: 'Imagine Agentic Build & Run Model',
   description: 'Agent definitions and deployment', project: 'cloudt-with-a-chance-of-insights',
   createdAt: '', updatedAt: '', linkedNotes: [], nodeCount: 0,
-  viewport: { x: 0, y: 0, zoom: 1 }, nodes: [], edges: [],
+  viewport: { x: 0, y: 0, zoom: 1 }, brainstormSettings: { grid: true, snapToGrid: true, snapToShapes: true, gridSize: 10 }, nodes: [], edges: [],
 };
 function render(value: CanvasFullApi): string {
   return renderToStaticMarkup(<QueryClientProvider client={client}>

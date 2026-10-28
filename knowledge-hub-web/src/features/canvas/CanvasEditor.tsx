@@ -17,16 +17,17 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
-import { ZoomIn, ZoomOut, FitToScreen, Undo, Redo, Copy, Close, Add, TrashCan, ChartNetwork, Pin, Rocket, Subtract, Download, InProgress } from '@carbon/icons-react';
+import { ZoomIn, ZoomOut, FitToScreen, Undo, Redo, Copy, Close, Add, TrashCan, ChartNetwork, Pin, Rocket, Subtract, Download, InProgress, Grid, ChevronDown } from '@carbon/icons-react';
 import { UseCaseLauncher } from '../useCases/UseCaseLauncher';
 import { api } from '../../services/api';
 import { confirmDialog } from '../../services/appDialogs';
-import type { CanvasFullApi, CanvasNodeApi, MapOp, MapSuggestionApi } from '../../services/api';
+import type { BrainstormSettings, CanvasFullApi, CanvasNodeApi, MapOp, MapSuggestionApi } from '../../services/api';
 import { fetchNotes } from '../../notes/noteStorage';
 import type { NoteListItem } from '../../notes/types';
 import { SideTabsPanel } from '../../components/SideTabsPanel';
 import { CANVAS_SIDE_WIDTH, IconBtn, Segmented } from '../diagram/DiagramControls';
 import { download, exportFileName } from '../diagram/diagramExport';
+import { snapMovingBounds, type AlignmentGuide, type SpacingIndicator } from '../diagram/diagramAlignment';
 import { diagramMural } from '../diagram/diagramMural';
 import { MURAL_QUERY, loadMuralStatus } from '../../components/MuralIntegration';
 import { MuralExportDestination } from '../../components/MuralExportDestination';
@@ -36,7 +37,7 @@ import '../diagram/diagram.scss';
 import { ThinkAthenaPanel } from '../../notes/ThinkAthenaPanel';
 import type { AthenaPageContext } from '../../context/AthenaContext';
 import {
-  applyOps, inverseOps, placeNear, initialPositions, twoSidedLayout, cardTree, hiddenCards, descendants, elbowPath, estimateSize, connectedIds, canvasMarkdown,
+  applyOps, inverseOps, positionNewCards, branchSide, initialPositions, twoSidedLayout, cardTree, hiddenCards, descendants, elbowPath, estimateSize, connectedIds, canvasMarkdown,
   LINK_TYPES, linkStyle, DEFAULT_LINK_TYPE, type GraphState, type Point, type Size,
 } from './canvasGraph';
 import { readCanvasItem, readPlainText } from './canvasClipboard';
@@ -110,6 +111,9 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState({ x: 0, y: 0, zoom: 1 });
   const [drag, setDrag] = useState<Drag | null>(null);
+  const [guides, setGuides] = useState<AlignmentGuide[]>([]);
+  const [spacing, setSpacing] = useState<SpacingIndicator[]>([]);
+  const [snapOpen, setSnapOpen] = useState(false);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [sizes, setSizes] = useState<Map<string, Size>>(new Map());
   const [athenaBusy, setAthenaBusy] = useState(false);
@@ -133,6 +137,7 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
   /** Set while the card being named is dragged, so the drag doesn't end naming (which discards an unnamed new idea). */
   const draggingEdited = useRef(false);
   const pending = useRef(0);
+  const needsReload = useRef(false);
   const chain = useRef<Promise<unknown>>(Promise.resolve());
   const fitted = useRef(false);
   const userMovedView = useRef(false);
@@ -148,25 +153,12 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
   const reloadFromServer = useCallback(async (): Promise<void> => {
     const r = await api.getCanvas(canvasId);
     if (r.success) setMap(r.data);
+    else setError(`Couldn’t reload the canvas (${r.error.message}).`);
   }, [canvasId, setMap]);
 
-  /** New cards without a position get a free spot near what they connect to (or the selected card). */
   const withPositions = useCallback((ops: MapOp[]): MapOp[] => {
-    const nodes = mapRef.current.nodes;
-    const positions = new Map<string, Point>(nodes.map((n) => [n.id, { x: n.x, y: n.y }]));
-    const sz = new Map<string, Size>(nodes.map((n) => [n.id, sizes.get(n.id) ?? estimateSize(n)]));
-    return ops.map((op) => {
-      if (op.op !== 'add') return op;
-      const size = estimateSize({ refType: op.refType ?? null } as CanvasNodeApi);
-      sz.set(op.id, size);
-      if (op.x !== undefined && op.y !== undefined) { positions.set(op.id, { x: op.x, y: op.y }); return op; }
-      const anchorId = op.connectTo?.nodeId ?? selectedId ?? nodes[0]?.id;
-      const anchor = (anchorId !== undefined ? positions.get(anchorId) : undefined) ?? { x: 0, y: 0 };
-      const p = positions.size === 0 ? { x: 0, y: 0 } : placeNear(anchor, size, positions, sz);
-      positions.set(op.id, p);
-      return { ...op, x: Math.round(p.x), y: Math.round(p.y) };
-    });
-  }, [selectedId, sizes]);
+    return positionNewCards(mapRef.current, ops, canvasId, selectedId, sizes);
+  }, [canvasId, selectedId, sizes]);
 
   /** Applies changes on screen now and saves them in order. */
   const commit = useCallback((rawOps: MapOp[], opts: { undoable?: boolean; history?: 'undo' | 'redo' } = {}): void => {
@@ -191,22 +183,41 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
     chain.current = chain.current
       .then(async () => {
         const r = await api.applyCanvasOps(canvasId, ops);
-        pending.current--;
         if (!r.success) throw new Error(r.error.message);
+        pending.current--;
         if (pending.current === 0) {
+          needsReload.current = false;
           setMap(r.data);
           void queryClient.invalidateQueries({ queryKey: ['canvases'] });
         }
       })
       .catch((err: unknown) => {
-        pending.current = 0;
+        pending.current--;
+        needsReload.current = true;
         undoStack.current = [];
         redoStack.current = [];
         syncHistory();
         setError(`Couldn’t save that change (${err instanceof Error ? err.message : 'error'}) — the canvas was reloaded.`);
-        void reloadFromServer();
+        if (pending.current === 0) { needsReload.current = false; void reloadFromServer(); }
       });
   }, [canvasId, queryClient, reloadFromServer, setMap, withPositions, syncHistory]);
+
+  const changeSettings = (patch: Partial<BrainstormSettings>): void => {
+    const settings = { ...mapRef.current.brainstormSettings, ...patch };
+    setMap({ ...mapRef.current, brainstormSettings: settings });
+    pending.current++;
+    chain.current = chain.current.then(async () => {
+      const r = await api.updateCanvas(canvasId, { brainstormSettings: settings });
+      if (!r.success) throw new Error(r.error.message);
+      pending.current--;
+      if (pending.current === 0 && needsReload.current) { needsReload.current = false; void reloadFromServer(); }
+    }).catch((err: unknown) => {
+      pending.current--;
+      needsReload.current = true;
+      setError(`Couldn’t save snapping settings (${err instanceof Error ? err.message : 'error'}) — the canvas was reloaded.`);
+      if (pending.current === 0) { needsReload.current = false; void reloadFromServer(); }
+    });
+  };
 
   // Changes made elsewhere (e.g. Athena applied without the editor) arrive via the query.
   useEffect(() => {
@@ -533,13 +544,31 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
       return;
     }
     const moved = drag.moved || Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) > DRAG_THRESHOLD_PX;
-    setDrag({ ...drag, moved, at: { x: drag.from.x + (e.clientX - drag.startX) / view.zoom, y: drag.from.y + (e.clientY - drag.startY) / view.zoom } });
+    if (!moved) return;
+    const node = byId.get(drag.id);
+    if (node === undefined) return;
+    const size = sizeOf(node);
+    const raw = { x: (e.clientX - drag.startX) / view.zoom, y: (e.clientY - drag.startY) / view.zoom };
+    const settings = mapRef.current.brainstormSettings;
+    const result = snapMovingBounds(
+      { x: drag.from.x - size.w / 2, y: drag.from.y - size.h / 2, width: size.w, height: size.h },
+      map.nodes.filter(n => n.id !== drag.id && !hidden.has(n.id)).map(n => {
+        const s = sizeOf(n);
+        return { x: n.x - s.w / 2, y: n.y - s.h / 2, width: s.w, height: s.h };
+      }),
+      raw, { zoom: view.zoom, gridSize: settings.snapToGrid && !e.altKey ? settings.gridSize : null, shapeSnapping: settings.snapToShapes && !e.altKey },
+    );
+    setGuides(e.altKey ? [] : result.guides);
+    setSpacing(e.altKey ? [] : result.indicators);
+    setDrag({ ...drag, moved, at: { x: drag.from.x + result.delta.x, y: drag.from.y + result.delta.y } });
   }
 
   function onPointerUp(e: React.PointerEvent<HTMLDivElement>): void {
     containerRef.current?.releasePointerCapture(e.pointerId);
     const d = drag;
     setDrag(null);
+    setGuides([]);
+    setSpacing([]);
     if (d === null || d.kind === 'pan') return;
     if (d.kind === 'link') { if (d.overId !== null) connect(d.id, d.overId); return; }
     const edited = draggingEdited.current && d.id === editingId;
@@ -708,6 +737,36 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
                 <IconBtn label="Add an idea (Tab), connected to the selected card" onClick={() => { addIdea(selectedId); }}><Add size={16} /></IconBtn>
               </div>
               <div className="dg-header__group kh-command-row">
+                <IconBtn label={map.brainstormSettings.grid ? 'Hide grid' : 'Show grid'} pressed={map.brainstormSettings.grid}
+                  onClick={() => { changeSettings({ grid: !mapRef.current.brainstormSettings.grid }); }}><Grid size={16} /></IconBtn>
+                <div className="dg-anchor">
+                  <button type="button" className="dg-text-btn dg-snap-toggle" aria-label="Snapping options" aria-haspopup="dialog"
+                    aria-expanded={snapOpen} title="Hold Alt while dragging to bypass snapping and guides."
+                    onClick={() => { setSnapOpen(v => !v); }}>Snap <ChevronDown size={12} /></button>
+                  {snapOpen && <div className="dg-popover" role="dialog" aria-label="Snapping options"
+                    onKeyDown={event => { if (event.key === 'Escape') setSnapOpen(false); }}>
+                    <label className="dg-check">
+                      <input className="dg-check__input" type="checkbox" checked={map.brainstormSettings.snapToGrid}
+                        onChange={event => { changeSettings({ snapToGrid: event.target.checked }); }} />
+                      <span className="dg-check__label">Grid snap</span>
+                    </label>
+                    <label className="dg-check">
+                      <input className="dg-check__input" type="checkbox" checked={map.brainstormSettings.snapToShapes}
+                        onChange={event => { changeSettings({ snapToShapes: event.target.checked }); }} />
+                      <span className="dg-check__label">Shape and equal-spacing snap</span>
+                    </label>
+                    <p className="dg-popover__hint">Grid visibility is separate. Hold Alt while dragging to move freely without guides.</p>
+                  </div>}
+                </div>
+                <select className="dg-grid-size" aria-label="Grid spacing" value={map.brainstormSettings.gridSize}
+                  onChange={event => {
+                    const value = Number(event.target.value);
+                    if (value === 5 || value === 10 || value === 20 || value === 40) changeSettings({ gridSize: value });
+                  }}>
+                  {[5, 10, 20, 40].map(value => <option key={value} value={value}>{value} units</option>)}
+                </select>
+              </div>
+              <div className="dg-header__group kh-command-row">
                 <IconBtn label="Zoom out" onClick={() => { zoomBy(1 / ZOOM_STEP); }}><ZoomOut size={16} /></IconBtn>
                 <span className="mm-zoom-readout" aria-live="polite">{Math.round(view.zoom * 100)}%</span>
                 <IconBtn label="Zoom in" onClick={() => { zoomBy(ZOOM_STEP); }}><ZoomIn size={16} /></IconBtn>
@@ -778,6 +837,11 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
         <div
           ref={containerRef}
           className={`mm-surface${drag?.kind === 'pan' ? ' mm-surface--panning' : ''}`}
+          style={{
+            backgroundImage: map.brainstormSettings.grid ? undefined : 'none',
+            backgroundSize: `${map.brainstormSettings.gridSize * view.zoom}px ${map.brainstormSettings.gridSize * view.zoom}px`,
+            backgroundPosition: `${view.x}px ${view.y}px`,
+          }}
           tabIndex={0}
           role="application"
           aria-label={`Canvas ${map.title}. Tab adds an idea connected to the selected card; drag from a card's edge dot to connect; Delete removes.`}
@@ -785,6 +849,7 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
+          onPointerCancel={() => { setDrag(null); setGuides([]); setSpacing([]); draggingEdited.current = false; }}
           onWheel={onWheel}
           onDragOver={(e) => {
             if (!e.dataTransfer.types.includes(SUGGESTION_DRAG_TYPE)) return;
@@ -831,6 +896,38 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
               {drag?.kind === 'link' && draftFrom !== undefined && (
                 <line className="cv-link cv-link--draft" x1={draftFrom.x} y1={draftFrom.y} x2={drag.at.x} y2={drag.at.y} />
               )}
+              <g className="dg-drawing-guides" aria-hidden="true">
+                {guides.map(guide => <line key={`${guide.axis}:${guide.value}`}
+                  className={`dg-alignment-guide dg-alignment-guide--${guide.kind}`}
+                  x1={guide.axis === 'x' ? guide.value : -view.x / view.zoom}
+                  x2={guide.axis === 'x' ? guide.value : ((containerRef.current?.clientWidth ?? 0) - view.x) / view.zoom}
+                  y1={guide.axis === 'y' ? guide.value : -view.y / view.zoom}
+                  y2={guide.axis === 'y' ? guide.value : ((containerRef.current?.clientHeight ?? 0) - view.y) / view.zoom} />)}
+                {spacing.filter(indicator => indicator.gap > 0.5).map((indicator, index) => {
+                  const { axis, start, end, position } = indicator;
+                  const horizontal = axis === 'x';
+                  const x1 = horizontal ? start : position; const y1 = horizontal ? position : start;
+                  const x2 = horizontal ? end : position; const y2 = horizontal ? position : end;
+                  const cap = 4 / view.zoom;
+                  const label = `${indicator.equal ? '= ' : ''}${Math.round(indicator.gap * 10) / 10}`;
+                  const labelWidth = label.length * 7 + 10;
+                  return <g key={`${axis}:${index}`} className={`dg-spacing${indicator.equal ? ' dg-spacing--equal' : ''}`}>
+                    {indicator.startCross !== undefined && <line className="dg-spacing__witness"
+                      x1={horizontal ? start : indicator.startCross} y1={horizontal ? indicator.startCross : start} x2={x1} y2={y1} />}
+                    {indicator.endCross !== undefined && <line className="dg-spacing__witness"
+                      x1={horizontal ? end : indicator.endCross} y1={horizontal ? indicator.endCross : end} x2={x2} y2={y2} />}
+                    <line x1={x1} y1={y1} x2={x2} y2={y2} />
+                    <line x1={x1 - (horizontal ? 0 : cap)} x2={x1 + (horizontal ? 0 : cap)}
+                      y1={y1 - (horizontal ? cap : 0)} y2={y1 + (horizontal ? cap : 0)} />
+                    <line x1={x2 - (horizontal ? 0 : cap)} x2={x2 + (horizontal ? 0 : cap)}
+                      y1={y2 - (horizontal ? cap : 0)} y2={y2 + (horizontal ? cap : 0)} />
+                    <g transform={`translate(${(x1 + x2) / 2} ${(y1 + y2) / 2}) scale(${1 / view.zoom})`}>
+                      <rect x={-labelWidth / 2} y={-9} width={labelWidth} height={18} rx={2} />
+                      <text textAnchor="middle" dominantBaseline="central">{label}</text>
+                    </g>
+                  </g>;
+                })}
+              </g>
             </svg>
 
             {links.filter((l) => l.edge.id !== selectedLinkId && (l.edge.type !== DEFAULT_LINK_TYPE || l.edge.label !== null)).map((l) => (
@@ -849,7 +946,8 @@ const CanvasSurface: React.FC<Props & { initial: CanvasFullApi; serverMap: Canva
               const type = ideaCardType(n, isRoot);
               const footnote = footnoteNumbers.get(n.id);
               const below = !isRoot && tree !== null ? descendants(tree, n.id).length : 0;
-              const outerSide = tree?.side.get(n.id) === -1 ? 'left' : 'right';
+              const root = rootId === undefined ? undefined : byId.get(rootId);
+              const outerSide = root !== undefined && tree !== null && branchSide(n, root, tree, byId) === -1 ? 'left' : 'right';
               const pinned = n.refType === 'note' && n.refId !== null && pinnedNoteIds.has(n.refId);
               const classes = [
                 'cv-card', isIdea ? 'cv-card--idea' : 'cv-card--content', `cv-card--${n.refType ?? 'idea'}`, isRoot ? 'cv-card--root' : '', pinned ? 'cv-card--pinned' : '',

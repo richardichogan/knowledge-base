@@ -46,7 +46,7 @@ import {
 import {
   createCanvas, listCanvases, listDeletedCanvases, getCanvas, updateCanvas, deleteCanvas, restoreCanvas, permanentlyDeleteCanvas,
   applyOps, assertBrainstorm, linkNote, unlinkNote, linkElementNote, unlinkElementNote, cardSummaryBlocks, mapMarkdown, MapOpError,
-  type MapOp, type CreateMapInput,
+  parseBrainstormSettings, type MapOp, type CreateMapInput,
 } from '../services/canvasService.js';
 import { suggestionsFor } from '../services/mapSuggestions.js';
 import { loadCardText } from '../services/canvasContent.js';
@@ -119,7 +119,10 @@ canvasRouter.get('/:id', (req: Request, res: Response, next: NextFunction): void
 canvasRouter.patch('/:id', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
-      const patch = req.body as { title?: string; description?: string; project?: string | null; viewport?: object };
+      const body = req.body as { title?: string; description?: string; project?: string | null; viewport?: object; brainstormSettings?: unknown };
+      if (body.brainstormSettings !== undefined) await requireBrainstorm(param(req, 'id'));
+      const { brainstormSettings, ...metadata } = body;
+      const patch = { ...metadata, ...(brainstormSettings !== undefined && { brainstormSettings: parseBrainstormSettings(brainstormSettings) }) };
       const updated = await updateCanvas(param(req, 'id'), patch);
       if (!updated) throw new NotFoundError('Canvas not found');
       res.json({ success: true, data: updated });

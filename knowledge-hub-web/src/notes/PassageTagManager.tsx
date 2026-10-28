@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { FormattingToolbar, FormattingToolbarController, getFormattingToolbarItems } from '@blocknote/react';
 import type { BlockNoteEditor } from '@blocknote/core';
 import { TextSelection } from '@tiptap/pm/state';
@@ -10,6 +11,7 @@ import { applyPassageTag, capturePassageSelection, setPassageTagBridge, type Pas
 import { editorSchema } from './editorSchema';
 import { PASSAGE_TAGS, type PassageTag } from './passageTags';
 import { passageTagKeys } from './passageTagModel';
+import { createPassageMarkerPlugin, passageMarkerKey } from './passageMarkers';
 
 type Editor = BlockNoteEditor<typeof editorSchema.blockSchema, typeof editorSchema.inlineContentSchema, typeof editorSchema.styleSchema>;
 
@@ -32,15 +34,67 @@ function markedText(value: unknown): Map<string, string> {
 function TagToolbar(): React.ReactElement {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState('');
+  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
   const selectionRef = useRef<PassageSelection | null>(null);
+  const keyboardOpenRef = useRef(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = (): void => {
+      const trigger = triggerRef.current;
+      const menu = menuRef.current;
+      if (!trigger || !menu) return;
+      const anchor = trigger.getBoundingClientRect();
+      const bounds = menu.getBoundingClientRect();
+      const gap = 4;
+      const left = Math.max(gap, Math.min(anchor.right - bounds.width, window.innerWidth - bounds.width - gap));
+      const below = anchor.bottom + gap;
+      const top = below + bounds.height <= window.innerHeight - gap
+        ? below : Math.max(gap, anchor.top - bounds.height - gap);
+      setPosition({ left, top });
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => { window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true); };
+  }, [open]);
+  useEffect(() => {
+    if (open && position && keyboardOpenRef.current) {
+      keyboardOpenRef.current = false;
+      menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    }
+  }, [open, position]);
+  useEffect(() => {
+    if (!open) return;
+    const dismiss = (event: PointerEvent): void => {
+      if (event.target instanceof Node && !triggerRef.current?.contains(event.target) && !menuRef.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', dismiss);
+    return () => document.removeEventListener('pointerdown', dismiss);
+  }, [open]);
   return <FormattingToolbar>
     {getFormattingToolbarItems()}
     <span className="note-passage-menu">
-      <button type="button" className="note-passage-menu__trigger" aria-expanded={open}
+      <button ref={triggerRef} type="button" className="note-passage-menu__trigger" aria-expanded={open} aria-haspopup="menu"
         onMouseDown={event => { event.preventDefault(); selectionRef.current = capturePassageSelection(); }}
-        onClick={() => { selectionRef.current = capturePassageSelection() ?? selectionRef.current; setOpen(value => !value); }}>Tag</button>
-      {open && <span className="note-passage-menu__list" role="menu" aria-label="Tag selected passage"
-        onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); setOpen(false); } }}>
+        onClick={event => {
+          selectionRef.current = capturePassageSelection() ?? selectionRef.current;
+          keyboardOpenRef.current = event.detail === 0;
+          setPosition(null);
+          setOpen(value => !value);
+        }}>Tag</button>
+      {open && createPortal(<span ref={menuRef} className="note-passage-menu__list" role="menu" aria-label="Tag selected passage"
+        style={position ? { left: position.left, top: position.top } : { visibility: 'hidden' }}
+        onKeyDown={event => {
+          if (event.key === 'Escape') { event.stopPropagation(); setOpen(false); triggerRef.current?.focus(); return; }
+          if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+          event.preventDefault();
+          const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+          const index = items.indexOf(document.activeElement as HTMLButtonElement);
+          const next = event.key === 'ArrowDown' ? (index + 1) % items.length : (index + items.length - 1) % items.length;
+          items[next]?.focus();
+        }}>
         {(Object.keys(PASSAGE_TAGS) as PassageTag[]).map(kind => <button key={kind} type="button" role="menuitem"
           className="note-passage-menu__item" onMouseDown={event => { event.preventDefault(); }}
           onClick={() => {
@@ -50,7 +104,7 @@ function TagToolbar(): React.ReactElement {
               .catch((reason: unknown) => { setError(reason instanceof Error ? reason.message : 'Could not tag the passage.'); });
           }}><span aria-hidden="true">{PASSAGE_TAGS[kind].icon}</span>{PASSAGE_TAGS[kind].label}</button>)}
         {error && <span className="note-passage-menu__error" role="alert">{error}</span>}
-      </span>}
+      </span>, document.body)}
     </span>
   </FormattingToolbar>;
 }
@@ -70,6 +124,11 @@ export function PassageTagManager({ editor, noteId, save, onError, githubPublish
   const [reconcileTick, setReconcileTick] = useState(0);
   const processing = useRef(new Set<string>());
   const alive = useRef(true);
+  useEffect(() => {
+    const plugin = createPassageMarkerPlugin();
+    editor._tiptapEditor.registerPlugin(plugin);
+    return () => { editor._tiptapEditor.unregisterPlugin(passageMarkerKey); };
+  }, [editor]);
   const followups = useQuery({
     queryKey: ['passage-followups', noteId],
     queryFn: async () => requireApiData(await api.getPassageFollowups(noteId)),
@@ -205,7 +264,11 @@ export function PassageTagManager({ editor, noteId, save, onError, githubPublish
     ? [...present.entries()].filter(([id]) => !followups.data.some(row => row.tagId === id && row.state === 'created'))
     : [];
   return <>
-    <FormattingToolbarController formattingToolbar={TagToolbar} />
+    <FormattingToolbarController formattingToolbar={TagToolbar} floatingUIOptions={{
+      useDismissProps: {
+        outsidePress: event => !(event.target instanceof Element && event.target.closest('.note-passage-menu__list')),
+      },
+    }} />
     {(pending.length > 0 || error || followups.isError || reconcileError || publishedWarning) && <div className="note-passage-status" role="status">
       {publishedWarning && <p>GitHub Markdown omits passage tags; tags remain in this Think note.</p>}
       {followups.isError && <p role="alert">Could not load Follow-up tasks. <button type="button" onClick={() => { void followups.refetch(); }}>Retry</button></p>}

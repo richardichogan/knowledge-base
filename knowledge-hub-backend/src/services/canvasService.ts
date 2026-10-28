@@ -89,10 +89,33 @@ export interface CanvasEdge {
 
 export interface CanvasFull extends CanvasSummary {
   viewport: { x: number; y: number; zoom: number };
+  brainstormSettings: BrainstormSettings;
   nodes: CanvasNode[];
   edges: CanvasEdge[];
   /** Diagram canvases: notes linked to individual shapes, connectors and footnotes. */
   elementNotes: ElementNote[];
+}
+
+const BRAINSTORM_GRID_SIZES = [5, 10, 20, 40] as const; // eslint-disable-line @typescript-eslint/no-magic-numbers
+
+export interface BrainstormSettings {
+  grid: boolean;
+  snapToGrid: boolean;
+  snapToShapes: boolean;
+  gridSize: typeof BRAINSTORM_GRID_SIZES[number];
+}
+
+export function parseBrainstormSettings(value: unknown): BrainstormSettings {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ValidationError('Invalid brainstorm settings');
+  const settings = value as Record<string, unknown>;
+  const gridSize = BRAINSTORM_GRID_SIZES.find(size => size === settings['gridSize']);
+  if (Object.keys(settings).some(key => !['grid', 'snapToGrid', 'snapToShapes', 'gridSize'].includes(key))
+    || typeof settings['grid'] !== 'boolean' || typeof settings['snapToGrid'] !== 'boolean'
+    || typeof settings['snapToShapes'] !== 'boolean'
+    || gridSize === undefined) {
+    throw new ValidationError('Invalid brainstorm settings');
+  }
+  return { grid: settings['grid'], snapToGrid: settings['snapToGrid'], snapToShapes: settings['snapToShapes'], gridSize };
 }
 
 export const CARD_TYPES = ['topic', 'subject', 'idea', 'question', 'option', 'pro', 'con', 'risk', 'action', 'decision'] as const;
@@ -343,11 +366,12 @@ export async function getCanvas(id: string): Promise<CanvasFull | null> {
   ]);
   const row = canvasRes.rows[0];
   if (row === undefined) return null;
-  const vp = await db.query<{ viewport: { x: number; y: number; zoom: number } | null }>(
-    `SELECT viewport FROM canvases WHERE id = $1 AND deleted_at IS NULL`, [id]);
+  const vp = await db.query<{ viewport: { x: number; y: number; zoom: number } | null; brainstorm_settings: unknown }>(
+    `SELECT viewport, brainstorm_settings FROM canvases WHERE id = $1 AND deleted_at IS NULL`, [id]);
   return {
     ...rowToSummary(row),
     viewport: vp.rows[0]?.viewport ?? { x: 0, y: 0, zoom: 1 },
+    brainstormSettings: parseBrainstormSettings(vp.rows[0]?.brainstorm_settings),
     nodes: nodesRes.rows.map(rowToNode),
     edges: edgesRes.rows.map(rowToEdge),
     elementNotes: await listElementNotes(db, id),
@@ -356,7 +380,7 @@ export async function getCanvas(id: string): Promise<CanvasFull | null> {
 
 export async function updateCanvas(
   id: string,
-  patch: { title?: string; description?: string; project?: string | null; viewport?: object },
+  patch: { title?: string; description?: string; project?: string | null; viewport?: object; brainstormSettings?: BrainstormSettings },
 ): Promise<CanvasSummary | null> {
   const db = getDb();
   const sets: string[] = ['updated_at = NOW()'];
@@ -366,6 +390,7 @@ export async function updateCanvas(
   if (patch.description !== undefined) { sets.push(`description = $${i++}`); vals.push(patch.description); }
   if (patch.project     !== undefined) { sets.push(`project = $${i++}`);     vals.push(patch.project); }
   if (patch.viewport    !== undefined) { sets.push(`viewport = $${i++}`);    vals.push(JSON.stringify(patch.viewport)); }
+  if (patch.brainstormSettings !== undefined) { sets.push(`brainstorm_settings = $${i++}`); vals.push(JSON.stringify(parseBrainstormSettings(patch.brainstormSettings))); }
   vals.push(id);
   const res = await db.query<{ id: string }>(
     `UPDATE canvases SET ${sets.join(', ')} WHERE id = $${i} AND deleted_at IS NULL RETURNING id`, vals);

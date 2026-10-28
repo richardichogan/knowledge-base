@@ -2328,7 +2328,7 @@ export class KnowledgeHubApi {
     return (await this.client.get<Blob>(`/api/images/${encodeURIComponent(id)}/file`, { responseType: 'blob' })).data;
   }
 
-  async updateCanvas(id: string, patch: { title?: string; description?: string; project?: string | null; viewport?: object }): Promise<ApiResponse<CanvasSummaryApi>> {
+  async updateCanvas(id: string, patch: { title?: string; description?: string; project?: string | null; viewport?: object; brainstormSettings?: BrainstormSettings }): Promise<ApiResponse<CanvasSummaryApi>> {
     const r = await this.client.patch<ApiResponse<CanvasSummaryApi>>(`/api/canvases/${id}`, patch);
     return r.data;
   }
@@ -2854,8 +2854,13 @@ export interface CanvasCardContentApi {
   kind: string; title: string; text: string; url: string | null; date: string | null;
 }
 
+export interface BrainstormSettings {
+  grid: boolean; snapToGrid: boolean; snapToShapes: boolean; gridSize: 5 | 10 | 20 | 40;
+}
+
 export interface CanvasFullApi extends CanvasSummaryApi {
   viewport: { x: number; y: number; zoom: number };
+  brainstormSettings: BrainstormSettings;
   nodes: CanvasNodeApi[];
   edges: CanvasEdgeApi[];
   /** Diagram only: notes linked to individual shapes, connectors and footnotes. */

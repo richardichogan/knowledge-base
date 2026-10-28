@@ -9,9 +9,6 @@ function passageStyle<T extends PassageTag>(type: T) {
       dom.dataset.passageTag = type;
       dom.dataset.passageId = id;
       dom.dataset.passageIcon = PASSAGE_TAGS[type].icon;
-      dom.title = PASSAGE_TAGS[type].label;
-      dom.setAttribute('aria-description', `${PASSAGE_TAGS[type].label} passage`);
-      dom.tabIndex = 0;
       return { dom, contentDOM: dom };
     },
     toExternalHTML: () => {

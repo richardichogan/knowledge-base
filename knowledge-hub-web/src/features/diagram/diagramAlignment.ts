@@ -1,4 +1,4 @@
-import type { DiagramNode, DiagramPoint } from './diagramTypes';
+import type { DiagramPoint } from './diagramTypes';
 
 type Axis = 'x' | 'y';
 interface Bounds { x: number; y: number; width: number; height: number }
@@ -12,7 +12,7 @@ export const gridSnapEnabled = (doc: { grid: boolean; snapToGrid?: boolean }): b
 export const shapeSnapEnabled = (doc: { snapToShapes?: boolean }): boolean => doc.snapToShapes ?? true;
 
 export function alignMovingBounds(
-  bounds: Bounds, others: readonly DiagramNode[], delta: DiagramPoint, tolerance: number, snapping = true,
+  bounds: Bounds, others: readonly Bounds[], delta: DiagramPoint, tolerance: number, snapping = true,
 ): { delta: DiagramPoint; guides: AlignmentGuide[] } {
   const result = { ...delta };
   const guides: AlignmentGuide[] = [];
@@ -49,7 +49,7 @@ export function alignMovingBounds(
 
 /** Nearest visible gaps, plus equal-spacing targets between or alongside adjacent shapes. */
 export function spaceMovingBounds(
-  bounds: Bounds, others: readonly DiagramNode[], delta: DiagramPoint, tolerance: number,
+  bounds: Bounds, others: readonly Bounds[], delta: DiagramPoint, tolerance: number,
   snapping = true, lockedAxes: readonly Axis[] = [], guideOffset = 0, crossTolerance = 0,
 ): { delta: DiagramPoint; indicators: SpacingIndicator[] } {
   const result = { ...delta };
@@ -86,7 +86,7 @@ export function spaceMovingBounds(
     const same = (left: number | undefined, right: number | undefined): boolean =>
       left !== undefined && right !== undefined && Math.abs(left - right) < 0.5;
     const position = guideOffset === 0 ? moving[cross] + moving[crossDimension] / 2
-      : Math.min(moving[cross], ...[a, b, previous, following].filter((node): node is DiagramNode => node !== undefined).map(node => node[cross])) - guideOffset;
+      : Math.min(moving[cross], ...[a, b, previous, following].filter((node): node is Bounds => node !== undefined).map(node => node[cross])) - guideOffset;
     const add = (from: Bounds, to: Bounds, gap: number, equal: boolean): void => {
       indicators.push({ axis, start: from[axis] + from[dimension], end: to[axis], position, gap, equal,
         ...(guideOffset > 0 ? { startCross: from[cross], endCross: to[cross] } : {}) });
@@ -107,7 +107,7 @@ export function spaceMovingBounds(
 
 /** Measure shape and equal-gap targets before grid rounding, independently on each axis. */
 export function snapMovingBounds(
-  bounds: Bounds, others: readonly DiagramNode[], raw: DiagramPoint,
+  bounds: Bounds, others: readonly Bounds[], raw: DiagramPoint,
   options: { zoom: number; gridSize: number | null; shapeSnapping: boolean; spacing?: boolean },
 ): { delta: DiagramPoint; guides: AlignmentGuide[]; indicators: SpacingIndicator[] } {
   const { zoom, gridSize, shapeSnapping } = options;

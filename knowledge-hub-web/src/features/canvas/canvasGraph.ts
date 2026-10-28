@@ -167,6 +167,61 @@ export function connectedIds(edges: CanvasEdgeApi[], id: string): string[] {
   return edges.flatMap((e) => (e.sourceId === id ? [e.targetId] : e.targetId === id ? [e.sourceId] : []));
 }
 
+export function branchSide(node: CanvasNodeApi, root: CanvasNodeApi, tree: CardTree, byId: Map<string, CanvasNodeApi>): -1 | 1 {
+  let branch = node;
+  while (tree.parent.get(branch.id) !== undefined && tree.parent.get(branch.id) !== root.id) {
+    const parent = byId.get(tree.parent.get(branch.id) ?? '');
+    if (parent === undefined) break;
+    branch = parent;
+  }
+  return branch.x < root.x ? -1 : 1;
+}
+
+/** Assign positions in operation order, so a batch sees the cards it has already added. */
+export function positionNewCards(state: GraphState, ops: MapOp[], canvasId: string, selectedId: string | null, sizes: Map<string, Size>): MapOp[] {
+  let current = state;
+  return ops.map(raw => {
+    let op = raw;
+    if (raw.op === 'add' && (raw.x === undefined || raw.y === undefined)) {
+      const root = current.nodes[0];
+      const anchor = current.nodes.find(node => node.id === (raw.connectTo?.nodeId ?? selectedId)) ?? root;
+      const childSize = estimateSize({ refType: raw.refType ?? null });
+      let point: Point = { x: 0, y: 0 };
+      if (root !== undefined && anchor !== undefined) {
+        const tree = cardTree(current.nodes, current.edges, root.id);
+        const byId = new Map(current.nodes.map(node => [node.id, node]));
+        const sizeOf = (node: CanvasNodeApi): Size => sizes.get(node.id) ?? estimateSize(node);
+        const rootChildren = (tree.children.get(root.id) ?? []).map(id => byId.get(id)).filter((node): node is CanvasNodeApi => node !== undefined);
+        let side: -1 | 1;
+        if (anchor.id === root.id) {
+          const left = rootChildren.filter(node => node.x < root.x).length;
+          side = left < rootChildren.length - left ? -1 : 1;
+        } else {
+          side = branchSide(anchor, root, tree, byId);
+        }
+        const anchorSize = sizeOf(anchor);
+        const siblings = (tree.children.get(anchor.id) ?? [])
+          .map(id => byId.get(id))
+          .filter((node): node is CanvasNodeApi => node !== undefined && (anchor.id !== root.id || (node.x < root.x ? -1 : 1) === side));
+        point = {
+          x: anchor.x + side * (anchorSize.w / 2 + TREE_COLUMN_GAP + childSize.w / 2),
+          y: siblings.length === 0 ? anchor.y : Math.max(...siblings.map(node => node.y + sizeOf(node).h / 2)) + TREE_ROW_GAP + childSize.h / 2,
+        };
+        // Move only the new card down past every obstacle in its column.
+        const obstacles = current.nodes.filter(node => Math.abs(point.x - node.x) < (childSize.w + sizeOf(node).w) / 2 + TREE_ROW_GAP)
+          .sort((a, b) => a.y - b.y);
+        for (const obstacle of obstacles) {
+          const minDistance = (childSize.h + sizeOf(obstacle).h) / 2 + TREE_ROW_GAP;
+          if (Math.abs(point.y - obstacle.y) < minDistance) point.y = obstacle.y + minDistance;
+        }
+      }
+      op = { ...raw, x: Math.round(point.x), y: Math.round(point.y) };
+    }
+    current = applyOps(current, [op], canvasId);
+    return op;
+  });
+}
+
 // ── Placement ─────────────────────────────────────────────────────────────────
 
 export const CARD_W = 240;
@@ -178,7 +233,7 @@ const RING_STEP = 150;
 const RING_SLOTS = 12;
 const MAX_RINGS = 8;
 
-export function estimateSize(node: CanvasNodeApi): Size {
+export function estimateSize(node: Pick<CanvasNodeApi, 'refType'>): Size {
   return node.refType !== null ? { w: CARD_W, h: CARD_H } : { w: IDEA_W, h: IDEA_H };
 }
 
@@ -464,13 +519,27 @@ export function initialPositions(nodes: CanvasNodeApi[], edges: CanvasEdgeApi[],
   for (const n of nodes) if (n.placed) positions.set(n.id, { x: n.x, y: n.y });
   const unplaced = nodes.filter((n) => !n.placed);
   if (unplaced.length === 0) return { positions, arranged: new Set() };
-  for (const n of unplaced) {
-    const neighbour = connectedIds(edges, n.id).map((id) => positions.get(id)).find((p) => p !== undefined);
-    const anchor = neighbour ?? positions.values().next().value ?? { x: 0, y: 0 };
-    positions.set(n.id, positions.size === 0 ? { x: 0, y: 0 } : placeNear(anchor, sizes.get(n.id) ?? estimateSize(n), positions, sizes));
+  const root = nodes[0];
+  if (root === undefined) return { positions, arranged: new Set() };
+  if (!positions.has(root.id)) positions.set(root.id, { x: 0, y: 0 });
+  const tree = cardTree(nodes, edges, root.id);
+  const ordered = unplaced.filter(node => node.id !== root.id)
+    .sort((a, b) => (tree.depth.get(a.id) ?? 0) - (tree.depth.get(b.id) ?? 0));
+  for (const node of ordered) {
+    const available = nodes.flatMap(n => {
+      const position = positions.get(n.id);
+      return position === undefined ? [] : [{ ...n, ...position, placed: true }];
+    });
+    const availableIds = new Set(available.map(n => n.id));
+    const existingEdges = edges.filter(e => availableIds.has(e.sourceId) && availableIds.has(e.targetId));
+    const parent = tree.parent.get(node.id) ?? root.id;
+    const op: MapOp = { op: 'add', id: node.id, ...(node.refType !== null && { refType: node.refType }),
+      connectTo: { nodeId: parent, edgeId: '' } };
+    const placed = positionNewCards({ nodes: available, edges: existingEdges }, [op], node.canvasId, parent, sizes)[0];
+    if (placed?.op === 'add' && placed.x !== undefined && placed.y !== undefined) positions.set(node.id, { x: placed.x, y: placed.y });
   }
   const arranged = new Set(unplaced.map((n) => n.id));
-  return { positions: arrange(nodes, edges, positions, sizes, arranged), arranged };
+  return { positions, arranged };
 }
 
 /** The canvas as Markdown (copy / export). */
