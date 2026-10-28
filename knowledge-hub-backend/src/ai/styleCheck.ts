@@ -56,7 +56,7 @@ function styleOccurrences(texts: string[], article = false): StyleOccurrence[] {
     .replace(/"[^"\n]+"|“[^”\n]+”|‘[^’\n]+’/g, ' quotation '))
     .flatMap((text, field) => text.split(/<\/(?:p|h[1-6]|li)>|\n\s*\n/i).flatMap((blockText, block) =>
       patterns.flatMap(t => [...plain(blockText).matchAll(new RegExp(t.pattern.source, `${t.pattern.flags}g`))]
-        .map(m => ({ label: t.label, text: m[0].trim(), field, block, start: m.index!, end: m.index! + m[0].length })))));
+        .map(m => ({ label: t.label, text: m[0].trim(), field, block, start: m.index, end: m.index + m[0].length })))));
 }
 
 /** Returns every banned trope found in the given texts (HTML is stripped), each with the offending words quoted. */
@@ -67,6 +67,8 @@ export function findTropes(...texts: string[]): string[] {
 
 /** Full articles permit occasional rhetorical patterns; substantive lists are reviewed in context. */
 export function findBlogTropes(postType: string, ...texts: string[]): string[] {
+  const contentField = 3;
+  const allowedOccurrences = 2;
   if (postType !== 'article') return findTropes(...texts);
   const occurrences = styleOccurrences(texts, true).filter(item =>
     item.label !== 'triplet list' && item.label !== '"rather than / instead of" contrast');
@@ -78,9 +80,9 @@ export function findBlogTropes(postType: string, ...texts: string[]): string[] {
       || label === '"less like X, more like Y" construction') return 'contrast';
     return undefined;
   };
-  const allowed = new Set<StyleOccurrence>(occurrences.filter(item => category(item.label) && item.field !== 3));
+  const allowed = new Set<StyleOccurrence>(occurrences.filter(item => category(item.label) && item.field !== contentField));
   for (const kind of ['triplet', 'contrast'] as const) {
-    const matches = occurrences.filter(item => category(item.label) === kind && item.field === 3)
+    const matches = occurrences.filter(item => category(item.label) === kind && item.field === contentField)
       .sort((a, b) => a.field - b.field || a.block - b.block || a.start - b.start || b.end - a.end);
     let count = 0;
     let prior: StyleOccurrence | undefined;
@@ -92,7 +94,7 @@ export function findBlogTropes(postType: string, ...texts: string[]): string[] {
       } else {
         end = Math.max(end, item.end);
       }
-      if (count <= 2) allowed.add(item);
+      if (count <= allowedOccurrences) allowed.add(item);
       prior = item;
     }
   }

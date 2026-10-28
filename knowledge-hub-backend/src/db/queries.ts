@@ -184,6 +184,7 @@ export async function queryTimeline(
     since?: string; // Recent activity uses source update time, not original publication time
     rangeStart?: string;
     rangeEnd?: string;
+    ascending?: boolean;
   },
 ): Promise<{ items: ContentItemSummary[]; total: number }> {
   const conditions: string[] = [canonicalContentSql('ci')];
@@ -237,7 +238,7 @@ export async function queryTimeline(
      LEFT JOIN content_item_tags cit ON cit.content_item_id = ci.id
      ${where}
      GROUP BY ci.id
-     ORDER BY ${options.since ? ACTIVITY_AT_SQL : 'ci.published_at'} DESC, ci.id DESC
+     ORDER BY ${options.since ? ACTIVITY_AT_SQL : 'ci.published_at'} ${options.ascending ? 'ASC' : 'DESC'}, ci.id DESC
      LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
     dataParams,
   );

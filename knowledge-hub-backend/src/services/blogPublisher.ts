@@ -24,9 +24,6 @@ const MAX_SUMMARY = 1000;
 const MAX_TAKEAWAYS = 10;
 const MAX_TAKEAWAY_CHARS = 300;
 const BLOG_POST_TIMEOUT_MS = 30_000;
-const QUICK_MAX_WORDS = 600;
-const QUICK_MAX_TITLE = 60;
-const QUICK_MAX_TAKEAWAYS = 2;
 const BLOG_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /** Budget with the CMS permalink before publication; delivery must still check the returned URL. */
@@ -71,18 +68,12 @@ function parseBlogBody(body: unknown, preservePodcastCopy: boolean, reviewOnly: 
     try { url = new URL(sourceUrl); } catch { throw new ValidationError('Source URL must be a valid public article URL.'); }
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new ValidationError('Source URL must be an HTTP or HTTPS article URL without credentials.');
   }
-  if (!reviewOnly && postType === 'quick') {
-    const words = parsed.content.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length;
-    if (words > QUICK_MAX_WORDS || parsed.title.length > QUICK_MAX_TITLE || parsed.keyTakeaways.length > QUICK_MAX_TAKEAWAYS || /<(?:h[1-6]|ul|ol)\b/i.test(parsed.content)) {
-      throw new ValidationError('Quick takes allow at most 600 words, a 60-character title and two takeaways, with paragraphs rather than headings or lists.');
-    }
-  }
   const unknown = parsed.categories.filter(category => resolveBlogCategory(category) === undefined);
   if (unknown.length > 0) {
     throw new ValidationError(`Unknown blog categories: ${unknown.join(', ')}. Use any of: ${BLOG_CATEGORIES.join(', ')}. Other topics such as Dynamics 365 belong in tags. Quick take is a post type, not a category.`);
   }
   parsed.categories = [...new Set(parsed.categories.map(category => resolveBlogCategory(category)!))];
-  if (reviewOnly || (preservePodcastCopy && postType === 'podcast')) {
+  if (reviewOnly || postType === 'article' || postType === 'quick' || (preservePodcastCopy && postType === 'podcast')) {
     return { ...parsed, ...(slug ? { slug } : {}), ...(sourceUrl ? { sourceUrl } : {}) };
   }
   parsed.title = fixDashes(parsed.title); parsed.excerpt = fixDashes(parsed.excerpt); parsed.summary = fixDashes(parsed.summary);

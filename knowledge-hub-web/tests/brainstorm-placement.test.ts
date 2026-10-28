@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyOps, initialPositions, positionNewCards, type GraphState } from '../src/features/canvas/canvasGraph';
+import { applyOps, cardTree, estimateSize, initialPositions, inverseOps, positionNewCards, type GraphState } from '../src/features/canvas/canvasGraph';
 import { snapMovingBounds } from '../src/features/diagram/diagramAlignment';
 import type { MapOp } from '../src/services/api';
 
@@ -13,28 +13,51 @@ const graph = (ops: MapOp[]): GraphState => applyOps({ nodes: [], edges: [] }, o
 const positioned = (state: GraphState, ops: MapOp[], selected = 'root'): GraphState =>
   applyOps(state, positionNewCards(state, ops, canvasId, selected, new Map()), canvasId);
 
-test('batch additions balance root branches and stack siblings without moving existing cards', () => {
+function assertSeparated(state: GraphState): void {
+  const tree = cardTree(state.nodes, state.edges, 'root');
+  for (const [i, a] of state.nodes.entries()) {
+    const sa = estimateSize(a, tree.depth.get(a.id));
+    assert.ok(Number.isFinite(a.x) && Number.isFinite(a.y));
+    for (const b of state.nodes.slice(i + 1)) {
+      const sb = estimateSize(b, tree.depth.get(b.id));
+      assert.ok(Math.abs(a.x - b.x) >= (sa.w + sb.w) / 2 || Math.abs(a.y - b.y) >= (sa.h + sb.h) / 2,
+        `${a.id} overlaps ${b.id}`);
+    }
+  }
+}
+
+test('batch additions use available root sectors without moving existing cards', () => {
   const before = graph([add('root', undefined, { x: 0, y: 0 })]);
   const after = positioned(before, [add('right', 'root'), add('left', 'root'), add('second-right', 'root')]);
-  assert.deepEqual(after.nodes.map(n => [n.id, n.x, n.y]), [
-    ['root', 0, 0], ['right', 260, 0], ['left', -260, 0], ['second-right', 260, 80],
-  ]);
+  assertSeparated(after);
+  assert.deepEqual(after.nodes[0], before.nodes[0]);
+  assert.ok(after.nodes.find(n => n.id === 'right')!.x > 0);
+  assert.ok(after.nodes.find(n => n.id === 'left')!.x < 0);
   assert.deepEqual(before.nodes.map(n => [n.x, n.y]), [[0, 0]]);
 });
 
-test('descendants follow their visual branch and avoid cards already in the column', () => {
+test('descendants stay in a compact parent group without moving unrelated branches', () => {
   const before = graph([
-    add('root', undefined, { x: 0, y: 0 }), add('left', 'root', { x: -260, y: 0 }),
-    add('first', 'left', { x: -520, y: 0 }), add('obstacle', undefined, { x: -520, y: 80 }),
+    add('root', undefined, { x: 0, y: 0 }), add('left', 'root', { x: -300, y: 0 }),
+    add('first', 'left', { x: -600, y: 0 }), add('obstacle', undefined, { x: -600, y: 80 }),
   ]);
   const after = positioned(before, [add('second', 'left')]);
-  assert.deepEqual(after.nodes.find(n => n.id === 'second') && [after.nodes.at(-1)?.x, after.nodes.at(-1)?.y], [-520, 160]);
+  const first = after.nodes.find(n => n.id === 'first')!;
+  const second = after.nodes.find(n => n.id === 'second')!;
+  assert.equal(first.x, second.x);
+  assert.ok(second.x < -300);
+  for (const id of ['root', 'left', 'obstacle']) assert.deepEqual(after.nodes.find(n => n.id === id), before.nodes.find(n => n.id === id));
+  assertSeparated(after);
 });
 
 test('explicit positions are preserved and affect later placements in the same batch', () => {
   const before = graph([add('root', undefined, { x: 0, y: 0 })]);
   const after = positioned(before, [add('placed', 'root', { x: -400, y: 50 }), add('child', 'placed')]);
-  assert.deepEqual(after.nodes.map(n => [n.id, n.x, n.y]), [['root', 0, 0], ['placed', -400, 50], ['child', -660, 50]]);
+  const placed = after.nodes.find(n => n.id === 'placed')!;
+  const child = after.nodes.find(n => n.id === 'child')!;
+  assert.deepEqual([placed.x, placed.y], [-400, 50]);
+  assert.ok(child.x < placed.x);
+  assertSeparated(after);
 });
 
 test('server-created unplaced cards use the same ordered branches without moving saved cards', () => {
@@ -44,9 +67,20 @@ test('server-created unplaced cards use the same ordered branches without moving
   ]);
   const { positions } = initialPositions(state.nodes, state.edges, new Map());
   assert.deepEqual(positions.get('saved'), { x: -300, y: 50 });
-  assert.deepEqual(positions.get('right'), { x: 260, y: 0 });
-  assert.deepEqual(positions.get('child'), { x: -560, y: 50 });
-  assert.deepEqual(positions.get('sibling'), { x: -560, y: 130 });
+  const ops: MapOp[] = [...positions].map(([id, point]) => ({ op: 'position', id, ...point }));
+  const after = applyOps(state, ops, canvasId);
+  const saved = after.nodes.find(n => n.id === 'saved')!;
+  assert.ok(after.nodes.find(n => n.id === 'right')!.x > 0);
+  assert.ok(after.nodes.find(n => n.id === 'child')!.x < saved.x);
+  assert.ok(after.nodes.find(n => n.id === 'sibling')!.x < saved.x);
+  assertSeparated(after);
+});
+
+test('undo restores the parent group together with the new card', () => {
+  const before = graph([add('root', undefined, { x: 0, y: 0 }), add('parent', 'root', { x: 400, y: 0 }), add('child', 'parent', { x: 700, y: 0 })]);
+  const ops = positionNewCards(before, [add('sibling', 'parent')], canvasId, 'parent', new Map());
+  const after = applyOps(before, ops, canvasId);
+  assert.deepEqual(applyOps(after, inverseOps(before, ops, canvasId), canvasId), before);
 });
 
 test('card bounds use the diagram snapping algorithm at the current zoom', () => {

@@ -21,6 +21,7 @@ import type { Pool } from 'pg';
 import { isIcaConsultingEnabled, listCollectionFiles, getFileContent } from '../../ai/icaClient.js';
 import { upsertContentItem, upsertSyncState } from '../../db/queries.js';
 import type { ContentItem } from '../../types/contentItem.js';
+import { addSourceFailure, syncFailureSummary, type SyncFailure } from '../../sync/sourceDiagnostics.js';
 
 const SYNC_SOURCE = 'ica-document';
 const SYNC_STATE_KEY = 'ica-collections';
@@ -71,13 +72,14 @@ async function loadConfiguredCollections(db: Pool): Promise<CollectionConfig[]> 
 /** Syncs all configured ICA document collections into content_items. */
 export async function syncIcaCollections(
   db: Pool,
-): Promise<{ indexed: number; errors: number }> {
+): Promise<{ indexed: number; errors: number; failures: SyncFailure[] }> {
   if (!isIcaConsultingEnabled()) {
-    return { indexed: 0, errors: 0 };
+    return { indexed: 0, errors: 0, failures: [] };
   }
 
   let indexed = 0;
   let errors = 0;
+  const failures: SyncFailure[] = [];
 
   const collections = await loadConfiguredCollections(db);
 
@@ -97,12 +99,14 @@ export async function syncIcaCollections(
           await upsertContentItem(db, fileToContentItem(file, extracted, collection));
           indexed++;
         } catch (err) {
+          addSourceFailure(failures, `${collection.label}/${file.id}`, err);
           errors++;
           const message = err instanceof Error ? err.message : String(err);
           console.error(`[ICA] Upsert failed for file ${file.id} (${file.name}): ${message}`);
         }
       }
     } catch (err) {
+      addSourceFailure(failures, collection.label, err);
       errors++;
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[ICA] Failed to list collection ${collection.label}: ${message}`);
@@ -111,11 +115,11 @@ export async function syncIcaCollections(
 
   await upsertSyncState(db, SYNC_STATE_KEY, {
     lastSyncAt: new Date(),
-    lastError: errors > 0 ? `${errors} errors` : null,
+    lastError: syncFailureSummary(errors, failures),
     itemCount: indexed,
   });
 
-  return { indexed, errors };
+  return { indexed, errors, failures };
 }
 
 function fileToContentItem(

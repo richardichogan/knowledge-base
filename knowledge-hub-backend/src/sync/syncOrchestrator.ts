@@ -29,12 +29,14 @@ import { populateExplicitEdges } from '../jobs/explicitEdgePopulator.js';
 import { isConnectionCheckInProgress } from './connectionWork.js';
 import { createSyncRun, recordSyncProgress, syncOutcome, type SyncRun } from './runStore.js';
 import { ConflictError } from '../types/errors.js';
+import { sourceFailure, type SyncFailure } from './sourceDiagnostics.js';
 
 export interface SyncResult {
   source: string;
   indexed: number;
   errors: number;
   durationMs: number;
+  failures?: SyncFailure[];
 }
 
 export interface OrchestratorResult {
@@ -107,7 +109,7 @@ export async function runTier1Sync(db: Pool, claimKey?: string): Promise<Orchest
 }
 
 async function runTier1SyncInner(db: Pool, runId: string): Promise<OrchestratorResult> {
-  const sources: Array<{ name: string; sync: (db: Pool) => Promise<{ indexed: number; errors: number }> }> = [
+  const sources: Array<{ name: string; sync: (db: Pool) => Promise<{ indexed: number; errors: number; failures?: SyncFailure[] }> }> = [
     { name: 'note-github-publications', sync: syncNotePublications },
     { name: 'github-content-store', sync: syncContentStore },
     { name: 'cms',              sync: indexAllPosts },
@@ -140,14 +142,14 @@ async function runTier1SyncInner(db: Pool, runId: string): Promise<OrchestratorR
   for (const { name, sync } of sources) {
     const start = Date.now();
     try {
-      const { indexed, errors } = await sync(db);
+      const { indexed, errors, failures } = await sync(db);
       const durationMs = Date.now() - start;
       console.warn(`[Sync] ${name}: indexed=${indexed}, errors=${errors}, ms=${durationMs}`);
-      results.push({ source: name, indexed, errors, durationMs });
+      results.push({ source: name, indexed, errors, durationMs, ...(failures ? { failures } : {}) });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[Sync] ${name} failed entirely: ${message}`);
-      results.push({ source: name, indexed: 0, errors: 1, durationMs: Date.now() - start });
+      results.push({ source: name, indexed: 0, errors: 1, durationMs: Date.now() - start, failures: [sourceFailure(name, err)] });
     }
     await recordSyncProgress(db, runId, results);
   }

@@ -19,6 +19,8 @@ import { useGlobalShortcuts } from '../hooks/useGlobalShortcuts';
 import { useAthenaContext } from '../context/AthenaContext';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { api } from '../services/api';
+import { resumeWorkspacePath, useWorkspaceContinuity } from '../navigation/workspaceContinuity';
+import { BackgroundWork } from './athena/BackgroundWork';
 
 const DISCOVER_SEEN_KEY = 'kh-discover-seen';
 
@@ -65,6 +67,7 @@ export const AppShell: React.FC = () => {
   const mobileRef = useRef<HTMLButtonElement>(null);
   const narrow = useMediaQuery('(max-width: 1100px)');
   const location = useLocation();
+  useWorkspaceContinuity();
   const { data: pendingTags = [] } = usePendingTags();
   const { pageContext, hasEmbeddedAthena, launchAthena } = useAthenaContext();
   const tool = selectedTool(location.pathname, location.search);
@@ -129,7 +132,7 @@ export const AppShell: React.FC = () => {
         </Link>
         <nav className="kh-header__primary" aria-label="Primary navigation">
           {(narrow ? PRIMARY_DESTINATIONS.filter((item) => item.id === 'today') : PRIMARY_DESTINATIONS).map(({ id, path, label, icon: Icon }) => (
-            <Link key={id} to={path!} className={`kh-header__destination${primary?.id === id ? ' kh-header__destination--active' : ''}`}
+            <Link key={id} to={resumeWorkspacePath(path!)} className={`kh-header__destination${primary?.id === id ? ' kh-header__destination--active' : ''}`}
               aria-current={primary?.id === id ? 'page' : undefined}>
               <Icon size={16} />{label}
               <NavBadge id={id} count={badgeCount(id)} />
@@ -163,6 +166,7 @@ export const AppShell: React.FC = () => {
           {tool && <p className="kh-tools-location">Tools / {tool.label}</p>}
           <DayCheckinBanner />
           <PodcastPrepNotification />
+          <BackgroundWork />
           <div className="kh-shell__page" id="kh-main-content" tabIndex={-1}><Outlet /></div>
         </div>
       </div>

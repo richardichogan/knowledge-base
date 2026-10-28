@@ -312,12 +312,29 @@ reference on the same white, `#e0e0e0`-dotted sheet. Cards are white with
 a mono uppercase type label in the type's ink and a 13.5px semibold title.
 Tiles: note `#d9fbfb`/`#007d79`, document `#edf5ff`/`#0f62fe`, idea
 `#fcf4d6`/`#b28600`. The first card is the root: `#f2fcfc` fill, 2px `#007d79`
-border, 16px semibold title. Connectors are rounded elbows (4px radius) in each
+border. Size follows depth in the drawn tree for all card types: centre 300px
+wide / 18px title, level 2 branches 240px / 16px, level 3 cards 190px / 13.5px,
+level 4 cards 170px / 12px and level 5 cards 150px / 11px. Levels below 5
+retain the fifth tier to stay readable; the centre counts as level 1.
+Cards grow vertically to show their titles and annotations without truncation.
+Manual title-size overrides take precedence; changing connections updates the
+default tier without moving authored positions. Properties, layout measurement
+and PNG/SVG/Mural exports use the same hierarchy.
+Connectors are rounded elbows (4px radius) in each
 connection type's sheet colour; typed lines are 1.75px, untyped `related`
 lines 1.25px `#a8a8a8`; labels are white pills outlined in that colour.
-Tidy arranges typed connections to the root's left, related cards to its
-right and deeper cards in further columns on their parent's side; cards stay
-freely draggable afterwards. No column headers or legend are shown.
+Tidy keeps the main node fixed and places level-2 branches at equal angles
+around it, independent of connection type. Descendants form compact
+parent-and-children groups extending outward within their branch's sector.
+Sibling subtrees stay together, with spacing based on measured card dimensions;
+do not place descendants on global concentric rings. Collapsed descendants stay
+hidden and retain their positions. Cards remain freely draggable afterwards,
+and Undo restores the previous arrangement. No column headers or legend are shown.
+Automatic additions join their parent's outward-facing group and reflow only
+that parent's descendants, keeping siblings together and unrelated branches
+fixed. New root branches use an available angular gap. Explicit drop positions
+remain authored. Branch spacing accounts for fixed neighbouring cards; Undo
+restores the addition and the affected group's previous positions together.
 
 Idea cards have a brainstorm type, chosen from a dropdown (icon tile and name) in
 the Properties tab, with its own
@@ -334,6 +351,27 @@ the card's top-right corner and a dashed-divider Notes list below the cards.
 The header reuses the diagram header (`.dg-header`): Undo/Redo, Add idea,
 zoom and Fit, Tidy and Copy Markdown groups, then Export (PNG, SVG, Mural),
 Make a use case and Delete; pinned-note chips sit on the row beneath.
+Do not show persistent gesture or keyboard-instruction text across the canvas.
+Diagram and brainstorm share Snap controls, alignment/equal-spacing calculations
+and drawing guides. Brainstorm offers independent grid visibility, grid snap
+and card/equal-spacing snap with 5/10/20/40-unit spacing (default 10).
+Snapping uses visible cards' measured edges and centres. Hold Alt during a
+card drag to bypass snapping and guides; starting Alt+drag still creates a
+connection. Grid and snapping choices are saved per brainstorm. Hold Space and
+drag to pan, including when the pointer is over a card or connection; typing
+in editors and using controls must retain their normal Space-key behaviour.
+At low zoom, subsample visible grid points in powers of two to retain at least
+12 screen pixels between dots. The sheet stays white rather than merging into
+a grey dot field; snapping still uses the selected world-unit spacing.
+
+Every brainstorm card, including linked content, has an Appearance section in
+Properties. Reuse diagram colour swatches and border-style controls for the
+background, border colour/style/thickness and text colour; title size uses
+10-36px choices. Custom text colour applies to the title and card annotation,
+not the type icon or label. Existing card layout, type colours, root and pinned
+defaults remain unchanged unless overridden. Reset appearance clears only
+styling overrides. Saved styling participates in Undo/Redo and PNG/SVG/Mural
+exports; selecting no fill or border makes that part transparent.
 
 ## Components
 
@@ -393,6 +431,22 @@ its four-quarter animation maths are retained unchanged. See
 the wide variant), constrained to the viewport. Image viewing has its own
 full-screen surface with zoom, fit, copy and close actions. Preserve authenticated
 image loading and clear failure states.
+
+The blog publishing dialog starts with no format selected and offers Quick take
+and Article with short descriptions. Drafting begins only on the explicit
+Start drafting action. After starting or generating again, keep a dismissible
+Draft in progress dialog open: state that work is not complete, Athena will
+notify the user when it is ready to review, and nothing has been published.
+Do not automatically dismiss it when the background job is accepted.
+
+The blog draft/review dialog keeps Title, Post type and the existing rich-text/HTML
+editor visible. Excerpt, summary, takeaways, categories and tags live in a collapsed
+Post details disclosure. Major publication blockers remain visible; advisory
+suggestions and review history have separate collapsed disclosures with counts.
+Keep existing footer actions. After sending, replace the editor with one success
+dialog, retaining post/admin links. Done, Escape and the close button dismiss the
+whole publishing flow and reveal the underlying screen; do not stack another
+success alert or leave a completion dialog underneath.
 
 ## Do's and Don'ts
 

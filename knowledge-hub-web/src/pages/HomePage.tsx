@@ -9,6 +9,7 @@ import { useAthenaContext } from '../context/AthenaContext';
 import { PodcastPrepCard } from '../components/today/PodcastPrepCard';
 import { useUseCases } from '../hooks/useUseCases';
 import { stalledNudge } from '../features/useCases/useCaseView';
+import { UpcomingMeetings } from '../components/today/UpcomingMeetings';
 
 type SectionQueries = Array<{ name: string; query: {
   isPending: boolean; isError: boolean; error: unknown; refetch: () => Promise<unknown>;
@@ -170,6 +171,7 @@ export const HomePage: React.FC = () => {
         </section>
         </div>
         <div className="today-brief__column">
+        <UpcomingMeetings projects={brief.projects.data ?? []} />
         <section className="today-brief__continue" aria-labelledby="today-continue">
           <div className="today-brief__section-heading"><h2 id="today-continue">Continue working</h2><Link to="/think">Go to Think</Link></div>
           {useCaseNudge !== null && <p className="today-brief__nudge"><Link to="/plan?view=use-cases">{useCaseNudge} <ArrowRight size={14} /></Link></p>}

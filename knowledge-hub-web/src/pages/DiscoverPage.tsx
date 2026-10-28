@@ -33,6 +33,8 @@ import { BlogPublishModal } from '../components/discover/BlogPublishModal';
 import { LinkedInDraftModal } from '../components/discover/LinkedInDraftModal';
 import { EmailInbox } from '../components/discover/EmailInbox';
 import { DEFAULT_DISCOVER_VIEW, DISCOVER_PREFERENCES_KEY, parseWorkspaceView, type DiscoverPreferences, type DiscoverTab } from '../utils/savedViews';
+import { usePersistedChoice, usePersistedText } from '../hooks/usePersistedState';
+import { listShortcut, moveListFocus } from '../hooks/listKeyboard';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -256,6 +258,8 @@ const PublishedUrlEditor: React.FC<{ item: DiscoverItem }> = ({ item }) => {
 // ── Card component ────────────────────────────────────────────────────────────
 
 interface CardProps {
+  selected?: boolean;
+  onSelect?: (id: string, selected: boolean) => void;
   item: DiscoverItem;
   onStateChange: (id: string, state: DiscoverWorkflowState) => void;
   isUpdating: boolean;
@@ -268,7 +272,7 @@ interface CardProps {
  * why it was picked, and save / dismiss / explore. Production actions live
  * in the Explore panel.
  */
-const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, onActivate, onExplore }) => {
+const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, onActivate, onExplore, selected, onSelect }) => {
   const state = item.workflowState;
   const isPublished = state === 'published';
   const identity = useIdentity();
@@ -284,6 +288,19 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
       tabIndex={0}
       onClick={() => { onActivate?.(item); }}
       onKeyDown={(e) => {
+        const key = listShortcut(e);
+        if (e.target === e.currentTarget && !isUpdating && ['s', 'a', 'o'].includes(key ?? '')) {
+          e.preventDefault();
+          if (key === 'o') onExplore(item);
+          if (key !== 'o' && !['published', 'blog'].includes(state)) {
+            const cards = [...(e.currentTarget.closest('[role="main"]')?.querySelectorAll<HTMLElement>('.dc-card[role="article"]') ?? [])];
+            const index = cards.indexOf(e.currentTarget);
+            (cards[index + 1] ?? cards[index - 1])?.focus({ preventScroll: true });
+          }
+          if (key === 's' && !['published', 'blog'].includes(state)) onStateChange(item.id, 'saved');
+          if (key === 'a' && !['published', 'blog'].includes(state)) onStateChange(item.id, 'archived');
+          return;
+        }
         if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
         e.preventDefault();
         onExplore(item);
@@ -298,6 +315,11 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
       {...(ctx !== undefined ? { 'data-ctx-tags': ctx } : {})}
     >
       <div className="dc-card-meta">
+        {onSelect && !['published', 'blog'].includes(state) && <label className="kh-triage-select" onClick={stop} onKeyDown={stop}>
+          <input type="checkbox" checked={selected ?? false} disabled={isUpdating}
+            aria-label={`Select ${item.title}`} onChange={event => { onSelect(item.id, event.target.checked); }} />
+          <span>Select</span>
+        </label>}
         <span className="dc-card-source">{item.sourceTitle}</span>
         <span className="dc-card-dot">·</span>
         <span className="dc-card-date">{formatDate(item.publishedAt)}</span>
@@ -396,7 +418,17 @@ export const DiscoverPage: React.FC = () => {
   usePageTitle({ view: STATE_TABS.find((tab) => tab.key === activeTab)?.label });
   const [updatingIds, setUpdatingIds] = useState<Set<string>>(new Set());
   const updatingIdsRef = useRef(new Set<string>());
-  const [page, setPage] = useState(1);
+  const [savedPage, setSavedPage] = usePersistedText('kh-discover-page', '1');
+  const page = Math.max(1, Math.min(10000, Number(savedPage) || 1));
+  const setPage = useCallback((next: number): void => { setSavedPage(String(next)); }, [setSavedPage]);
+  const [density, setDensity] = usePersistedChoice('kh-discover-density', ['compact', 'comfortable'] as const, 'comfortable');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchMessage, setBatchMessage] = useState('');
+  const selectItem = (id: string, selected: boolean): void => {
+    setSelectedIds(previous => { const next = new Set(previous); if (selected) next.add(id); else next.delete(id); return next; });
+  };
+  useEffect(() => { setSelectedIds(new Set()); setBatchMessage(''); }, [activeTab, page]);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [blogItem, setBlogItem] = useState<{ id: string; title: string } | null>(null);
@@ -495,6 +527,23 @@ export const DiscoverPage: React.FC = () => {
     },
     [workflowMutation],
   );
+  async function changeSelection(state: 'saved' | 'archived'): Promise<void> {
+    if (batchBusy) return;
+    setBatchBusy(true); setBatchMessage('');
+    let completed = 0;
+    const errors: string[] = [];
+    for (const id of selectedIds) {
+      if (updatingIdsRef.current.has(id)) { errors.push('An item was already being updated.'); continue; }
+      updatingIdsRef.current.add(id);
+      try {
+        await workflowMutation.mutateAsync({ id, state });
+        completed += 1;
+        selectItem(id, false);
+      } catch (error) { errors.push(error instanceof Error ? error.message : 'An item could not be updated.'); }
+    }
+    setBatchMessage(`${completed} item${completed === 1 ? '' : 's'} ${state}.${errors.length ? ` ${errors.length} failed: ${errors[0]} Failed items remain selected.` : ''}`);
+    setBatchBusy(false);
+  }
 
   const handleCfpStateChange = useCallback(
     (id: string, state: CfpWorkflowState) => {
@@ -523,7 +572,7 @@ export const DiscoverPage: React.FC = () => {
     if (isParking && feedQuery.isSuccess && page > 1 && items.length === 0) {
       setPage(Math.max(1, Math.ceil(total / PAGE_SIZE)));
     }
-  }, [isParking, feedQuery.isSuccess, page, items.length, total]);
+  }, [isParking, feedQuery.isSuccess, page, items.length, total, setPage]);
 
   const activeTabDef = STATE_TABS.find((t) => t.key === activeTab) ?? STATE_TABS[0];
   const activeQuery = isCfps ? cfpQuery : isInbox ? emailQuery : feedQuery;
@@ -555,12 +604,16 @@ export const DiscoverPage: React.FC = () => {
   const closeExplore = useCallback(() => { setExploreItem(null); }, []);
   const renderCard = (item: DiscoverItem) => (
     <DiscoverCard key={item.id} item={item} onStateChange={handleStateChange}
-      isUpdating={updatingIds.has(item.id)} onActivate={(nextItem) => { setActiveItemId(nextItem.id); }}
+      selected={selectedIds.has(item.id)} onSelect={selectItem}
+      isUpdating={batchBusy || updatingIds.has(item.id)} onActivate={(nextItem) => { setActiveItemId(nextItem.id); }}
       onExplore={openExplore} />
   );
 
   return (
-    <div className="page-root" role="main">
+    <div className={`page-root kh-discover--${density}`} role="main" onKeyDown={event => {
+      const key = listShortcut(event);
+      if (key === 'j' || key === 'k') { event.preventDefault(); moveListFocus(event.currentTarget, '.dc-card[role="article"]', key === 'k'); }
+    }}>
       <PageHeader title="Discover" subtitle={isWatchlists ? 'Purpose-led monitoring · private, versioned comparisons' : isCfps
               ? `${(cfpQuery.data?.success ? cfpQuery.data.data : []).length} CFPs to review`
               : feedQuery.isLoading ? 'Loading…' : `${total} article${total !== 1 ? 's' : ''} · ${activeTabDef?.label ?? ''}`} actions={
@@ -577,6 +630,18 @@ export const DiscoverPage: React.FC = () => {
 
       {/* ── Discovery views ── */}
       <div className="dc-toolbar">
+        {!isInbox && !isCfps && !isWatchlists && <div className="kh-triage-tools">
+          <button type="button" className="kh-btn-ghost" aria-pressed={density === 'compact'}
+            onClick={() => { setDensity(density === 'compact' ? 'comfortable' : 'compact'); }}>Compact spacing</button>
+          <span>J/K move · O open · S save · A archive. Save/archive do not apply to published or blog items.</span>
+          {selectedIds.size > 0 && <>
+            <span>{selectedIds.size} selected</span>
+            <button type="button" className="kh-btn-accent" disabled={batchBusy} onClick={() => { void changeSelection('saved'); }}>Save selected</button>
+            <button type="button" className="kh-btn-ghost" disabled={batchBusy} onClick={() => { void changeSelection('archived'); }}>Archive selected</button>
+            <button type="button" className="kh-btn-ghost" disabled={batchBusy} onClick={() => { setSelectedIds(new Set()); }}>Clear selection</button>
+          </>}
+        </div>}
+        {batchMessage && <p className="kh-work-context__meta" role="status">{batchMessage}</p>}
         <div className="dc-tabs kh-command-row">
           {PRIMARY_TABS.map((tab) => (
             <button
@@ -678,8 +743,10 @@ export const DiscoverPage: React.FC = () => {
             <DiscoverCard
               key={item.id}
               item={item}
+              selected={selectedIds.has(item.id)}
+              onSelect={selectItem}
               onStateChange={handleStateChange}
-              isUpdating={updatingIds.has(item.id)}
+              isUpdating={batchBusy || updatingIds.has(item.id)}
               onActivate={(nextItem) => { setActiveItemId(nextItem.id); }}
               onExplore={openExplore}
             />
@@ -691,7 +758,7 @@ export const DiscoverPage: React.FC = () => {
               <button
                 className="dc-pagination__btn"
                 disabled={page <= 1}
-                onClick={() => { setPage((p) => Math.max(1, p - 1)); }}
+                onClick={() => { setPage(Math.max(1, page - 1)); }}
               >
                 ← Prev
               </button>
@@ -701,7 +768,7 @@ export const DiscoverPage: React.FC = () => {
               <button
                 className="dc-pagination__btn"
                 disabled={page >= Math.ceil(total / PAGE_SIZE)}
-                onClick={() => { setPage((p) => p + 1); }}
+                onClick={() => { setPage(page + 1); }}
               >
                 Next →
               </button>

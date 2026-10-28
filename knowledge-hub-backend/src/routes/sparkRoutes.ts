@@ -27,6 +27,7 @@ import { graduateTheme, getTheme, type GraduationTarget } from '../services/spar
 import { handOff } from '../agents/index.js';
 import { parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
 import { assertVerifiedBlogJob } from '../services/blogJobs.js';
+import { recordBlogDelivery } from '../ai/aiWorkflow.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 import type { Spark, SparkOutput, ThemeStatus, UpdateSparkInput, UpdateThemeInput } from '../services/sparkService.js';
 import { readDiscoverArgument } from '../services/sparkSourceReading.js';
@@ -263,7 +264,7 @@ sparkClusterRouter.post('/:id/blog-draft', (req: Request, res: Response, next: N
       const length = (req.body as { length?: unknown } | undefined)?.length;
       if (length !== 'short' && length !== 'long') throw new ValidationError('Choose Quick take or Article before starting.');
       const data = await handOff(getDb(), { specialist: 'blog-writer', subjectId: `spark-theme:${req.params['id'] ?? ''}`, input: { length }, requestedBy: 'app' });
-      res.status(202).json({ success: true, data });
+      res.status(HTTP_STATUS.ACCEPTED).json({ success: true, data });
     } catch (err) { next(err); }
   })();
 });
@@ -277,8 +278,10 @@ sparkClusterRouter.post('/:id/blog-publish', (req: Request, res: Response, next:
       const id = req.params['id']!;
       await getTheme(db, id);
       const post = parsePublishBody(req.body);
-      await assertVerifiedBlogJob(db, (req.body as { jobId?: unknown } | undefined)?.jobId, `spark-theme:${id.toLowerCase()}`, post);
+      const jobId = (req.body as { jobId?: unknown } | undefined)?.jobId;
+      await assertVerifiedBlogJob(db, jobId, `spark-theme:${id.toLowerCase()}`, post);
       const sent = await sendToBlog(post);
+      if (sent.payload.success && typeof jobId === 'string') await recordBlogDelivery(db, jobId, post.status);
       if (sent.payload.success) {
         const url = sent.payload.data.url ?? sent.payload.data.editUrl;
         await updateTheme(db, id, { output: { type: 'blog', ref: url ?? post.title, title: post.title, url }, markSparksUsed: true });

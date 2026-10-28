@@ -15,6 +15,8 @@ async function fixtureDb(): Promise<PGlite> {
   for (const file of ['054_ai_usage_log.sql', '065_runtime_runs.sql', '067_ai_usage_measured.sql']) {
     await db.exec(await readFile(new URL(`../src/db/migrations/${file}`, import.meta.url), 'utf8'));
   }
+  await db.exec('CREATE TABLE agent_jobs(id UUID PRIMARY KEY)');
+  await db.exec(await readFile(new URL('../src/db/migrations/117_ai_workflow_attribution.sql', import.meta.url), 'utf8'));
   await db.exec(`CREATE TABLE content_items (id SERIAL PRIMARY KEY, source TEXT, indexed_at TIMESTAMPTZ, relevance_explanation TEXT, body TEXT NOT NULL DEFAULT '');`);
   return db;
 }
@@ -25,6 +27,29 @@ const usage = (db: PGlite, at: string, o: { env?: string; feature?: string; pers
     completion_tokens, reasoning_tokens, duration_ms, ok, error, usage_known) VALUES ($1,$2,$3,$4,'secret-session','standard',$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
   [at, o.env ?? 'prod', o.feature ?? 'chat', o.persona ?? null, o.deployment ?? 'gpt-a', o.prompt ?? 0, o.cached ?? 0, o.completion ?? 0,
     o.reasoning ?? 0, o.ms ?? 100, o.ok ?? true, o.error ?? null, o.known ?? true]);
+
+test('workflow health separates completion from review and preserves unknown legacy attribution', async () => {
+  const db = await fixtureDb();
+  try {
+    const id = '00000000-0000-4000-8000-000000000008';
+    await db.query(`INSERT INTO ai_workflow_runs(id,environment,feature,purpose,attempt,status,outcome,started_at,finished_at)
+      VALUES($1,'prod','blog-writer','diagnostic',2,'completed','review-blocked','2026-03-10T01:00:00Z','2026-03-10T01:00:05Z')`, [id]);
+    await usage(db, '2026-03-10T01:00:01Z', { prompt: 100, completion: 20 });
+    await db.query("UPDATE ai_usage_log SET workflow_run_id=$1,stage='review',purpose='diagnostic'", [id]);
+    await usage(db, '2026-03-10T02:00:00Z', { known: false });
+    const health = await getKnowledgeHealth(db as unknown as Pool, parseHealthQuery({ from: '2026-03-10', to: '2026-03-10' }));
+    assert.ok(health.workflows.available);
+    assert.deepEqual(health.workflows.data.totals, { runs: 1, completed: 1, failed: 0, unfinished: 0, reviewBlocked: 1, delivered: 0 });
+    assert.equal(health.workflows.data.attributedCalls, 1);
+    assert.equal(health.workflows.data.unattributedCalls, 1);
+    assert.equal(health.workflows.data.runs[0]?.tokens, 120);
+    assert.equal(health.workflows.data.runs[0]?.durationMs, 5000);
+    assert.equal(health.workflows.data.stages[0]?.stage, 'review');
+    const filtered = await getKnowledgeHealth(db as unknown as Pool, parseHealthQuery({ from: '2026-03-10', to: '2026-03-10', deployment: 'other' }));
+    assert.ok(filtered.workflows.available);
+    assert.equal(filtered.workflows.data.totals.runs, 0);
+  } finally { await db.close(); }
+});
 
 test('health usage totals respect day boundaries, environments and unmeasured calls, with redacted bounded output', async () => {
   const db = await fixtureDb();

@@ -1,4 +1,5 @@
-import { BLOG_PACKAGE_RULES } from './blogHouseStyle.js';
+import { BLOG_ARGUMENT_RULES, BLOG_PACKAGE_RULES } from './blogHouseStyle.js';
+import { USER_PROFESSIONAL_PROFILE } from './userProfile.js';
 import { buildDialogueTurnPrompt } from './dialoguePolicy.js';
 export { isSmallTalk } from './dialoguePolicy.js';
 import { isKnowledgeOrchestrationEnabled } from './knowledge/budgets.js';
@@ -73,10 +74,7 @@ const ASSISTANT_IDENTITY_BLURB = [
  */
 const USER_PROFILE_BLURB = [
   '## About the user',
-  'Richard Hogan — Global Chief Architect, IBM Microsoft Practice, UK-based, working globally. Covers Azure, ' +
-    'M365, Dynamics 365, Power Platform, Copilot, and cloud security, with deep Financial Services experience ' +
-    '(Nationwide, Virgin Money, Lloyds, Barclays, Morgan Stanley). Co-leads skilling/enablement for Microsoft\'s ' +
-    'Frontier Partner programme internally.',
+  USER_PROFESSIONAL_PROFILE,
   'Active projects: themicrosoftcloudblog.com (newsletter "Reaching for the Cloud", custom Next.js CMS on Azure ' +
     'App Service) and podcast "Cloudy with a Chance of Insights" (fortnightly, co-hosted with David and Cyrus) — ' +
     'both public thought-leadership work ahead of retirement. Structara AI is the commercial endpoint: a typed ' +
@@ -754,6 +752,8 @@ const BLOG_POST_PERSONA_BLURB = [
     'and the Twitter/X post. If the user corrects the URL after a draft, preserve the existing article work ' +
     'and update only the source-grounded parts that need correction.',
   '',
+  BLOG_ARGUMENT_RULES,
+  'Use relevant active memories, the author’s published writing and his own saved chat statements to ground his perspective. Read source records, distinguish his actual statements from pasted text or assistant output, and anonymise any client-derived lessons before they enter the public draft. Remove identifying combinations, not just names. Never send private context to web search. If there is no supported incident, use a clearly hypothetical scenario and a proposed first-person design judgement.',
   BLOG_PACKAGE_RULES,
   '',
   '### Saving the result',

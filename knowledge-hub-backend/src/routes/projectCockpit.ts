@@ -7,6 +7,7 @@ import {
   getProjectCockpit, listRegister, createRegisterItem, updateRegisterItem, deleteRegisterItem, promoteDecision,
   type RegisterInput,
 } from '../projects/cockpit.js';
+import { getProjectChanges } from '../projects/workContext.js';
 
 export const projectCockpitRouter = Router();
 
@@ -25,6 +26,9 @@ const send = <T>(res: Response, data: T, status: number = HTTP_STATUS.OK): void 
 /** Read-only aggregate of a project's work, decisions, notes and outputs, with per-section failures. */
 projectCockpitRouter.get('/:id/cockpit', wrap(async (req, res) => {
   send(res, await getProjectCockpit(getDb(), param(req, 'id')));
+}));
+projectCockpitRouter.get('/:id/changes', wrap(async (req, res) => {
+  send(res, await getProjectChanges(getDb(), param(req, 'id'), req.query['since']));
 }));
 
 projectCockpitRouter.get('/:id/register', wrap(async (req, res) => {

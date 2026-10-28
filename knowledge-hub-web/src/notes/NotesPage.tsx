@@ -219,9 +219,10 @@ export const NotesPage: React.FC = () => {
       setMode('notes');
       setMobilePane('editor');
       void handleSelectNote(linkedId);
-      searchParams.delete('noteId');
-      searchParams.delete('passageId');
-      setSearchParams(searchParams, { replace: true });
+      if (passageId) {
+        const next = new URLSearchParams(searchParams); next.delete('passageId');
+        setSearchParams(next, { replace: true });
+      }
       return;
     }
     const first = notes[0];
@@ -249,8 +250,9 @@ export const NotesPage: React.FC = () => {
       if (parents.length > 1) { setChoiceSourceId(id); setParentChoices(parents); return; }
       setSelectedDesign(null);
       setOpenDoc(doc);
-      if (searchParams.has('design')) {
-        const next = new URLSearchParams(searchParams); next.delete('design'); next.delete('view'); next.delete('tab'); next.delete('asset');
+      if (searchParams.get('noteId') !== id || searchParams.has('design')) {
+        const next = new URLSearchParams(searchParams); next.delete('design'); next.delete('view'); next.delete('tab'); next.delete('asset'); next.delete('mapId');
+        next.set('noteId', id);
         setSearchParams(next, { replace: true });
       }
     } catch (err) {

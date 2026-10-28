@@ -8,6 +8,7 @@ import type { CanvasFullApi, CanvasNodeApi } from '../../services/api';
 import type { DiagramDocument, DiagramPort } from '../diagram/diagramTypes';
 import { elbowPath, linkStyle, DEFAULT_LINK_TYPE, cardTree, hiddenCards, type Point, type Size } from './canvasGraph';
 import { cardIcon, cardKindLabel, ideaCardType, hasFootnote } from './mapVisuals';
+import { canvasCardStyle, canvasBorderDash } from './canvasStyle';
 
 export type CanvasExportFormat = 'png' | 'svg';
 
@@ -77,19 +78,20 @@ function textBlock(lines: string[], x: number, top: number, size: number, lineHe
   return lines.map((l, i) => `<text x="${x}" y="${top + i * lineHeight + lineHeight / 2 + size * 0.35}" font-size="${size}" ${attrs}>${esc(l)}</text>`).join('');
 }
 
-interface Card { node: CanvasNodeApi; at: Point; size: Size; root: boolean; pinned: boolean; footnote: number | undefined }
+interface Card { node: CanvasNodeApi; at: Point; size: Size; root: boolean; pinned: boolean; depth: number; footnote: number | undefined }
 
 /** Visible cards only: cards under a collapsed card are left out, as on screen. */
 function cards(map: CanvasFullApi, sizeOf: (n: CanvasNodeApi) => Size): Card[] {
   const pinnedIds = new Set(map.linkedNotes.map((n) => n.id));
   const root = map.nodes[0];
-  const hidden = root !== undefined ? hiddenCards(map.nodes, cardTree(map.nodes, map.edges, root.id)) : new Set<string>();
+  const tree = root !== undefined ? cardTree(map.nodes, map.edges, root.id) : null;
+  const hidden = tree !== null ? hiddenCards(map.nodes, tree) : new Set<string>();
   let footnotes = 0;
   return map.nodes.flatMap((node, i) => {
     const footnote = hasFootnote(node) ? ++footnotes : undefined;
     if (hidden.has(node.id)) return [];
     return [{
-      node, at: { x: node.x, y: node.y }, size: sizeOf(node), root: i === 0, footnote,
+      node, at: { x: node.x, y: node.y }, size: sizeOf(node), root: i === 0, depth: tree?.depth.get(node.id) ?? 1, footnote,
       pinned: node.refType === 'note' && node.refId !== null && pinnedIds.has(node.refId),
     }];
   });
@@ -101,14 +103,15 @@ async function cardSvg(card: Card): Promise<string> {
   const colours = coloursOf(card);
   const left = at.x - size.w / 2;
   const top = at.y - size.h / 2;
-  const thick = root || pinned;
-  const border = thick ? 2 : 1;
-  const shape = `<rect x="${left + border / 2}" y="${top + border / 2}" width="${size.w - border}" height="${size.h - border}" rx="4" fill="${root ? '#f2fcfc' : '#ffffff'}" stroke="${thick ? '#007d79' : '#c6c6c6'}" stroke-width="${border}" filter="url(#cv-shadow)"/>`;
+  const appearance = canvasCardStyle(node, root, pinned, card.depth);
+  const border = appearance.strokeWidth;
+  const dash = canvasBorderDash(appearance);
+  const shape = `<rect x="${left + border / 2}" y="${top + border / 2}" width="${size.w - border}" height="${size.h - border}" rx="4" fill="${appearance.fill}" stroke="${appearance.stroke}" stroke-width="${border}"${dash !== undefined ? ` stroke-dasharray="${dash}"` : ''}${appearance.strokeStyle === 'dotted' ? ' stroke-linecap="round"' : ''} filter="url(#cv-shadow)"/>`;
   const icon = (px: number, colour: string, x: number, y: number): string =>
     `<g transform="translate(${x} ${y})" color="${colour}">${renderToStaticMarkup(createElement(cardIcon(node, root), { size: px }))}</g>`;
 
-  const padX = root ? 16 : 12;
-  const padTop = root ? 14 : 12;
+  const padX = (root ? 16 : 12) + border;
+  const padTop = (root ? 14 : 12) + border;
   let parts = '';
   let bodyX = left + padX;
   if (!root) {
@@ -124,17 +127,17 @@ async function cardSvg(card: Card): Promise<string> {
   parts += textBlock([cardKindLabel(node, root).toUpperCase()], kindX, y, 9.5, kindH, `font-family="${MONO}" letter-spacing="0.76" fill="${colours.ink}"`);
   y += kindH + 4.8;
 
-  const titleSize = root ? 16 : 13.5;
-  const titleLh = root ? 20 : 13.5 * 1.3;
+  const titleSize = appearance.fontSize;
+  const titleLh = titleSize * (root ? 1.25 : 1.3);
   const title = node.label !== null && node.label.trim() !== '' ? node.label : 'Untitled';
-  const titleLines = wrap(title, `600 ${titleSize}px ${SANS}`, bodyW, 3);
-  parts += textBlock(titleLines, bodyX, y, titleSize, titleLh, `font-family="${SANS}" font-weight="600" fill="${title === node.label ? '#161616' : '#8d8d8d'}"`);
+  const titleLines = wrap(title, `600 ${titleSize}px ${SANS}`, bodyW, Number.MAX_SAFE_INTEGER);
+  parts += textBlock(titleLines, bodyX, y, titleSize, titleLh, `font-family="${SANS}" font-weight="600" fill="${title === node.label ? appearance.textColor : '#8d8d8d'}"`);
   y += titleLines.length * titleLh;
 
   if (node.body !== null && node.body.trim() !== '') {
     y += 4.8;
-    const noteLines = wrap(node.body, `italic 12px ${SANS}`, bodyW, 2);
-    parts += textBlock(noteLines, bodyX, y, 12, 12 * 1.35, `font-family="${SANS}" font-style="italic" fill="#525252"`);
+    const noteLines = wrap(node.body, `italic 12px ${SANS}`, bodyW, Number.MAX_SAFE_INTEGER);
+    parts += textBlock(noteLines, bodyX, y, 12, 12 * 1.35, `font-family="${SANS}" font-style="italic" fill="${node.style?.textColor ?? '#525252'}"`);
   }
   if (card.footnote !== undefined) parts += footnoteMarker(card.footnote, left + size.w, top, 10);
   return `<g>${shape}${parts}</g>`;
@@ -251,14 +254,13 @@ export function canvasDiagramDocument(map: CanvasFullApi, sizeOf: (n: CanvasNode
     grid: false,
     viewport: { x: 0, y: 0, zoom: 1 },
     nodes: all.map((c) => {
-      const colours = coloursOf(c);
+      const appearance = canvasCardStyle(c.node, c.root, c.pinned, c.depth);
       const title = c.node.label !== null && c.node.label.trim() !== '' ? c.node.label : 'Untitled';
       return {
         id: c.node.id, kind: 'process' as const, label: title,
         ...(c.node.body !== null && c.node.body.trim() !== '' && { description: c.node.body }),
         x: Math.round(c.at.x - c.size.w / 2), y: Math.round(c.at.y - c.size.h / 2), width: Math.round(c.size.w), height: Math.round(c.size.h),
-        parentId: null, fill: c.root ? '#f2fcfc' : '#ffffff', stroke: c.root || c.pinned ? '#007d79' : colours.icon,
-        strokeWidth: c.root ? 2 : 1.5, textColor: '#161616', fontSize: c.root ? 16 : 13, assetId: null,
+        parentId: null, ...appearance, assetId: null,
       };
     }),
     edges: map.edges.flatMap((e) => {

@@ -52,6 +52,15 @@ export interface CanvasSummary {
   linkedElements?: LinkedElement[];
 }
 
+export interface CanvasCardStyle {
+  fill?: string;
+  stroke?: string;
+  strokeStyle?: 'solid' | 'dashed' | 'dotted';
+  strokeWidth?: number;
+  textColor?: string;
+  fontSize?: number;
+}
+
 export interface CanvasNode {
   id: string;
   canvasId: string;
@@ -67,6 +76,7 @@ export interface CanvasNode {
   footnote: string | null;
   /** True when the card's children are hidden. */
   collapsed: boolean;
+  style?: CanvasCardStyle | null;
   url: string | null;
   tags: string[] | null;
   x: number;
@@ -128,10 +138,10 @@ const CARD_TYPE_LABEL: Record<CardType, string> = {
 export type MapOp =
   | { op: 'add'; id: string; label?: string; body?: string; nodeType?: NodeType; refType?: RefType; refId?: string; url?: string;
       /** e.g. ['Meeting'] — the card's kind, shown on the card. */
-      tags?: string[]; cardType?: string; footnote?: string; collapsed?: boolean;
+      tags?: string[]; cardType?: string; footnote?: string; collapsed?: boolean; style?: CanvasCardStyle | null;
       x?: number; y?: number; connectTo?: { nodeId: string; edgeId: string; type?: string } }
   /** An empty cardType or footnote clears it. */
-  | { op: 'update'; id: string; label?: string; body?: string; cardType?: string; footnote?: string; collapsed?: boolean }
+  | { op: 'update'; id: string; label?: string; body?: string; cardType?: string; footnote?: string; collapsed?: boolean; style?: CanvasCardStyle | null }
   | { op: 'position'; id: string; x: number; y: number }
   | { op: 'delete'; id: string }
   | { op: 'link'; id: string; sourceId: string; targetId: string; type?: string; label?: string }
@@ -192,6 +202,7 @@ function rowToNode(r: Record<string, unknown>): CanvasNode {
     cardType:  CARD_TYPES.includes(r['card_type'] as CardType) ? r['card_type'] as CardType : null,
     footnote:  (r['footnote'] as string | null) ?? null,
     collapsed: r['collapsed'] === true,
+    style: cleanCardStyle(r['style']),
     url:       (r['url'] as string | null) ?? null,
     tags,
     x:         Number(r['x'] ?? 0),
@@ -523,6 +534,42 @@ async function insertLink(client: PoolClient, canvasId: string, id: string, sour
 }
 
 const FOOTNOTE_MAX_CHARS = 2000;
+const MIN_CARD_STROKE = 0.5;
+const MAX_CARD_STROKE = 6;
+const MIN_CARD_FONT = 10;
+const MAX_CARD_FONT = 36;
+
+function cleanCardStyle(value: unknown): CanvasCardStyle | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'object' || Array.isArray(value)) throw new MapOpError('card style: expected an object or null');
+  const result: CanvasCardStyle = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    switch (key) {
+      case 'fill':
+      case 'stroke':
+      case 'textColor':
+        if (typeof entry !== 'string' || (!/^#[0-9a-f]{6}$/i.test(entry) && !(entry === 'none' && key !== 'textColor'))) {
+          throw new MapOpError(`card style: invalid ${key}`);
+        }
+        result[key] = entry;
+        break;
+      case 'strokeStyle':
+        if (entry !== 'solid' && entry !== 'dashed' && entry !== 'dotted') throw new MapOpError('card style: invalid border style');
+        result.strokeStyle = entry;
+        break;
+      case 'strokeWidth':
+        if (typeof entry !== 'number' || !Number.isFinite(entry) || entry < MIN_CARD_STROKE || entry > MAX_CARD_STROKE) throw new MapOpError('card style: border thickness must be between 0.5 and 6');
+        result.strokeWidth = entry;
+        break;
+      case 'fontSize':
+        if (typeof entry !== 'number' || !Number.isFinite(entry) || entry < MIN_CARD_FONT || entry > MAX_CARD_FONT) throw new MapOpError('card style: text size must be between 10 and 36');
+        result.fontSize = entry;
+        break;
+      default: throw new MapOpError(`card style: unknown property ${key}`);
+    }
+  }
+  return Object.keys(result).length > 0 ? result : null;
+}
 
 function cardType(value: unknown): CardType | null {
   if (value === undefined || value === null || value === '') return null;
@@ -542,13 +589,13 @@ async function applyOne(client: PoolClient, canvasId: string, op: MapOp): Promis
       const x = finite(op.x);
       const y = finite(op.y);
       await client.query(
-        `INSERT INTO canvas_nodes (id, canvas_id, node_type, ref_type, ref_id, label, body, url, x, y, placed, meta_tags, card_type, footnote, collapsed)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        `INSERT INTO canvas_nodes (id, canvas_id, node_type, ref_type, ref_id, label, body, url, x, y, placed, meta_tags, card_type, footnote, collapsed, style)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
          ON CONFLICT (id) DO NOTHING`,
         [id, canvasId, op.nodeType ?? (op.refType !== undefined ? 'hub_ref' : 'text'), op.refType ?? null, op.refId ?? null,
           (op.label ?? '').slice(0, LABEL_MAX_CHARS), op.body ?? null, op.url ?? null, x ?? 0, y ?? 0, x !== null && y !== null,
           Array.isArray(op.tags) ? JSON.stringify(op.tags.filter((t) => typeof t === 'string').slice(0, MAX_CARD_TAGS)) : null,
-          cardType(op.cardType), cleanFootnote(op.footnote), op.collapsed === true],
+          cardType(op.cardType), cleanFootnote(op.footnote), op.collapsed === true, cleanCardStyle(op.style)],
       );
       if (op.connectTo !== undefined) {
         await insertLink(client, canvasId, op.connectTo.edgeId, requireId(op.connectTo.nodeId, 'add connectTo'), id, op.connectTo.type);
@@ -563,6 +610,7 @@ async function applyOne(client: PoolClient, canvasId: string, op: MapOp): Promis
       if (op.cardType !== undefined) { vals.push(cardType(op.cardType)); sets.push(`card_type = $${vals.length.toString()}`); }
       if (op.footnote !== undefined) { vals.push(cleanFootnote(op.footnote)); sets.push(`footnote = $${vals.length.toString()}`); }
       if (op.collapsed !== undefined) { vals.push(op.collapsed === true); sets.push(`collapsed = $${vals.length.toString()}`); }
+      if (op.style !== undefined) { vals.push(cleanCardStyle(op.style)); sets.push(`style = $${vals.length.toString()}`); }
       if (sets.length === 0) return;
       vals.push(requireId(op.id, 'update'), canvasId);
       await client.query(`UPDATE canvas_nodes SET ${sets.join(', ')} WHERE id = $${(vals.length - 1).toString()} AND canvas_id = $${vals.length.toString()}`, vals);

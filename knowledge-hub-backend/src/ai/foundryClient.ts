@@ -1,5 +1,5 @@
 import { env } from '../config/env.js';
-import { AiError, AiOutputLimitError } from '../types/errors.js';
+import { AiError, AiOutputLimitError, ConfigurationError } from '../types/errors.js';
 import {
   AI_DEFAULT_MAX_TOKENS,
   AI_REQUEST_TIMEOUT_MS,
@@ -211,7 +211,8 @@ export class FoundryClient {
    * Background and bulk work (article triage, deep dives): runs on the separate GPT-5.4
    * resource, which has its own, much larger quota — gpt-4o and gpt-4o mini are one shared
    * deployment limited to 50,000 tokens a minute, which live chat also depends on, so bulk
-   * jobs must never run there. Falls back to gpt-4o mini where that resource isn't configured.
+   * jobs must never run there. Falls back to gpt-4o mini where that resource isn't configured,
+   * unless the caller requires the dedicated route.
    */
   public async chatBulk(
     messages: ConversationMessage[],
@@ -221,10 +222,14 @@ export class FoundryClient {
     reasoningEffort: 'low' | 'medium' | 'high' = 'low',
     jsonSchema?: LlmJsonSchema,
     callerSignal?: AbortSignal,
+    options: { requireDedicatedRoute?: boolean } = {},
   ): Promise<string> {
     const endpoint = env.AZURE_OPENAI_ENDPOINT_GPT54;
     const apiKey = env.AZURE_OPENAI_API_KEY_GPT54;
     if (endpoint === undefined || endpoint === '' || apiKey === undefined || apiKey === '') {
+      if (options.requireDedicatedRoute) {
+        throw new ConfigurationError('AZURE_OPENAI_ENDPOINT_GPT54 and AZURE_OPENAI_API_KEY_GPT54 for dedicated bulk generation. Light-model fallback is disabled for this request.');
+      }
       if (jsonSchema !== undefined) {
         const data = await this.request('light', messages, undefined, maxTokens, 'auto', timeoutMs, jsonSchema, callerSignal);
         if (data.choices[0]?.finish_reason === 'length') throw new AiOutputLimitError();

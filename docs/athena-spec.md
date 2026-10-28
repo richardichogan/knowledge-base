@@ -66,6 +66,10 @@ Reading checkpoints are private to the chat, review objective, source and scope,
 
 Health exposes conversation retrieval signals as well as provider usage: measured scope, prevented cross-collection attempts, inherited scope, possible deferred retries, temporal/default-window use, unread search hits, unverified quotes, budget exhaustion and tool errors. Deferred retries are heuristic review flags, not proven failures. Audit storage contains categories/counts only, never prompts or source text. Legacy rows without scope/environment attribution stay separate and unmeasured. No-retrieval can be correct for conversation, provider success is not task success, and these signals are not an accuracy score. Health's selected dates are UTC and environment/persona/feature filters apply; deployment-attributed turn quality is explicitly unavailable.
 
+Workflow health separately records new specialist attempts, direct Design operations and claimed scheduled jobs. Model calls inherit a workflow ID, stage and explicit purpose through async-local context; diagnostic callers must explicitly choose diagnostic purpose, not rely on worker-name guesses. No prompts or document text enter this telemetry. Blog checks distinguish completed operations from review-blocked/ready drafts and successful blog delivery. Elapsed run time and summed model-call time are different measures. Earlier calls/jobs are not retroactively attributed; running records can represent work interrupted by process failure. Workflow cohorts use start time; call aggregates follow the usage date/environment/model filters. Review/delivery counts overlap completed runs and do not prove user acceptance.
+
+Source sync retains up to 20 safe failure categories, targets and corrective actions per source, with an explicit total error count. Raw provider response bodies are not shown in Health. These latest shared-source runs do not follow usage filters; older records retain counts only. Project Markdown ingestion decodes strict UTF-8 or BOM-tagged UTF-16LE/BE and rejects invalid text/NULs rather than discarding bytes. Graph sign-in requests Mail.Read.Shared for the podcast shared mailbox; existing sign-ins retain their granted scopes during refresh, and need renewed consent plus mailbox read permission. Expired ICA consulting keys and GitHub repository access require credential/access correction, not silent source removal.
+
 ## 2. Primary use cases
 
 In priority order:
@@ -76,7 +80,16 @@ In priority order:
    - Hand it to GitHub Copilot to build. That is usually an interactive GitHub Copilot session; Athena Build is the option for clear, separable work.
    - See section 6.
 2. **Podcast topic organisation.** Each Thursday Athena prepares a ranked topic brief for the Friday recording, threaded to earlier episodes. Richard reshapes it in conversation, and the show notes persona writes the notes. Tracking topics over time matters here and in competitive monitoring (use case 5); nowhere else.
-3. **Content.** Once Richard picks a topic (often a Discover item), Athena writes the blog or LinkedIn post and it is published soon after. There is deliberately **no** drafting pipeline or stage tracking for content.
+3. **Content.** Once Richard picks a topic (often a Discover item), Athena writes the blog or LinkedIn post for his review. Blog drafting is explicitly started as a Quick take or Article and runs as a background specialist job with a completion notification. The saved blog draft receives passage-level factual/style checks and a separate whole-piece editorial review: a reasoned argument, practical application, clear attribution, documented product boundaries and natural voice. Publication blocks only for identified major reputational risks or an incomplete review. Major risks are material factual falsehoods, fabricated experience/quotations/attribution, confidential or identifying disclosures, and seriously misleading regulated or safety-related advice. The final review assesses the current article and all outstanding passage concerns against evidence; each blocker identifies the exact passage and concrete harm. Style, repetition, polish, weak argument, omissions, minor inaccuracies and citation/naming discrepancies remain visible advisory warnings, not blockers. A merely unverified claim does not itself prove a major risk. Where the source leaves a relevant product-capability gap, the job uses at most two official-documentation searches and two successfully read documents (at most four page-read attempts); search snippets are never factual evidence. Failed research or malformed/incomplete review responses still prevent sending. A passage kept without changes must have no defect findings: supporting commentary triggers a bounded response-correction retry, not an unresolved article issue. Completed passage reviews with substantive findings count as reviewed; missing or failed assessments do not. Rechecking user edits repeats research against the current draft and is read-only. Source links retain the source title; feed publication dates are labelled as such, and unknown dates are not invented. Existing drafts must pass the current reputational-risk review for their exact content before sending. CMS-required fields, taxonomy and delivery data contracts still apply; article/quick-take publication does not reject writing patterns or silently normalise reviewed punctuation. Quick-take length/layout targets are editorial guidance. This is validation of a user-requested draft, not an autonomous content-planning pipeline.
+   Blog jobs retrieve a bounded set of relevant published posts, active profile/preferences and the user's own saved chat statements. A separate extraction and privacy/provenance check produces up to five anonymised author insights before the writer sees them. Only individually approved insights reach the writer; rejected insights are withheld and their count recorded. If none pass, drafting stops. Incomplete privacy assessments also stop drafting. The writer receives no raw private records or internal provenance references. Client names, employers, dates, locations, figures and identifying combinations must be removed; a recorded position or incident must not be inferred from a question or pasted third-party review. Background supports a proposed first-person recommendation, never invented past experience. Relevant Financial Services examples should distinguish preferences from authoritative KYC/eligibility facts without presenting memory as a suitability assessment. Private author context is excluded from external research planning. The editorial gate requires an explicit practitioner position and clear first-person attribution of proposed scenario controls and ownership.
+
+   Editorial quotations may match the original HTML or its rendered text, with entities decoded and whitespace normalised. Descriptive links using the exact documentation URL in `href` cite their attributed paragraph; bare URLs and per-sentence repeated links are not required. A footer labelled "feed publication date" discloses feed provenance. Invalid review responses receive one bounded retry with diagnostic feedback, and failed responses are recorded without changing the draft.
+
+   Source-footer titles and URLs are compared directly with saved source evidence, with HTML entities decoded, rather than judged by the editorial model. Differences are advisory unless the final review identifies material misattribution or another major risk. Awkward source punctuation and site suffixes are preserved. Product-naming findings must identify the exact disputed wording in its actual article passage and supply an exact supporting quotation and URL from the retrieved documentation. A platform label or unambiguous shorthand is not automatically an obsolete service name. Contradictory footer findings, unrelated quotations and invented documentation evidence trigger the bounded response-correction retry; repeated invalid findings leave the review incomplete and block sending rather than becoming article defects or a silent pass.
+
+   Authorial voice does not require repeated "I would" openings: an explicitly attributed position can carry several following sentences. Writer and editor check concrete repetition, unexplained operational jargon and dangling transitions without imposing a phrase-count quota. Banking scenarios use communication preferences, not chat-stated risk appetite, as examples of bounded conversational memory; authoritative assessments remain separate. Preview-dependent production proposals explain the release decision and applicable terms, or state which terms still need verification. Research uses the existing bounds to seek relevant production-use, support/SLA and change conditions; preview status alone does not establish restrictions. Documentation access dates reflect supplied retrieval timestamps and are not represented as personal human verification.
+
+   The blog review dialog foregrounds the title, post type and existing rich-text/HTML editor. Secondary metadata is collapsed under Post details; advisory suggestions and review history are separately collapsed with counts. Major blockers and category-loading/validation errors remain visible. Successful publication or saving to the blog replaces the editor with one success message and the existing post/admin links. Dismissing that message closes the whole publishing flow and returns to the underlying screen, without another completion popup.
 4. **Programme governance and communications** (parked).
    - The intent is for Athena to coach the areas Richard finds hardest: governance discipline (owners, dates, reviews, escalation, steering readiness) and communications (drafts written for the reader, difficult messages, reviewing his own drafts).
    - Athena helps; it does not run the programme.
@@ -244,6 +257,47 @@ A *use case* tracks one idea for one product.
    - **To GitHub**, the default: the spec is published to the repo as `docs/specs/<slug>.md` (or `docs/prds/<slug>.md` for Imagine). Athena gives a ready-to-paste GitHub Copilot prompt.
    - **Or to Athena Build.**
 5. **Close the loop.** Richard adds PR links and marks the use case shipped. Today flags use cases that have stalled while refining.
+
+Blueprint generation and feedback that rewrites an authored Blueprint require the configured dedicated bulk endpoint and key. If either is missing, the request fails explicitly without calling the light/chat model. The full generation and feedback output budgets remain unchanged; legacy lower-budget feedback and other bulk callers retain their existing fallback behaviour.
+
+The existing Design properties panel offers a manual **Check consistency** action. It saves pending editor changes, then reads the selected saved inputs without rewriting documents, resolving decisions or blocking handoff. Coverage explicitly distinguishes missing, ambiguous and unavailable inputs; fewer than two supplied inputs do not trigger a model comparison. Reports are timestamped revision snapshots, not continuously current certification. Contradictions require exact quotations from at least two different sources; diagram evidence must identify a saved node/connector and quote its label or description. Unverifiable model citations reject the report, and source changes during review require a fresh check. Missing architecture/diagrams are not inferred from unrelated records or generated automatically.
+
+### Connected-work usability
+
+Primary navigation resumes the last visited deep link within each area on the
+current browser; explicit links still open their requested item. Think retains
+the selected note in its URL, remembers its search and existing sort settings,
+and restores list/editor scroll positions during navigation in the current tab.
+Discover remembers its page and existing view, and both lists have independent
+compact-spacing preferences. With focus in the list, J/K move and O opens;
+Discover also supports S to save and A to archive non-blog/non-published articles.
+Shortcuts do not run inside form controls, editors or modal dialogs.
+
+The existing shell includes a collapsible background-work history, backed by
+durable specialist jobs and their live updates. Running work remains visible
+after navigation or reload; completion notices link to the saved result.
+Completion is not approval or publication. This is not a combined monitor for
+all chats, imports and scheduled jobs.
+
+Project cockpits show linked records changed since the previous successful visit
+on the same browser, initially the last 24 hours, with selectable periods.
+Notes, tasks, recorded decisions, risks/issues and canonical source activity
+are bounded and evidence-linked. Source activity uses its update/publication
+time, not indexing time; the result is current changed records, not an audit
+diff or a claim that all integrations are current.
+
+Today lists upcoming indexed calendar entries; Activity calendar cards offer the
+same manual meeting-preparation action. The owner selects a project explicitly.
+Preparation reads the invitation, goal, commitments, blockers, recorded decisions,
+open register and six recent note excerpts. Coverage, truncation, cancellation
+and older-note warnings are explicit. It does not infer previous meeting outcomes,
+send invitations or generate content automatically. An optional discussion opens
+the existing Athena assistant with the evidence; it makes no automatic note.
+
+Design consistency also accepts a proposed decision change for manual impact
+review. Each potential impact must quote an exact affected saved passage or
+diagram element; unknown or changed sources reject the report. The proposal is
+hypothetical, findings remain advisory, and no document or decision is rewritten.
 
 ## 7. What Athena is not
 

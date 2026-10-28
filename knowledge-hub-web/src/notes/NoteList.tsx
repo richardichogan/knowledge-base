@@ -11,7 +11,8 @@ import { TrashCan, Close, SortAscending, GroupObjects, View, ChevronDown, Chevro
 import type { ThinkListItem } from './types';
 import { useTaxonomy } from '../hooks/useTaxonomy';
 import { useProjects } from '../hooks/useProjects';
-import { readStored, writeStored, usePersistedBoolean, usePersistedChoice } from '../hooks/usePersistedState';
+import { readStored, writeStored, usePersistedBoolean, usePersistedChoice, usePersistedText } from '../hooks/usePersistedState';
+import { listShortcut, moveListFocus } from '../hooks/listKeyboard';
 import { contentTypeIcon, ctxTags, identitiesFor, useIdentity } from '../identity';
 import { activateNoteOnKeyDown, NOTE_SORT_OPTIONS, NOTE_BUCKET_STORAGE_KEY, noteDateBuckets, noteListDate, parseCollapsedNoteBuckets, type NoteSortKey, type NoteListQuery } from './noteListState';
 import './noteList.scss';
@@ -80,7 +81,8 @@ export const NoteList: React.FC<NoteListProps> = ({
   definitionsLoadingMore = false,
   onLoadMoreDefinitions,
 }) => {
-  const [filter, setFilter] = useState('');
+  const [filter, setFilter] = usePersistedText('kh-think-search');
+  const [density, setDensity] = usePersistedChoice('kh-think-density', ['compact', 'comfortable'] as const, 'compact');
   const [passageFilter, setPassageFilter] = useState('');
   useEffect(() => {
     const timer = window.setTimeout(() => { setPassageFilter(filter.trim()); }, 250);
@@ -234,6 +236,11 @@ export const NoteList: React.FC<NoteListProps> = ({
   return (
     <>
       <div className="notes-list-search notes-list-tools">
+        <button type="button" className="notes-list-tools__icon" aria-label="Compact note spacing"
+          title="Toggle compact spacing. List shortcuts: J/K move, O open."
+          aria-pressed={density === 'compact'} onClick={() => { setDensity(density === 'compact' ? 'comfortable' : 'compact'); }}>
+          <SortAscending size={16} aria-hidden="true" />
+        </button>
         <div className="notes-list-search__field">
           <TextInput
             id="notes-search"
@@ -292,7 +299,12 @@ export const NoteList: React.FC<NoteListProps> = ({
         </button>
       </div>
 
-      <div className="notes-list">
+      <div className={`notes-list kh-triage--${density}`} aria-label="Notes. J and K move; O opens the focused note."
+        onKeyDown={event => {
+          const key = listShortcut(event);
+          if (key === 'j' || key === 'k') { event.preventDefault(); moveListFocus(event.currentTarget, '.notes-list-item', key === 'k'); }
+          if (key === 'o' && event.target instanceof HTMLElement && event.target.matches('.notes-list-item')) { event.preventDefault(); event.target.click(); }
+        }}>
         {passageFilter.length >= 2 && passageFilter === filter.trim() && <>
           {passageQuery.isFetching && <p className="notes-list-progress" role="status">Searching tagged passages…</p>}
           {passageQuery.isError && <p className="notes-passage-search__error" role="alert">

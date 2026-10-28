@@ -23,6 +23,16 @@ export function writeStored(key: string, value: string): void {
   } catch {
     /* preference is best-effort only */
   }
+
+}
+
+export function usePersistedText(key: string, fallback = ''): [string, (next: string) => void] {
+  const [value, setValue] = useState(() => readStored(key) ?? fallback);
+  const set = useCallback((next: string): void => {
+    setValue(next);
+    writeStored(key, next);
+  }, [key]);
+  return [value, set];
 }
 
 /** Boolean preference persisted under `key`. */

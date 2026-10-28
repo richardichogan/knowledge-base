@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { Checkmark } from '@carbon/icons-react';
 import type { NavigationDestination, NavigationGroup } from '../navigation/destinations';
 import { settingsLinkState, settingsView } from '../navigation/settings';
+import { resumeWorkspacePath } from '../navigation/workspaceContinuity';
 
 interface Props {
   id: string;
@@ -78,7 +79,7 @@ export function NavigationMenu({ id, label, groups, selectedId, attentionIds = [
           onClick: () => { onAction(item); },
         };
         const [pathname, search] = item.path?.split('?') ?? [];
-        return item.path ? <Link key={item.id} to={item.path}
+        return item.path ? <Link key={item.id} to={resumeWorkspacePath(item.path)}
           state={pathname && settingsView(pathname, search) ? settingsLinkState(location) : undefined}
           {...common}>{content}</Link>
           : <button key={item.id} type="button" {...common}>{content}</button>;

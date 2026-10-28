@@ -20,3 +20,11 @@
 .kh-health__state--ok { border-color: var(--cds-support-success, #24a148); }
 .kh-health__state--warn { border-color: var(--cds-support-warning, #f1c21b); }
 .kh-health__state--muted { color: var(--cds-text-secondary, #525252); border-style: dashed; }
+.kh-health__details { margin-top: 8px; white-space: normal; font-size: var(--kh-text-body); }
+.kh-health__details summary { width: fit-content; color: var(--kh-accent); padding: 6px 0; cursor: pointer; border-radius: 2px; }
+.kh-health__details summary:hover { color: var(--kh-link-prose-hover); }
+.kh-health__details summary:focus-visible, .kh-health__table-wrap:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+.kh-health__details[open] summary { margin-bottom: 8px; }
+.kh-health__details ul { margin: 0; padding-left: var(--kh-list-indent); list-style: disc; }
+.kh-health__details li { line-height: 1.5; overflow-wrap: anywhere; }
+.kh-health__details li + li { margin-top: 8px; }

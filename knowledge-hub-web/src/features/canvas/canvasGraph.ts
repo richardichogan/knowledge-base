@@ -3,10 +3,11 @@
  *   - connection types (presets, colours, direction)
  *   - applyOps: the same changes the server applies (so edits show instantly)
  *   - inverseOps: the changes that undo a batch
- *   - placeNear: where a new card goes (a free spot around the card it's added to)
- *   - arrange: a force-directed tidy-up for cards without a saved position
+ *   - placeInBranches: keep new cards within their parent's mind-map group
+ *   - radialLayout: evenly spread main branches and fan descendants outward
  */
 import type { CanvasEdgeApi, CanvasFullApi, CanvasNodeApi, MapOp } from '../../services/api';
+import { canvasCardTier } from './canvasStyle';
 
 export type GraphState = Pick<CanvasFullApi, 'nodes' | 'edges'>;
 export interface Point { x: number; y: number }
@@ -43,6 +44,7 @@ function newNode(op: Extract<MapOp, { op: 'add' }>, canvasId: string): CanvasNod
     url: op.url ?? null, tags: op.tags ?? null,
     cardType: op.cardType !== undefined && op.cardType !== '' ? op.cardType : null,
     footnote: op.footnote !== undefined && op.footnote.trim() !== '' ? op.footnote.trim() : null,
+    style: op.style ?? null,
     collapsed: op.collapsed === true, x: op.x ?? 0, y: op.y ?? 0, placed, createdAt: new Date().toISOString(),
   };
 }
@@ -72,6 +74,7 @@ function applyOne(state: GraphState, op: MapOp, canvasId: string): GraphState {
           ...(op.cardType !== undefined && { cardType: op.cardType === '' ? null : op.cardType }),
           ...(op.footnote !== undefined && { footnote: op.footnote.trim() === '' ? null : op.footnote.trim() }),
           ...(op.collapsed !== undefined && { collapsed: op.collapsed }),
+          ...(op.style !== undefined && { style: op.style }),
         })),
         edges,
       };
@@ -121,6 +124,7 @@ export function inverseOps(before: GraphState, ops: MapOp[], canvasId: string): 
             ...(op.cardType !== undefined && { cardType: n.cardType ?? '' }),
             ...(op.footnote !== undefined && { footnote: n.footnote ?? '' }),
             ...(op.collapsed !== undefined && { collapsed: n.collapsed }),
+            ...(op.style !== undefined && { style: n.style ?? null }),
           }]);
         }
         break;
@@ -138,6 +142,7 @@ export function inverseOps(before: GraphState, ops: MapOp[], canvasId: string): 
               op: 'add', id: n.id, label: n.label ?? '', nodeType: n.nodeType,
               ...(n.body !== null && { body: n.body }), ...(n.url !== null && { url: n.url }), ...(n.tags !== null && { tags: n.tags }),
               ...(n.cardType !== null && { cardType: n.cardType }), ...(n.footnote !== null && { footnote: n.footnote }), ...(n.collapsed && { collapsed: true }),
+              ...(n.style != null && { style: n.style }),
               ...(n.refType !== null && n.refId !== null && { refType: n.refType, refId: n.refId }),
               ...(n.placed && { x: n.x, y: n.y }),
             },
@@ -177,49 +182,29 @@ export function branchSide(node: CanvasNodeApi, root: CanvasNodeApi, tree: CardT
   return branch.x < root.x ? -1 : 1;
 }
 
-/** Assign positions in operation order, so a batch sees the cards it has already added. */
+/** Position a complete batch using the drawn parent groups, including new parents. */
 export function positionNewCards(state: GraphState, ops: MapOp[], canvasId: string, selectedId: string | null, sizes: Map<string, Size>): MapOp[] {
-  let current = state;
-  return ops.map(raw => {
-    let op = raw;
-    if (raw.op === 'add' && (raw.x === undefined || raw.y === undefined)) {
-      const root = current.nodes[0];
-      const anchor = current.nodes.find(node => node.id === (raw.connectTo?.nodeId ?? selectedId)) ?? root;
-      const childSize = estimateSize({ refType: raw.refType ?? null });
-      let point: Point = { x: 0, y: 0 };
-      if (root !== undefined && anchor !== undefined) {
-        const tree = cardTree(current.nodes, current.edges, root.id);
-        const byId = new Map(current.nodes.map(node => [node.id, node]));
-        const sizeOf = (node: CanvasNodeApi): Size => sizes.get(node.id) ?? estimateSize(node);
-        const rootChildren = (tree.children.get(root.id) ?? []).map(id => byId.get(id)).filter((node): node is CanvasNodeApi => node !== undefined);
-        let side: -1 | 1;
-        if (anchor.id === root.id) {
-          const left = rootChildren.filter(node => node.x < root.x).length;
-          side = left < rootChildren.length - left ? -1 : 1;
-        } else {
-          side = branchSide(anchor, root, tree, byId);
-        }
-        const anchorSize = sizeOf(anchor);
-        const siblings = (tree.children.get(anchor.id) ?? [])
-          .map(id => byId.get(id))
-          .filter((node): node is CanvasNodeApi => node !== undefined && (anchor.id !== root.id || (node.x < root.x ? -1 : 1) === side));
-        point = {
-          x: anchor.x + side * (anchorSize.w / 2 + TREE_COLUMN_GAP + childSize.w / 2),
-          y: siblings.length === 0 ? anchor.y : Math.max(...siblings.map(node => node.y + sizeOf(node).h / 2)) + TREE_ROW_GAP + childSize.h / 2,
-        };
-        // Move only the new card down past every obstacle in its column.
-        const obstacles = current.nodes.filter(node => Math.abs(point.x - node.x) < (childSize.w + sizeOf(node).w) / 2 + TREE_ROW_GAP)
-          .sort((a, b) => a.y - b.y);
-        for (const obstacle of obstacles) {
-          const minDistance = (childSize.h + sizeOf(obstacle).h) / 2 + TREE_ROW_GAP;
-          if (Math.abs(point.y - obstacle.y) < minDistance) point.y = obstacle.y + minDistance;
-        }
-      }
-      op = { ...raw, x: Math.round(point.x), y: Math.round(point.y) };
-    }
-    current = applyOps(current, [op], canvasId);
-    return op;
+  const next = applyOps(state, ops, canvasId);
+  const root = next.nodes[0];
+  const tree = root !== undefined ? cardTree(next.nodes, next.edges, root.id) : null;
+  const automatic = new Set(ops.flatMap(op => op.op === 'add' && (op.x === undefined || op.y === undefined) ? [op.id] : []));
+  const positions = placeInBranches(next.nodes, next.edges, automatic, node => {
+    const estimate = estimateSize(node, tree?.depth.get(node.id) ?? 1);
+    const measured = sizes.get(node.id);
+    return measured?.w === estimate.w ? measured : estimate;
   });
+  const added = new Set(ops.flatMap(op => op.op === 'add' ? [op.id] : []));
+  const positioned = ops.map(op => {
+    const point = op.op === 'add' && automatic.has(op.id) ? positions.get(op.id) : undefined;
+    return point !== undefined ? { ...op, x: Math.round(point.x), y: Math.round(point.y) } : op;
+  });
+  for (const [id, point] of positions) {
+    const before = state.nodes.find(node => node.id === id);
+    const x = Math.round(point.x);
+    const y = Math.round(point.y);
+    if (!added.has(id) && before !== undefined && (x !== before.x || y !== before.y)) positioned.push({ op: 'position', id, x, y });
+  }
+  return positioned;
 }
 
 // ── Placement ─────────────────────────────────────────────────────────────────
@@ -228,116 +213,9 @@ export const CARD_W = 240;
 export const CARD_H = 96;
 export const IDEA_W = 190;
 export const IDEA_H = 56;
-const GAP = 40;
-const RING_STEP = 150;
-const RING_SLOTS = 12;
-const MAX_RINGS = 8;
 
-export function estimateSize(node: Pick<CanvasNodeApi, 'refType'>): Size {
-  return node.refType !== null ? { w: CARD_W, h: CARD_H } : { w: IDEA_W, h: IDEA_H };
-}
-
-function overlaps(p: Point, s: Size, positions: Map<string, Point>, sizes: Map<string, Size>, ignore?: string): boolean {
-  for (const [id, q] of positions) {
-    if (id === ignore) continue;
-    const t = sizes.get(id) ?? { w: CARD_W, h: CARD_H };
-    if (Math.abs(p.x - q.x) < (s.w + t.w) / 2 + GAP && Math.abs(p.y - q.y) < (s.h + t.h) / 2 + GAP) return true;
-  }
-  return false;
-}
-
-/**
- * A free spot for a new card of size `size` near `anchor`: the first slot on
- * rings around it that doesn't overlap another card (right-hand side first).
- */
-export function placeNear(anchor: Point, size: Size, positions: Map<string, Point>, sizes: Map<string, Size>): Point {
-  for (let ring = 1; ring <= MAX_RINGS; ring++) {
-    const radius = ring * RING_STEP + CARD_W / 2;
-    const slots = RING_SLOTS * ring;
-    for (let i = 0; i < slots; i++) {
-      // Start at 0° (right), then alternate outwards: 0, +θ, -θ, +2θ …
-      const k = Math.ceil(i / 2) * (i % 2 === 0 ? -1 : 1);
-      const angle = (k * 2 * Math.PI) / slots;
-      const p = { x: anchor.x + radius * Math.cos(angle), y: anchor.y + radius * Math.sin(angle) * 0.7 };
-      if (!overlaps(p, size, positions, sizes)) return p;
-    }
-  }
-  return { x: anchor.x + (MAX_RINGS + 1) * RING_STEP, y: anchor.y };
-}
-
-const ITERATIONS = 250;
-const REPULSION = 90_000;
-const SPRING = 0.02;
-const SPRING_LENGTH = 320;
-const CENTRE_PULL = 0.002;
-const MAX_STEP = 30;
-
-/**
- * Tidy arrangement: a force-directed pass (cards repel, connections pull)
- * that only moves the cards in `movable`; the others stay where they are.
- */
-export function arrange(
-  nodes: CanvasNodeApi[],
-  edges: CanvasEdgeApi[],
-  start: Map<string, Point>,
-  sizes: Map<string, Size>,
-  movable: Set<string>,
-): Map<string, Point> {
-  const pos = new Map<string, Point>(nodes.map((n) => [n.id, { ...(start.get(n.id) ?? { x: 0, y: 0 }) }]));
-  if (movable.size === 0) return pos;
-  for (let it = 0; it < ITERATIONS; it++) {
-    const cooling = 1 - it / ITERATIONS;
-    const force = new Map<string, Point>(nodes.map((n) => [n.id, { x: 0, y: 0 }]));
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        const a = nodes[i];
-        const b = nodes[j];
-        if (a === undefined || b === undefined) continue;
-        const pa = pos.get(a.id);
-        const pb = pos.get(b.id);
-        if (pa === undefined || pb === undefined) continue;
-        let dx = pa.x - pb.x;
-        let dy = pa.y - pb.y;
-        if (dx === 0 && dy === 0) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; }
-        const sa = sizes.get(a.id) ?? estimateSize(a);
-        const sb = sizes.get(b.id) ?? estimateSize(b);
-        const minDist = (Math.max(sa.w, sb.w) + GAP) * 0.9;
-        const d2 = Math.max(dx * dx + dy * dy, 1);
-        const d = Math.sqrt(d2);
-        const f = REPULSION / d2 + (d < minDist ? (minDist - d) * 0.5 : 0);
-        const fa = force.get(a.id);
-        const fb = force.get(b.id);
-        if (fa !== undefined) { fa.x += (dx / d) * f; fa.y += (dy / d) * f; }
-        if (fb !== undefined) { fb.x -= (dx / d) * f; fb.y -= (dy / d) * f; }
-      }
-    }
-    for (const e of edges) {
-      const pa = pos.get(e.sourceId);
-      const pb = pos.get(e.targetId);
-      if (pa === undefined || pb === undefined) continue;
-      const dx = pb.x - pa.x;
-      const dy = pb.y - pa.y;
-      const d = Math.max(Math.hypot(dx, dy), 1);
-      const f = SPRING * (d - SPRING_LENGTH);
-      const fa = force.get(e.sourceId);
-      const fb = force.get(e.targetId);
-      if (fa !== undefined) { fa.x += (dx / d) * f; fa.y += (dy / d) * f; }
-      if (fb !== undefined) { fb.x -= (dx / d) * f; fb.y -= (dy / d) * f; }
-    }
-    for (const id of movable) {
-      const p = pos.get(id);
-      const f = force.get(id);
-      if (p === undefined || f === undefined) continue;
-      f.x -= p.x * CENTRE_PULL;
-      f.y -= p.y * CENTRE_PULL;
-      const step = Math.hypot(f.x, f.y);
-      const limit = MAX_STEP * cooling + 1;
-      const scale = step > limit ? limit / step : 1;
-      p.x += f.x * scale;
-      p.y += f.y * scale;
-    }
-  }
-  return pos;
+export function estimateSize(node: Pick<CanvasNodeApi, 'refType'>, depth = 1): Size {
+  return { w: canvasCardTier(depth).width, h: node.refType !== null ? CARD_H : IDEA_H };
 }
 
 const ELBOW_RADIUS = 4;
@@ -381,8 +259,8 @@ export function elbowPath(a: Point, as: Size, b: Point, bs: Size, endGap = 0): E
   };
 }
 
-const TREE_COLUMN_GAP = 70;
-const TREE_ROW_GAP = 24;
+const TREE_BRANCH_GAP = 70;
+const TREE_CARD_GAP = 24;
 
 export interface CardTree {
   parent: Map<string, string>;
@@ -445,101 +323,175 @@ export function hiddenCards(nodes: CanvasNodeApi[], tree: CardTree): Set<string>
   return hidden;
 }
 
-/**
- * Two-sided card tree: the root stays where it is; cards joined to it by a
- * typed connection stack in a column to its left, cards joined by an untyped
- * ("related") connection stack to its right, and deeper cards sit in further
- * columns on their parent's side, centred on their parent. Cards not
- * connected to the root are added to the bottom of the right-hand column.
- */
-export function twoSidedLayout(
+/** Equal-angle main branches with compact, outward-facing parent/child groups. */
+export function radialLayout(
   nodes: CanvasNodeApi[],
   edges: CanvasEdgeApi[],
   rootId: string,
   rootAt: Point,
   sizeOf: (n: CanvasNodeApi) => Size,
+  branch?: { angle: number; minRadius?: number; obstacles: { at: Point; size: Size }[] },
 ): Map<string, Point> {
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const size = (id: string): Size => {
     const n = byId.get(id);
     return n !== undefined ? sizeOf(n) : { w: CARD_W, h: CARD_H };
   };
-  const { children: treeKids, depth, side } = cardTree(nodes, edges, rootId);
+  const { children: treeKids } = cardTree(nodes, edges, rootId);
   // Collapsed cards take no room for their hidden children.
   const children = new Map([...treeKids].map(([id, kids]) => [id, id !== rootId && byId.get(id)?.collapsed === true ? [] : kids]));
   const rootKids = children.get(rootId) ?? [];
 
-  // Each column is as wide as its widest card; columns step outwards from the root.
-  const colWidth = new Map<string, number>();
-  for (const [id, d] of depth) {
-    if (d === 0) continue;
-    const key = `${(side.get(id) ?? 1).toString()}:${d.toString()}`;
-    colWidth.set(key, Math.max(colWidth.get(key) ?? 0, size(id).w));
-  }
-  const colX = (s: -1 | 1, d: number): number => {
-    let offset = size(rootId).w / 2;
-    for (let k = 1; k <= d; k++) {
-      const w = colWidth.get(`${s.toString()}:${k.toString()}`) ?? CARD_W;
-      offset += TREE_COLUMN_GAP + (k === d ? w / 2 : w);
-    }
-    return rootAt.x + s * offset;
-  };
-
-  const block = new Map<string, number>();
-  const blockOf = (id: string): number => {
-    const kids = children.get(id) ?? [];
-    const stacked = kids.reduce((sum, k) => sum + blockOf(k), 0) + TREE_ROW_GAP * Math.max(kids.length - 1, 0);
-    const h = Math.max(size(id).h, stacked);
-    block.set(id, h);
-    return h;
-  };
   const pos = new Map<string, Point>([[rootId, { ...rootAt }]]);
-  const stack = (ids: string[], centreY: number): void => {
-    const total = ids.reduce((sum, k) => sum + blockOf(k), 0) + TREE_ROW_GAP * Math.max(ids.length - 1, 0);
-    let top = centreY - total / 2;
-    for (const id of ids) {
-      const h = block.get(id) ?? size(id).h;
-      const y = top + h / 2;
-      pos.set(id, { x: colX(side.get(id) ?? 1, depth.get(id) ?? 1), y });
-      stack(children.get(id) ?? [], y);
-      top += h + TREE_ROW_GAP;
-    }
+  const dimensions = (id: string, angle: number): Size => {
+    const card = size(id);
+    const c = Math.abs(Math.cos(angle));
+    const s = Math.abs(Math.sin(angle));
+    return { w: c * card.w + s * card.h, h: s * card.w + c * card.h };
   };
-  stack(rootKids.filter((id) => side.get(id) === -1), rootAt.y);
-  stack(rootKids.filter((id) => side.get(id) !== -1), rootAt.y);
+  const compact = (id: string, angle: number): { points: Map<string, Point>; span: number } => {
+    const card = dimensions(id, angle);
+    const groups = (children.get(id) ?? []).map(child => ({ id: child, ...compact(child, angle) }));
+    const total = groups.reduce((sum, group) => sum + group.span, 0) + Math.max(0, groups.length - 1) * TREE_CARD_GAP;
+    const points = new Map<string, Point>([[id, { x: 0, y: 0 }]]);
+    let cross = -total / 2;
+    for (const group of groups) {
+      const child = dimensions(group.id, angle);
+      const along = (card.w + child.w) / 2 + TREE_BRANCH_GAP;
+      for (const [childId, point] of group.points) {
+        points.set(childId, { x: along + point.x, y: cross + group.span / 2 + point.y });
+      }
+      cross += group.span + TREE_CARD_GAP;
+    }
+    return { points, span: Math.max(card.h, total) };
+  };
+  const project = (point: Point, angle: number, radius = 0): Point => ({
+    x: rootAt.x + (radius + point.x) * Math.cos(angle) - point.y * Math.sin(angle),
+    y: rootAt.y + (radius + point.x) * Math.sin(angle) + point.y * Math.cos(angle),
+  });
+  if (branch !== undefined) {
+    const group = compact(rootId, branch.angle);
+    const nearest = Math.min(...rootKids.map(id => group.points.get(id)?.x ?? 0));
+    let shift = Math.max(0, (branch.minRadius ?? 0) - nearest);
+    const blocked: { start: number; end: number }[] = [];
+    for (const [id, point] of group.points) {
+      if (id === rootId) continue;
+      const at = project(point, branch.angle);
+      const card = size(id);
+      for (const obstacle of branch.obstacles) {
+        let start = -Infinity;
+        let end = Infinity;
+        for (const axis of ['x', 'y'] as const) {
+          const velocity = axis === 'x' ? Math.cos(branch.angle) : Math.sin(branch.angle);
+          const distance = at[axis] - obstacle.at[axis];
+          const extent = ((axis === 'x' ? card.w + obstacle.size.w : card.h + obstacle.size.h) / 2) + TREE_CARD_GAP;
+          if (Math.abs(velocity) < 1e-8) {
+            if (Math.abs(distance) >= extent) { end = -Infinity; break; }
+          } else {
+            const a = (-extent - distance) / velocity;
+            const b = (extent - distance) / velocity;
+            start = Math.max(start, Math.min(a, b));
+            end = Math.min(end, Math.max(a, b));
+          }
+        }
+        if (start < end) blocked.push({ start, end });
+      }
+    }
+    for (const interval of blocked.sort((a, b) => a.start - b.start)) {
+      if (shift >= interval.start && shift <= interval.end) shift = interval.end + 1;
+    }
+    for (const [id, point] of group.points) if (id !== rootId) pos.set(id, project(point, branch.angle, shift));
+    return pos;
+  }
+  const step = 2 * Math.PI / Math.max(1, rootKids.length);
+  const groups = rootKids.map((id, i) => ({ id, angle: i * step, ...compact(id, i * step) }));
+  const rootSize = size(rootId);
+  let radius = Math.hypot(rootSize.w, rootSize.h) / 2 + TREE_BRANCH_GAP;
+  const tangent = Math.tan(Math.min(Math.PI, step * 0.8) / 2);
+  for (const group of groups) {
+    radius = Math.max(radius, (dimensions(rootId, group.angle).w + dimensions(group.id, group.angle).w) / 2 + TREE_BRANCH_GAP);
+    // Keep each compact group within its own sector, instead of spreading every depth onto a ring.
+    for (const [id, point] of group.points) {
+      const card = dimensions(id, group.angle);
+      radius = Math.max(radius, (Math.abs(point.y) + card.h / 2 + TREE_CARD_GAP) / tangent - point.x + card.w / 2);
+    }
+  }
+  for (const group of groups) {
+    for (const [id, point] of group.points) pos.set(id, project(point, group.angle, radius));
+  }
   return pos;
 }
 
+/** Reflow only the parent groups receiving automatically positioned cards. */
+export function placeInBranches(
+  nodes: CanvasNodeApi[], edges: CanvasEdgeApi[], automatic: Set<string>, sizeOf: (node: CanvasNodeApi) => Size,
+): Map<string, Point> {
+  const root = nodes[0];
+  if (root === undefined || automatic.size === 0) return new Map();
+  if (nodes.every(node => automatic.has(node.id))) return radialLayout(nodes, edges, root.id, root, sizeOf);
+  const tree = cardTree(nodes, edges, root.id);
+  const treeEdges = edges.filter(edge => tree.parent.get(edge.targetId) === edge.sourceId || tree.parent.get(edge.sourceId) === edge.targetId);
+  const hidden = hiddenCards(nodes, tree);
+  const positions = new Map(nodes.map(node => [node.id, { x: node.x, y: node.y }]));
+  const changed = new Map<string, Point>();
+  const positioned = new Set(nodes.filter(node => !automatic.has(node.id)).map(node => node.id));
+  positioned.add(root.id);
+  const at = (id: string): Point => positions.get(id) ?? root;
+  const obstacles = (moving: Set<string>): { at: Point; size: Size }[] =>
+    nodes.filter(node => positioned.has(node.id) && !hidden.has(node.id) && !moving.has(node.id))
+      .map(node => ({ at: at(node.id), size: sizeOf(node) }));
+  const remember = (layout: Map<string, Point>): void => {
+    for (const [id, point] of layout) {
+      positions.set(id, point);
+      positioned.add(id);
+      changed.set(id, point);
+    }
+  };
+  // Insert new top-level branches into an available angular gap, not a random free spot.
+  for (const id of tree.children.get(root.id) ?? []) {
+    if (!automatic.has(id)) continue;
+    const siblings = (tree.children.get(root.id) ?? []).filter(sibling => positioned.has(sibling));
+    const angles = siblings.map(sibling => Math.atan2(at(sibling).y - root.y, at(sibling).x - root.x))
+      .sort((a, b) => a - b);
+    let angle = 0;
+    let largestGap = 0;
+    angles.forEach((value, i) => {
+      const next = angles[i + 1] ?? angles[0]! + 2 * Math.PI;
+      if (next - value > largestGap) { largestGap = next - value; angle = value + largestGap / 2; }
+    });
+    const moving = new Set([root.id, id]);
+    const radii = siblings.map(sibling => Math.hypot(at(sibling).x - root.x, at(sibling).y - root.y)).sort((a, b) => a - b);
+    remember(radialLayout(nodes.filter(node => moving.has(node.id)), treeEdges.filter(edge => moving.has(edge.sourceId) && moving.has(edge.targetId)),
+      root.id, root, sizeOf, { angle, minRadius: radii[Math.floor(radii.length / 2)] ?? 0, obstacles: obstacles(moving) }));
+  }
+  const parents = [...new Set([...automatic].flatMap(id => {
+    const parent = tree.parent.get(id);
+    return parent !== undefined && parent !== root.id ? [parent] : [];
+  }))].sort((a, b) => (tree.depth.get(a) ?? 0) - (tree.depth.get(b) ?? 0));
+  const reflowed = new Set<string>();
+  for (const parent of parents) {
+    if (reflowed.has(parent) || hidden.has(parent)) continue;
+    const moving = new Set([parent, ...descendants(tree, parent)]);
+    const anchor = at(parent);
+    const upstream = at(tree.parent.get(parent) ?? root.id);
+    const angle = Math.atan2(anchor.y - upstream.y, anchor.x - upstream.x);
+    remember(radialLayout(nodes.filter(node => moving.has(node.id)), treeEdges.filter(edge => moving.has(edge.sourceId) && moving.has(edge.targetId)),
+      parent, anchor, sizeOf, { angle, obstacles: obstacles(moving) }));
+    for (const id of moving) reflowed.add(id);
+  }
+  return changed;
+}
+
 /**
- * Positions for every card: saved positions for placed cards; unplaced cards
- * start near a connected (or the first) card and are then tidied.
+ * Unplaced cards join their parent groups; saved unrelated branches stay fixed.
  */
 export function initialPositions(nodes: CanvasNodeApi[], edges: CanvasEdgeApi[], sizes: Map<string, Size>): { positions: Map<string, Point>; arranged: Set<string> } {
-  const positions = new Map<string, Point>();
-  for (const n of nodes) if (n.placed) positions.set(n.id, { x: n.x, y: n.y });
-  const unplaced = nodes.filter((n) => !n.placed);
-  if (unplaced.length === 0) return { positions, arranged: new Set() };
   const root = nodes[0];
-  if (root === undefined) return { positions, arranged: new Set() };
-  if (!positions.has(root.id)) positions.set(root.id, { x: 0, y: 0 });
-  const tree = cardTree(nodes, edges, root.id);
-  const ordered = unplaced.filter(node => node.id !== root.id)
-    .sort((a, b) => (tree.depth.get(a.id) ?? 0) - (tree.depth.get(b.id) ?? 0));
-  for (const node of ordered) {
-    const available = nodes.flatMap(n => {
-      const position = positions.get(n.id);
-      return position === undefined ? [] : [{ ...n, ...position, placed: true }];
-    });
-    const availableIds = new Set(available.map(n => n.id));
-    const existingEdges = edges.filter(e => availableIds.has(e.sourceId) && availableIds.has(e.targetId));
-    const parent = tree.parent.get(node.id) ?? root.id;
-    const op: MapOp = { op: 'add', id: node.id, ...(node.refType !== null && { refType: node.refType }),
-      connectTo: { nodeId: parent, edgeId: '' } };
-    const placed = positionNewCards({ nodes: available, edges: existingEdges }, [op], node.canvasId, parent, sizes)[0];
-    if (placed?.op === 'add' && placed.x !== undefined && placed.y !== undefined) positions.set(node.id, { x: placed.x, y: placed.y });
-  }
-  const arranged = new Set(unplaced.map((n) => n.id));
-  return { positions, arranged };
+  const tree = root !== undefined ? cardTree(nodes, edges, root.id) : null;
+  const measuredSizes = new Map(nodes.map((n) => [n.id, sizes.get(n.id) ?? estimateSize(n, tree?.depth.get(n.id) ?? 1)]));
+  const unplaced = nodes.filter((n) => !n.placed);
+  const positions = placeInBranches(nodes, edges, new Set(unplaced.map(node => node.id)), node => measuredSizes.get(node.id) ?? estimateSize(node));
+  return { positions, arranged: new Set(positions.keys()) };
 }
 
 /** The canvas as Markdown (copy / export). */

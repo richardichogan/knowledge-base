@@ -29,6 +29,7 @@ import { pollSyncRun } from '../services/syncPolling';
 import { DataNotice } from '../components/DataNotice';
 import { PageHeader } from '../components/PageHeader';
 import { AppDialog } from '../components/AppDialog';
+import { MeetingPreparation } from '../components/MeetingPreparation';
 
 // ── Source metadata ───────────────────────────────────────────────────────────
 
@@ -206,6 +207,8 @@ const TimelineCard: React.FC<{ item: ContentItemSummary; projects: readonly Proj
           {expanded && (
             <ConnectionsPanel refId={item.id} refType={mapSourceToRefType(item.source)} />
           )}
+          {item.source === 'graph-calendar' && <MeetingPreparation eventId={item.id} projects={projects}
+            initialProjectId={projects.some(project => project.id === item.projectContext) ? item.projectContext : undefined} />}
         </div>
 
         {/* Actions */}

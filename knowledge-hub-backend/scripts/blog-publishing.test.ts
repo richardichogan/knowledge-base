@@ -51,7 +51,7 @@ test('generated drafts enforce canonical categories instead of returning an unpu
     /unsupported blog categories: Dynamics 365/);
 });
 
-test('full articles allow two triplets and contrasts, while quick takes retain strict checks', () => {
+test('editorial style patterns never prevent article or quick-take delivery', () => {
   for (const status of ['draft', 'published'] as const) {
     const content = '<p>In enterprise IT, identity and permissions now travel with the agent.</p>';
     assert.equal(parsePublishBody({ ...fields, status, content }).content, content);
@@ -62,24 +62,34 @@ test('full articles allow two triplets and contrasts, while quick takes retain s
     assert.equal(parsePublishBody({
       ...fields, status, postType: 'article', content: `<p>${triplet} ${triplet} ${triplet}</p>`,
     }).content, `<p>${triplet} ${triplet} ${triplet}</p>`);
-    assert.throws(() => parsePublishBody({
+    assert.doesNotThrow(() => parsePublishBody({
       ...fields, status, postType: 'article', content: `<p>${contrast} ${contrast} ${contrast}</p>`,
-    }), /construction/);
+    }));
     const lessLike = 'This looks less like storage, and more like governance.';
     const factualContrast = 'The service uses a queue rather than a database.';
     assert.equal(parsePublishBody({ ...fields, status, postType: 'article',
       content: `<p>${lessLike} ${lessLike} ${factualContrast}</p>` }).content, `<p>${lessLike} ${lessLike} ${factualContrast}</p>`);
-    assert.throws(() => parsePublishBody({ ...fields, status, postType: 'article',
-      content: `<p>${lessLike} ${lessLike} ${lessLike}</p>` }), /construction/);
+    assert.doesNotThrow(() => parsePublishBody({ ...fields, status, postType: 'article',
+      content: `<p>${lessLike} ${lessLike} ${lessLike}</p>` }));
     assert.equal(parsePublishBody({ ...fields, status, postType: 'article', excerpt: contrast,
       content: `<p>${contrast} ${contrast}</p>` }).content, `<p>${contrast} ${contrast}</p>`);
-    assert.throws(() => parsePublishBody({ ...fields, status, postType: 'quick', content: `<p>${triplet}</p>` }), /triplet list/);
+    assert.doesNotThrow(() => parsePublishBody({ ...fields, status, postType: 'quick', content: `<p>${triplet}</p>` }));
   }
+});
+
+test('publication preserves reviewed punctuation and treats quick-take layout and length as editorial advice', () => {
+  const content = `<h2>Context</h2><p>${'word '.repeat(605)}A judgement — with context.</p>`;
+  const post = parsePublishBody({ ...fields, postType: 'quick', title: 'A'.repeat(65), content,
+    keyTakeaways: ['One.', 'Two.', 'Three.'] });
+  assert.equal(post.content, content);
+  assert.equal(post.keyTakeaways.length, 3);
 });
 
 test('source and ideas drafts use the accepted taxonomy for both quick takes and articles', async () => {
   const prompts: string[] = [];
   const client = { chat: async (_model: string, messages: Array<{ content: string }>, _tokens?: number, _timeout?: number, _signal?: AbortSignal, schema?: { name: string }) => {
+    if (schema?.name === 'blog_research_plan') return JSON.stringify({ queries: [] });
+    if (schema?.name === 'blog_editorial_review') return JSON.stringify({ findings: [], majorRisks: [] });
     if (schema?.name === 'blog_paragraph_review') return JSON.stringify({ action: 'keep', after: '', findings: [] });
     if (messages[0]!.content.includes('Review factual claims') || messages[0]!.content.includes('Review style, length and coherence')) {
       return JSON.stringify({ findings: [] });

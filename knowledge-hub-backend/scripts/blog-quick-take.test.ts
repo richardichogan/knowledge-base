@@ -7,7 +7,7 @@ import { findTropes, fixDashes } from '../src/ai/styleCheck.js';
 import { AiOutputLimitError } from '../src/types/errors.js';
 
 const source = { title: 'Copilot plugin registry', body: 'Microsoft announced a plugin registry for Copilot.', source: 'discovered-article', url: 'https://example.com/news' } as const;
-const words = (n: number) => Array.from({ length: n }, (_, index) => index % 20 === 19 ? 'word.' : 'word').join(' ');
+const words = (n: number) => Array.from({ length: n }, (_, index) => index % 20 === 19 ? 'word.' : index % 20 === 0 ? 'Word' : 'word').join(' ');
 const reply = (title: string, n: number, extra = '') => JSON.stringify({
   title, excerpt: 'Hook.', summary: 'The registry is an admin story.', content: `<p>${words(n)}${extra}</p>`,
   keyTakeaways: ['One.', 'Two.', 'Three.'], categories: ['AI', 'Copilot', 'Quick Take'], tags: ['Copilot'],
@@ -24,6 +24,8 @@ test('direct generation sends only the flagged sentence to the editor', async ()
   const clean = 'Administrators can inspect permissions.';
   let corrections = 0;
   const client = { chat: async (_model: string, messages: Array<{ content: string }>, _tokens?: number, _timeout?: number, _signal?: AbortSignal, schema?: { name: string }) => {
+    if (schema?.name === 'blog_research_plan') return JSON.stringify({ queries: [] });
+    if (schema?.name === 'blog_editorial_review') return JSON.stringify({ findings: [], majorRisks: [] });
     if (schema?.name === 'blog_draft') return JSON.stringify({ ...JSON.parse(reply('Registry review', 350)), content: `<p>${clean} ${before}</p>` });
     if (schema?.name === 'blog_paragraph_review') return JSON.stringify({ action: 'keep', after: '', findings: [] });
     const request = JSON.parse(messages[1]!.content);
@@ -47,6 +49,8 @@ test('direct generation sends only the flagged sentence to the editor', async ()
 test('a clipped candidate response is retried once without changing the generation request', async () => {
   const calls: Array<{ messages: unknown; tokens: number | undefined }> = [];
   const client = { chat: async (_model: string, messages: Array<{ content: string }>, tokens?: number, _timeout?: number, _signal?: AbortSignal, schema?: { name: string }) => {
+    if (schema?.name === 'blog_research_plan') return JSON.stringify({ queries: [] });
+    if (schema?.name === 'blog_editorial_review') return JSON.stringify({ findings: [], majorRisks: [] });
     if (schema?.name === 'blog_paragraph_review') return JSON.stringify({ action: 'keep', after: '', findings: [] });
     calls.push({ messages, tokens });
     if (calls.length === 1) throw new AiOutputLimitError();
@@ -60,7 +64,8 @@ test('a clipped candidate response is retried once without changing the generati
   await generateBlogDraft(source, source.url, 'short', [], client);
   assert.equal(calls.length, 4);
   let failures = 0;
-  await assert.rejects(generateBlogDraft(source, source.url, 'short', [], { chat: async () => {
+  await assert.rejects(generateBlogDraft(source, source.url, 'short', [], { chat: async (_model, _messages, _tokens, _timeout, _signal, schema) => {
+    if (schema?.name === 'blog_research_plan') return JSON.stringify({ queries: [] });
     failures++;
     throw new AiOutputLimitError();
   } }), AiOutputLimitError);
@@ -71,6 +76,8 @@ test('quick take keeps the source link only in the footer and retains supplied e
   const extra = ' <a href="https://example.com/news">source</a> <a href="https://themicrosoftcloudblog.com/2026/01/old/">old</a> <a href="https://invented.example/x">made up</a>';
   let calls = 0;
   const client = { chat: async (_model: string, _messages: unknown, _tokens?: number, _timeout?: number, _signal?: AbortSignal, schema?: { name: string }) => {
+    if (schema?.name === 'blog_research_plan') return JSON.stringify({ queries: [] });
+    if (schema?.name === 'blog_editorial_review') return JSON.stringify({ findings: [], majorRisks: [] });
     if (schema?.name === 'blog_paragraph_review') return JSON.stringify({ action: 'keep', after: '', findings: [] });
     return ++calls === 1 ? reply('Registry is an admin story', 350, extra) : verified;
   } };
@@ -113,6 +120,8 @@ test('introductory clauses followed by two items do not trigger triplet repairs'
   const content = sentences.map(sentence => `<p>${sentence}</p>`).join('');
   let calls = 0;
   const client = { chat: async (_model: string, _messages: unknown, _tokens?: number, _timeout?: number, _signal?: AbortSignal, schema?: { name: string }) => {
+    if (schema?.name === 'blog_research_plan') return JSON.stringify({ queries: [] });
+    if (schema?.name === 'blog_editorial_review') return JSON.stringify({ findings: [], majorRisks: [] });
     if (schema?.name === 'blog_paragraph_review') return JSON.stringify({ action: 'keep', after: '', findings: [] });
     calls++;
     return calls === 1 ? JSON.stringify({ ...JSON.parse(reply('Agent permissions', 350)), content }) : verified;
@@ -125,6 +134,8 @@ test('introductory clauses followed by two items do not trigger triplet repairs'
 test('long posts keep the article format with no regeneration', async () => {
   let calls = 0;
   const client = { chat: async (_model: string, _messages: unknown, _tokens?: number, _timeout?: number, _signal?: AbortSignal, schema?: { name: string }) => {
+    if (schema?.name === 'blog_research_plan') return JSON.stringify({ queries: [] });
+    if (schema?.name === 'blog_editorial_review') return JSON.stringify({ findings: [], majorRisks: [] });
     if (schema?.name === 'blog_paragraph_review') return JSON.stringify({ action: 'keep', after: '', findings: [] });
     return ++calls === 1 ? reply('Long title', 800) : verified;
   } };
@@ -142,7 +153,7 @@ test('manual article drafting reads source evidence and never silently falls bac
   })).body, full);
   await assert.rejects(readBlogSource(source, async () => { throw new Error('Source unavailable'); }), /Source unavailable/);
   await assert.rejects(readBlogSource(source, async () => ({ title: '', text: 'Verify you are human' })), /could not be read/);
-  const email = { ...source, source: 'email' };
+  const email = { ...source, source: 'email' as const };
   assert.equal(await readBlogSource(email, async () => { throw new Error('Email must not trigger a page read'); }), email);
 });
 

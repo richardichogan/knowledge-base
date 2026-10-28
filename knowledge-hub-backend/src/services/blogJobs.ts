@@ -1,7 +1,7 @@
 import type { Pool } from 'pg';
 import { getFoundryClient } from '../ai/foundryClient.js';
 import type { BlogDraft, BlogVoiceSample } from '../ai/blogDraft.js';
-import { hasArticleContent, paragraphReviewCoverage, recheckParagraphUnits, sourceReferenceIssues, verifyBlogDraft, type BlogVerification } from '../ai/blogEditorial.js';
+import { hasArticleContent, hasCurrentBlogEditorialReview, paragraphReviewCoverage, recheckParagraphUnits, sourceReferenceIssues, verifyBlogDraft, type BlogVerification } from '../ai/blogEditorial.js';
 import { handOff, type AgentJob } from '../agents/engine.js';
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
 import { parseBlogReviewBody, parsePublishBody, type BlogPublishBody } from './blogPublisher.js';
@@ -60,10 +60,9 @@ export async function assertVerifiedBlogJob(db: Pool, jobId: unknown, subjectId:
   const coverage = checkpoint?.originalDraft
     ? paragraphReviewCoverage(checkpoint.originalDraft, checkpoint.stages ?? [], signature(post))
     : ['The original paragraph review is unavailable.'];
-  const sourceIssues = checkpoint?.originalDraft && checkpoint.draft
-    ? sourceReferenceIssues(checkpoint.originalDraft, { ...checkpoint.draft, content: post.content }) : [];
   if (job.status !== 'done' || !verified || post.slug || post.sourceUrl
-    || data?.['verifiedSignature'] !== signature(post) || coverage.length || sourceIssues.length) {
+    || data?.['verifiedSignature'] !== signature(post) || coverage.length
+    || !checkpoint?.draft || !hasCurrentBlogEditorialReview({ ...checkpoint.draft, ...post }, checkpoint.stages ?? [])) {
     throw new ConflictError('The current draft has not been verified. Recheck it before sending.', 'BLOG_VERIFICATION_REQUIRED');
   }
 }
@@ -113,18 +112,19 @@ export async function evaluateBlogRecheck(
     : { issues: ['The original draft is unavailable, so the unfinished paragraph review cannot be checked.'], results: [] };
   const coverage = checkpoint.originalDraft ? paragraphReviewCoverage(checkpoint.originalDraft, stages, draftSignature) : paragraph.issues;
   const sourceIssues = checkpoint.originalDraft ? sourceReferenceIssues(checkpoint.originalDraft, draft) : [];
-  let verification = await verifyBlogDraft(draft, checkpoint.evidence, client, checkpoint.voiceSamples, record);
-  if (paragraph.issues.length || coverage.length || sourceIssues.length) verification = {
-    verified: false, issues: [...new Set([...verification.issues, ...paragraph.issues, ...coverage, ...sourceIssues])],
+  let verification = await verifyBlogDraft(draft, checkpoint.evidence, client, checkpoint.voiceSamples, record,
+    [...paragraph.issues, ...sourceIssues]);
+  if (coverage.length) verification = {
+    ...verification, verified: false, issues: [...new Set([...verification.issues, ...coverage])],
   };
   if (verification.verified) {
     try {
       if (signature(parsePublishBody({ ...draft, sourceUrl: undefined })) !== signature(post)) {
-        verification = { verified: false, issues: ['The draft contains punctuation that would be changed during publishing. Edit it before rechecking.'] };
+        verification = { ...verification, verified: false, issues: ['The draft contains punctuation that would be changed during publishing. Edit it before rechecking.'] };
       }
     } catch (error) {
       if (!(error instanceof ValidationError)) throw error;
-      verification = { verified: false, issues: [error.message] };
+      verification = { ...verification, verified: false, issues: [error.message] };
     }
   }
   return verification;

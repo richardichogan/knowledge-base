@@ -17,6 +17,7 @@ import { collaboration, designModelContext, MAX_DESIGN_MODEL_CONTEXT, digest, pa
 import { createPackage, packageArchive, preparePublication, publishPackage, validateDiagramSvg } from '../src/designs/designPackages.js';
 import { AUTHORING_CONTRACT, authoredForModel, authoredTarget, parseAuthored, renderAuthored, selectionBelongs } from '../src/designs/visualArtifact.js';
 import { DESIGN_CHAT_TOOLS, executeDesignTool, type DesignTurnState } from '../src/ai/designTools.js';
+import { validateConsistencyFindings } from '../src/designs/designConsistency.js';
 
 const ROOT = 'b028adff-5851-4203-915f-67f2ab889433';
 const SPEC = '00000000-0000-4000-8000-000000000002';
@@ -32,6 +33,30 @@ const blueprint = {
       components: [{ kind: 'card', label: 'Evidence', detail: 'Verify the claim evidence', targetId: null }, { kind: 'button', label: 'Back', detail: '', targetId: 'entry' }] },
   ],
 };
+
+test('consistency findings require exact source quotations and cross-source contradictions', () => {
+  const sources = [
+    { id: ROOT, role: 'use_case', revision: 1, title: 'Use case', markdown: 'A human approves each payment.', blocks: [] },
+    { id: SPEC, role: 'spec', revision: 2, title: 'Spec', markdown: 'Payments are approved automatically.', blocks: [] },
+    { id: OTHER, role: 'diagram', revision: 3, title: 'Flow', markdown: '', blocks: [], document: {
+      nodes: [{ id: 'human', label: 'Human approval', description: 'Check the payment.' }], edges: [],
+    } },
+  ];
+  const evidence = [{ sourceId: ROOT, quote: 'A human approves each payment.', elementId: null },
+    { sourceId: SPEC, quote: 'Payments are approved automatically.', elementId: null }];
+  const finding = { kind: 'contradiction', explanation: 'Approval ownership conflicts.', evidence };
+  assert.equal(validateConsistencyFindings({ findings: [finding] }, sources).length, 1);
+  assert.throws(() => validateConsistencyFindings({ findings: [{ ...finding, evidence: [evidence[0]] }] }, sources), /two different/);
+  assert.throws(() => validateConsistencyFindings({ findings: [{ ...finding, evidence: [{ ...evidence[0], quote: 'Invented quote' }, evidence[1]] }] }, sources), /verified/);
+  assert.throws(() => validateConsistencyFindings({ findings: [{ ...finding, evidence: [{ sourceId: OTHER, quote: 'Human approval', elementId: 'missing' }, evidence[1]] }] }, sources), /verified/);
+  assert.equal(validateConsistencyFindings({ findings: [{ ...finding, evidence: [{ sourceId: OTHER, quote: 'Human approval', elementId: 'human' }, evidence[1]] }] }, sources).length, 1);
+  assert.throws(() => validateConsistencyFindings({}, sources), /incomplete/);
+  const impact = { kind: 'impact', explanation: 'Revisit the specified approval step if the decision changes.', evidence: [evidence[0]] };
+  assert.equal(validateConsistencyFindings({ findings: [impact] }, sources, true)[0]?.kind, 'impact');
+  assert.throws(() => validateConsistencyFindings({ findings: [impact] }, sources), /contract/);
+  assert.throws(() => validateConsistencyFindings({ findings: [{ ...impact, evidence: [{ ...evidence[0], quote: 'Not in the source' }] }] }, sources, true), /verified/);
+  assert.throws(() => validateConsistencyFindings({ findings: [finding] }, sources, true), /contract/);
+});
 
 test('authored visuals are sanitised and must explain purpose, actors, an example and decisions', () => {
   const sources = [{ id: ROOT }, { id: SPEC }];
@@ -300,6 +325,10 @@ test('real parent conversion, source identity, persisted feedback, atomic accept
     CREATE UNIQUE INDEX session_note ON ai_chat_sessions(note_id) WHERE note_id IS NOT NULL;
     CREATE TABLE ai_chat_messages(id BIGSERIAL,session_id UUID,role TEXT,content TEXT);
   `);
+  await local.exec('CREATE TABLE agent_jobs(id UUID PRIMARY KEY)');
+  for (const file of ['054_ai_usage_log.sql', '067_ai_usage_measured.sql', '117_ai_workflow_attribution.sql']) {
+    await local.exec(await readFile(new URL(`../src/db/migrations/${file}`, import.meta.url), 'utf8'));
+  }
   for (const file of ['060_note_history.sql', '061_note_github_publications.sql', '064_note_list_metadata.sql', '082_note_links.sql', '102_designs.sql', '103_design_note_origins.sql']) {
     await local.exec(await readFile(new URL(`../src/db/migrations/${file}`, import.meta.url), 'utf8'));
   }

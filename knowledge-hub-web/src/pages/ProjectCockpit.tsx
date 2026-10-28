@@ -11,6 +11,7 @@ import { describeApiError, requireApiData } from '../services/apiError';
 import './ProjectCockpit.css';
 import { ReviewPackets } from './ReviewPackets';
 import { CollapsibleSection } from '../components/CollapsibleSection';
+import { ProjectChanges } from '../components/ProjectChanges';
 
 const KIND_LABEL: Record<ProjectRegisterKind, string> = { question: 'Question', risk: 'Risk', issue: 'Issue' };
 const PAGE = 25;
@@ -202,6 +203,7 @@ export const ProjectCockpitContent: React.FC<{ projectId: string; compact?: bool
             </section>
 
             {!compact && <h2 className="pcp-step">Actionable work</h2>}
+            <ProjectChanges key={projectId} projectId={projectId} />
             <LinkList title="Waiting" section={data.blockers} empty="Nothing waiting on others." compact={compact} />
             <LinkList title="Open commitments" section={data.commitments} empty="No open tasks linked to this project." compact={compact} />
             {compact ? <CollapsibleSection label="Questions, risks and issues" defaultExpanded={false}><Register projectId={projectId} /></CollapsibleSection> : <Register projectId={projectId} />}

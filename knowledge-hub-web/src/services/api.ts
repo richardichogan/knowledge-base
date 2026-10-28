@@ -183,6 +183,7 @@ export interface NoteVersion extends NoteVersionSummary {
 }
 
 export interface TimelineQuery {
+  order?: 'asc' | 'desc';
   rangeStart?: string;
   rangeEnd?: string;
   since?: string; // Recent activity by source update time, excluding future events
@@ -205,6 +206,13 @@ export interface HealthUsageTotals {
   promptTokens: number; cachedPromptTokens: number; completionTokens: number; reasoningCompletionTokens: number;
   totalTokens: number; avgLatencyMs: number | null;
 }
+export interface HealthWorkflowData {
+  attributedCalls: number; unattributedCalls: number; rowsTruncated: boolean;
+  totals: { runs: number; completed: number; failed: number; unfinished: number; reviewBlocked: number; delivered: number };
+  runs: Array<{ id: string; feature: string; purpose: string; attempt: number; status: string; outcome: string | null;
+    startedAt: string; finishedAt: string | null; durationMs: number | null; calls: number; tokens: number | null; unmeasuredCalls: number }>;
+  stages: Array<{ runId: string; stage: string; calls: number; tokens: number | null; failures: number; durationMs: number }>;
+}
 export interface KnowledgeHealth {
   generatedAt: string;
   filters: { from: string; to: string; environment: 'prod' | 'dev'; feature: string | null; persona: string | null; deployment: string | null };
@@ -218,9 +226,11 @@ export interface KnowledgeHealth {
     firstRecordedAt: string | null;
   }>;
   syncRuns: HealthSection<{
-    runs: Array<{ id: string; status: string; startedAt: string; finishedAt: string | null; sources: Array<{ source: string; indexed: number; errors: number }> }>;
+    runs: Array<{ id: string; status: string; startedAt: string; finishedAt: string | null; sources: Array<{ source: string; indexed: number; errors: number;
+      failures?: Array<{ target: string; code: string; action: string }> }> }>;
     jobs: Array<{ job: string; period: string; status: string; startedAt: string; finishedAt: string | null }>;
   }>;
+  workflows?: HealthSection<HealthWorkflowData>;
   index: HealthSection<{
     sources: Array<{ source: string; items: number; lastIndexedAt: string | null }>;
     scoring: { discoveredArticles: number; unscored: number };
@@ -683,7 +693,7 @@ export interface BlogJobResult {
   url: string;
   subjectId: string;
   draft: BlogDraft;
-  verification: { verified: boolean; issues: string[] };
+  verification: { verified: boolean; issues: string[]; warnings?: string[] };
   workflow?: {
     originalAvailable: boolean;
     remediationUsed: boolean;
@@ -1702,6 +1712,14 @@ export class KnowledgeHubApi {
     const r = await this.client.get<ApiResponse<ProjectCockpit>>(`/api/projects/${encodeURIComponent(id)}/cockpit`);
     return r.data;
   }
+  async getProjectChanges(id: string, since: string): Promise<ApiResponse<import('../types/workContext').ProjectChanges>> {
+    return (await this.client.get<ApiResponse<import('../types/workContext').ProjectChanges>>(
+      `/api/projects/${encodeURIComponent(id)}/changes`, { params: { since } })).data;
+  }
+  async prepareMeeting(id: string, projectId?: string): Promise<ApiResponse<import('../types/workContext').MeetingPreparation>> {
+    return (await this.client.get<ApiResponse<import('../types/workContext').MeetingPreparation>>(
+      `/api/timeline/${encodeURIComponent(id)}/preparation`, { params: { projectId } })).data;
+  }
 
   async getProjectRegister(id: string, params: { status?: string; kind?: string; limit?: number; offset?: number }): Promise<ApiResponse<ProjectRegisterPage>> {
     const r = await this.client.get<ApiResponse<ProjectRegisterPage>>(`/api/projects/${encodeURIComponent(id)}/register`, { params });
@@ -2542,6 +2560,10 @@ export class KnowledgeHubApi {
   async designCollaboration(id: string): Promise<ApiResponse<DesignCollaboration>> {
     return (await this.client.get<ApiResponse<DesignCollaboration>>(`/api/designs/${encodeURIComponent(id)}/collaboration`)).data;
   }
+  async checkDesignConsistency(id: string, requestedChange?: string): Promise<ApiResponse<import('../types/designs').DesignConsistencyReport>> {
+    return (await this.client.post<ApiResponse<import('../types/designs').DesignConsistencyReport>>(
+      `/api/designs/${encodeURIComponent(id)}/consistency`, { requestedChange }, { timeout: 150_000 })).data;
+  }
   async generateDesignArtifact(id: string, instruction: string, onProgress?: (message: string) => void): Promise<ApiResponse<DesignArtifact>> {
     if (onProgress) {
       const signedIn = await getApiToken();
@@ -2608,6 +2630,9 @@ export class KnowledgeHubApi {
   }
   async listDesignAgentJobs(subjectId: string): Promise<ApiResponse<AgentJob[]>> {
     return (await this.client.get<ApiResponse<AgentJob[]>>('/api/agent-jobs', { params: { subjectType: 'design', subjectId, limit: 10 } })).data;
+  }
+  async listRecentAgentJobs(): Promise<ApiResponse<AgentJob[]>> {
+    return (await this.client.get<ApiResponse<AgentJob[]>>('/api/agent-jobs', { params: { limit: 30 } })).data;
   }
   /** Streams every live specialist job, then each change, until the signal aborts or the connection drops. */
   async streamAgentJobs(onJob: (job: AgentJob) => void, signal: AbortSignal): Promise<void> {
@@ -2848,6 +2873,15 @@ export interface DiagramElementNoteApi { elementId: string; noteId: string; titl
 export interface DiagramVersionSummaryApi { id: string; name: string; revision: number; createdAt: string }
 export interface DiagramVersionApi extends DiagramVersionSummaryApi { document: DiagramDocument }
 
+export interface CanvasCardStyle {
+  fill?: string;
+  stroke?: string;
+  strokeStyle?: 'solid' | 'dashed' | 'dotted';
+  strokeWidth?: number;
+  textColor?: string;
+  fontSize?: number;
+}
+
 /** A card on a canvas: content (refType/refId) or your own idea. `body` is your annotation. */
 export interface CanvasNodeApi {
   id: string; canvasId: string; nodeType: string;
@@ -2859,6 +2893,7 @@ export interface CanvasNodeApi {
   footnote: string | null;
   /** The card's children are hidden. */
   collapsed: boolean;
+  style?: CanvasCardStyle | null;
   x: number; y: number; placed: boolean;
   createdAt: string;
 }
@@ -2889,10 +2924,10 @@ export interface CanvasFullApi extends CanvasSummaryApi {
 /** One change to a canvas (ids are client-generated UUIDs). */
 export type MapOp =
   | { op: 'add'; id: string; label?: string; body?: string; nodeType?: string; refType?: MapRefType; refId?: string; url?: string;
-      tags?: string[]; cardType?: string; footnote?: string; collapsed?: boolean;
+      tags?: string[]; cardType?: string; footnote?: string; collapsed?: boolean; style?: CanvasCardStyle | null;
       x?: number; y?: number; connectTo?: { nodeId: string; edgeId: string; type?: string } }
   /** An empty cardType or footnote clears it. */
-  | { op: 'update'; id: string; label?: string; body?: string; cardType?: string; footnote?: string; collapsed?: boolean }
+  | { op: 'update'; id: string; label?: string; body?: string; cardType?: string; footnote?: string; collapsed?: boolean; style?: CanvasCardStyle | null }
   | { op: 'position'; id: string; x: number; y: number }
   | { op: 'delete'; id: string }
   | { op: 'link'; id: string; sourceId: string; targetId: string; type?: string; label?: string }

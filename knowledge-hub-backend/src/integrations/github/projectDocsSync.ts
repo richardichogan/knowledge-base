@@ -19,6 +19,8 @@ import { NOTE_SUMMARY_MAX_LENGTH } from '../../config/constants.js';
 import type { ContentItem } from '../../types/contentItem.js';
 import { publishedNotePaths, removePublishedNoteCopies } from '../../services/githubDocumentIdentity.js';
 import { normalizeGitHubRepository } from './projectContext.js';
+import { addSourceFailure, syncFailureSummary, type SyncFailure } from '../../sync/sourceDiagnostics.js';
+import { ValidationError } from '../../types/errors.js';
 
 const SOURCE: ContentItem['source'] = 'github-doc';
 
@@ -50,6 +52,18 @@ interface GitCommit {
   commit: { committer: { date: string } };
 }
 
+export function decodeProjectDocument(bytes: Buffer): string {
+  const bomHigh = 0xff;
+  const bomLow = 0xfe;
+  const encoding = bytes[0] === bomHigh && bytes[1] === bomLow ? 'utf-16le'
+    : bytes[0] === bomLow && bytes[1] === bomHigh ? 'utf-16be' : 'utf-8';
+  let text: string;
+  try { text = new TextDecoder(encoding, { fatal: true }).decode(bytes); }
+  catch { throw new ValidationError(`Cannot decode document as ${encoding}; original content was not indexed.`); }
+  if (text.includes('\0')) throw new ValidationError('The document contains NUL characters after decoding; original content was not indexed.');
+  return text;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function titleFromPath(filePath: string): string {
@@ -78,9 +92,10 @@ function stripMarkdown(md: string): string {
 
 export async function syncProjectDocs(
   db: Pool,
-): Promise<{ indexed: number; errors: number }> {
+): Promise<{ indexed: number; errors: number; failures: SyncFailure[] }> {
   let indexed = 0;
   let errors = 0;
+  const failures: SyncFailure[] = [];
 
   // Load projects with GitHub repos from the DB
   type ProjectRow = { id: string; name: string; github_repos: string[] };
@@ -90,7 +105,7 @@ export async function syncProjectDocs(
 
   if (result.rows.length === 0) {
     console.warn('[project-docs] No projects with GitHub repos found — skipping');
-    return { indexed: 0, errors: 0 };
+    return { indexed: 0, errors: 0, failures };
   }
 
   const client = new GitHubClient();
@@ -107,6 +122,7 @@ export async function syncProjectDocs(
         const ref = await client.get<GitRef>(`/repos/${repo}/git/ref/heads/${encodeURIComponent(branch)}`);
         headSha = ref.object.sha;
       } catch (error) {
+        addSourceFailure(failures, configuredRepo, error);
         console.error(`[project-docs] Could not resolve a repository for ${project.name}: ${error instanceof Error ? error.message : String(error)}`);
         errors++;
         continue;
@@ -121,11 +137,14 @@ export async function syncProjectDocs(
           { recursive: '1' },
         );
       } catch (error) {
+        addSourceFailure(failures, repo, error);
         console.error(`[project-docs] Could not fetch tree for ${repo}: ${error instanceof Error ? error.message : String(error)}`);
         errors++;
         continue;
       }
       if (tree.truncated) {
+        const maxFailures = 20;
+        if (failures.length < maxFailures) failures.push({ target: repo, code: 'incomplete-tree', action: 'The GitHub tree was truncated; document coverage is incomplete.' });
         console.error(`[project-docs] ${repo}: GitHub returned a truncated tree; document coverage is incomplete.`);
         errors++;
       }
@@ -156,10 +175,10 @@ export async function syncProjectDocs(
 
           // Fetch file content
           const gitBlob = await client.get<GitBlob>(`/repos/${repo}/git/blobs/${blob.sha}`);
-          const rawContent = Buffer.from(
+          const rawContent = decodeProjectDocument(Buffer.from(
             gitBlob.content.replace(/\n/g, ''),
             'base64',
-          ).toString('utf-8');
+          ));
 
           const title = titleFromPath(blob.path);
           const plainBody = stripMarkdown(rawContent);
@@ -186,6 +205,7 @@ export async function syncProjectDocs(
           await upsertContentItem(db, item);
           indexed++;
         } catch (err) {
+          addSourceFailure(failures, `${repo}/${blob.path}`, err);
           errors++;
           const message = err instanceof Error ? err.message : String(err);
           console.error(`[project-docs] Failed to index ${repo}/${blob.path}: ${message}`);
@@ -197,9 +217,9 @@ export async function syncProjectDocs(
   await upsertSyncState(db, SOURCE, {
     lastSyncAt: new Date(),
     itemCount: indexed,
-    lastError: errors > 0 ? `${errors} errors` : null,
+    lastError: syncFailureSummary(errors, failures),
   });
 
   console.warn(`[project-docs] Done: indexed=${indexed}, errors=${errors}`);
-  return { indexed, errors };
+  return { indexed, errors, failures };
 }

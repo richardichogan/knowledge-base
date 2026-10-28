@@ -8,6 +8,7 @@ import { scheduleNoteIndexing } from './notes.js';
 import { writeDesignSpec } from '../designs/designSpec.js';
 import { scheduleGitHubPublish } from '../services/noteGitHubService.js';
 import type { Note } from '../types/index.js';
+import { checkDesignConsistency } from '../designs/designConsistency.js';
 
 export const designsRouter = Router();
 const MAX_ID_LENGTH = 100;
@@ -38,6 +39,7 @@ designsRouter.delete('/:id/assets', wrap(req => detachAsset(getDb(), id(req), bo
 designsRouter.post('/:id/selection', wrap(req => selectDesignAsset(getDb(), id(req), body(req))));
 designsRouter.post('/:id/specification-type', wrap(req => setSpecificationType(getDb(), id(req), body(req))));
 designsRouter.get('/:id/collaboration', wrap(req => collaboration(getDb(), id(req))));
+designsRouter.post('/:id/consistency', wrap(req => checkDesignConsistency(getDb(), id(req), body(req)['requestedChange'])));
 // One Blueprint run per design and instruction: other tabs that ask while it runs join it instead of paying for a duplicate.
 type ArtifactRun = { result: ReturnType<typeof generateArtifact>; progress: string[]; listeners: Set<(message: string) => void> };
 const artifactRuns = new Map<string, ArtifactRun>();

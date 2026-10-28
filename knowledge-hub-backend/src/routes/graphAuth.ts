@@ -19,6 +19,7 @@ export const graphAuthRouter = Router();
 
 const SCOPES = [
   'Mail.Read',
+  'Mail.Read.Shared',
   'Calendars.Read',
   'Tasks.ReadWrite',
   'offline_access',

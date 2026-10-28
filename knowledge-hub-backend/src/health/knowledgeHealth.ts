@@ -1,11 +1,12 @@
 /**
  * health/knowledgeHealth.ts — bounded, read-only aggregates for the Knowledge health page.
  * Each section fails independently so one unavailable table never hides the rest. Nothing here reads
- * prompts, message content, session ids or error text, and nothing calls a model or a provider.
+ * prompts, message content or session ids; source diagnostics use bounded safe categories, not provider error bodies.
  */
 import type { Pool } from 'pg';
 import { ValidationError } from '../types/errors.js';
 import { CONTENT_SOURCE_DISPOSITIONS, KNOWLEDGE_FAMILIES, type Availability } from '../ai/knowledge/manifest.js';
+import type { SyncFailure } from '../sync/sourceDiagnostics.js';
 
 export const HEALTH_MAX_DAYS = 90;
 export const HEALTH_DEFAULT_DAYS = 7;
@@ -69,7 +70,7 @@ export interface SyncRunSummary {
   status: string;
   startedAt: string;
   finishedAt: string | null;
-  sources: Array<{ source: string; indexed: number; errors: number }>;
+  sources: Array<{ source: string; indexed: number; errors: number; failures: SyncFailure[] }>;
 }
 export interface JobClaimSummary { job: string; period: string; status: string; startedAt: string; finishedAt: string | null }
 export interface IndexSection {
@@ -118,6 +119,67 @@ export interface KnowledgeHealth {
   families: Section<FamiliesSection>;
   turnReview: Section<TurnReviewSection>;
   retrievalQuality: Section<RetrievalQuality>;
+  workflows: Section<WorkflowHealth>;
+}
+
+export interface WorkflowHealth {
+  attributedCalls: number;
+  unattributedCalls: number;
+  rowsTruncated: boolean;
+  totals: { runs: number; completed: number; failed: number; unfinished: number; reviewBlocked: number; delivered: number };
+  runs: Array<{
+    id: string; feature: string; purpose: string; attempt: number; status: string; outcome: string | null;
+    startedAt: string; finishedAt: string | null; durationMs: number | null;
+    calls: number; tokens: number | null; unmeasuredCalls: number;
+  }>;
+  stages: Array<{ runId: string; stage: string; calls: number; tokens: number | null; failures: number; durationMs: number }>;
+}
+
+async function workflowSection(db: Pool, filters: HealthFilters, start: string, end: string): Promise<WorkflowHealth> {
+  const params = [start, end, filters.environment, filters.feature, filters.persona, filters.deployment];
+  const usageWhere = `u.at >= $1::timestamptz AND u.at < $2::timestamptz AND u.environment=$3
+    AND ($4::text IS NULL OR u.feature=$4) AND ($5::text IS NULL OR u.persona=$5) AND ($6::text IS NULL OR u.deployment=$6)`;
+  const runWhere = `r.started_at >= $1::timestamptz AND r.started_at < $2::timestamptz AND r.environment=$3
+    AND (($4::text IS NULL AND $5::text IS NULL AND $6::text IS NULL)
+      OR EXISTS(SELECT 1 FROM ai_usage_log u WHERE u.workflow_run_id=r.id AND ${usageWhere}))`;
+  // Drain every query before returning an unavailable section or releasing the database.
+  const [coverageResult, totalsResult, runsResult] = await Promise.allSettled([
+    db.query<Record<string, unknown>>(`SELECT COUNT(*) FILTER(WHERE workflow_run_id IS NOT NULL)::int attributed,
+      COUNT(*) FILTER(WHERE workflow_run_id IS NULL)::int unattributed FROM ai_usage_log u WHERE ${usageWhere}`, params),
+    db.query<Record<string, unknown>>(`SELECT COUNT(*)::int runs,COUNT(*) FILTER(WHERE status='completed')::int completed,
+      COUNT(*) FILTER(WHERE status='failed')::int failed,COUNT(*) FILTER(WHERE status IN ('running','interrupted'))::int unfinished,
+      COUNT(*) FILTER(WHERE outcome='review-blocked')::int blocked,
+      COUNT(*) FILTER(WHERE outcome IN ('published','saved-to-blog'))::int delivered FROM ai_workflow_runs r WHERE ${runWhere}`, params),
+    db.query<Record<string, unknown>>(`SELECT r.*,EXTRACT(EPOCH FROM (r.finished_at-r.started_at))*1000 AS duration_ms,
+      (SELECT COUNT(*)::int FROM ai_usage_log u WHERE u.workflow_run_id=r.id AND ${usageWhere}) AS calls,
+      (SELECT SUM(prompt_tokens+completion_tokens) FILTER(WHERE usage_known) FROM ai_usage_log u WHERE u.workflow_run_id=r.id AND ${usageWhere}) AS tokens,
+      (SELECT COUNT(*) FILTER(WHERE NOT usage_known)::int FROM ai_usage_log u WHERE u.workflow_run_id=r.id AND ${usageWhere}) AS unmeasured_calls
+      FROM ai_workflow_runs r WHERE ${runWhere} ORDER BY r.started_at DESC LIMIT ${USAGE_ROW_LIMIT + 1}`, params),
+  ]);
+  if (coverageResult.status === 'rejected') throw coverageResult.reason;
+  if (totalsResult.status === 'rejected') throw totalsResult.reason;
+  if (runsResult.status === 'rejected') throw runsResult.reason;
+  const coverage = coverageResult.value;
+  const totals = totalsResult.value;
+  const runs = runsResult.value;
+  const selected = runs.rows.slice(0, USAGE_ROW_LIMIT);
+  const stages = await db.query<Record<string, unknown>>(`SELECT workflow_run_id,stage,COUNT(*)::int calls,
+    SUM(prompt_tokens+completion_tokens) FILTER(WHERE usage_known) tokens,COUNT(*) FILTER(WHERE NOT ok)::int failures,
+    SUM(duration_ms) duration_ms FROM ai_usage_log u WHERE ${usageWhere} AND workflow_run_id=ANY($7::uuid[])
+    GROUP BY workflow_run_id,stage ORDER BY workflow_run_id,stage LIMIT 200`, [...params, selected.map(r => String(r.id))]);
+  const total = totals.rows[0] ?? {};
+  return {
+    attributedCalls: num(coverage.rows[0]?.attributed), unattributedCalls: num(coverage.rows[0]?.unattributed),
+    rowsTruncated: runs.rows.length > USAGE_ROW_LIMIT,
+    totals: { runs: num(total.runs), completed: num(total.completed), failed: num(total.failed),
+      unfinished: num(total.unfinished), reviewBlocked: num(total.blocked), delivered: num(total.delivered) },
+    runs: selected.map(r => ({ id: String(r.id), feature: String(r.feature), purpose: String(r.purpose), attempt: num(r.attempt),
+      status: String(r.status), outcome: r.outcome === null ? null : String(r.outcome), startedAt: iso(r.started_at) ?? '',
+      finishedAt: iso(r.finished_at), durationMs: r.duration_ms === null ? null : num(r.duration_ms),
+      calls: num(r.calls), tokens: r.tokens === null ? null : num(r.tokens), unmeasuredCalls: num(r.unmeasured_calls) })),
+    stages: stages.rows.map(r => ({ runId: String(r.workflow_run_id), stage: String(r.stage ?? 'unknown'), calls: num(r.calls),
+      tokens: r.tokens === null ? null : num(r.tokens), failures: num(r.failures), durationMs: num(r.duration_ms) })),
+  };
 }
 
 export interface RetrievalQuality {
@@ -313,7 +375,8 @@ async function syncSection(db: Pool): Promise<{ runs: SyncRunSummary[]; jobs: Jo
       const results = Array.isArray(record.results) ? record.results as Array<Record<string, unknown>> : [];
       return {
         id: String(record.id), status: record.status, startedAt: iso(record.started_at) ?? '', finishedAt: iso(record.finished_at),
-        sources: results.map((result) => ({ source: String(result['source'] ?? 'unknown'), indexed: num(result['indexed']), errors: num(result['errors']) })),
+        sources: results.map((result) => ({ source: String(result['source'] ?? 'unknown'), indexed: num(result['indexed']), errors: num(result['errors']),
+          failures: safeSyncFailures(result['failures']) })),
       };
     }),
     jobs: jobs.rows.map((row) => {
@@ -321,6 +384,19 @@ async function syncSection(db: Pool): Promise<{ runs: SyncRunSummary[]; jobs: Jo
       return { job: record.job, period: record.period, status: record.status, startedAt: iso(record.started_at) ?? '', finishedAt: iso(record.finished_at) };
     }),
   };
+}
+
+function safeSyncFailures(value: unknown): SyncFailure[] {
+  const maxFailures = 20;
+  const maxTarget = 300;
+  const maxAction = 500;
+  const entries: unknown[] = Array.isArray(value) ? value : [];
+  return entries.filter((entry): entry is SyncFailure => {
+    if (typeof entry !== 'object' || entry === null) return false;
+    return 'target' in entry && typeof entry.target === 'string' && 'action' in entry && typeof entry.action === 'string'
+      && 'code' in entry && typeof entry.code === 'string'
+      && ['expired-credential', 'access-denied', 'not-found-or-inaccessible', 'invalid-document', 'incomplete-tree', 'source-error'].includes(entry.code);
+  }).slice(0, maxFailures).map(entry => ({ target: entry.target.slice(0, maxTarget), code: entry.code, action: entry.action.slice(0, maxAction) }));
 }
 
 async function indexSection(db: Pool): Promise<IndexSection> {
@@ -513,5 +589,7 @@ export async function getKnowledgeHealth(
       ? Promise.resolve<Section<RetrievalQuality>>({ available: false, message: 'Turn quality has no per-deployment attribution. Clear the deployment filter to review it.' })
       : guarded(() => retrievalQualitySection(db, filters, start, end)),
   ]);
-  return { generatedAt: now.toISOString(), filters, windowStart: start, windowEnd: end, usage, syncRuns, index, families, turnReview, retrievalQuality };
+  // Keep the new aggregation from increasing the existing page's peak pool demand.
+  const workflows = await guarded(() => workflowSection(db, filters, start, end));
+  return { generatedAt: now.toISOString(), filters, windowStart: start, windowEnd: end, usage, syncRuns, index, families, turnReview, retrievalQuality, workflows };
 }

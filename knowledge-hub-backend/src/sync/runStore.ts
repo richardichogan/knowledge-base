@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
+import { withAiWorkflow } from '../ai/aiWorkflow.js';
+import type { SyncFailure } from './sourceDiagnostics.js';
 
 export type SyncRunStatus = 'running' | 'succeeded' | 'partial' | 'failed' | 'interrupted';
 export interface SourceRunResult {
@@ -7,6 +9,7 @@ export interface SourceRunResult {
   indexed: number;
   errors: number;
   durationMs: number;
+  failures?: SyncFailure[];
 }
 export interface SyncRun {
   id: string;
@@ -56,7 +59,7 @@ export async function runClaimedJob(db: Pool, job: string, period: string, run: 
      ON CONFLICT DO NOTHING RETURNING job`, [job, period]);
   if (rows.length === 0) return false;
   try {
-    await run();
+    await withAiWorkflow(db, { feature: job, purpose: 'scheduled' }, run);
     await db.query("UPDATE scheduled_job_claims SET status='succeeded', finished_at=NOW() WHERE job=$1 AND period=$2", [job, period]);
   } catch (error) {
     await db.query("UPDATE scheduled_job_claims SET status='failed', finished_at=NOW() WHERE job=$1 AND period=$2", [job, period]);

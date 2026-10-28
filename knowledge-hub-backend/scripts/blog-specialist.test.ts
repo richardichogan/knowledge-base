@@ -18,6 +18,7 @@ function fixtureClient(client: Pick<FoundryClient, 'chat'>): Pick<FoundryClient,
   let style: unknown[] = [];
   return { chat: async (model, messages, tokens, timeout, signal, schema) => {
     if (schema?.name === 'blog_paragraph_review') return JSON.stringify({ action: 'keep', after: '', findings: [] });
+    if (schema?.name === 'blog_editorial_review') return JSON.stringify({ findings: [], majorRisks: [] });
     if (schema?.name === 'blog_review_findings' && messages[0]!.content.includes('Review style, length and coherence')) {
       return JSON.stringify({ findings: style });
     }
@@ -88,15 +89,16 @@ test('stage records and a used remediation pass survive resumption without furth
   let corrections = 0;
   const result = await runRepair(candidate, evidence, async () => { throw new Error('Already used'); }, {
     chat: async (_model, _messages, _tokens, _timeout, _signal, schema) => {
+      if (schema?.name === 'blog_editorial_review') return JSON.stringify({ findings: [], majorRisks: [] });
       if (schema?.name === 'blog_passage_edits') corrections++;
       return JSON.stringify({ findings: [] });
     },
   }, { remediationUsed: true, record: async stage => { stages.push(stage); } });
   assert.equal(corrections, 0);
-  assert.equal(result.verification.verified, false);
-  assert.match(result.verification.issues.join(' '), /already been used/);
+  assert.equal(result.verification.verified, true);
+  assert.match(result.verification.warnings!.join(' '), /already been used/);
   assert.deepEqual(stages, ['factReviewStarted', 'factReview', 'styleReviewStarted', 'styleReview',
-    'consolidation', 'validation', 'finalValidation']);
+    'consolidation', 'validation', 'editorialReviewStarted', 'editorialReview', 'finalValidation']);
 });
 
 test('one structured remediation is recorded and later findings stay unresolved', async () => {
@@ -106,6 +108,7 @@ test('one structured remediation is recorded and later findings stay unresolved'
   const result = await runRepair(draft('<p>First issue. Second issue.</p>'), evidence, async () => {}, {
     chat: async (_model, messages, _tokens, _timeout, _signal, schema) => {
       if (schema?.name === 'blog_paragraph_review') return JSON.stringify({ action: 'keep', after: '', findings: [] });
+      if (schema?.name === 'blog_editorial_review') return JSON.stringify({ findings: [], majorRisks: [] });
       if (schema?.name === 'blog_passage_edits') {
         corrections++;
         const request = JSON.parse(messages[1]!.content);
@@ -123,7 +126,8 @@ test('one structured remediation is recorded and later findings stay unresolved'
     },
   }, { record: async stage => { stages.push(stage); }, checkpointParagraph: async () => {} });
   assert.equal(corrections, 1);
-  assert.equal(result.verification.verified, false);
+  assert.equal(result.verification.verified, true);
+  assert.match(result.verification.warnings!.join(' '), /Wording needs review/);
   assert.match(result.draft.content, /First issue resolved/);
   assert.ok(stages.includes('remediation'));
   assert.ok(stages.includes('finalValidation'));
@@ -153,7 +157,7 @@ test('repair sends only the flagged sentence and leaves surrounding content unch
   assert.doesNotMatch(requests[1]!, /Microsoft announced a registry/);
 });
 
-test('ambiguous passage edits stay unchanged and block verification', async () => {
+test('ambiguous style edits stay unchanged and remain advisory', async () => {
   const before = 'This is a game-changer.';
   const original = draft(`<p>${before} ${before}</p>`);
   let call = 0;
@@ -165,8 +169,8 @@ test('ambiguous passage edits stay unchanged and block verification', async () =
   } };
   const result = await repairBlogDraft(original, evidence, async () => { throw new Error('Ambiguous edits must not be saved'); }, client);
   assert.equal(result.draft.content, original.content);
-  assert.equal(result.verification.verified, false);
-  assert.ok(result.verification.issues.length);
+  assert.equal(result.verification.verified, true);
+  assert.ok(result.verification.warnings!.length);
 });
 
 test('multiple findings on one saved sentence produce one targeted correction', async () => {
@@ -309,7 +313,8 @@ test('unsupported claim removal must actually include the identified claim', asy
     },
   });
   assert.equal(result.draft.content, original.content);
-  assert.equal(result.verification.verified, false);
+  assert.equal(result.verification.verified, true);
+  assert.ok(result.verification.warnings!.length);
 });
 
 test('unsupported clauses are removed exactly and the revised draft is reviewed again', async () => {
@@ -360,8 +365,8 @@ test('a remaining coherence issue is retained after the single remediation pass'
     },
   });
   assert.equal(result.draft.content, `<p> ${neighbour}</p>`);
-  assert.equal(result.verification.verified, false);
-  assert.match(result.verification.issues.join(' '), /pronoun/);
+  assert.equal(result.verification.verified, true);
+  assert.match(result.verification.warnings!.join(' '), /pronoun/);
   assert.equal(calls, 3);
 });
 
@@ -382,10 +387,11 @@ test('unsupported claims cannot cause invented replacements or alter protected q
     },
   });
   assert.equal(result.draft.content, original.content);
-  assert.equal(result.verification.verified, false);
+  assert.equal(result.verification.verified, true);
+  assert.ok(result.verification.warnings!.length);
 });
 
-test('coherence findings after removal remain blocked after the single pass', async () => {
+test('coherence findings after removal remain advisory after the single pass', async () => {
   const unsupported = 'It is used by every customer.';
   const unrelated = 'The final paragraph stands alone.';
   let calls = 0;
@@ -402,7 +408,7 @@ test('coherence findings after removal remain blocked after the single pass', as
       return JSON.stringify({ findings: [{ id: passageId(messages, 'content', unrelated), reason: 'Unclear transition', kind: 'coherence' }] });
     },
   });
-  assert.equal(result.verification.verified, false);
+  assert.equal(result.verification.verified, true);
   assert.ok(result.draft.content.includes(unrelated));
   assert.equal(calls, 3);
 });
@@ -425,8 +431,8 @@ test('a rejected correction cannot be hidden by another successful correction', 
     },
   });
   assert.equal(result.draft.content, `<p>The registry changes the process. ${second}</p>`);
-  assert.equal(result.verification.verified, false);
-  assert.match(result.verification.issues.join(' '), /did not match|did not return a correction/);
+  assert.equal(result.verification.verified, true);
+  assert.match(result.verification.warnings!.join(' '), /did not match|did not return a correction/);
   assert.equal(calls, 4);
 });
 
@@ -449,7 +455,8 @@ test('repair leaves later findings for human review after one pass', async () =>
     return JSON.stringify({ findings: [] });
   } };
   const result = await repairBlogDraft(original, evidence, async () => {}, client);
-  assert.equal(result.verification.verified, false);
+  assert.equal(result.verification.verified, true);
+  assert.ok(result.verification.warnings!.length);
   assert.equal(call, 3);
   assert.doesNotMatch(requests[1]!, /seamless/);
 });
@@ -472,7 +479,7 @@ test('repair stops after one pass even when more findings remain', async () => {
       return JSON.stringify({ edits: [{ id: request.findings[0].id, after: `Resolved ${calls}.` }] });
     },
   });
-  assert.equal(result.verification.verified, false);
+  assert.equal(result.verification.verified, true);
   assert.equal(calls, 3);
 });
 
@@ -492,16 +499,16 @@ test('repair does not perform a second correction that could restore an earlier 
       }] });
     },
   });
-  assert.equal(result.verification.verified, false);
+  assert.equal(result.verification.verified, true);
   assert.equal(result.draft.content, '<p>Second wording.</p>');
   assert.equal(calls, 3);
 });
 
-test('an empty model review cannot override a local style failure', async () => {
+test('local style findings remain advisory after a completed major-risk review', async () => {
   const result = await verifyBlogDraft(draft('<p>This is a game-changer.</p>'), evidence,
     { chat: async () => JSON.stringify({ findings: [] }) });
-  assert.equal(result.verified, false);
-  assert.ok(result.issues.some(issue => issue.includes('game-changer')));
+  assert.equal(result.verified, true);
+  assert.ok(result.warnings!.some(issue => issue.includes('game-changer')));
 });
 
 test('article review prompts allow occasional rhetorical patterns and substantive lists', async () => {
@@ -536,18 +543,18 @@ test('a review retains every finding beyond the former correction limit', async 
   assert.equal(result.issues.filter(issue => issue.startsWith('content:')).length, 21);
 });
 
-test('review accepts style defects without changing the text or weakening publication checks', () => {
+test('review and publication both preserve style defects as advisory', () => {
   const post = { ...draft('<p>This is a game-changer — or so it seems.</p>'), status: 'draft' };
   assert.equal(parseBlogReviewBody(post).content, post.content);
-  assert.throws(() => parsePublishBody(post), /banned AI writing patterns/);
+  assert.equal(parsePublishBody(post).content, post.content);
 });
 
 test('review does not silently truncate an overlength saved excerpt', async () => {
   const candidate = { ...draft('<p>Microsoft announced a registry.</p>'), excerpt: 'A'.repeat(301) };
   assert.throws(() => parseBlogReviewBody({ ...candidate, status: 'draft' }), /exceeds 300 characters/);
   const result = await verifyBlogDraft(candidate, evidence, { chat: async () => JSON.stringify({ findings: [] }) });
-  assert.equal(result.verified, false);
-  assert.ok(result.issues.includes('The excerpt exceeds 300 characters.'));
+  assert.equal(result.verified, true);
+  assert.ok(result.warnings!.includes('The excerpt exceeds 300 characters.'));
   assert.equal(candidate.excerpt.length, 301);
 });
 
@@ -563,8 +570,8 @@ test('a correction cannot alter a quoted passage', async () => {
   } };
   const result = await repairBlogDraft(original, evidence, async () => { throw new Error('Quoted text must not be changed'); }, client);
   assert.equal(result.draft.content, original.content);
-  assert.equal(result.verification.verified, false);
-  assert.ok(result.verification.issues.length);
+  assert.equal(result.verification.verified, true);
+  assert.ok(result.verification.warnings!.length);
 });
 
 test('source passages remain protected when evidence uses the text field', async () => {
@@ -580,7 +587,7 @@ test('source passages remain protected when evidence uses the text field', async
       },
     });
   assert.equal(result.draft.content, `<p>${before}</p>`);
-  assert.equal(result.verification.verified, false);
+  assert.equal(result.verification.verified, true);
 });
 
 test('recheck is read-only and refuses missing source evidence', async () => {
@@ -600,20 +607,34 @@ test('publication requires the correct subject and exact verified content', asyn
   const candidate = draft('<p>Microsoft announced a registry.</p>');
   const id = 'a0000000-0000-4000-8000-000000000001';
   const subjectId = 'discover:a0000000-0000-4000-8000-000000000002';
-  const data = { ...jobData(id, subjectId, candidate, { verified: true, issues: [] }), verifiedSignature: verifiedPost(candidate) };
-  const stages = ['content', 'title', 'excerpt', 'summary'].map((field, index) => ({
+  const data = { ...jobData(id, subjectId, candidate, { verified: true, issues: [], warnings: ['Minor citation and style advice.'] }), verifiedSignature: verifiedPost(candidate) };
+  const stages: Array<{ stage: string; result: unknown }> = ['content', 'title', 'excerpt', 'summary'].map((field, index) => ({
     stage: 'paragraphReview', result: {
       id: `u${index + 1}`, field,
       before: field === 'content' ? 'Microsoft announced a registry.' : candidate[field as 'title' | 'excerpt' | 'summary'],
       issues: [],
     },
   }));
+  stages.push({ stage: 'editorialReview', result: { version: 5, verified: true, issues: [], warnings: ['Minor citation and style advice.'],
+    majorRisks: [], draftSignature: verifiedPost(candidate) } });
   const db = { query: async () => ({ rows: [{ id, specialist: 'blog-writer', subject_id: subjectId, status: 'done',
-    input: { blogCheckpoint: { originalDraft: candidate, stages } }, result: { data } }] }) } as unknown as Pool;
+    input: { blogCheckpoint: { draft: candidate, originalDraft: candidate, stages } }, result: { data } }] }) } as unknown as Pool;
   const incompleteDb = { query: async () => ({ rows: [{ id, specialist: 'blog-writer', subject_id: subjectId, status: 'done',
-    input: { blogCheckpoint: { originalDraft: candidate, stages: stages.slice(0, -1) } }, result: { data } }] }) } as unknown as Pool;
+    input: { blogCheckpoint: { draft: candidate, originalDraft: candidate, stages: stages.slice(0, -1) } }, result: { data } }] }) } as unknown as Pool;
   const post = parsePublishBody({ ...candidate, sourceUrl: undefined, status: 'draft' });
   await assertVerifiedBlogJob(db, id, subjectId, post);
+  const citationAdviceDb = { query: async () => ({ rows: [{ id, specialist: 'blog-writer', subject_id: subjectId, status: 'done',
+    input: { blogCheckpoint: { draft: candidate, originalDraft: { ...candidate,
+      sourceUrl: 'https://example.test/source',
+      content: `${candidate.content}<hr><p><em>Source: <a href="https://example.test/source">Original</a></em></p>`,
+    }, stages } }, result: { data } }] }) } as unknown as Pool;
+  await assertVerifiedBlogJob(citationAdviceDb, id, subjectId, post);
+  const riskDb = { query: async () => ({ rows: [{ id, specialist: 'blog-writer', subject_id: subjectId, status: 'done',
+    input: { blogCheckpoint: { draft: candidate, originalDraft: candidate, stages: [...stages, {
+      stage: 'editorialReview', result: { version: 5, verified: false, issues: ['Material falsehood.'],
+        majorRisks: [{ kind: 'material-falsehood' }], draftSignature: verifiedPost(candidate) },
+    }] } }, result: { data } }] }) } as unknown as Pool;
+  await assert.rejects(assertVerifiedBlogJob(riskDb, id, subjectId, post), /not been verified/);
   await assert.rejects(assertVerifiedBlogJob(incompleteDb, id, subjectId, post), /not been verified/);
   await assert.rejects(assertVerifiedBlogJob(db, id, subjectId, { ...post, content: '<p>Changed content.</p>' }), /not been verified/);
   await assert.rejects(assertVerifiedBlogJob(db, id, 'spark-theme:a0000000-0000-4000-8000-000000000002', post), /not found/);

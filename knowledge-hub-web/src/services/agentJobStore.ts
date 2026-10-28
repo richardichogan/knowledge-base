@@ -41,10 +41,10 @@ function receive(job: AgentJob): void {
   const previous = jobs.get(job.id);
   jobs.set(job.id, job);
   changed();
-  if (job.specialist === 'blog-writer' && isActiveAgentJob(job)) {
-    updateAthenaJobProgress(job.id, 'Blog writer is working', job.progress[job.progress.length - 1] ?? 'Preparing the blog draft');
+  if (isActiveAgentJob(job)) {
+    updateAthenaJobProgress(job.id, `${job.specialistName} ${job.status === 'queued' ? 'is queued' : 'is working'}`, job.progress[job.progress.length - 1] ?? 'You can leave this screen. Athena will notify you when the work finishes.');
   }
-  if (job.specialist === 'blog-writer' && !isActiveAgentJob(job)) clearAthenaJobProgress(job.id);
+  if (!isActiveAgentJob(job)) clearAthenaJobProgress(job.id);
   if (isActiveAgentJob(job) || (previous && previous.status === job.status)) return;
   for (const listener of finishListeners) listener(job);
   if (job.conversationId) window.dispatchEvent(new CustomEvent('athena-conversation-updated', { detail: { sessionId: job.conversationId } }));
@@ -104,6 +104,10 @@ const subscribe = (listener: () => void): (() => void) => {
   const release = holdAgentJobFeed();
   return () => { listeners.delete(listener); release(); };
 };
+
+export function useBackgroundJobs(): AgentJob[] {
+  return useSyncExternalStore(subscribe, () => snapshot);
+}
 
 /** Jobs for one subject: the one in progress (if any) and the most recent. */
 export function useAgentJobs(subjectId: string | undefined): { active: AgentJob | undefined; jobs: AgentJob[] } {

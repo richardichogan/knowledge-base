@@ -11,6 +11,7 @@ import { LINK_TYPES, linkHref, type LinkType } from '../services/noteLinks.js';
 import { parseWriting, writeNoteInTransaction } from '../services/noteVersionService.js';
 import { textToBlocks } from '../ai/markdownToNoteBlocks.js';
 import { getFoundryClient } from '../ai/foundryClient.js';
+import { withAiWorkflow, withAiStage } from '../ai/aiWorkflow.js';
 import { diagramEvidence } from '../services/diagramContext.js';
 import type { DiagramDocument } from '../types/diagram.js';
 import { PRODUCT_SYSTEM, cleanDraft } from '../useCases/specDraft.js';
@@ -74,11 +75,11 @@ async function requestImagineSection(user: string, completed: DemoSpecificationP
     progress(`${attempt ? 'Retrying' : 'Writing'} ${label}`);
     let raw: string;
     try {
-      raw = await getFoundryClient('use-case-spec').chatBulk([
+      raw = await withAiStage(`spec-section-${section}-attempt-${attempt + 1}`, () => getFoundryClient('use-case-spec').chatBulk([
         { role: 'system', content: IMAGINE_SYSTEM },
         { role: 'user', content: JSON.stringify({ sources: user, sections: [section], form: demoSpecificationForm([section]),
           completedSections: completed, instruction: 'Retain the established name, actors, record IDs and scope from completed sections. Complete only the requested fields.' }) },
-      ], IMAGINE_SECTION_TOKENS, TIMEOUT_MS, 'medium', demoSpecificationResponseSchema([section]), signal);
+      ], IMAGINE_SECTION_TOKENS, TIMEOUT_MS, 'medium', demoSpecificationResponseSchema([section]), signal));
     } catch (error) {
       signal?.throwIfAborted();
       if (attempt === 0 && error instanceof AiError && error.message.includes('Bulk request timed out')) {
@@ -206,6 +207,10 @@ const sourceText = (text: string, limit: number): string => {
 };
 
 export async function writeDesignSpec(db: Pool, designId: string, replace = false, signal?: AbortSignal, progress: (message: string) => void = () => {}, jobId?: string, checkpointOnly = false): Promise<{ noteId: string; title: string; created: boolean; notes: Note[]; publish: string[] }> {
+  return withAiWorkflow(db, { feature: 'use-case-spec', ...(signal ? { signal } : {}) },
+    () => writeDesignSpecInner(db, designId, replace, signal, progress, jobId, checkpointOnly));
+}
+async function writeDesignSpecInner(db: Pool, designId: string, replace: boolean, signal: AbortSignal | undefined, progress: (message: string) => void, jobId: string | undefined, checkpointOnly: boolean): Promise<{ noteId: string; title: string; created: boolean; notes: Note[]; publish: string[] }> {
   const design = await getDesign(db, designId);
   if (!design.specificationType) throw new ValidationError('Choose Standard or IMAGINE beside Generate spec in the Design before continuing.');
   const sources = await sourceSnapshot(db, design);

@@ -50,7 +50,7 @@ import { DiagramNoteLinks } from './DiagramNoteLinks';
 import { DiagramMetadata } from './DiagramMetadata';
 import { DiagramDescriptionEditor } from './DiagramDescriptionEditor';
 import { descriptionPlainText, descriptionRuns, formatDescription, styledLines } from './diagramMarkdown';
-import { DIAGRAM_FILLS as FILLS, DIAGRAM_STROKES as STROKES, DIAGRAM_TEXT_COLOURS as TEXT_COLOURS, IBM_COLOURS } from './diagramPalette';
+import { DIAGRAM_FILLS as FILLS, DIAGRAM_STROKES as STROKES, DIAGRAM_TEXT_COLOURS as TEXT_COLOURS } from './diagramPalette';
 import { applyDiagramSelectionStyle, applyDiagramEdgeStyle, commonStyleValue, type DiagramNodeStyle, type DiagramEdgeStyle } from './diagramSelectionStyle';
 import { DiagramDrilldown } from './DiagramDrilldown';
 import { exportDiagram, diagramExportBlob, exportFileName, type DiagramExportFormat } from './diagramExport';
@@ -69,7 +69,7 @@ import { DiagramLegend } from './DiagramLegend';
 import { DiagramVersions } from './DiagramVersions';
 import { DiagramTextCheck } from './DiagramTextCheck';
 import { DiagramElementNotes } from './DiagramElementNotes';
-import { diagramEditorFill, diagramEditorNodeColours, diagramNodeRadius, diagramNodeShadow, diagramNodeStrokeWidth, diagramEdgeAppearance, DIAGRAM_SHADOWS } from './diagramTheme';
+import { diagramEditorNodeColours, diagramNodeRadius, diagramNodeShadow, diagramNodeStrokeWidth, diagramEdgeAppearance, DIAGRAM_SHADOWS } from './diagramTheme';
 import { DiagramRoleBadge, diagramRoleLayout, DIAGRAM_ROLES, DIAGRAM_SHAPE_ICONS } from './DiagramRoleBadge';
 import { diagramBorderDash } from './diagramStroke';
 import { checkAiFlow, defaultGate, layoutAiFlow, nextLaneOrder, EDGE_STYLES, STEP_STYLES, STEP_TYPE_LABELS, type AiFlowSeverity } from './aiFlow';
@@ -80,7 +80,8 @@ import {
 } from './diagramAiFlowBadges';
 import { AiFlowProperties, AiFlowGovernance, AiFlowKey } from './DiagramAiFlowPanels';
 import './diagram.scss';
-import { IconBtn, Segmented, CANVAS_SIDE_WIDTH } from './DiagramControls';
+import { IconBtn, Segmented, Swatches, SnapControls, CANVAS_SIDE_WIDTH } from './DiagramControls';
+import { DrawingGuides } from './DrawingGuides';
 import { SideTabsPanel } from '../../components/SideTabsPanel';
 import { diagramGridSize, gridSnapEnabled, shapeSnapEnabled, snapMovingBounds, type AlignmentGuide, type SpacingIndicator } from './diagramAlignment';
 import { isCanvasPanGesture } from './canvasPan';
@@ -325,7 +326,7 @@ type Drag =
   | { kind: 'bend'; pointerId: number; edgeId: string; index: number; before: DiagramDocument }
   | { kind: 'label'; pointerId: number; edgeId: string; startScreen: P; start: P; origin: P; before: DiagramDocument; moved: boolean };
 
-type Menu = 'style' | 'arrange' | 'edge-colour' | 'export' | 'image' | 'versions' | 'text-check' | 'ai-step' | 'governance' | 'ai-key' | 'snap' | null;
+type Menu = 'style' | 'arrange' | 'edge-colour' | 'export' | 'image' | 'versions' | 'text-check' | 'ai-step' | 'governance' | 'ai-key' | null;
 
 interface EditingLabel { kind: 'node' | 'edge'; id: string; value: string }
 
@@ -2038,29 +2039,9 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           </div>
           <div className="dg-header__group kh-command-row">
           <IconBtn label={doc.grid ? 'Hide grid' : 'Show grid'} pressed={doc.grid} onClick={toggleGrid}><Grid size={16} /></IconBtn>
-          <div className="dg-anchor">
-            <button type="button" className="dg-text-btn dg-snap-toggle" aria-label="Snapping options"
-              aria-haspopup="dialog" aria-expanded={menu === 'snap'}
-              title="Snapping options. Hold Alt to temporarily bypass snapping and guides."
-              onClick={() => { setMenu(menu === 'snap' ? null : 'snap'); }}>Snap <ChevronDown size={12} /></button>
-            {menu === 'snap' && <div className="dg-popover" role="dialog" aria-label="Snapping options">
-              <label className="dg-check">
-                <input className="dg-check__input" type="checkbox" checked={gridSnapEnabled(doc)}
-                  onChange={() => { toggleSnap('grid'); }} />
-                <span className="dg-check__label">Grid snap</span>
-              </label>
-              <label className="dg-check">
-                <input className="dg-check__input" type="checkbox" checked={shapeSnapEnabled(doc)}
-                  onChange={() => { toggleSnap('shapes'); }} />
-                <span className="dg-check__label">Shape and equal-spacing snap</span>
-              </label>
-              <p className="dg-popover__hint">Grid visibility is separate. Hold Alt to move freely without guides.</p>
-            </div>}
-          </div>
-          <select className="dg-grid-size" aria-label="Grid spacing" value={GRID} title="Grid spacing. Hold Alt to bypass snapping and alignment guides."
-            onChange={event => { commit({ ...docRef.current, gridSize: diagramGridSize(Number(event.target.value)) }); }}>
-            {[5, 10, 20, 40].map(value => <option key={value} value={value}>{value} units</option>)}
-          </select>
+          <SnapControls grid={gridSnapEnabled(doc)} shapes={shapeSnapEnabled(doc)} gridSize={GRID} onToggle={toggleSnap}
+            onOpen={() => { setMenu(null); }}
+            onGridSize={gridSize => { commit({ ...docRef.current, gridSize }); }} />
           <IconBtn label={doc.legend?.visible === true ? 'Hide colour key' : 'Show colour key'} pressed={doc.legend?.visible === true}
             onClick={() => { const visible = doc.legend?.visible !== true; changeAnnotations(setLegend(doc, { ...(doc.legend ?? DEFAULT_LEGEND), visible }), true); if (!visible) setKeyFilter(null); }}>
             <Legend size={16} />
@@ -2496,38 +2477,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
                 const to = t !== undefined && drag.targetPort !== null ? portPoint(nodeRect(t), drag.targetPort, t.kind, t.arrowDirection) : drag.current;
                 return from === null ? null : <line className="dg-preview-line" x1={from.x} y1={from.y} x2={to.x} y2={to.y} />;
               })()}
-              <g className="dg-drawing-guides" aria-hidden="true">
-                {guides.map(guide => <line key={`${guide.axis}:${guide.value}`}
-                  className={`dg-alignment-guide dg-alignment-guide--${guide.kind}`}
-                  x1={guide.axis === 'x' ? guide.value : -view.x / z} x2={guide.axis === 'x' ? guide.value : (size.width - view.x) / z}
-                  y1={guide.axis === 'y' ? guide.value : -view.y / z} y2={guide.axis === 'y' ? guide.value : (size.height - view.y) / z} />)}
-                {spacing.filter(indicator => indicator.gap > 0.5).map((indicator, index) => {
-                  const { axis, start, end, position } = indicator;
-                  const horizontal = axis === 'x';
-                  const x1 = horizontal ? start : position;
-                  const y1 = horizontal ? position : start;
-                  const x2 = horizontal ? end : position;
-                  const y2 = horizontal ? position : end;
-                  const cap = 4 / z;
-                  const label = `${indicator.equal ? '= ' : ''}${Math.round(indicator.gap * 10) / 10}`;
-                  const labelWidth = label.length * 7 + 10;
-                  return <g key={`${axis}:${index}`} className={`dg-spacing${indicator.equal ? ' dg-spacing--equal' : ''}`}>
-                    {indicator.startCross !== undefined && <line className="dg-spacing__witness"
-                      x1={horizontal ? start : indicator.startCross} y1={horizontal ? indicator.startCross : start} x2={x1} y2={y1} />}
-                    {indicator.endCross !== undefined && <line className="dg-spacing__witness"
-                      x1={horizontal ? end : indicator.endCross} y1={horizontal ? indicator.endCross : end} x2={x2} y2={y2} />}
-                    <line x1={x1} y1={y1} x2={x2} y2={y2} />
-                    <line x1={x1 - (horizontal ? 0 : cap)} x2={x1 + (horizontal ? 0 : cap)}
-                      y1={y1 - (horizontal ? cap : 0)} y2={y1 + (horizontal ? cap : 0)} />
-                    <line x1={x2 - (horizontal ? 0 : cap)} x2={x2 + (horizontal ? 0 : cap)}
-                      y1={y2 - (horizontal ? cap : 0)} y2={y2 + (horizontal ? cap : 0)} />
-                    <g transform={`translate(${(x1 + x2) / 2} ${(y1 + y2) / 2}) scale(${1 / z})`}>
-                      <rect x={-labelWidth / 2} y={-9} width={labelWidth} height={18} rx={2} />
-                      <text textAnchor="middle" dominantBaseline="central">{label}</text>
-                    </g>
-                  </g>;
-                })}
-              </g>
+              <DrawingGuides guides={guides} spacing={spacing} view={{ ...view, zoom: z }} width={size.width} height={size.height} />
             </g>
           </svg>
 
@@ -3365,26 +3315,6 @@ function AiFindingMark({ at, severity, title }: { at: P; severity: AiFlowSeverit
       <circle cx={at.x} cy={at.y} r={AI_FINDING_RADIUS} fill={c.fill} stroke="#ffffff" strokeWidth={2} />
       <text x={at.x} y={at.y} fontSize={10} fontWeight={700} fill={c.text} textAnchor="middle" dominantBaseline="central">{severity === 'info' ? 'i' : '!'}</text>
     </g>
-  );
-}
-
-function Swatches({ label, colours, value, onPick }: { label: string; colours: readonly string[]; value: string | undefined; onPick: (c: string) => void }): React.ReactElement {
-  const selected = colours.includes(value ?? '') ? value : colours.find(colour => value === diagramEditorFill(colour));
-  return (
-    <div className="dg-swatches">
-      <span className="dg-swatches__label">{label}</span>
-      <div className="dg-swatches__row" role="radiogroup" aria-label={label}>
-        {colours.map((c) => (
-          <button
-            key={c} type="button" role="radio" aria-checked={selected === c} title={c === 'none' ? 'None' : `${IBM_COLOURS[c] ?? 'Colour'} (${c})`} aria-label={c === 'none' ? 'None' : c}
-            aria-description={IBM_COLOURS[c]}
-            className={`dg-swatch${c === 'none' ? ' dg-swatch--none' : ''}${selected === c ? ' dg-swatch--selected' : ''}`}
-            style={c === 'none' ? undefined : { background: c }}
-            onClick={() => { onPick(c); }}
-          />
-        ))}
-      </div>
-    </div>
   );
 }
 

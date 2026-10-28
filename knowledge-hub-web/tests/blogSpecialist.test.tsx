@@ -11,7 +11,7 @@ test('Discover and Spark require a format choice without starting a draft on ope
   const client = new QueryClient();
   const document = Object.getOwnPropertyDescriptor(globalThis, 'document');
   Object.defineProperty(globalThis, 'document', { value: { body: {} }, configurable: true });
-  const portal = mock.method(ReactDOM, 'createPortal', children => children);
+  const portal = mock.method(ReactDOM, 'createPortal', (children: React.ReactNode) => children);
   const handoff = mock.method(api, 'handOffToSpecialist', () => { throw new Error('Opening the dialog must not start a job'); });
   try {
     const sources = [
@@ -36,27 +36,42 @@ test('Discover and Spark require a format choice without starting a draft on ope
   }
 });
 
-test('the existing editor exposes stage results and unresolved findings', () => {
+test('the editor keeps blockers visible and collapses secondary fields, advice and review history', () => {
   const client = new QueryClient();
   const document = Object.getOwnPropertyDescriptor(globalThis, 'document');
   Object.defineProperty(globalThis, 'document', { value: { body: {} }, configurable: true });
-  const portal = mock.method(ReactDOM, 'createPortal', children => children);
+  const portal = mock.method(ReactDOM, 'createPortal', (children: React.ReactNode) => children);
   try {
     const html = renderToStaticMarkup(<QueryClientProvider client={client}>
       <BlogDraftEditor itemId="fixture" title="Source" jobId="job" onClose={() => {}} initial={{
         url: '?blogJob=job', subjectId: 'discover:fixture',
         draft: { title: 'Title', excerpt: 'Excerpt', summary: 'Summary', content: '<p>Draft.</p>',
           keyTakeaways: [], categories: [], tags: [], postType: 'article', sourceUrl: null },
-        verification: { verified: false, issues: ['A claim needs review.'] },
+        verification: { verified: false, issues: ['A claim needs review.'], warnings: ['Repeated wording.'] },
         workflow: { originalAvailable: true, remediationUsed: true, stages: [{
           stage: 'factReview', at: '2026-01-01', result: { findings: [{ reason: 'Unsupported claim', claim: 'A claim' }] },
         }] },
       }} />
     </QueryClientProvider>);
-    assert.match(html, /Review stages/);
+    assert.match(html, /Review history \(1\)/);
     assert.match(html, /Fact review/);
     assert.match(html, /Unsupported claim/);
     assert.match(html, /A claim needs review/);
+    assert.match(html, /Advisory suggestions \(1\)/);
+    assert.match(html, /Repeated wording/);
+    const disclosures = [...html.matchAll(/<details\b([^>]*)>([\s\S]*?)<\/details>/g)];
+    assert.equal(disclosures.length, 3);
+    for (const disclosure of disclosures) assert.doesNotMatch(disclosure[1]!, /\bopen\b/);
+    assert.match(disclosures[0]![2]!, /<summary>Post details<\/summary>/);
+    for (const id of ['blog-excerpt', 'blog-summary', 'blog-takeaways', 'blog-categories', 'blog-tags']) {
+      assert.match(disclosures[0]![2]!, new RegExp(`id="${id}"`));
+    }
+    assert.ok(html.indexOf('id="blog-title"') < html.indexOf('<summary>Post details'));
+    assert.ok(html.indexOf('id="blog-content"') < html.indexOf('<summary>Post details'));
+    assert.ok(html.indexOf('A claim needs review') < html.indexOf('<details'));
+    assert.match(html, /Rich text/);
+    assert.match(html, />HTML</);
+    for (const action of ['Generate again', 'Recheck draft', 'Save as draft', 'Publish live']) assert.ok(html.includes(action));
   } finally {
     portal.mock.restore(); client.clear();
     if (document) Object.defineProperty(globalThis, 'document', document);
@@ -68,7 +83,7 @@ test('a passed automated review is not presented as proof of accuracy or voice',
   const client = new QueryClient();
   const document = Object.getOwnPropertyDescriptor(globalThis, 'document');
   Object.defineProperty(globalThis, 'document', { value: { body: {} }, configurable: true });
-  const portal = mock.method(ReactDOM, 'createPortal', children => children);
+  const portal = mock.method(ReactDOM, 'createPortal', (children: React.ReactNode) => children);
   const draft = { title: 'Title', excerpt: 'Excerpt', summary: 'Summary', content: '<p>Draft.</p>',
     keyTakeaways: [], categories: [], tags: [], postType: 'article' as const, sourceUrl: null };
   const verifiedSignature = JSON.stringify([draft.postType, draft.title, draft.excerpt, draft.summary,
@@ -79,12 +94,12 @@ test('a passed automated review is not presented as proof of accuracy or voice',
         url: '?blogJob=job', subjectId: 'discover:fixture', draft, verifiedSignature,
         verification: { verified: true, issues: [] },
         workflow: { originalAvailable: true, remediationUsed: false, stages: [{
-          stage: 'publicationValidation', at: '2026-01-01', result: { verified: true, issues: [] },
+          stage: 'editorialReview', at: '2026-01-01', result: { verified: true, issues: [], majorRisks: [] },
         }] },
       }} />
     </QueryClientProvider>);
-    assert.match(html, /Automated checks found no unresolved issues/);
-    assert.match(html, /do not independently prove every claim/);
+    assert.match(html, /Ready to send/);
+    assert.match(html, /automated review does not guarantee accuracy/);
     assert.doesNotMatch(html, />Verified\.</);
   } finally {
     portal.mock.restore(); client.clear();

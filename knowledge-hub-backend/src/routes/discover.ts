@@ -15,6 +15,7 @@ import { handOff } from '../agents/index.js';
 import { BLOG_CATEGORIES } from '../ai/blogHouseStyle.js';
 import { parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
 import { assertVerifiedBlogJob } from '../services/blogJobs.js';
+import { recordBlogDelivery } from '../ai/aiWorkflow.js';
 import { ConflictError, NotFoundError, ValidationError, WriteActionNotConfirmedError } from '../types/errors.js';
 import { BlueskyPostUnconfirmedError, blueskyConfigured, postToBluesky } from '../integrations/social/bluesky.js';
 import { LINKEDIN_POST_LIMIT, LinkedInPostUnconfirmedError, composeLinkedInText, getLinkedInMember, linkedinConfigured, postToLinkedIn } from '../integrations/social/linkedin.js';
@@ -304,7 +305,7 @@ discoverRouter.post('/:id/blog-draft', (req: Request, res: Response, next: NextF
       const length = (req.body as { length?: unknown } | undefined)?.length;
       if (length !== 'short' && length !== 'long') throw new ValidationError('Choose Quick take or Article before starting.');
       const data = await handOff(getDb(), { specialist: 'blog-writer', subjectId: `discover:${id}`, input: { length }, requestedBy: 'app' });
-      res.status(202).json({ success: true, data });
+      res.status(HTTP_STATUS.ACCEPTED).json({ success: true, data });
     } catch (err) { next(err); }
   })();
 });
@@ -315,10 +316,12 @@ discoverRouter.post('/:id/blog-publish', (req: Request, res: Response, next: Nex
       const id = req.params['id'];
       if (!id || !UUID.test(id)) throw new ValidationError('Invalid Discover item ID');
       const post = parsePublishBody(req.body);
+      const jobId = (req.body as { jobId?: unknown } | undefined)?.jobId;
       const item = await getDb().query(`SELECT id FROM content_items WHERE id=$1 AND source IN ('email','discovered-article')`, [id]);
       if (item.rows.length === 0) throw new NotFoundError('Discover item');
-      await assertVerifiedBlogJob(getDb(), (req.body as { jobId?: unknown } | undefined)?.jobId, `discover:${id.toLowerCase()}`, post);
+      await assertVerifiedBlogJob(getDb(), jobId, `discover:${id.toLowerCase()}`, post);
       const sent = await sendToBlog(post);
+      if (sent.payload.success && typeof jobId === 'string') await recordBlogDelivery(getDb(), jobId, post.status);
       if (sent.payload.success && post.status === 'published') {
         await getDb().query(`UPDATE content_items SET workflow_state='published' WHERE id=$1 AND source='discovered-article'`, [id]);
       }

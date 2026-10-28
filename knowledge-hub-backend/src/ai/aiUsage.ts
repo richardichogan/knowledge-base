@@ -5,6 +5,7 @@
  */
 import { getDb } from '../db/db.js';
 import { env } from '../config/env.js';
+import { aiWorkflowAttribution } from './aiWorkflow.js';
 
 const MAX_ERROR_LENGTH = 300;
 
@@ -48,16 +49,19 @@ export function tokenUsageFrom(u: Record<string, unknown> | undefined): TokenUsa
 
 export function recordAiUsage(r: UsageRecord): void {
   try {
+    const attribution = aiWorkflowAttribution();
     void getDb().query(
       `INSERT INTO ai_usage_log
          (environment, feature, persona, session_id, slot, deployment, api,
-          prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens, duration_ms, ok, error, usage_known)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+          prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens, duration_ms, ok, error, usage_known,
+          workflow_run_id,stage,purpose)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
       [
         env.isDevelopment ? 'dev' : 'prod', r.feature, r.persona ?? null, r.sessionId ?? null, r.slot, r.deployment, r.api,
         r.promptTokens ?? 0, r.cachedTokens ?? 0, r.completionTokens ?? 0, r.reasoningTokens ?? 0,
         Math.round(r.durationMs), r.ok,         r.error?.slice(0, MAX_ERROR_LENGTH) ?? null, r.known === true,
+        attribution?.workflowRunId ?? null, attribution?.stage ?? null, attribution?.purpose ?? null,
       ],
-    ).catch(() => { /* logging must never affect a model call */ });
-  } catch { /* same */ }
+    ).catch((error: unknown) => { console.error('[ai-usage] Model usage was not recorded:', error); });
+  } catch (error) { console.error('[ai-usage] Model usage logging failed:', error); }
 }

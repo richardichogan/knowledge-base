@@ -87,7 +87,8 @@ export class GraphClient {
       client_secret: env.GRAPH_CLIENT_SECRET ?? '',
       refresh_token: refreshToken,
       grant_type: 'refresh_token',
-      scope: 'Calendars.Read Tasks.ReadWrite Mail.Read offline_access',
+      // Reuse the granted scopes, including Mail.Read.Shared after renewed consent.
+      // Requesting new scopes during refresh would break accounts that have not reconnected yet.
     });
 
     const response = await fetch(tokenUrl, {

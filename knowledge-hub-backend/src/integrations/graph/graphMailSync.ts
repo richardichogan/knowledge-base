@@ -6,7 +6,7 @@
  *   - podcast@themicrosoftcloudblog.com         (/users/podcast@...)
  *
  * Uses the existing GraphClient (same OAuth2 refresh token flow as calendar/todo).
- * Requires Mail.Read scope. For the podcast shared mailbox the token account
+ * Requires Mail.Read and Mail.Read.Shared scopes. For the podcast shared mailbox the token account
  * must have FullAccess or at minimum read permissions on that mailbox.
  *
  * Fetches the last 30 days of inbox messages, runs AI importance filtering,
@@ -20,6 +20,7 @@ import { upsertContentItem, upsertSyncState } from '../../db/queries.js';
 import { filterImportantEmails } from '../email/emailImportanceFilter.js';
 import type { ContentItem } from '../../types/contentItem.js';
 import { emailHtmlToText, isMessageCenterSender, parseMessageCenterEmail, upsertMessageCenterPosts } from './messageCenterMail.js';
+import { addSourceFailure, syncFailureSummary, type SyncFailure } from '../../sync/sourceDiagnostics.js';
 
 const SYNC_SOURCE = 'email';
 const SYNC_STATE_KEY = 'graph-mail';
@@ -66,10 +67,11 @@ const MAILBOXES: MailboxConfig[] = [
  */
 export async function syncGraphMail(
   db: Pool,
-): Promise<{ indexed: number; errors: number }> {
+): Promise<{ indexed: number; errors: number; failures: SyncFailure[] }> {
   const client = getGraphClient();
   let indexed = 0;
   let errors = 0;
+  const failures: SyncFailure[] = [];
 
   const since = new Date(
     Date.now() - SYNC_WINDOW_DAYS * 24 * 60 * 60 * 1_000, // eslint-disable-line @typescript-eslint/no-magic-numbers
@@ -100,6 +102,7 @@ export async function syncGraphMail(
           const text = msg.body.contentType === 'html' ? emailHtmlToText(msg.body.content) : msg.body.content;
           mcPosts += await upsertMessageCenterPosts(db, parseMessageCenterEmail(text, msg.subject ?? ''), msg.receivedDateTime);
         } catch (err) {
+          addSourceFailure(failures, mailbox.accountLabel, err);
           errors++;
           console.error(`[GraphMail] Message Center email ${msg.id} failed: ${err instanceof Error ? err.message : String(err)}`);
         }
@@ -128,12 +131,18 @@ export async function syncGraphMail(
           await upsertContentItem(db, messageToContentItem(msg, mailbox));
           indexed++;
         } catch (err) {
+          addSourceFailure(failures, mailbox.accountLabel, err);
           errors++;
           const message = err instanceof Error ? err.message : String(err);
           console.error(`[GraphMail] Upsert failed for ${msg.id}: ${message}`);
         }
       }
     } catch (err) {
+      addSourceFailure(failures, mailbox.accountLabel, err);
+      const failure = failures[failures.length - 1];
+      if (failure?.code === 'access-denied' && mailbox.apiPath !== '/me') {
+        failure.action = 'Reconnect Microsoft Graph at /auth/graph to consent to Mail.Read.Shared, and verify shared-mailbox read access.';
+      }
       errors++;
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[GraphMail] Failed for mailbox ${mailbox.account}: ${message}`);
@@ -142,11 +151,11 @@ export async function syncGraphMail(
 
   await upsertSyncState(db, SYNC_STATE_KEY, {
     lastSyncAt: new Date(),
-    lastError: errors > 0 ? `${errors} errors` : null,
+    lastError: syncFailureSummary(errors, failures),
     itemCount: indexed,
   });
 
-  return { indexed, errors };
+  return { indexed, errors, failures };
 }
 
 function messageToContentItem(

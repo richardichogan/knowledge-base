@@ -122,11 +122,11 @@ test('source conversion preserves punctuation next to links and emphasis, withou
   });
   assert.equal((result.posts as Array<{ copy: string }>)[0]!.copy, 'Listen to the podcast. Keep these words.\n\nNext paragraph.');
 });
-test('authored podcast blog copy is preserved, while normal blog style and required-field checks remain', () => {
+test('authored podcast copy is preserved and article style is advisory, while required-field checks remain', () => {
   const authored = { ...blog, postType: 'podcast', content: '<p>A game-changer — that was the phrase used.</p>' };
   assert.equal(parsePublishBody(authored, true).content, authored.content);
   assert.throws(() => parsePublishBody(authored), /banned AI/);
-  assert.throws(() => parsePublishBody({ ...authored, postType: 'article' }, true), /banned AI/);
+  assert.equal(parsePublishBody({ ...authored, postType: 'article' }, true).content, authored.content);
   assert.throws(() => parsePublishBody({ ...authored, title: '' }, true), /required/);
   assert.throws(() => parsePublishBody({ ...authored, excerpt: 'x'.repeat(301) }, true), /not been shortened/);
 });

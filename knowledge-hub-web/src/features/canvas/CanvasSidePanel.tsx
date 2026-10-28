@@ -7,7 +7,10 @@ import { useQuery } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
 import { Add, Renew, Launch, DocumentAdd, TrashCan, Close, ArrowRight, ArrowLeft, ListNumbered, ChevronDown, Checkmark } from '@carbon/icons-react';
 import { api } from '../../services/api';
-import type { CanvasFullApi, CanvasNodeApi, MapSuggestionApi } from '../../services/api';
+import type { CanvasCardStyle, CanvasFullApi, CanvasNodeApi, MapSuggestionApi } from '../../services/api';
+import { Segmented, Swatches } from '../diagram/DiagramControls';
+import { DIAGRAM_FILLS, DIAGRAM_STROKES, DIAGRAM_TEXT_COLOURS } from '../diagram/diagramPalette';
+import { canvasCardStyle } from './canvasStyle';
 import { renderMarkdown } from '../../utils/markdown';
 import { LINK_TYPES, linkStyle, connectedIds } from './canvasGraph';
 import { ideaTitleChange } from './canvasTitle';
@@ -211,14 +214,52 @@ const CardTypeSelect: React.FC<{ value: string; onChange: (id: string) => void }
   );
 };
 
+function CanvasCardStyleControls({ node, isRoot, pinned, depth, onChange }: {
+  node: CanvasNodeApi; isRoot: boolean; pinned: boolean; depth: number; onChange: (style: CanvasCardStyle | null) => void;
+}): React.ReactElement {
+  const style = canvasCardStyle(node, isRoot, pinned, depth);
+  const pick = (patch: CanvasCardStyle): void => { onChange({ ...node.style, ...patch }); };
+  return (
+    <section className="cv-card-style" aria-label="Card appearance">
+      <h3 className="cv-card-style__heading">Appearance</h3>
+      <Swatches exact label="Background colour" colours={DIAGRAM_FILLS} value={style.fill} onPick={(fill) => { pick({ fill }); }} />
+      <Swatches exact label="Border colour" colours={DIAGRAM_STROKES} value={style.stroke} onPick={(stroke) => { pick({ stroke }); }} />
+      <div className="mm-field">
+        <span className="mm-field__label">Border style</span>
+        <Segmented label="Border style" value={style.strokeStyle}
+          options={[{ value: 'solid', label: 'Solid' }, { value: 'dashed', label: 'Dashed' }, { value: 'dotted', label: 'Dotted' }]}
+          onChange={(strokeStyle) => { pick({ strokeStyle }); }} />
+      </div>
+      <label className="mm-field">
+        <span className="mm-field__label">Border thickness</span>
+        <select className="mm-field__input" value={style.strokeWidth} onChange={(e) => { pick({ strokeWidth: Number(e.target.value) }); }}>
+          {[0.5, 1, 1.25, 1.5, 2, 3, 4, 6].map((width) => <option key={width} value={width}>{width} px</option>)}
+          {![0.5, 1, 1.25, 1.5, 2, 3, 4, 6].includes(style.strokeWidth) && <option value={style.strokeWidth}>{style.strokeWidth} px</option>}
+        </select>
+      </label>
+      <Swatches exact label="Text colour" colours={DIAGRAM_TEXT_COLOURS} value={style.textColor} onPick={(textColor) => { pick({ textColor }); }} />
+      <label className="mm-field">
+        <span className="mm-field__label">Title size</span>
+        <select className="mm-field__input" value={style.fontSize} onChange={(e) => { pick({ fontSize: Number(e.target.value) }); }}>
+          {style.fontSize % 1 !== 0 && <option value={style.fontSize}>{style.fontSize} px</option>}
+          {Array.from({ length: 27 }, (_, i) => i + 10).map((size) => <option key={size} value={size}>{size} px</option>)}
+        </select>
+      </label>
+      <button type="button" className="kb-import-btn" disabled={node.style == null || Object.keys(node.style).length === 0}
+        onClick={() => { onChange(null); }}>Reset appearance</button>
+    </section>
+  );
+}
+
 // ── Details ───────────────────────────────────────────────────────────────────
 
 interface DetailsProps {
   map: CanvasFullApi;
   node: CanvasNodeApi | undefined;
   isRoot: boolean;
+  depth: number;
   footnoteNumber: number | undefined;
-  onUpdate: (id: string, patch: { label?: string; body?: string; cardType?: string; footnote?: string }) => void;
+  onUpdate: (id: string, patch: { label?: string; body?: string; cardType?: string; footnote?: string; style?: CanvasCardStyle | null }) => void;
   onDelete: (id: string) => void;
   onSelect: (id: string) => void;
   onRetype: (edgeId: string, type: string) => void;
@@ -230,7 +271,7 @@ interface DetailsProps {
 
 const PRESET_TYPES = Object.keys(LINK_TYPES);
 
-export const CanvasDetailsTab: React.FC<DetailsProps> = ({ map, node, isRoot, footnoteNumber, onUpdate, onDelete, onSelect, onRetype, onUnlink, onOpen, onToNote, onDeleteCanvas }) => {
+export const CanvasDetailsTab: React.FC<DetailsProps> = ({ map, node, isRoot, depth, footnoteNumber, onUpdate, onDelete, onSelect, onRetype, onUnlink, onOpen, onToNote, onDeleteCanvas }) => {
   const [label, setLabel] = useState(node?.label ?? '');
   const [body, setBody] = useState(node?.body ?? '');
   const [busy, setBusy] = useState<string | null>(null);
@@ -324,6 +365,9 @@ export const CanvasDetailsTab: React.FC<DetailsProps> = ({ map, node, isRoot, fo
       ) : (
         <button type="button" className="kb-import-btn" onClick={() => { setAddingFootnote(true); }}><ListNumbered size={16} /> Add footnote</button>
       )}
+      <CanvasCardStyleControls node={node} isRoot={isRoot} depth={depth}
+        pinned={node.refType === 'note' && map.linkedNotes.some((note) => note.id === node.refId)}
+        onChange={(style) => { onUpdate(node.id, { style }); }} />
       {node.refType !== null && (
         <button type="button" className="kb-import-btn cv-details__open" onClick={() => { onOpen(node); }}><Launch size={16} /> Open {cardKindLabel(node).toLowerCase()}</button>
       )}

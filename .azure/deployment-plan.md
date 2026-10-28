@@ -2,6 +2,66 @@
 
 **Status:** Validated
 
+**Release scope (2026-10-28, usability and connected-work features):**
+- User approved all six recommended improvements, followed by merge, push and
+  deployment. Extend existing screens and interactions; no new workspace,
+  infrastructure, unattended delivery or desktop package.
+- Implement navigation continuity, consistent background-work feedback,
+  keyboard/density list triage, project changes since last visit, on-demand
+  meeting preparation, and evidence-linked Design change-impact review.
+- Preserve and include the previously completed blog, canvas, ingestion,
+  workflow-health and consistency work; exclude unrelated tool cache.
+- Recipe: existing application-only AZCLI runbook, Alliance Tenant Reporting,
+  kh-prod-api-vnet and kh-prod-web. No provisioning or resource changes.
+- Preparation: inspect existing helpers and implement bounded extensions.
+- Validation: both TypeScript checks, required release suites once, production
+  builds and lint non-regression after feature completion; no browser launch
+  or paid live model calls without separate permission.
+- Release: sync origin/main, resolve only genuine blockers, push matching
+  feature/main source, build incremented backend image from main, deploy the
+  matching frontend; verify revision, startup/migrations and served assets.
+- All validation checks pass:
+  - [x] `git fetch origin` / `git merge --no-edit origin/main`: already current.
+  - [x] Both apps: `npx tsc --noEmit` and production builds passed.
+  - [x] Both isolated release suites ran once; all failed/affected checks resolved.
+  - [x] Lint non-regression passed (backend 547/623; frontend 22/41).
+    `git diff --check` passed.
+  - [x] Dockerfile packages lockfiles and every migration; ACA/SWA access and
+    subscription confirmed. Existing image v266; release target v267.
+
+**Section 7: Validation Proof (2026-10-28, usability and connected work):**
+- Backend isolated release run: 729/737 initially passed. Resolved four blog
+  failures, two credential-fixture failures, one stale podcast style expectation,
+  and a stalled monitoring worker. Did not restart the full suite.
+- Affected blog/canvas rerun passed 21/21 reported cases. Dedicated-route cases
+  passed after restoring mocked property descriptors; the affected authored
+  podcast case passed. Final Health/monitoring rerun passed 12/12.
+- The monitoring stall exposed workflow queries left in flight after a missing
+  table error. Aggregation now drains all three requests before reporting the
+  section unavailable. Production behavior and partial-section reporting remain.
+- Direct blog generation now reviews the exact application citation before the
+  outer formatter appends the final footer. Sentence fixtures and card positions
+  were corrected to match real sentence boundaries and the approved larger root.
+- Frontend isolated run: 255/256 initial cases, plus all 49 bundled UI cases.
+  The only failure was the already-overlapping placement fixture; its affected
+  group passed after correcting the initial coordinates.
+- Final typed builds and lint passed after the fixes. No browser launch, live
+  model call, production-content mutation or local scheduler activation.
+- AZCLI application-only validation: installation/authentication and existing
+  target access confirmed; Docker build context and migration packaging checked.
+  Bicep/template/what-if, new RBAC and policy-provisioning checks are N/A because
+  this release updates application artifacts only, not infrastructure.
+- Change-for-fit report: (1) existing routers, cockpit and Think interfaces are
+  extended; (2) ACA/SWA hosting and shared production-data assumptions remain;
+  (3) no new dependencies or automatic AI/delivery spend, with impact discussion
+  explicitly user-triggered; (4) validated typed contracts and guarded unknown
+  values preserve typing; (5) no new secrets, credential exposure or widened
+  authorization, with bounded read-only evidence; (6) the safer minimal version
+  is the implemented in-place extensions without automatic edits or new workspaces.
+- Evidence: session files/usability-*-{tests,retests,build,lint}.log and
+  usability-health-final.log. Release commit and deployed identifiers will be
+  recorded in the completion handoff.
+
 **Release scope and Section 7: Validation Proof (2026-10-28 11:58 UTC, brainstorm snapping and note tags):**
 - User requested the completed Brainstorm and note-tag fixes be deployed to the
   existing production targets. Brainstorm settings use migration 116.

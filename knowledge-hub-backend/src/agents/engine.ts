@@ -17,6 +17,7 @@ import { env } from '../config/env.js';
 import { ConflictError, KnowledgeHubError, NotFoundError, ValidationError } from '../types/errors.js';
 import { appendAssistantMessage } from '../ai/chatSessionStore.js';
 import { getSpecialist, type Prerequisite } from './registry.js';
+import { withAiWorkflow } from '../ai/aiWorkflow.js';
 
 export type AgentJobStatus = 'queued' | 'running' | 'done' | 'failed';
 
@@ -336,13 +337,17 @@ async function runJob(db: Pool, row: JobRow): Promise<void> {
   };
   try {
     if (!specialist) throw new ValidationError(`The ${row.specialist} specialist is not available on this server.`);
-    const outcome = await specialist.run({ db, jobId: row.id, attempt: row.attempts, subjectId: row.subject_id, input: row.input, progress, signal: shutdown.signal });
-    await writes;
-    const done = await record(db,
-      `UPDATE agent_jobs SET status = 'done', result = $2, error = NULL, finished_at = NOW(), updated_at = NOW()
-        WHERE id = $1 AND status = 'running' AND attempts = $3 RETURNING *`,
-      [row.id, JSON.stringify({ data: outcome.data, summary: outcome.summary }), row.attempts],
-    );
+    const done = await withAiWorkflow(db, { feature: row.specialist, jobId: row.id, attempt: row.attempts, signal: shutdown.signal }, async () => {
+      const outcome = await specialist.run({ db, jobId: row.id, attempt: row.attempts, subjectId: row.subject_id, input: row.input, progress, signal: shutdown.signal });
+      await writes;
+      const saved = await record(db,
+        `UPDATE agent_jobs SET status = 'done', result = $2, error = NULL, finished_at = NOW(), updated_at = NOW()
+          WHERE id = $1 AND status = 'running' AND attempts = $3 RETURNING *`,
+        [row.id, JSON.stringify({ data: outcome.data, summary: outcome.summary }), row.attempts],
+      );
+      if (!saved) throw new ConflictError('The specialist attempt stopped before its outcome was saved.', 'AGENT_ATTEMPT_CONFLICT');
+      return saved;
+    });
     if (done) await finish(db, done);
   } catch (error) {
     await writes;

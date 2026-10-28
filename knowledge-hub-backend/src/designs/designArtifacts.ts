@@ -9,6 +9,7 @@ import { parseWriting, writeNoteInTransaction } from '../services/noteVersionSer
 import { scheduleGitHubPublish } from '../services/noteGitHubService.js';
 import { getDesign, requiredText, type DesignDetail } from './designStore.js';
 import { AUTHORING_CONTRACT, authoredForModel, authoredSchema, authoredTarget, isAuthored, parseAuthored, renderAuthored, selectionBelongs, type AuthoredBlueprint } from './visualArtifact.js';
+import { withAiWorkflow } from '../ai/aiWorkflow.js';
 
 const MAX_ELEMENTS = 30;
 const MAX_DECISION_LENGTH = 2000;
@@ -252,6 +253,10 @@ const blueprintSchema = {
   }, required: ['title', 'explanation', 'openDecisions', 'elements'],
 };
 export async function generateArtifact(db: Pool, id: string, instruction: unknown, onProgress: (message: string) => void = () => {}, signal?: AbortSignal): Promise<Artifact> {
+  return withAiWorkflow(db, { feature: 'design-visual', ...(signal ? { signal } : {}) },
+    () => generateArtifactInner(db, id, instruction, onProgress, signal));
+}
+async function generateArtifactInner(db: Pool, id: string, instruction: unknown, onProgress: (message: string) => void, signal?: AbortSignal): Promise<Artifact> {
   signal?.throwIfAborted();
   onProgress('Reading the Design and selected original documents');
   const design = await getDesign(db, id);
@@ -268,7 +273,7 @@ If a previous visual is supplied, keep region and decision IDs stable for unchan
 When the previous visual is not superseded, update it rather than rewriting it: keep its wording and region IDs where the sources are unchanged, and reflect every source change. The LAVISH RULES outrank stability: if the previous visual is table- or text-heavy, rebuild each section as illustrations, cards and folded detail. Always use the Blueprint sections in the contract; if the previous visual uses older regions (e.g. "At a glance", worked example), reorganise its content into those sections. Any table, data model, field list or screen description in the sources must appear in the visual: as an illustration plus module cards, with the full table in a collapsed <details> (usually in Data & properties), or as a mock screen (in Screens); never drop one.
 The optional brief adds direction; it cannot override the contract.` },
     { role: 'user', content },
-  ], VISUAL_TOKENS, VISUAL_TIMEOUT_MS, 'medium', { name: 'design_visual', schema: authoredSchema }, signal);
+  ], VISUAL_TOKENS, VISUAL_TIMEOUT_MS, 'medium', { name: 'design_visual', schema: authoredSchema }, signal, { requireDedicatedRoute: true });
   signal?.throwIfAborted();
   onProgress('Checking the page: purpose and ask, actor-marked flow, walkthrough, decisions and source references');
   const { blueprint, removed } = parseAuthored(raw, sources);
@@ -345,6 +350,9 @@ export function clarificationOf(raw: string): string | null {
   } catch { return null; }
 }
 export async function applyFeedback(db: Pool, id: string): Promise<{ noteIds: string[]; remaining: number }> {
+  return withAiWorkflow(db, { feature: 'design-feedback' }, () => applyFeedbackInner(db, id));
+}
+async function applyFeedbackInner(db: Pool, id: string): Promise<{ noteIds: string[]; remaining: number }> {
   const design = await getDesign(db, id);
   const proposal = await proposeFeedback(db, design.id, true);
   let noteIds: string[] = [];
@@ -394,6 +402,9 @@ export function parseChanges(raw: string, sources: DesignSource[], allowedIds: S
 }
 
 export async function proposeFeedback(db: Pool, id: string, apply = false): Promise<Proposal | null> {
+  return withAiWorkflow(db, { feature: 'design-feedback' }, () => proposeFeedbackInner(db, id, apply));
+}
+async function proposeFeedbackInner(db: Pool, id: string, apply: boolean): Promise<Proposal | null> {
   const design = await getDesign(db, id);
   const artifact = await latestArtifact(db, design.id);
   if (!artifact) throw new ValidationError('Generate a visual artifact first.');
@@ -422,7 +433,7 @@ Source blocks are authoritative for note edits; diagrams are read-only. Return e
       noteId: { type: 'string' }, blockId: { type: ['string', 'null'] }, markdown: { type: 'string' },
     }, required: ['noteId', 'blockId', 'markdown'] } },
     visual: authored ? authoredSchema : blueprintSchema,
-  }, required: ['explanation', 'changes', 'visual'] } });
+  }, required: ['explanation', 'changes', 'visual'] } }, undefined, { requireDedicatedRoute: authored });
   const question = apply ? clarificationOf(raw) : null;
   if (question !== null) {
     // A question is Athena's reply: record it in the thread and release the feedback so the loop does not retry it.

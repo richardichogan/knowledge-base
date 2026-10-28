@@ -13,6 +13,7 @@ import type { NoteDocument } from '../../notes/types';
 import type { DesignAsset, DesignDetail, SpecificationType } from '../../types/designs';
 import { DesignVisual } from './DesignVisual';
 import { DesignHandoff } from './DesignHandoff';
+import { DesignConsistency } from './DesignConsistency';
 import { rememberAgentJob, useAgentJobFinished, useAgentJobs } from '../../services/agentJobStore';
 import type { AgentJob } from '../../types/agentJobs';
 import { AthenaRibbon } from '../../components/athena/AthenaRibbon';
@@ -236,6 +237,7 @@ export const DesignParent: React.FC<{
           : 'Uses the selected use case. The existing spec stays intact until the new version is ready.'}</p>
       {error && <p role="alert" className="kh-design-work__error">{error}</p>}
     </section>
+    <DesignConsistency key={id} id={id} busy={busy || switching} prepare={prepare} />
     <section aria-label="Design activity">
       <h3>Activity</h3>
       {job ? <div role="status" className="kh-design-work__activity">

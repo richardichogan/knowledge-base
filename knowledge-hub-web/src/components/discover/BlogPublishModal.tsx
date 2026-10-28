@@ -18,6 +18,10 @@ const commas = (value: string): string[] => value.split(',').map(v => v.trim()).
 type PublishResult = { editUrl: string | null; url: string | null; status: 'draft' | 'published' };
 
 const stageLabels: Record<string, string> = {
+  sourceResearch: 'Official product documentation',
+  authorContext: 'Anonymised author perspective',
+  editorialReview: 'Argument and practical application',
+  editorialReviewError: 'Editorial review error',
   paragraphReview: 'Paragraph review',
   paragraphReviewError: 'Paragraph review error',
   paragraphRecheck: 'Read-only paragraph recheck',
@@ -62,6 +66,14 @@ function stageDetails(result: unknown): string[] {
     if (!value['findings'].length) details.push('No findings.');
   }
   if (Array.isArray(value['issues'])) details.push(...value['issues'].filter((item): item is string => typeof item === 'string'));
+  if (Array.isArray(value['documents'])) {
+    for (const document of value['documents']) {
+      if (document && typeof document === 'object' && 'title' in document && 'url' in document
+        && typeof document.title === 'string' && typeof document.url === 'string') {
+        details.push(`${document.title}: ${document.url}`);
+      }
+    }
+  }
   if (typeof value['message'] === 'string') details.push(value['message']);
   if (Array.isArray(value['edits'])) details.push(`${value['edits'].length} targeted correction(s) proposed.`);
   if ('verified' in value && typeof value['verified'] === 'boolean') details.push(value['verified'] ? 'Automated checks passed.' : 'Automated checks incomplete or findings remain.');
@@ -92,30 +104,59 @@ async function startBlogJob(subjectId: string, length: 'short' | 'long'): Promis
   rememberAgentJob(response.data.job);
 }
 
+const BlogDraftStartedDialog: React.FC<{ title: string; onClose: () => void }> = ({ title, onClose }) =>
+  <AppDialog title="Draft in progress" onClose={onClose} actions={
+    <button type="button" className="kh-dialog__button kh-dialog__button--primary" data-dialog-autofocus onClick={onClose}>Close</button>
+  }>
+    <div className="dc-blog-start">
+      <p className="dc-blog-start__source">{title}</p>
+      <div className="dc-blog-start__notice" role="status">
+        <h3>Your draft is being prepared</h3>
+        <p>The work is not complete yet. Athena will notify you when it is ready to review.</p>
+      </div>
+      <p className="dc-blog-start__description">You can close this window and continue working. Nothing has been published to the blog.</p>
+    </div>
+  </AppDialog>;
+
 export const BlogPublishModal: React.FC<Props> = ({ itemId, source, title, onClose }) => {
   const [length, setLength] = useState<'short' | 'long' | null>(null);
   const [starting, setStarting] = useState(false);
+  const [started, setStarted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const subjectId = source?.key ?? `discover:${itemId ?? ''}`;
   async function start(): Promise<void> {
-    if (!length) return;
+    if (!length || starting) return;
     setStarting(true);
     setError(null);
-    try { await startBlogJob(subjectId, length); onClose(); }
-    catch (e) { setError(describeApiError(e)); setStarting(false); }
+    try { await startBlogJob(subjectId, length); setStarted(true); }
+    catch (e) { setError(describeApiError(e)); }
+    finally { setStarting(false); }
   }
+  if (started) return <BlogDraftStartedDialog title={title} onClose={onClose} />;
   return <AppDialog title="Publish to blog" onClose={onClose} actions={<>
     <button type="button" className="kh-dialog__button" disabled={starting} onClick={onClose}>Cancel</button>
     <button type="button" className="kh-dialog__button kh-dialog__button--primary" disabled={!length || starting}
       onClick={() => { void start(); }}>{starting ? 'Starting...' : 'Start drafting'}</button>
   </>}>
-    <p className="dc-linkedin__source-title">{title}</p>
-    <p className="dc-linkedin__status">Choose a format. Athena will notify you when the draft is ready to review.</p>
-    <div className="dc-linkedin__formats" role="group" aria-label="Post length">
-      <button type="button" disabled={starting} aria-pressed={length === 'short'} onClick={() => { setLength('short'); }}>Quick take</button>
-      <button type="button" disabled={starting} aria-pressed={length === 'long'} onClick={() => { setLength('long'); }}>Article</button>
+    <div className="dc-blog-start" aria-busy={starting}>
+      <p className="dc-blog-start__source">{title}</p>
+      <div>
+        <h3 className="dc-blog-start__heading">Choose a draft format</h3>
+        <p className="dc-blog-start__description">Athena will prepare a draft in the background for you to review before publishing.</p>
+      </div>
+      <div className="dc-blog-start__formats" role="group" aria-label="Draft format">
+        <button type="button" disabled={starting} aria-pressed={length === 'short'} onClick={() => { setLength('short'); }}>
+          <span className="dc-blog-start__format-title">Quick take</span>
+          <span className="dc-blog-start__format-description">A concise post focused on the key points.</span>
+        </button>
+        <button type="button" disabled={starting} aria-pressed={length === 'long'} onClick={() => { setLength('long'); }}>
+          <span className="dc-blog-start__format-title">Article</span>
+          <span className="dc-blog-start__format-description">A longer post with more context and detail.</span>
+        </button>
+      </div>
+      {starting && <div role="status"><InlineLoading description="Starting background drafting..." /></div>}
+      {error && <p className="dc-blog-start__error" role="alert">{error}</p>}
     </div>
-    {error && <p className="dc-linkedin__error" role="alert">{error}</p>}
   </AppDialog>;
 };
 
@@ -130,6 +171,7 @@ export const BlogDraftEditor: React.FC<Props & { jobId: string; initial: BlogJob
   const [publishing, setPublishing] = useState(false);
   const [checking, setChecking] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [started, setStarted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PublishResult | null>(null);
   const categories = useQuery({
@@ -161,7 +203,10 @@ export const BlogDraftEditor: React.FC<Props & { jobId: string; initial: BlogJob
     content: value.content.trim(), keyTakeaways: lines(value.takeaways), categories: commas(value.categories), tags: commas(value.tags),
   };
   const signature = JSON.stringify([post.postType, post.title, post.excerpt, post.summary, post.content, post.keyTakeaways, post.categories, post.tags]);
-  const verified = job.verification.verified && job.verifiedSignature === signature;
+  const editorialReview = [...(job.workflow?.stages ?? [])].reverse().find(stage => stage.stage === 'editorialReview')?.result;
+  const riskReviewComplete = !!editorialReview && typeof editorialReview === 'object'
+    && 'majorRisks' in editorialReview && Array.isArray(editorialReview.majorRisks) && editorialReview.majorRisks.length === 0;
+  const verified = riskReviewComplete && job.verification.verified && job.verifiedSignature === signature;
 
   async function recheck(): Promise<void> {
     setChecking(true);
@@ -178,8 +223,9 @@ export const BlogDraftEditor: React.FC<Props & { jobId: string; initial: BlogJob
   async function generateAgain(): Promise<void> {
     setStarting(true);
     setError(null);
-    try { await startBlogJob(target.key, d.postType === 'quick' ? 'short' : 'long'); onClose(); }
-    catch (e) { setError(describeApiError(e)); setStarting(false); }
+    try { await startBlogJob(target.key, d.postType === 'quick' ? 'short' : 'long'); setStarted(true); }
+    catch (e) { setError(describeApiError(e)); }
+    finally { setStarting(false); }
   }
 
   async function publish(status: 'draft' | 'published'): Promise<void> {
@@ -203,10 +249,6 @@ export const BlogDraftEditor: React.FC<Props & { jobId: string; initial: BlogJob
       if (!r.success) throw new Error(r.error?.message ?? 'Could not publish the post.');
       setResult(r.data);
       target.onSent?.(r.data);
-      void alertDialog(status === 'published'
-        ? `"${value.title.trim()}" is now live on The Microsoft Cloud Blog.`
-        : `"${value.title.trim()}" was saved as a draft on the blog. Open it in the blog admin to review and publish.`,
-      { title: status === 'published' ? 'Post published' : 'Draft saved', tone: 'success' });
       if (status === 'published') {
         void queryClient.invalidateQueries({ queryKey: ['discover'] });
         void queryClient.invalidateQueries({ queryKey: ['discover-sources'] });
@@ -222,10 +264,23 @@ export const BlogDraftEditor: React.FC<Props & { jobId: string; initial: BlogJob
     !categories.data?.some(accepted => accepted.toLowerCase() === category.toLowerCase()));
   const ready = !!(value.title.trim() && value.summary.trim() && value.content.trim() && categories.data && invalidCategories.length === 0);
   const busy = publishing || checking || starting;
+  const reviewStages = job.workflow?.stages.filter(stage => stageLabels[stage.stage]) ?? [];
+  if (started) return <BlogDraftStartedDialog title={title} onClose={onClose} />;
+  if (result) return <AppDialog key="blog-send-success" title={result.status === 'published' ? 'Post published' : 'Draft saved'} tone="success"
+    onClose={onClose} actions={
+      <button type="button" className="kh-dialog__button kh-dialog__button--primary" data-dialog-autofocus onClick={onClose}>Done</button>
+    }>
+    <p className="kh-dialog__message">{result.status === 'published'
+      ? `"${value.title.trim()}" is now live on The Microsoft Cloud Blog.`
+      : `"${value.title.trim()}" was saved as a draft on the blog.`}</p>
+    {(result.url || result.editUrl) && <p className="dc-linkedin__status">
+      {result.status === 'published' && result.url && <a href={result.url} target="_blank" rel="noreferrer"><Launch size={16} /> View post</a>}{' '}
+      {result.editUrl && <a href={result.editUrl} target="_blank" rel="noreferrer"><Launch size={16} /> Open in blog admin</a>}
+    </p>}
+  </AppDialog>;
   return <AppDialog title="Publish to blog" wide onClose={onClose}
     actions={<>
       <button type="button" className="kh-dialog__button" disabled={busy} onClick={onClose}>Close</button>
-      {!result && <>
         <button type="button" className="kh-dialog__button" disabled={busy} onClick={() => { void generateAgain(); }}>
           <Renew size={16} /> {starting ? 'Starting...' : 'Generate again'}
         </button>
@@ -240,48 +295,51 @@ export const BlogDraftEditor: React.FC<Props & { jobId: string; initial: BlogJob
           disabled={!ready || !verified || busy} onClick={() => { void publish('published'); }}>
           <Launch size={16} /> Publish live
         </button>
-      </>}
     </>}>
-    <p className="dc-linkedin__source-title">{title}</p>
+    <div className="dc-blog-review">
+    <p className="dc-blog-review__source">Source: {title}</p>
     {checking && <div className="dc-loading" role="status"><InlineLoading description="Starting the draft recheck..." /></div>}
     {publishing && <div className="dc-loading" role="status"><InlineLoading description="Sending to The Microsoft Cloud Blog..." /></div>}
-    {!result && !verified && <div className="dc-blog-verification" role="status">
-      <p>Draft saved. Review is incomplete or has unresolved findings. Recheck the current draft before sending it to the blog.</p>
+    {!verified && <div className="dc-blog-verification" role="status">
+      <p>{job.verifiedSignature && job.verifiedSignature !== signature
+        ? 'Draft changed. Recheck before sending.'
+        : 'Review required before sending. Only major reputational risks or an incomplete review block publication.'}</p>
       {job.verification.issues.length > 0 && <ul>{job.verification.issues.map((issue, index) => <li key={`${index.toString()}-${issue}`}>{issue}</li>)}</ul>}
     </div>}
-    {!result && verified && <p className="dc-linkedin__status" role="status">
-      Automated checks found no unresolved issues in this draft. They do not independently prove every claim or guarantee the intended voice; review it before publishing.
+    {verified && <p className="dc-blog-review__status" role="status">
+      Ready to send. No major reputational blockers identified; automated review does not guarantee accuracy.
     </p>}
-    {!result && job.workflow && <details className="dc-blog-workflow">
-      <summary>Review stages</summary>
-      {!job.workflow.originalAvailable && <p>The original draft was not recorded for this older job.</p>}
-      <ul>{job.workflow.stages.filter(stage => stageLabels[stage.stage]).map((stage, index) => {
-        const details = stageDetails(stage.result);
-        return <li key={`${stage.stage}-${stage.at}-${index.toString()}`}>
-          <strong>{stageLabels[stage.stage]}</strong>
-          {details.length > 0 && <ul>{details.map((detail, i) => <li key={`${i.toString()}-${detail}`}>{detail}</li>)}</ul>}
-        </li>;
-      })}</ul>
-    </details>}
     {categories.isError && <p className="dc-linkedin__error" role="alert">
       Blog categories could not be loaded: {describeApiError(categories.error)}{' '}
       <button type="button" className="kh-dialog__button" onClick={() => { void categories.refetch(); }}>Retry categories</button>
     </p>}
-    {!result && <fieldset className="dc-blog-fields" disabled={busy}>
-      <label className="dc-linkedin__label" htmlFor="blog-type">Post type</label>
-      <select id="blog-type" className="dc-filter-select" value={value.postType}
-        onChange={(e) => { const next = e.target.value as BlogDraft['postType']; setEdits(c => ({ ...c, postType: next })); }}>
-        <option value="article">Article</option><option value="quick">Quick take</option><option value="weekly">Weekly</option>
-        <option value="newsletter">Newsletter</option><option value="podcast">Podcast</option>
-      </select>
-      <label className="dc-linkedin__label" htmlFor="blog-title">Title</label>
-      <input id="blog-title" className="dc-linkedin__url" value={value.title} onChange={set('title')} />
+    {categories.data && invalidCategories.length > 0 && <p className="dc-linkedin__error" role="alert">
+      Unsupported categories: {invalidCategories.join(', ')}. Update them in Post details before sending.
+    </p>}
+    <fieldset className="dc-blog-fields" disabled={busy}>
+      <div className="dc-blog-review__heading-fields">
+        <div>
+          <label className="dc-linkedin__label" htmlFor="blog-title">Title</label>
+          <input id="blog-title" className="dc-linkedin__url" value={value.title} onChange={set('title')} />
+        </div>
+        <div>
+          <label className="dc-linkedin__label" htmlFor="blog-type">Post type</label>
+          <select id="blog-type" className="dc-filter-select" value={value.postType}
+            onChange={(e) => { const next = e.target.value as BlogDraft['postType']; setEdits(c => ({ ...c, postType: next })); }}>
+            <option value="article">Article</option><option value="quick">Quick take</option><option value="weekly">Weekly</option>
+            <option value="newsletter">Newsletter</option><option value="podcast">Podcast</option>
+          </select>
+        </div>
+      </div>
+      <BlogPostEditor value={value.content} disabled={busy}
+        onChange={content => { setEdits(current => ({ ...current, content })); }} />
+      <details className="dc-blog-section">
+      <summary>Post details</summary>
+      <div className="dc-blog-section__fields">
       <label className="dc-linkedin__label" htmlFor="blog-excerpt">Excerpt (search and preview text)</label>
       <textarea id="blog-excerpt" className="dc-linkedin__copy" rows={2} value={value.excerpt} onChange={set('excerpt')} />
       <label className="dc-linkedin__label" htmlFor="blog-summary">{value.postType === 'quick' ? 'Summary (search and AI only, not shown on quick takes)' : 'Summary'}</label>
       <textarea id="blog-summary" className="dc-linkedin__copy" rows={2} value={value.summary} onChange={set('summary')} />
-      <BlogPostEditor value={value.content} disabled={busy}
-        onChange={content => { setEdits(current => ({ ...current, content })); }} />
       <label className="dc-linkedin__label" htmlFor="blog-takeaways">{value.postType === 'quick' ? 'Key takeaways (optional, not shown on quick takes)' : 'Key takeaways (one per line)'}</label>
       <textarea id="blog-takeaways" className="dc-linkedin__copy" rows={4} value={value.takeaways} onChange={set('takeaways')} />
       <label className="dc-linkedin__label" htmlFor="blog-categories">Categories (comma separated)</label>
@@ -291,18 +349,28 @@ export const BlogDraftEditor: React.FC<Props & { jobId: string; initial: BlogJob
         {categories.data ? `Accepted: ${categories.data.join(', ')}.` : 'Loading accepted categories...'}{' '}
         Use tags for topics such as Dynamics 365. Quick take is a post type, not a category.
       </p>
-      {categories.data && invalidCategories.length > 0 && <p className="dc-linkedin__error" role="alert">
-        Unsupported categories: {invalidCategories.join(', ')}. Replace them with accepted categories or move them to tags.
-      </p>}
       <label className="dc-linkedin__label" htmlFor="blog-tags">Tags (comma separated)</label>
       <input id="blog-tags" className="dc-linkedin__url" value={value.tags} onChange={set('tags')} />
-      <p className="dc-linkedin__status">Save as draft to review it in the blog admin first, or Publish live to post it straight away.</p>
-    </fieldset>}
+      </div>
+      </details>
+    </fieldset>
+    {!!job.verification.warnings?.length && <details className="dc-blog-section">
+      <summary>Advisory suggestions ({job.verification.warnings.length})</summary>
+      <p>Suggestions only. These do not block publication.</p>
+      <ul>{job.verification.warnings.map((warning, index) => <li key={`${index.toString()}-${warning}`}>{warning}</li>)}</ul>
+    </details>}
+    {job.workflow && <details className="dc-blog-section dc-blog-workflow">
+      <summary>Review history ({reviewStages.length})</summary>
+      {!job.workflow.originalAvailable && <p>The original draft was not recorded for this older job.</p>}
+      <ul>{reviewStages.map((stage, index) => {
+        const details = stageDetails(stage.result);
+        return <li key={`${stage.stage}-${stage.at}-${index.toString()}`}>
+          <strong>{stageLabels[stage.stage]}</strong>
+          {details.length > 0 && <ul>{details.map((detail, i) => <li key={`${i.toString()}-${detail}`}>{detail}</li>)}</ul>}
+        </li>;
+      })}</ul>
+    </details>}
     {error && <p className="dc-linkedin__error" role="alert">{error}</p>}
-    {result && <p className="dc-linkedin__status" role="status">
-      {result.status === 'published' ? 'Published live.' : 'Draft created on the blog.'}{' '}
-      {result.status === 'published' && result.url && <a href={result.url} target="_blank" rel="noreferrer"><Launch size={16} /> View post</a>}{' '}
-      {result.editUrl && <a href={result.editUrl} target="_blank" rel="noreferrer"><Launch size={16} /> Open in blog admin</a>}
-    </p>}
+    </div>
   </AppDialog>;
 };

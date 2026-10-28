@@ -17,6 +17,14 @@ export interface DesignAsset {
   href: string; origin: 'explicit' | 'manual'; available: boolean;
 }
 export interface DesignDetail extends Design { assets: DesignAsset[]; selections: Partial<Record<DesignRole, string>> }
+export interface DesignConsistencyReport {
+  requestedChange: string | null;
+  checkedAt: string; designRevision: number; complete: boolean;
+  coverage: Array<{ role: string; status: 'supplied' | 'missing' | 'ambiguous' | 'unavailable' }>;
+  sources: Array<{ id: string; title: string; role: string; revision: number; href: string }>;
+  findings: Array<{ kind: 'contradiction' | 'open-decision' | 'impact'; explanation: string;
+    evidence: Array<{ sourceId: string; quote: string; elementId: string | null }> }>;
+}
 export interface DesignSource { id: string; role: string; revision: number; title: string; markdown: string; blocks: unknown[]; document?: unknown }
 export interface LegacyDesignVisual {
   format?: undefined; title: string; explanation: string; openDecisions: string[]; elements: Array<{

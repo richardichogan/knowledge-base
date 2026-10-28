@@ -3,7 +3,7 @@ import { Button, InlineLoading, InlineNotification, Select, SelectItem, TextInpu
 import { useQuery } from '@tanstack/react-query';
 import { DataNotice } from '../components/DataNotice';
 import { api } from '../services/api';
-import type { HealthSection, HealthUsageTotals, KnowledgeHealth, KnowledgeHealthParams } from '../services/api';
+import type { HealthSection, HealthUsageTotals, HealthWorkflowData, KnowledgeHealth, KnowledgeHealthParams } from '../services/api';
 import { requireApiData } from '../services/apiError';
 import { PageHeader } from '../components/PageHeader';
 import { KnowledgeFamilies } from '../components/health/KnowledgeFamilies';
@@ -30,6 +30,40 @@ const UsageSummary: React.FC<{ totals: HealthUsageTotals }> = ({ totals }) => (
     <div><dt>Total tokens</dt><dd>{tokenCell(totals, totals.totalTokens)}</dd></div>
     <div><dt>Average latency</dt><dd>{totals.avgLatencyMs === null ? 'No calls' : `${number.format(totals.avgLatencyMs)} ms`}</dd></div>
   </dl>
+);
+
+const WorkflowHealth: React.FC<{ data: HealthWorkflowData }> = ({ data }) => (
+  <>
+    <dl className="kh-health__stats">
+      {Object.entries({ Runs: data.totals.runs, Completed: data.totals.completed, Failed: data.totals.failed,
+        'Running / interrupted': data.totals.unfinished, 'Review blocked': data.totals.reviewBlocked, 'Delivered to blog': data.totals.delivered })
+        .map(([label, count]) => <div key={label}><dt>{label}</dt><dd>{number.format(count)}</dd></div>)}
+    </dl>
+    <p className="kh-health__note">{number.format(data.attributedCalls)} calls attributed; {number.format(data.unattributedCalls)} calls have unknown workflow/purpose.
+      Historical calls are not guessed or backfilled. Completed means the operation returned, not that its output was accepted.
+      Review and delivery counts overlap completion counts. Workflow dates use start time; call metrics use the selected window and filters.
+      Running records may be unfinished after a stopped process.</p>
+    {data.runs.length === 0 ? <p>No attributed workflows match these filters. Existing historical jobs are not retroactively included.</p>
+      : <div className="kh-health__table-wrap" tabIndex={0} role="region" aria-label="Workflow outcomes and stage usage">
+        <table className="kh-health__table">
+          <thead><tr><th>Workflow / attempt</th><th>Purpose</th><th>Outcome</th><th>Elapsed</th><th>Calls</th><th>Tokens</th></tr></thead>
+          <tbody>{data.runs.map(run => <React.Fragment key={run.id}>
+            <tr><td>{run.feature} · {run.id.slice(0, 8)} · attempt {run.attempt}<br /><span className="kh-health__note">{when(run.startedAt)}</span></td>
+              <td>{run.purpose}</td><td>{run.status}{run.outcome ? ` · ${run.outcome}` : ''}</td>
+              <td>{run.durationMs === null ? 'Unfinished' : `${number.format(Math.round(run.durationMs / 1000))} s`}</td>
+              <td>{number.format(run.calls)}</td><td>{run.tokens === null ? 'Not measured' : number.format(run.tokens)}{run.unmeasuredCalls > 0 ? ` · ${run.unmeasuredCalls} unmeasured calls` : ''}</td></tr>
+            <tr><td colSpan={6}><details className="kh-health__details"><summary>Stage usage</summary>
+              {data.stages.filter(stage => stage.runId === run.id).length === 0 ? <p>No measured stage calls.</p>
+                : <ul>{data.stages.filter(stage => stage.runId === run.id).map(stage => <li key={stage.stage}>
+                  <strong>{stage.stage}</strong>: {number.format(stage.calls)} calls · {stage.tokens === null ? 'tokens not measured' : `${number.format(stage.tokens)} tokens`} · {stage.failures} failed · {number.format(Math.round(stage.durationMs / 1000))} s summed model-call time
+                </li>)}</ul>}
+            </details></td></tr>
+          </React.Fragment>)}</tbody>
+        </table>
+      </div>}
+    {data.rowsTruncated && <p className="kh-health__note">Showing the latest 50 matching workflows. Narrow the date range for older runs.</p>}
+    <p className="kh-health__note">Stage rows are bounded to 200 for these workflows. Summed call time is not end-to-end elapsed time.</p>
+  </>
 );
 
 export const KnowledgeHealthPage: React.FC = () => {
@@ -104,8 +138,15 @@ export const KnowledgeHealthPage: React.FC = () => {
               </>
             )}
           </section>
+          <section className="kh-health__section" aria-labelledby="health-workflows">
+            <h2 id="health-workflows">Workflow outcomes</h2>
+            {!query.data.workflows ? <p>Workflow attribution is not available from this server version.</p>
+              : !query.data.workflows.available ? <Unavailable title="Workflow outcomes" section={query.data.workflows} />
+                : <WorkflowHealth data={query.data.workflows.data} />}
+          </section>
           <section className="kh-health__section" aria-labelledby="health-sync">
             <h2 id="health-sync">Source sync</h2>
+            <p className="kh-health__note">Latest shared-source runs across environments, independent of the usage filters. Older runs have counts only; actionable diagnostics are recorded by updated servers.</p>
             {!query.data.syncRuns.available ? <Unavailable title="Source sync" section={query.data.syncRuns} /> : (
               query.data.syncRuns.data.runs.length === 0 ? <p>No sync runs have been recorded.</p> : (
                 <ul className="kh-health__list">
@@ -115,6 +156,13 @@ export const KnowledgeHealthPage: React.FC = () => {
                       <div className="kh-health__note">
                         {run.sources.length === 0 ? 'No per-source results.' : run.sources.map(s => `${s.source}: ${number.format(s.indexed)} indexed, ${number.format(s.errors)} errors`).join(' · ')}
                       </div>
+                      {run.sources.some(source => (source.failures?.length ?? 0) > 0) && <details className="kh-health__details">
+                        <summary>Source failures and actions</summary>
+                        <ul>{run.sources.flatMap(source => (source.failures ?? []).map((failure, index) => <li key={`${source.source}-${index}`}>
+                          <strong>{source.source} · {failure.target}</strong>: {failure.code}. {failure.action}
+                        </li>))}</ul>
+                        <p className="kh-health__note">At most 20 diagnostics per source. Counts can exceed the displayed details.</p>
+                      </details>}
                     </li>
                   ))}
                 </ul>

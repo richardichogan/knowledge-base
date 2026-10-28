@@ -17,6 +17,8 @@ const { analyzeImageWithVision } = await import('../src/services/visionAnalyzer.
 const { modelReadingSteps } = await import('../src/ai/knowledge/documentReading.js');
 const { startAgentWorker, stopAgentWorker } = await import('../src/agents/engine.js');
 const { decomposeSpec } = await import('../src/build/decompose.js');
+const { withAiWorkflow, withAiStage, setAiWorkflowOutcome } = await import('../src/ai/aiWorkflow.js');
+const { recordAiUsage } = await import('../src/ai/aiUsage.js');
 const db = getDb();
 after(closeDb);
 
@@ -33,6 +35,28 @@ function completion(content = 'Done', finish_reason = 'stop'): Response {
   return Response.json({ choices: [{ finish_reason, message: { content } }],
     usage: { prompt_tokens: 10, completion_tokens: 2 } });
 }
+
+test('workflow attribution preserves stage, purpose and attempt without leaking into later calls', async t => {
+  const statements: Array<{ sql: string; values: unknown[] }> = [];
+  t.mock.method(db, 'query', async (sql: string, values: unknown[]) => {
+    statements.push({ sql, values });
+    return { rows: [], rowCount: 0 };
+  });
+  const call = () => recordAiUsage({ feature: 'fixture', slot: 'bulk', deployment: 'fixture',
+    api: 'chat', durationMs: 1, ok: true });
+  await withAiWorkflow(db, { feature: 'fixture', purpose: 'diagnostic', attempt: 2 }, async () => {
+    await withAiStage('research', async () => { call(); setAiWorkflowOutcome('review-blocked'); });
+    call();
+  });
+  call();
+  const insert = statements.find(s => s.sql.includes('INSERT INTO ai_workflow_runs'))!;
+  const calls = statements.filter(s => s.sql.includes('INSERT INTO ai_usage_log')).map(s => s.values);
+  assert.equal(insert.values[5], 2);
+  assert.deepEqual(calls.map(values => [values[15], values[16], values[17]]),
+    [[insert.values[0], 'research', 'diagnostic'], [insert.values[0], 'fixture', 'diagnostic'], [null, null, null]]);
+  const final = statements.find(s => s.sql.includes('UPDATE ai_workflow_runs'))!;
+  assert.deepEqual(final.values.slice(1), ['completed', 'review-blocked']);
+});
 
 for (const api of ['chat', 'responses', 'bulk', 'stream'] as const) {
   test(`${api} cancellation aborts the provider request and is not logged as success`, async t => {
@@ -88,6 +112,51 @@ test('bulk fallback retains the requested timeout', async t => {
   assert.equal(await new FoundryClient().chatBulk([], 100, 1234), 'Done');
   assert.deepEqual(limits, [1234]);
 });
+
+for (const key of ['AZURE_OPENAI_ENDPOINT_GPT54', 'AZURE_OPENAI_API_KEY_GPT54'] as const) {
+  for (const value of [undefined, '']) {
+    test(`dedicated bulk rejects ${key}=${String(value)} without sending a provider request`, async t => {
+      const records = usage(t);
+      const descriptor = Object.getOwnPropertyDescriptor(env, key);
+      assert.ok(descriptor);
+      Object.defineProperty(env, key, { value, configurable: true });
+      t.after(() => { Object.defineProperty(env, key, descriptor); });
+      const fetch = t.mock.method(globalThis, 'fetch', async () => completion());
+      const client = new FoundryClient('design-visual');
+      await assert.rejects(client.chatBulk([], 64000, 1000, 'medium', {
+        name: 'design_visual', schema: { type: 'object' },
+      }, undefined, { requireDedicatedRoute: true }), {
+        name: 'ConfigurationError',
+        code: 'CONFIGURATION_ERROR',
+        message: /dedicated bulk generation.*fallback is disabled/,
+      });
+      assert.equal(fetch.mock.callCount(), 0);
+      assert.equal(records.length, 0);
+    });
+  }
+}
+
+for (const maxTokens of [64000, 40000]) {
+  test(`dedicated bulk preserves the ${String(maxTokens)}-token budget and request contract`, async t => {
+    usage(t);
+    const signal = new AbortController().signal;
+    const jsonSchema = { name: 'design_visual', schema: { type: 'object' } };
+    const messages = [{ role: 'user' as const, content: 'Keep all source requirements' }];
+    const fetch = t.mock.method(globalThis, 'fetch', async (url: unknown, init: RequestInit) => {
+      assert.ok(String(url).startsWith(`${env.AZURE_OPENAI_ENDPOINT_GPT54}/openai/deployments/`));
+      const body = JSON.parse(String(init.body));
+      assert.equal(body.max_completion_tokens, maxTokens);
+      assert.equal(body.reasoning_effort, 'medium');
+      assert.deepEqual(body.messages, messages);
+      assert.deepEqual(body.response_format, { type: 'json_schema', json_schema: { ...jsonSchema, strict: true } });
+      assert.ok(init.signal);
+      return completion();
+    });
+    assert.equal(await new FoundryClient().chatBulk(messages, maxTokens, 1000, 'medium',
+      jsonSchema, signal, { requireDedicatedRoute: true }), 'Done');
+    assert.equal(fetch.mock.callCount(), 1);
+  });
+}
 
 test('truncated bulk output retains usage but is recorded as unsuccessful', async t => {
   const records = usage(t);
