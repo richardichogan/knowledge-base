@@ -2,6 +2,23 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-28 11:58 UTC, brainstorm snapping and note tags):**
+- User requested the completed Brainstorm and note-tag fixes be deployed to the
+  existing production targets. Brainstorm settings use migration 116.
+- Both apps passed `npx tsc --noEmit`, production builds and lint non-regression
+  (backend 547/623; frontend 22/41). Backend isolated suite passed 730/730;
+  frontend isolated suite passed 271/271 plus 49 bundled UI cases. After the
+  final placement change, all 18 affected placement and alignment cases passed.
+  Settings validation and migration tests passed after the backend lint fix.
+- The note-tag fixes were verified in the local desktop browser against an
+  authorised temporary note. The new Brainstorm interactions have not been
+  browser-tested. `git diff --check` passed; origin/main was synced at `828c95b`.
+- Application-only AZCLI release: push matching main/feature source, build the
+  next backend image from main, update the existing ACA, deploy the matching
+  frontend and confirm startup, migration, revision and served assets. Do not
+  provision or change infrastructure; preserve the unrelated hook cache.
+- Evidence: session files/brainstorm-snap-*.log.
+
 **Release scope and Section 7: Validation Proof (2026-10-28, passage tagging):**
 - User requested merge, push and production deployment of the completed note
   passage-tagging and font-colour changes.
