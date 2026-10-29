@@ -160,7 +160,7 @@ if (frontend) {
   // bundle in memory so isolated runs never leave generated test files behind.
   const require = createRequire(resolve(web, 'package.json'));
   const { build } = require('esbuild');
-  for (const entry of ['tests/note-list.test.tsx', 'tests/discoverParking.test.tsx', 'tests/watchlistFailure.test.tsx', 'tests/knowledgeSources.test.tsx', 'tests/linkedinPublishing.test.tsx', 'tests/jobsReview.test.tsx', 'tests/publishingFeeds.test.tsx', 'tests/design-artifact.test.tsx', 'tests/document-review.test.tsx', 'tests/podcast-campaign.test.tsx']) {
+  for (const entry of ['tests/note-list.test.tsx', 'tests/discoverParking.test.tsx', 'tests/watchlistFailure.test.tsx', 'tests/knowledgeSources.test.tsx', 'tests/linkedinPublishing.test.tsx', 'tests/jobsReview.test.tsx', 'tests/publishingFeeds.test.tsx', 'tests/design-artifact.test.tsx', 'tests/document-review.test.tsx', 'tests/podcast-campaign.test.tsx', 'tests/wordExport.test.ts']) {
     const bundle = await build({
       absWorkingDir: web,
       entryPoints: [entry],

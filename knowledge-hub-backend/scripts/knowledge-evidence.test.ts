@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createLedger, noteFound, noteRead, ledgerCounts, summariseLedger, dropFromLedger } from '../src/ai/knowledge/evidence.js';
 import { resolveAnswer, validateCitation, normaliseWhitespace, parseCitations } from '../src/ai/knowledge/citations.js';
-import { TurnBudget, TRANSCRIPT_REVIEW_BUDGET, budgetLimitation, completenessAnswer, exhaustiveQualification, isKnowledgeOrchestrationEnabled, isTranscriptReviewRequest, isDocumentReviewRequest } from '../src/ai/knowledge/budgets.js';
+import { TurnBudget, TRANSCRIPT_REVIEW_BUDGET, budgetLimitation, completenessAnswer, exhaustiveQualification, finalizeEvidenceAnswer, isKnowledgeOrchestrationEnabled, isTranscriptReviewRequest, isDocumentReviewRequest } from '../src/ai/knowledge/budgets.js';
 import { authorityLabel, attributionVerb, overclaimProblems, dedupeSyndicated, interpretWatchRun, watchStatement, chatQuoteAllowed } from '../src/ai/knowledge/evidenceAuthority.js';
 import { emptyContextUsed, attachEvidence, recordToolEvidence } from '../src/ai/contextUsage.js';
 
@@ -39,6 +39,31 @@ function ledgerWith(text: string, version = 'v1') {
   noteRead(l, ref('N1'), { text, version, title: 'N1', projectId: 'p1' });
   return l;
 }
+
+test('discovery leaves primary-source room before a full review expands the turn budget', () => {
+  const budget = new TurnBudget();
+  const search = budget.admitResult({ results: [
+    { id: 'walkthrough', content: 'a'.repeat(10_000) },
+    { id: 'workshop', content: 'b'.repeat(10_000) },
+    { id: 'background', content: 'c'.repeat(10_000) },
+  ] }, 24_000);
+  assert.equal(JSON.parse(search.content).results.length, 2);
+  assert.equal(budget.partial, false);
+  const primary = budget.admitResult({ content: 'Saved primary evidence'.repeat(500) });
+  assert.match(primary.content, /Saved primary evidence/);
+  assert.equal(budget.partial, false);
+});
+
+test('a budget-limited assessment leads with its incomplete coverage, not a trailing disclaimer', () => {
+  const budget = new TurnBudget();
+  budget.admitSource('x'.repeat(48_001));
+  const answer = finalizeEvidenceAnswer('The walkthrough describes six phases.', {
+    budget, counts: { found: 12, read: 2 }, retrievalUsed: true,
+    deterministicPath: false, deterministicComplete: false,
+  });
+  assert.ok(answer.startsWith(budgetLimitation(budget)));
+  assert.ok(answer.endsWith('The walkthrough describes six phases.'));
+});
 
 test('EVD-01: disagreeing sources are both cited and validated', () => {
   const l = ledgerWith('Threshold is GBP 25,000.');

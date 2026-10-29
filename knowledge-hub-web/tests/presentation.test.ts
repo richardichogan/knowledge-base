@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { build } from 'esbuild';
 import { presentationScript } from '../src/features/autocue/presentationScript';
-import { appendVoiceTranscript, finishVoiceTranscript, finishDesktopVoiceTranscript } from '../src/services/voiceTranscript';
+import { appendVoiceTranscript, finishVoiceTranscript, submitVoiceTranscript } from '../src/services/voiceTranscript';
 import { encodeWav, resampleVoiceAudio } from '../src/components/athena/speech';
 
 test('desktop speech selects the available panel, restores earlier handlers and waits for a revealed panel', async () => {
@@ -83,28 +83,39 @@ test('voice resampling delegates rate conversion to Web Audio without dropping i
   }
 });
 
-test('explicit voice review mode preserves the draft; on-screen mode remains send', () => {
+test('explicit voice review mode preserves the draft; on-screen mode remains send', async () => {
   let draft = 'Existing unsent work';
   let sent = '';
-  finishVoiceTranscript('  dictated text  ', true, text => { draft = appendVoiceTranscript(draft, text); }, text => { sent = text; });
+  await finishVoiceTranscript('  dictated text  ', true, text => { draft = appendVoiceTranscript(draft, text); }, async text => { sent = text; });
   assert.equal(draft, 'Existing unsent work\ndictated text');
   assert.equal(sent, '');
-  finishVoiceTranscript('on-screen', false, () => assert.fail('Should not change the draft'), text => { sent = text; });
+  await finishVoiceTranscript('on-screen', false, () => assert.fail('Should not change the draft'), async text => { sent = text; });
   assert.equal(sent, 'on-screen');
-  assert.throws(() => finishVoiceTranscript(' ', true, () => assert.fail(), () => assert.fail()), /No speech/);
+  await assert.rejects(finishVoiceTranscript(' ', true, () => assert.fail(), async () => assert.fail()), /No speech/);
 });
 
-test('stopping desktop speech sends the transcript with the current draft exactly once, preserving it if blocked', async () => {
+test('voice submission sends through the composer exactly once, preserving the combined draft if blocked', async () => {
   let draft = 'Current draft';
   const sent: string[] = [];
-  await finishDesktopVoiceTranscript(' new dictation ', draft, true, value => { draft = value; }, async value => { sent.push(value); });
+  await submitVoiceTranscript(' new dictation ', draft, true, value => { draft = value; }, async value => { sent.push(value); });
   assert.deepEqual(sent, ['Current draft\nnew dictation']);
-  await assert.rejects(finishDesktopVoiceTranscript('next dictation', draft, false, value => { draft = value; }, async () => { assert.fail('Must not send while busy'); }), /in your draft/);
+  await assert.rejects(submitVoiceTranscript('next dictation', draft, false, value => { draft = value; }, async () => { assert.fail('Must not send while busy'); }), /in your draft/);
   assert.equal(draft, 'Current draft\nnew dictation\nnext dictation');
-  await assert.rejects(finishDesktopVoiceTranscript(' ', draft, true, () => assert.fail(), async () => assert.fail()), /No speech/);
-  await assert.rejects(finishDesktopVoiceTranscript('retained speech', '', true, value => { draft = value; },
+  await assert.rejects(submitVoiceTranscript(' ', draft, true, () => assert.fail(), async () => assert.fail()), /No speech/);
+  await assert.rejects(submitVoiceTranscript('retained speech', '', true, value => { draft = value; },
     async () => { throw new Error('Send failed'); }), /Send failed/);
   assert.equal(draft, 'retained speech');
+});
+
+test('on-screen dictation awaits the shared composer submission and preserves its errors', async () => {
+  let draft = 'Existing context';
+  const sent: string[] = [];
+  const submit = (text: string): Promise<void> => submitVoiceTranscript(text, draft, true,
+    value => { draft = value; }, async value => { sent.push(value); });
+  await finishVoiceTranscript(' spoken instruction ', false, () => assert.fail('Not review mode'), submit);
+  assert.deepEqual(sent, ['Existing context\nspoken instruction']);
+  await assert.rejects(finishVoiceTranscript('more speech', false, () => assert.fail(),
+    async () => { throw new Error('Composer submission failed'); }), /Composer submission failed/);
 });
 
 test('presentation scripts preserve nested order, inline links, lists and table text', () => {

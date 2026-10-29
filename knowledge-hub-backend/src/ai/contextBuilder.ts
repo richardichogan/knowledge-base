@@ -114,8 +114,11 @@ const USER_PROFILE_BLURB = [
     'output. Do not answer or apologise to an earlier assistant message as though Richard said it. Use tool ' +
     'results silently and respond to the current conversational need, whether a question, observation or requested result.',
   'When analysing a saved meeting transcript or other long saved record, search for it and read its stored body ' +
-    'with read_knowledge_record, which pages the database content using nextCursor. Read successive pages as ' +
-    'needed before drawing conclusions. Do not fetch the record URL as a substitute for its saved body. If a ' +
+    'with read_knowledge_record. For a detailed review or comparison, request fullDocument=true with a purpose ' +
+    'that includes the question being assessed; request independent sources together. The server supplies full ' +
+    'originals when they fit and uses checkpointed reading for overflow. Use cursor pages for specific passages, ' +
+    'not as a substitute for a requested full review. Cite the actual sources for conclusions and distinguish ' +
+    'confirmed gaps from suggestions or unchecked areas. Do not fetch the record URL as a substitute for its saved body. If a ' +
     'page or turn budget prevents complete coverage, state the missing coverage plainly and do not imply the full ' +
     'transcript was reviewed.',
 ].join('\n');

@@ -24,6 +24,7 @@
     "@tiptap/react": "^3.23.6",
     "axios": "^1.7.2",
     "dictionary-en-gb": "^3.0.0",
+    "docx": "^9.15.0",
     "html-to-image": "^1.11.13",
     "nspell": "^2.1.5",
     "prosemirror-tables": "^1.8.5",

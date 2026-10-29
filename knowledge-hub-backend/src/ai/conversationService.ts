@@ -15,7 +15,8 @@ import { RECORD_TOOLS } from './knowledge/toolRecords.js';
 import { collectIds, resolveAnswer, stripUnseenIds } from './knowledge/citations.js';
 import { TurnBudget, TRANSCRIPT_REVIEW_BUDGET, DETERMINISTIC_TOOLS, budgetLimitation, finalizeEvidenceAnswer, isDeterministicResultComplete, isKnowledgeOrchestrationEnabled } from './knowledge/budgets.js';
 
-const RETRIEVAL_TOOLS = new Set(['search_diagrams', 'read_diagram', 'search_knowledge_base', 'search_library', 'search_past_chats', 'read_past_chat', 'search_knowledge_graph', 'read_output', 'traverse_relationships', 'read_knowledge_record', ...STRUCTURED_TOOL_NAMES]);
+const DISCOVERY_TOOLS = new Set(['search_diagrams', 'search_knowledge_base', 'search_library', 'search_past_chats', 'search_knowledge_graph']);
+const RETRIEVAL_TOOLS = new Set([...DISCOVERY_TOOLS, 'read_diagram', 'read_past_chat', 'read_output', 'traverse_relationships', 'read_knowledge_record', ...STRUCTURED_TOOL_NAMES]);
 import { STRUCTURED_TOOL_NAMES } from './knowledge/structuredTools.js';
 import { buildOutputsBlock } from './chatOutputs.js';
 import { buildDecisionsBlock } from './chatDecisions.js';
@@ -519,7 +520,8 @@ Writing the whole spec from the use case, or generating the Blueprint, is specia
           messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) });
           continue;
         }
-        if (call.function.name === 'read_knowledge_record' && (requestedArgs['fullDocument'] === true || requestedArgs['resumeReading'] === true)) {
+        if (wholeReadRequested || call.function.name === 'read_knowledge_record'
+          && (requestedArgs['fullDocument'] === true || requestedArgs['resumeReading'] === true)) {
           documentReview = true;
           budget?.useDocumentReviewLimits();
           maxRounds = Math.max(maxRounds, TRANSCRIPT_REVIEW_BUDGET.maxModelRounds);
@@ -575,8 +577,9 @@ Writing the whole spec from the use case, or generating the Blueprint, is specia
                   return result as KnowledgeAccess;
               };
               const availableTokens = remainingReviewTokens(client.reviewContextTokens(model, hooks.modelRoute), messages, tools, maxTokens);
+              // Leave room for another source's checkpointed synthesis in a multi-document review.
               const direct = args['resumeReading'] === true ? null : await readDirectDocument({
-                read, availableTokens, signal: hooks.signal,
+                read, availableTokens: Math.max(0, availableTokens - REVIEW_CONTEXT_RESERVE), signal: hooks.signal,
                 onProgress: text => { hooks.onActivity?.(text); hooks.onReadingProgress?.(); },
               });
               if (direct !== null) {
@@ -649,7 +652,9 @@ Writing the whole spec from the use case, or generating the Blueprint, is specia
         || 'status' in result && ['not_found', 'excluded', 'unavailable'].includes(String(result.status)));
       if (wholeReadRequested && failedRead) failedDocumentReads.add(documentReadKey);
       if (budget !== undefined && ledger !== undefined && RETRIEVAL_TOOLS.has(call.function.name) && !checkpointReview && !failedRead && !directRead) {
-        const admitted = budget.admitResult(result, documentReview && call.function.name !== 'read_knowledge_record' ? REVIEW_SUPPORTING_CHARS : undefined);
+        const supportingLookup = DISCOVERY_TOOLS.has(call.function.name)
+          || documentReview && call.function.name !== 'read_knowledge_record';
+        const admitted = budget.admitResult(result, supportingLookup ? REVIEW_SUPPORTING_CHARS : undefined);
         result = admitted.result;
         toolContent = admitted.content;
       }
@@ -680,6 +685,9 @@ Writing the whole spec from the use case, or generating the Blueprint, is specia
           ]),
         ],
       });
+    }
+    if (budget?.partial) {
+      messages.push({ role: 'user', content: `${budgetLimitation(budget)} Start your answer with the incomplete coverage, identify the sources actually read and what remains unchecked, and limit conclusions to that evidence. Do not give a definitive whole-process verdict from a partial review. Cite the read sources supporting your claims.` });
     }
     if (documentReview && budget !== undefined && pendingReads.size > 0 && !budget.aborted
       && budget.canStartRetrieval().ok && budget.remainingSourceChars() > READ_ENVELOPE_CHARS) {

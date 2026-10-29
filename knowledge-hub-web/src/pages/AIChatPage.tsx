@@ -73,7 +73,7 @@ import { MapChangeCard } from '../components/athena/MapChangeCard';
 import { LocalFileWriteCard } from '../components/athena/LocalFileWriteCard';
 import { desktopErrorMessage, getDesktop } from '../types/desktop';
 import { useDesktopCommand } from '../services/desktopCommands';
-import { appendVoiceTranscript, finishVoiceTranscript, finishDesktopVoiceTranscript } from '../services/voiceTranscript';
+import { appendVoiceTranscript, finishVoiceTranscript, submitVoiceTranscript } from '../services/voiceTranscript';
 import { briefingSeenToday, markBriefingSeen } from '../utils/morningBriefing';
 import { PERSONAS, getPersona } from '../components/athena/personas';
 import { ChatMentionSuggestions } from '../chat/ChatMentionSuggestions';
@@ -1736,9 +1736,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   }
 
   const reviewRecordingRef = useRef(false);
-  const sendDesktopTranscript = useRef<(transcript: string) => Promise<void>>(async () => {});
-  sendDesktopTranscript.current = transcript => finishDesktopVoiceTranscript(transcript, input,
-    !chatMutation.isPending && !isRestoringHistory && historyError === null && uploadProgress === null && pendingFile === null,
+  const sendVoiceTranscript = useRef<(transcript: string) => Promise<void>>(async () => {});
+  sendVoiceTranscript.current = transcript => submitVoiceTranscript(transcript, input,
+    !chatMutation.isPending && !isRestoringHistory && historyError === null && uploadProgress === null,
     setInput, submitMessage);
   const desktopVoiceBusyRef = useRef(false);
   const desktopVoiceId = useRef(Symbol('desktop-voice'));
@@ -1854,17 +1854,16 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       const text = result.success ? result.data.text.trim() : '';
       if (text !== '') {
         if (sendOnFinish) {
-          await sendDesktopTranscript.current(text);
+          await sendVoiceTranscript.current(text);
           return;
         }
-        finishVoiceTranscript(text, reviewOnly, transcript => {
+        await finishVoiceTranscript(text, reviewOnly, transcript => {
           setInput(current => appendVoiceTranscript(current, transcript));
           textareaRef.current?.focus();
-        }, transcript => {
+        }, async transcript => {
           // On-screen voice input retains its existing spoken-reply behavior.
           setVoiceOutputOn(true);
-          appendMessage('user', transcript);
-          chatMutation.mutate({ text: transcript });
+          await sendVoiceTranscript.current(transcript);
         });
         return;
       }

@@ -825,6 +825,27 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
     }
   }
 
+  async function handleExportWord(): Promise<void> {
+    setExportMenuOpen(false);
+    setExporting(true);
+    try {
+      const blocks = editorRef.current.document;
+      await prepareEntityLinkExport(blocks);
+      const { createWordExport } = await import('./wordExport');
+      const headingTitle = extractTitle(blocks);
+      const title = headingTitle === UNTITLED_DOCUMENT ? savedDocRef.current.title : headingTitle;
+      const blob = await createWordExport(blocks, title || UNTITLED_DOCUMENT);
+      downloadBlob(blob, `${slugifyTitle(title)}.docx`);
+      setNotification({ kind: 'success', msg: 'Exported as Word without hyperlinks' });
+    } catch (err) {
+      console.error('[NoteEditor] Word export failed:', err);
+      setNotification({ kind: 'error', msg: 'Could not export Word document. Please try again.' });
+    } finally {
+      setExporting(false);
+      setTimeout(() => { setNotification(null); }, SAVED_BANNER_DURATION_MS);
+    }
+  }
+
   const [preparingEmail, setPreparingEmail] = useState(false);
   async function shareNoteText(): Promise<void> {
     if (!await confirmMarkdownWithoutTags('share')) return;
@@ -1075,6 +1096,13 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
                 <li role="menuitem">
                   <button type="button" className="kb-menu__item" disabled={exporting} onClick={() => { void handleExportMarkdown(); }}>
                     <DocumentExport size={16} /> Export as Markdown (.md)
+                  </button>
+                </li>
+                <li role="menuitem">
+                  <button type="button" className="kb-menu__item" disabled={exporting}
+                    title="Keep document formatting and link labels, without clickable hyperlinks"
+                    onClick={() => { void handleExportWord(); }}>
+                    <DocumentExport size={16} /> Export as Word (.docx)
                   </button>
                 </li>
                 <li role="menuitem">

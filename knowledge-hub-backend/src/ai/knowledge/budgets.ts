@@ -245,5 +245,5 @@ export function finalizeEvidenceAnswer(
     ? 'This is a partial result: the query did not run to completion, so the list and any count are incomplete.' : null;
   const missing = turn.retrievalUsed && !turn.deterministicPath && turn.counts.found === 0 && turn.counts.read === 0 ? NOTHING_FOUND_NOTE : null;
   const limit = budgetLimitation(turn.budget);
-  return [partial, missing, answer, limit || null].filter((part): part is string => part !== null).join('\n\n');
+  return [partial, missing, limit || null, answer].filter((part): part is string => part !== null).join('\n\n');
 }
