@@ -2,6 +2,31 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-29 08:51 UTC, podcast timeout follow-up):**
+- The graph correction is live in v269/revision 0000266. The actual frontend API
+  client returned the exact two-hop note graph in 1947ms with its unchanged
+  eight-second timeout: 500 nodes, 630 edges and four direct tag links.
+- The user-approved podcast recovery reached larger summary generation but
+  exposed the generic 60000ms lightweight-call timeout. It failed visibly and
+  no new brief was saved; remaining local work was stopped. User approved the
+  existing podcast-specific request timeout for summaries, cancellation of
+  outstanding requests after terminal failure, and one further recovery run.
+- Coverage now uses AI_PODCAST_PREP_REQUEST_TIMEOUT_MS (360000ms), still bounded
+  by the existing overall 480000ms preparation deadline. The run aborts its
+  shared signal on terminal failure, preventing other summary retries after
+  the run is already failed. No schedule, output allowance or publication change.
+- All validation checks pass:
+  - [x] Synced origin/main; both `tsc --noEmit` checks passed.
+  - [x] Backend build and lint non-regression passed (547/623).
+  - [x] All 22 affected podcast cases passed in the isolated environment,
+    including timeout selection, output recovery and failure cancellation.
+  - [x] `git diff --check` and Azure target access passed. Current v269;
+    next backend target v270. Reuse unchanged full-suite/frontend validation.
+- Existing application-only AZCLI targets, packaging, dependencies, data
+  contracts, authorisation and secrets are unchanged. No infrastructure or
+  frontend deployment; provisioning/template/RBAC changes are N/A.
+- Evidence: session files/podcast-timeout-tests.log and podcast-live-recovery.log.
+
 **Release scope and Section 7: Validation Proof (2026-10-29, graph/podcast correction):**
 - User reported note graphs failing after v268 and approved preserving graph
   behaviour while optimizing the query. The original verification used depth

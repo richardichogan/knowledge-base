@@ -5,6 +5,7 @@ import type { Pool } from 'pg';
 import { PGlite } from '@electric-sql/pglite';
 import type { FoundryClient } from '../src/ai/foundryClient.js';
 import { AiError, AiOutputLimitError } from '../src/types/errors.js';
+import { AI_PODCAST_PREP_REQUEST_TIMEOUT_MS } from '../src/config/constants.js';
 import { articleProse } from '../src/utils/articleReading.js';
 import { getSchedule } from '../src/ai/contentSchedule.js';
 import { acknowledgePodcastPrep, claimPodcastPrep, generatePodcastPrep, getPodcastPrepStatus, podcastPrepDue, podcastRecordingDate } from '../src/ai/podcastPrep.js';
@@ -304,7 +305,8 @@ test('research workers preserve order, run at most three requests and propagate 
 test('coverage retries only the capped chunk with a larger allowance and retains successful summaries', async () => {
   const calls: Array<{ text: string; tokens: number | undefined }> = [];
   const client: Pick<FoundryClient, 'chat'> = {
-    chat: async (_model, messages, tokens) => {
+    chat: async (_model, messages, tokens, timeout) => {
+      assert.equal(timeout, AI_PODCAST_PREP_REQUEST_TIMEOUT_MS);
       const input = JSON.parse(String(messages[1]?.content)) as { text: string };
       calls.push({ text: input.text, tokens });
       if (input.text === 'Long source' && tokens === 1500) throw new AiOutputLimitError();
@@ -376,6 +378,25 @@ test('preparation deadline fails the run and never saves a late result or an emp
     await assert.rejects(generatePodcastPrep(db, true, now, false, async () => ({
       proposal: { topics: [], warnings: [] }, evidence: [], warnings: [],
     })), /no evidenced topics/);
+    assert.equal((await memory.query("SELECT * FROM ai_chat_messages WHERE role='assistant'")).rows.length, 0);
+  } finally { await memory.close(); }
+});
+
+test('a terminal research failure cancels outstanding work before recording failure', async () => {
+  const { memory, db } = await fixture();
+  try {
+    let cancelled = false;
+    const failure = new Error('Coverage provider failed');
+    await assert.rejects(generatePodcastPrep(db, true, now, false, async (_db, _date, _previous, _now, signal) => {
+      assert.ok(signal);
+      signal.addEventListener('abort', () => {
+        cancelled = true;
+        assert.equal(signal.reason, failure);
+      }, { once: true });
+      throw failure;
+    }), error => error === failure);
+    assert.equal(cancelled, true);
+    assert.equal((await getPodcastPrepStatus(db, now)).run?.status, 'failed');
     assert.equal((await memory.query("SELECT * FROM ai_chat_messages WHERE role='assistant'")).rows.length, 0);
   } finally { await memory.close(); }
 });

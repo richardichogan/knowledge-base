@@ -109,10 +109,10 @@ export async function generatePodcastPrep(db: Pool, manual = false, now = new Da
     return getPodcastPrepStatus(db, now);
   }
   const perform = async (): Promise<void> => {
+    const controller = new AbortController();
     try {
       const history = await getSessionHistory(db, claim.sessionId);
       const previous = history.slice(-MAX_PREVIOUS_MESSAGES).map((m) => `${m.role}: ${m.content}`).join('\n').slice(-MAX_PREVIOUS_HISTORY_CHARS);
-      const controller = new AbortController();
       let timer: ReturnType<typeof setTimeout> | undefined;
       const result = await (async (): Promise<Awaited<ReturnType<typeof prepare>>> => {
         try {
@@ -154,6 +154,7 @@ export async function generatePodcastPrep(db: Pool, manual = false, now = new Da
       } catch (error) { await client.query('ROLLBACK'); throw error; }
       finally { client.release(); }
     } catch (error) {
+      controller.abort(error);
       const message = error instanceof Error ? error.message : 'Podcast preparation failed';
       console.error('[PodcastPrep] Generation failed:', error);
       await db.query(`UPDATE podcast_prep_runs SET status='failed',error=$3,retry_at=NOW()+interval '15 minutes'
