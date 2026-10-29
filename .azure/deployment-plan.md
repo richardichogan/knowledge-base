@@ -2,6 +2,32 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-29 09:10 UTC, podcast source recovery):**
+- The user-approved production recovery passed coverage but failed on an
+  unreadable YouTube source; no new brief was saved. User approved replacing
+  unreadable sources with the next ranked readable candidates and reporting
+  unavailable sources as research limitations, without citing unread content.
+- Preserve Discover/web ranking, freshness and editorial eligibility. Read at
+  most 32 candidates for up to 16 successful sources, with concurrency three.
+  Cancellation and a total source outage still fail explicitly.
+- All validation checks pass:
+  - [x] Synced origin/main; both `tsc --noEmit` checks passed.
+  - [x] Backend build and lint non-regression passed (547/623).
+  - [x] All 24 affected podcast cases passed in the isolated environment,
+    including ranked replacement, successful-only citations, limits and abort.
+  - [x] `git diff --check` and Azure target access passed. Current v270;
+    next backend target v271. Reuse unchanged full-suite/frontend validation.
+- Existing application-only AZCLI targets, packaging, dependencies, data
+  contracts, authorisation and secrets are unchanged. No infrastructure or
+  frontend deployment; provisioning/template/RBAC changes are N/A.
+- No further paid preparation run is authorised by this correction alone.
+- Change-for-fit: uses the existing research pipeline and ACA/shared-data
+  hosting; no dependencies, model-call increases, weaker contracts or secret
+  changes. Extra page reads are bounded. The smallest safer correction replaces
+  only unreadable candidates, keeps explicit limitations and fails on no evidence.
+- Evidence: session files/podcast-source-tests.log and
+  podcast-production-recovery.log.
+
 **Release scope and Section 7: Validation Proof (2026-10-29 08:51 UTC, podcast timeout follow-up):**
 - The graph correction is live in v269/revision 0000266. The actual frontend API
   client returned the exact two-hop note graph in 1947ms with its unchanged

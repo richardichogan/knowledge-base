@@ -30,6 +30,7 @@ const MIN_ARTICLE_CHARS = 800;
 const MAX_COVERAGE_CHUNKS = 16;
 const COVERAGE_CHUNK_CHARS = 24_000;
 const MAX_SOURCE_ARTICLES = 16;
+const MAX_SOURCE_READ_ATTEMPTS = 32;
 const MAX_EPISODE_GROUPS = 2;
 const MAX_SHOW_LANE_SAMPLE_CHARS = 2_000;
 const MAX_PROPOSAL_TOPICS = 6;
@@ -149,6 +150,40 @@ export function rankPodcastCandidates<T extends { title: string; url: string; da
 }
 
 type PodcastCandidate = { title: string; url: string; date: string; text?: string; discoverRank?: number };
+
+export async function readPodcastEvidence(candidates: PodcastCandidate[], signal?: AbortSignal, read = readPodcastSource):
+Promise<{ evidence: PodcastEvidence[]; warnings: string[] }> {
+  const evidence: PodcastEvidence[] = [];
+  const warnings: string[] = [];
+  const bounded = candidates.slice(0, MAX_SOURCE_READ_ATTEMPTS);
+  let offset = 0;
+  while (offset < bounded.length && evidence.length < MAX_SOURCE_ARTICLES) {
+    signal?.throwIfAborted();
+    const batch = bounded.slice(offset, offset + Math.min(RESEARCH_CONCURRENCY, MAX_SOURCE_ARTICLES - evidence.length));
+    const results = await mapPodcastResearch(batch, async candidate => {
+      try {
+        const body = await read(candidate.url);
+        signal?.throwIfAborted();
+        return { ok: true as const, candidate, excerpt: readingExcerpt(body, MAX_SOURCE_EXCERPT_CHARS) };
+      } catch (error) {
+        signal?.throwIfAborted();
+        const message = `Unavailable source excluded: ${candidate.title} (${candidate.url}). ${error instanceof Error ? error.message : String(error)}`;
+        console.warn('[PodcastPrep]', message);
+        return { ok: false as const, message };
+      }
+    }, signal);
+    for (const result of results) {
+      if (!result.ok) { warnings.push(result.message); continue; }
+      const { candidate, excerpt } = result;
+      evidence.push({ id: `source-${evidence.length + 1}`, title: candidate.title, url: candidate.url,
+        date: candidate.date, text: excerpt.text, ...(candidate.discoverRank !== undefined ? { discoverRank: candidate.discoverRank } : {}) });
+      if (excerpt.truncated) warnings.push(`Source read in excerpts: ${candidate.title}.`);
+    }
+    offset += batch.length;
+  }
+  if (!evidence.length) throw new Error(`No readable news sources were available; no podcast brief was generated. ${warnings.at(-1) ?? ''}`);
+  return { evidence, warnings };
+}
 
 /**
  * Discover and web news search are both sources: the slots alternate between the two ranked pools, so neither
@@ -355,22 +390,14 @@ Promise<{ proposal: PodcastProposal; evidence: PodcastEvidence[]; warnings: stri
   }, signal);
   signal?.throwIfAborted();
   candidates.push(...searches.flat());
-  const evidence: PodcastEvidence[] = [];
-  const selected = selectPodcastSources(candidates, MAX_SOURCE_ARTICLES, (candidate) =>
+  const selected = selectPodcastSources(candidates, MAX_SOURCE_READ_ATTEMPTS, (candidate) =>
     isFreshEvidence(candidate.date, since, now) && isNewsItem(candidate) && isMicrosoftRelevant(candidate) && showLaneScore(candidate) > 0);
-  if (selected.length && selected.every((c) => c.discoverRank !== undefined)) warnings.push('Web news search returned no fresh in-lane Microsoft sources; topics rely on the Discover list.');
   if (!selected.length) throw new Error('No fresh Microsoft-related enterprise AI sources were found; no brief was generated.');
-  const sources = await mapPodcastResearch(selected, async (candidate) => {
-    const body = await readPodcastSource(candidate.url);
-    const excerpt = readingExcerpt(body, MAX_SOURCE_EXCERPT_CHARS);
-    return { candidate, excerpt };
-  }, signal);
+  const sources = await readPodcastEvidence(selected, signal);
   signal?.throwIfAborted();
-  for (const { candidate, excerpt } of sources) {
-    evidence.push({ id: `source-${evidence.length + 1}`, title: candidate.title, url: candidate.url,
-      date: candidate.date, text: excerpt.text, ...(candidate.discoverRank !== undefined ? { discoverRank: candidate.discoverRank } : {}) });
-    if (excerpt.truncated) warnings.push(`Source read in excerpts: ${candidate.title}.`);
-  }
+  const evidence = sources.evidence;
+  warnings.push(...sources.warnings);
+  if (evidence.every(c => c.discoverRank !== undefined)) warnings.push('No readable fresh in-lane web news sources were available; topics rely on the Discover list.');
   const facts = JSON.stringify({ recording, researchCutoff: now.toISOString(), showArchive: archive, episodeCoverage: covered.text,
     recentOwnPosts: own.rows.map((r) => ({ title: r.title, date: r.date, url: r.url, text: readingExcerpt(r.body ?? '', MAX_RECENT_POST_EXCERPT_CHARS).text })),
     previousBriefAndUserEdits: previous, limitations: warnings, evidence });

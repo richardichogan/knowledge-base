@@ -9,7 +9,7 @@ import { AI_PODCAST_PREP_REQUEST_TIMEOUT_MS } from '../src/config/constants.js';
 import { articleProse } from '../src/utils/articleReading.js';
 import { getSchedule } from '../src/ai/contentSchedule.js';
 import { acknowledgePodcastPrep, claimPodcastPrep, generatePodcastPrep, getPodcastPrepStatus, podcastPrepDue, podcastRecordingDate } from '../src/ai/podcastPrep.js';
-import { isFreshEvidence, isMicrosoftRelevant, mapPodcastResearch, parsePodcastProposal, rankPodcastCandidates, selectPodcastSources, readPodcastSource, isNewsItem, showLaneScore, tavilyNewsTopic, renderPodcastBrief, selectEpisodeDocuments, summarisePodcastCoverage, type PodcastEvidence, type PodcastTopic, type ShowEpisode } from '../src/ai/podcastPrepResearch.js';
+import { isFreshEvidence, isMicrosoftRelevant, mapPodcastResearch, parsePodcastProposal, rankPodcastCandidates, selectPodcastSources, readPodcastSource, readPodcastEvidence, isNewsItem, showLaneScore, tavilyNewsTopic, renderPodcastBrief, selectEpisodeDocuments, summarisePodcastCoverage, type PodcastEvidence, type PodcastTopic, type ShowEpisode } from '../src/ai/podcastPrepResearch.js';
 
 const now = new Date('2026-10-15T06:00:00Z');
 const recording = '2026-10-16';
@@ -411,4 +411,45 @@ test('podcast source reads surface HTTP and extraction failures instead of retur
     fetch.mock.mockImplementation(async () => new Response(`<html><article><p>${body}</p></article></html>`, { headers: { 'content-type': 'text/html' } }));
     assert.equal(await readPodcastSource('https://microsoft.com/article'), body.trim());
   } finally { fetch.mock.restore(); }
+});
+
+test('unreadable news sources are replaced in ranked order, reported and never cited as evidence', async () => {
+  const candidates = Array.from({ length: 20 }, (_, i) => ({
+    title: `Article ${i}`, url: `https://example.test/${i}`, date: '2026-10-28', discoverRank: i,
+  }));
+  const read: string[] = [];
+  const result = await readPodcastEvidence(candidates, undefined, async url => {
+    read.push(url);
+    if (url.endsWith('/1')) throw new Error('Article extraction returned an access challenge');
+    return `Read article ${url}. `.repeat(40);
+  });
+  assert.equal(result.evidence.length, 16);
+  assert.equal(read.length, 17);
+  assert.deepEqual(result.evidence.map(e => e.url), candidates.filter((_, i) => i !== 1).slice(0, 16).map(c => c.url));
+  assert.deepEqual(result.evidence.map(e => e.id), Array.from({ length: 16 }, (_, i) => `source-${i + 1}`));
+  assert.equal(result.evidence[0]?.discoverRank, 0);
+  assert.match(result.warnings[0]!, /Article 1.*https:\/\/example.test\/1.*access challenge/);
+  const brief = renderPodcastBrief(recording, { ...prepared, warnings: result.warnings }, now);
+  assert.match(brief, /Research limitations/);
+  assert.match(brief, /Unavailable source excluded: Article 1/);
+});
+
+test('source replacement stops at its read budget and never turns a total source outage into a brief', async () => {
+  const candidates = Array.from({ length: 40 }, (_, i) => ({
+    title: `Article ${i}`, url: `https://example.test/${i}`, date: '2026-10-28',
+  }));
+  let calls = 0;
+  await assert.rejects(readPodcastEvidence(candidates, undefined, async () => {
+    calls++;
+    throw new Error('HTTP 403');
+  }), /No readable news sources.*HTTP 403/);
+  assert.equal(calls, 32);
+  calls = 0;
+  const controller = new AbortController();
+  await assert.rejects(readPodcastEvidence(candidates, controller.signal, async () => {
+    calls++;
+    controller.abort(new Error('Preparation deadline'));
+    throw new Error('Read interrupted');
+  }), /Preparation deadline/);
+  assert.equal(calls, 1);
 });
