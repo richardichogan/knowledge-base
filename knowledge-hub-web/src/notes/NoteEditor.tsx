@@ -65,6 +65,8 @@ interface NoteEditorProps {
   onBeforeViewChange?: () => Promise<void>;
   headerContent?: React.ReactNode;
   designPanel?: React.ReactNode;
+  /** Side panel tab label for designPanel (defaults to "Design"). */
+  designPanelLabel?: string;
   loading?: boolean;
   bodyContent?: React.ReactNode;
   /** Rendered after the note body in the editor view. */
@@ -202,7 +204,7 @@ function detectPastedCode(text: string): { isCode: boolean; language: string; fo
   return { isCode: false, language: 'text', formatted: text };
 }
 
-export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap, onCreateDiagram, onImport, onRecovery, onPresent, onStopPresenting, onShowEditor, campaignRequest, hideProperties = false, externalBusy = false, onBeforeViewChange, headerContent, designPanel, loading = false, bodyContent, footerContent, visualContent, htmlViewEnabled = true, actionContent, onSaveReady }) => {
+export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap, onCreateDiagram, onImport, onRecovery, onPresent, onStopPresenting, onShowEditor, campaignRequest, hideProperties = false, externalBusy = false, onBeforeViewChange, headerContent, designPanel, designPanelLabel, loading = false, bodyContent, footerContent, visualContent, htmlViewEnabled = true, actionContent, onSaveReady }) => {
   const queryClient = useQueryClient();
   const { openAthena, pageContext } = useAthenaContext();
   const [contentType, setContentType] = useState<ContentType>(doc.contentType);
@@ -1032,6 +1034,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   const identity = useIdentity();
   const metadata: MetadataPanelProps = {
     designPanel,
+    ...(designPanelLabel !== undefined && { designPanelLabel }),
     onSaveBeforeCampaign: doSave,
     campaignRequest,
     writingBusy: historyBusy || externalBusy, doc, onShowEditor, contentType,

@@ -45,6 +45,7 @@ import { entityRelationshipsRouter } from './routes/entityRelationships.js';
 import { buildRouter } from './routes/build.js';
 import { useCasesRouter } from './routes/useCases.js';
 import { designsRouter } from './routes/designs.js';
+import { podcastEpisodesRouter } from './routes/podcastEpisodes.js';
 import { agentJobsRouter } from './routes/agentJobs.js';
 import { DIAGRAM_LIMITS } from './services/diagramValidation.js';
 import { HTTP_STATUS } from './config/constants.js';
@@ -98,6 +99,7 @@ export function createApp(readiness: () => RuntimePhase = () => 'starting'): exp
   // Document uploads — multipart/form-data for PDF/DOCX/PPTX/XLSX
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
   app.use('/api/documents/upload', upload.single('file'));
+  app.use(/^\/api\/podcast-episodes\/[^/]+\/transcript\/?$/, upload.single('file'));
   // Large notes: BlockNote's JSON is several times the size of the text, so a long note (or a big
   // edit applied to one) is well past 1mb. Chat turns carry the open note's text too.
   app.use('/api/notes', express.json({ limit: '25mb' }));
@@ -182,6 +184,7 @@ export function createApp(readiness: () => RuntimePhase = () => 'starting'): exp
   app.use('/api/build', buildRouter);
   app.use('/api/use-cases', useCasesRouter);
   app.use('/api/designs', designsRouter);
+  app.use('/api/podcast-episodes', podcastEpisodesRouter);
   app.use('/api/agent-jobs', agentJobsRouter);
   app.use('/api/today', todayRouter);
   app.use('/api/repo-project-mappings', repoProjectMappingsRouter);

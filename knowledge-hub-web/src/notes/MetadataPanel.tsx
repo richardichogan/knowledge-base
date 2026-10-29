@@ -55,6 +55,7 @@ interface AppliedTag {
 
 export interface MetadataPanelProps {
   designPanel?: React.ReactNode;
+  designPanelLabel?: string;
   writingBusy?: boolean;
   doc: NoteDocument;
   contentType: ContentType;
@@ -99,6 +100,7 @@ function formatDateTime(iso: string): string {
 
 export const MetadataPanel: React.FC<MetadataPanelProps> = ({
   designPanel,
+  designPanelLabel = 'Design',
   writingBusy = false,
   doc,
   contentType,
@@ -224,7 +226,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
 
   const tabs: { id: SidePanelTab; label: string }[] = [
     { id: 'athena', label: 'Athena' },
-    ...(designPanel ? [{ id: 'design' as const, label: 'Design' }] : []),
+    ...(designPanel ? [{ id: 'design' as const, label: designPanelLabel }] : []),
     { id: 'metadata', label: 'Metadata' },
     ...(contentType === 'podcast-show-notes' ? [{ id: 'campaign' as const, label: 'Campaign' }] : []),
     { id: 'connections', label: 'Connections' },
@@ -431,8 +433,8 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
 
         {tab === 'connections' && (
           <div role="tabpanel" id="think-side-panel-connections" aria-labelledby="think-side-tab-connections" className="notes-meta-tabpanel">
-            <EntityLinks key={noteId} source={{ type: 'note', id: noteId }} />
             <NoteMiniGraph key={noteId} noteId={noteId} />
+            <EntityLinks key={noteId} source={{ type: 'note', id: noteId }} />
             <NoteBacklinks noteId={noteId} />
             <UnlinkedMentions noteId={noteId} />
             <ConnectionsPanel refId={doc.id} refType="note" headerless />

@@ -14,6 +14,7 @@ import { NoteList } from './NoteList';
 import { QuickSparkModal } from '../components/sparks/QuickSparkModal';
 import { fetchNotesPage, fetchNote, createNote, deleteNote, extractNoteBlockText, buildPreview } from './noteStorage';
 import { presentationScript } from '../features/autocue/presentationScript';
+import { episodeScriptText } from '../types/podcastEpisodes';
 import type { NoteContentBlock, NoteListPage } from './noteStorage';
 import { athenaLinkText, prepareEntityLinkExport } from './linkLabels';
 import { loadedNotes, nextNotesPage, noteListQuery, type NoteListQuery } from './noteListState';
@@ -39,6 +40,7 @@ import { useDesktopCommand } from '../services/desktopCommands';
 import { getDesktop } from '../types/desktop';
 import { authSession } from '../services/authSession';
 import { DesignParent } from '../features/designs/DesignParent';
+import { PodcastEpisodeParent } from '../features/podcasts/PodcastEpisodeParent';
 import { describeApiError, requireApiData } from '../services/apiError';
 import { AppDialog } from '../components/AppDialog';
 import { NoteEditorHost } from './NoteEditorHost';
@@ -92,6 +94,8 @@ export const NotesPage: React.FC = () => {
     return view === 'designs' ? 'notes' : view ?? 'notes';
   });
   const [selectedDesign, setSelectedDesign] = useState<string | null>(searchParams.get('design'));
+  const [selectedEpisode, setSelectedEpisode] = useState<string | null>(searchParams.get('design') ? null : searchParams.get('episode'));
+  const parentOpen = selectedDesign !== null || selectedEpisode !== null;
   const [parentChoices, setParentChoices] = useState<Array<{ id: string; parentNoteId: string; title: string; role: string }>>([]);
   const [choiceSourceId, setChoiceSourceId] = useState<string | null>(null);
   usePageTitle({ view: VIEW_MODES.find((v) => v.key === mode)?.label });
@@ -162,8 +166,12 @@ export const NotesPage: React.FC = () => {
   }, [notePages]);
   const noteTotal = notePages?.pages[0]?.total ?? 0;
   const selectDesign = (id: string, role?: string, assetId?: string): void => {
-    setSelectedDesign(id); setSelectedId(id); setMode('notes'); setMobilePane('editor');
+    setSelectedDesign(id); setSelectedEpisode(null); setSelectedId(id); setMode('notes'); setMobilePane('editor');
     setSearchParams({ design: id, ...(role ? { tab: role } : {}), ...(assetId ? { asset: assetId } : {}) }, { replace: true });
+  };
+  const selectEpisode = (id: string, tab?: string): void => {
+    setSelectedEpisode(id); setSelectedDesign(null); setSelectedId(id); setMode('notes'); setMobilePane('editor');
+    setSearchParams({ episode: id, tab: tab ?? searchParams.get('tab') ?? 'prep' }, { replace: true });
   };
 
   async function refreshNotes(): Promise<void> {
@@ -193,7 +201,12 @@ export const NotesPage: React.FC = () => {
     const location = readThinkLocation(searchParams);
     const designId = searchParams.get('design');
     if (designId) {
-      setSelectedDesign(designId); setMode('notes'); setMobilePane('editor');
+      setSelectedDesign(designId); setSelectedEpisode(null); setMode('notes'); setMobilePane('editor');
+      return;
+    }
+    const episodeId = searchParams.get('episode');
+    if (episodeId) {
+      setSelectedEpisode(episodeId); setSelectedDesign(null); setSelectedId(episodeId); setMode('notes'); setMobilePane('editor');
       return;
     }
     if (location?.view === 'designs') { setMode('notes'); return; }
@@ -235,7 +248,7 @@ export const NotesPage: React.FC = () => {
   const latestSelectRef = useRef<string | null>(null);
 
   async function handleSelectNote(id: string): Promise<void> {
-    if (!selectedDesign && id === selectedId && openDoc?.id === id && openDoc.contentType !== 'design') return;
+    if (!parentOpen && id === selectedId && openDoc?.id === id && openDoc.contentType !== 'design' && openDoc.contentType !== 'podcast-episode') return;
     latestSelectRef.current = id;
     setLoadingNoteId(id);
     setSelectedId(id); // highlight immediately; the body follows
@@ -244,14 +257,15 @@ export const NotesPage: React.FC = () => {
       if (latestSelectRef.current !== id) return;
       if (doc === null) throw new Error('The document is unavailable. Your current document has been kept open.');
       if (doc.contentType === 'design') { setOpenDoc(doc); selectDesign(doc.id); return; }
+      if (doc.contentType === 'podcast-episode') { setOpenDoc(doc); selectEpisode(doc.id, 'prep'); return; }
       const parents = requireApiData(await api.designMembership('note', id));
       if (latestSelectRef.current !== id) return;
       if (parents.length === 1) { selectDesign(parents[0]!.parentNoteId, parents[0]!.role, id); return; }
       if (parents.length > 1) { setChoiceSourceId(id); setParentChoices(parents); return; }
-      setSelectedDesign(null);
+      setSelectedDesign(null); setSelectedEpisode(null);
       setOpenDoc(doc);
-      if (searchParams.get('noteId') !== id || searchParams.has('design')) {
-        const next = new URLSearchParams(searchParams); next.delete('design'); next.delete('view'); next.delete('tab'); next.delete('asset'); next.delete('mapId');
+      if (searchParams.get('noteId') !== id || searchParams.has('design') || searchParams.has('episode')) {
+        const next = new URLSearchParams(searchParams); next.delete('design'); next.delete('episode'); next.delete('view'); next.delete('tab'); next.delete('asset'); next.delete('mapId');
         next.set('noteId', id);
         setSearchParams(next, { replace: true });
       }
@@ -301,6 +315,15 @@ export const NotesPage: React.FC = () => {
     if (authSession.isExpired()) throw new Error('Sign in again before presenting.');
     const presentation = getDesktop()?.presentation;
     if (!presentation) throw new Error('Update Athena Desktop to present on another display.');
+    if (mode === 'notes' && selectedEpisode) {
+      if (!presentation.present) throw new Error('Install the updated Athena Desktop to present directly without the settings window.');
+      const episode = requireApiData(await api.getPodcastEpisode(selectedEpisode));
+      if (authSession.isExpired()) throw new Error('Sign in again before presenting.');
+      const text = episodeScriptText(episode.scriptIntro, episode.scriptCards);
+      if (!text.trim()) throw new Error('Write or draft the script before presenting.');
+      await presentation.present({ noteId: episode.noteId, title: episode.title, text });
+      return;
+    }
     if (mode !== 'notes' || !openDoc) { await presentation.open(); return; }
     if (!presentation.present) throw new Error('Install the updated Athena Desktop to present directly without the settings window.');
     const saved = await fetchNote(openDoc.id);
@@ -311,6 +334,14 @@ export const NotesPage: React.FC = () => {
     await presentation.present({ noteId: saved.id, title: saved.title, text: script.text });
   }
   useDesktopCommand('present-note', presentNote);
+  const presentHandler = getDesktop()?.presentation ? (): void => { void presentNote().catch(err => {
+    void alertDialog(err instanceof Error ? err.message : 'Could not open presentation.', { title: 'Presentation', tone: 'danger' });
+  }); } : undefined;
+  const stopPresentingHandler = getDesktop()?.presentation ? (): void => {
+    void getDesktop()?.presentation?.close().catch(err => {
+      void alertDialog(err instanceof Error ? err.message : 'Could not stop presenting.', { title: 'Presentation', tone: 'danger' });
+    });
+  } : undefined;
   useEffect(() => {
     const presentation = getDesktop()?.presentation;
     const release = (): void => {
@@ -466,6 +497,7 @@ export const NotesPage: React.FC = () => {
   function handleNoteSaved(updated: NoteDocument): void {
     setOpenDoc(current => current?.id === updated.id ? updated : current);
     if (updated.contentType === 'design' && latestSelectRef.current === updated.id) selectDesign(updated.id);
+    if (updated.contentType === 'podcast-episode' && latestSelectRef.current === updated.id) selectEpisode(updated.id, 'prep');
     // Show the accepted save immediately, then reconcile server ordering and filters.
     const preview = buildPreview(updated.contentJson, updated.title);
     const patchRow = (n: NoteListItem): NoteListItem => {
@@ -508,15 +540,15 @@ export const NotesPage: React.FC = () => {
   // previously a re-run reset Athena's context without images and then
   // skipped the lookup, so Athena almost never saw a note's images.
   const imageDescriptionsRef = useRef(new Map<string, string[]>());
-  const noteId = mode === 'notes' && !selectedDesign ? openDoc?.id ?? null : null;
-  const noteContentJson = mode === 'notes' && !selectedDesign ? openDoc?.contentJson ?? null : null;
-  const noteTitle = mode === 'notes' && !selectedDesign ? openDoc?.title ?? null : null;
-  const noteContentType = mode === 'notes' && !selectedDesign ? openDoc?.contentType ?? null : null;
-  const noteProjectId = mode === 'notes' && !selectedDesign ? openDoc?.projectId ?? null : null;
+  const noteId = mode === 'notes' && !parentOpen ? openDoc?.id ?? null : null;
+  const noteContentJson = mode === 'notes' && !parentOpen ? openDoc?.contentJson ?? null : null;
+  const noteTitle = mode === 'notes' && !parentOpen ? openDoc?.title ?? null : null;
+  const noteContentType = mode === 'notes' && !parentOpen ? openDoc?.contentType ?? null : null;
+  const noteProjectId = mode === 'notes' && !parentOpen ? openDoc?.projectId ?? null : null;
 
   useEffect(() => {
-    if (selectedDesign) return undefined;
-    if (mode === 'notes' && !selectedDesign && openDoc !== null) {
+    if (parentOpen) return undefined;
+    if (mode === 'notes' && !parentOpen && openDoc !== null) {
       // Give Athena the note's actual text, not just its title/type — otherwise
       // it has nothing to answer questions about the content you're viewing
       // and falls back to (possibly stale/unindexed) RAG search instead.
@@ -586,7 +618,7 @@ export const NotesPage: React.FC = () => {
     // nothing changed, which would otherwise refire this effect (and the image
     // lookup fetch inside it) in a tight loop on a timer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, selectedDesign, noteId, noteContentJson, noteTitle, noteContentType, noteProjectId, setAthenaContext]);
+  }, [mode, parentOpen, noteId, noteContentJson, noteTitle, noteContentType, noteProjectId, setAthenaContext]);
 
   return (
     <div className="notes-page" role="main" data-active-pane={mode === 'sparks' ? 'editor' : mobilePane}>
@@ -598,7 +630,7 @@ export const NotesPage: React.FC = () => {
           {mode === 'notes' && <div className="notes-doc-actions-slot kh-command-row" ref={setDocActionsSlot} />}
           {mode === 'canvas' && <button type="button" className="kb-import-btn notes-recycle-launch" aria-haspopup="dialog"
             title="Open canvas recycle bin" onClick={() => { setRecoveryOpen(true); }}><TrashCan size={16} /><span>Recycle bin</span></button>}
-          {mode === 'notes' && !selectedDesign && openDoc === null && (
+          {mode === 'notes' && !parentOpen && openDoc === null && (
             <div className="notes-export-anchor notes-more-anchor kh-command-row" ref={moreMenuRef}>
               <button type="button" className="kb-import-btn notes-more-btn" aria-haspopup="menu" aria-expanded={moreMenuOpen}
                 onClick={() => { setMoreMenuOpen((v) => !v); }}>
@@ -734,7 +766,7 @@ export const NotesPage: React.FC = () => {
           {mode === 'notes' && (
             <NoteList
               notes={notes}
-              selectedId={selectedDesign ?? selectedId}
+              selectedId={selectedDesign ?? selectedEpisode ?? selectedId}
               onSelect={(id) => { setMobilePane('editor'); void handleSelectNote(id); }}
               onSelectPassage={(id, passageId) => { setSearchParams({ noteId: id, passageId }); }}
               onDelete={(id) => { void handleDeleteNote(id); }}
@@ -859,18 +891,14 @@ export const NotesPage: React.FC = () => {
           </div>
         ) : (
           <div className="notes-editor-area">
-            <NoteEditorHost enabled={selectedDesign !== null || openDoc !== null || loadingNoteId !== null} loading={loadingNoteId !== null}>
+            <NoteEditorHost enabled={parentOpen || openDoc !== null || loadingNoteId !== null} loading={loadingNoteId !== null}>
             {selectedDesign ? <DesignParent key={selectedDesign} id={selectedDesign} actionsSlot={docActionsSlot}
-              workspaceBusy={loadingNoteId !== null} onOpenNote={id => { void handleSelectNote(id); }} onOpenMap={openMap} /> : openDoc !== null ? (
+              workspaceBusy={loadingNoteId !== null} onOpenNote={id => { void handleSelectNote(id); }} onOpenMap={openMap} />
+            : selectedEpisode ? <PodcastEpisodeParent key={selectedEpisode} id={selectedEpisode} actionsSlot={docActionsSlot}
+              workspaceBusy={loadingNoteId !== null} onOpenNote={id => { void handleSelectNote(id); }} onOpenMap={openMap}
+              onPresent={presentHandler} onStopPresenting={stopPresentingHandler} /> : openDoc !== null ? (
               <NoteEditor key={openDoc.id} doc={openDoc} campaignRequest={campaignRequest?.noteId === openDoc.id ? campaignRequest.sequence : undefined} externalBusy={loadingNoteId !== null} onSaved={handleNoteSaved} onDelete={(id) => { void handleDeleteNote(id); }} actionsSlot={docActionsSlot} onShowEditor={showEditor} onMapNote={(id) => { void mapNote(id); }} onOpenMap={openMap} onImport={() => { setImportModalOpen(true); }} onRecovery={() => { setRecoveryOpen(true); }}
-                onPresent={getDesktop()?.presentation ? () => { void presentNote().catch(err => {
-                  void alertDialog(err instanceof Error ? err.message : 'Could not open presentation.', { title: 'Presentation', tone: 'danger' });
-                }); } : undefined}
-                onStopPresenting={getDesktop()?.presentation ? () => {
-                  void getDesktop()?.presentation?.close().catch(err => {
-                    void alertDialog(err instanceof Error ? err.message : 'Could not stop presenting.', { title: 'Presentation', tone: 'danger' });
-                  });
-                } : undefined}
+                onPresent={presentHandler} onStopPresenting={stopPresentingHandler}
                 onCreateDiagram={async (id) => { if (!await handleCreateCanvas('diagram', id)) throw new Error('Could not create the linked diagram. Please retry.'); }} />
             ) : (
               <div className="notes-empty-state">Select a document or create a new one</div>

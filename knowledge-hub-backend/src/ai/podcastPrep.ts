@@ -6,6 +6,7 @@ import { ukClock } from '../sync/ukClock.js';
 import { getSessionHistory } from './chatSessionStore.js';
 import { researchPodcast, renderPodcastBrief } from './podcastPrepResearch.js';
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
+import { ensureEpisodeForPrep } from '../podcasts/podcastEpisodeStore.js';
 
 export interface PodcastPrepRun {
   recordingDate: string; status: 'running' | 'ready' | 'failed'; sessionId: string;
@@ -153,6 +154,9 @@ export async function generatePodcastPrep(db: Pool, manual = false, now = new Da
         await client.query('COMMIT');
       } catch (error) { await client.query('ROLLBACK'); throw error; }
       finally { client.release(); }
+      // The brief is saved; failing to open its episode must not fail the prep.
+      await ensureEpisodeForPrep(db, recording, claim.sessionId, result.proposal.topics[0]?.title ?? null)
+        .catch((error: unknown) => { console.error('[PodcastPrep] Could not create the podcast episode:', error); });
     } catch (error) {
       controller.abort(error);
       const message = error instanceof Error ? error.message : 'Podcast preparation failed';

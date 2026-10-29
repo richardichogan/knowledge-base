@@ -120,6 +120,8 @@ interface AIChatPageProps {
    * inside this component.
    */
   onBusyChange?: ((busy: boolean) => void) | undefined;
+  /** Pins the chat to one existing conversation (e.g. a podcast episode's prep), without New chat or shared storage. */
+  fixedSessionId?: string | undefined;
 }
 
 // Send filtered 16kHz mono WAV to full-recording transcription.
@@ -286,6 +288,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   promptRequest,
   title,
   onBusyChange,
+  fixedSessionId,
 }) => {
   // The Think-embedded panel manages its own per-note session (see the
   // note-linking effect below) instead of sharing localStorage-persisted
@@ -306,7 +309,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     ? `${pageContext.type}:${pageContext.id ?? ''}:${pageContext.title}`
     : null;
   const isContextDismissed = pageContextKey !== null && dismissedContextKey === pageContextKey;
-  const SESSION_STORAGE_KEY = standalone
+  const SESSION_STORAGE_KEY = fixedSessionId !== undefined ? ''
+    : standalone
     ? SESSION_STORAGE_KEY_STANDALONE
     : isNoteLinkedPanel
       ? '' // no shared localStorage session for the Think-embedded panel — its session is driven entirely by the note-linking effect below.
@@ -322,6 +326,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   // A link shared from the phone or browser (manifest share_target → /chat?title&text&url) always starts a new chat.
   const [isShareLaunch] = useState(() => standalone && hasShareParams(new URLSearchParams(window.location.search)));
   const [sessionId, setSessionId] = useState<string | null>(() => {
+    if (fixedSessionId !== undefined) return fixedSessionId;
     if (isNoteLinkedPanel || isShareLaunch) return null;
     try {
       // /chat?session=<id> — opens that chat (e.g. from a Plan task's linked chat).
@@ -765,7 +770,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   // The first time Athena is opened each day she opens on the morning briefing
   // (not in the per-note/canvas panels, which keep their own chats).
   useEffect(() => {
-    if (isNoteLinkedPanel || promptRequest !== undefined) return undefined;
+    if (isNoteLinkedPanel || promptRequest !== undefined || fixedSessionId !== undefined) return undefined;
     // Opened on a specific chat (e.g. from a Plan task) — that chat wins.
     if (standalone && new URLSearchParams(window.location.search).get('session')) return undefined;
     let cancelled = false;
@@ -1151,6 +1156,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     onBusyChange?.(chatMutation.isPending);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatMutation.isPending]);
+  const busyChangeRef = useRef(onBusyChange);
+  busyChangeRef.current = onBusyChange;
+  useEffect(() => () => { busyChangeRef.current?.(false); }, []);
 
   useEffect(() => {
     if (!isNoteLinkedPanel || !currentNoteId) return;
@@ -2079,7 +2087,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           linkConversation={!isNoteLinkedPanel}
         />
       )}
-      {messages.length > 0 && !standalone && (
+      {messages.length > 0 && !standalone && fixedSessionId === undefined && (
         <Button
           size="sm"
           kind="ghost"

@@ -13,6 +13,7 @@ export type ContentType =
   | 'design'
   | 'blog'
   | 'podcast'
+  | 'podcast-episode'
   | 'podcast-show-notes'
   | 'newsletter'
   | 'project'
@@ -43,6 +44,7 @@ export const CONTENT_TYPE_OPTIONS: ContentTypeOption[] = [
   { id: 'architecture',         label: 'Architecture doc',   group: 'Work' },
   { id: 'blog',                 label: 'Blog draft',         group: 'Publishing' },
   { id: 'newsletter',           label: 'Newsletter edition', group: 'Publishing' },
+  { id: 'podcast-episode',      label: 'Podcast',            group: 'Publishing' },
   { id: 'podcast',              label: 'Podcast script',     group: 'Publishing' },
   { id: 'podcast-show-notes',   label: 'Podcast show notes', group: 'Publishing' },
   { id: 'script',               label: 'Script',             group: 'Publishing' },
@@ -63,6 +65,7 @@ export const CONTENT_TYPE_TAG: Record<ContentType, 'green' | 'teal' | 'purple' |
   design:              'teal',
   blog:                'green',
   podcast:             'teal',
+  'podcast-episode':   'cyan',
   'podcast-show-notes': 'purple',
   newsletter:          'purple',
   project:             'blue',

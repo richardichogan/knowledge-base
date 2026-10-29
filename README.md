@@ -1041,8 +1041,7 @@ Both presentation modes preserve inline line breaks, paragraph spacing and empty
 paragraphs from saved notes. Formatting spans stay on the same line; nested
 blocks, links and readable table text are retained.
 Athena Desktop saves speed, text size, mirror, flip and opacity on that device
-between sessions. Browser Autocue saves text size and microphone sensitivity in
-that browser's local storage; blocked storage shows an error. These preferences
+between sessions. These preferences
 are not cross-device sync and do not resume playback or a previous scroll position.
 
 ## Blueprint regeneration and navigation

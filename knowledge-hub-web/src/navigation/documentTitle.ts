@@ -6,7 +6,6 @@ const MAX_PART_LENGTH = 60;
 
 const STANDALONE_SECTIONS: Record<string, string> = {
   '/chat': 'Chat',
-  '/autocue': 'Autocue',
 };
 
 export function formatTitleDate(date: Date): string {

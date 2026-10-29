@@ -18,7 +18,7 @@ It is one place to:
 - **Plan and govern**: tasks, projects, people, registers of risks and issues, and review packets (Plan, Projects, People);
 - **Turn ideas into specs and build them** via GitHub Copilot or cloud coding agents (Use cases, Build);
 - **Produce and share** when he chooses: podcast prep, blog and LinkedIn posts, Bluesky posts, diagram exports to Mural and draw.io, notes published to GitHub, and manual emails (Share);
-- **Present**: a voice-paced teleprompter (Autocue).
+- **Present**: a teleprompter on the Elgato display through Athena Desktop.
 
 Athena does most of the writing. Richard mostly prompts, decides and reviews; he does not usually draft by hand.
 
@@ -79,7 +79,7 @@ In priority order:
    - Shape it into a spec for a product: an Imagine demo, the Imagine demo platform, or another IBM or personal product.
    - Hand it to GitHub Copilot to build. That is usually an interactive GitHub Copilot session; Athena Build is the option for clear, separable work.
    - See section 6.
-2. **Podcast topic organisation.** Each Thursday Athena prepares a ranked topic brief for the Friday recording, threaded to earlier episodes. Richard reshapes it in conversation, and the show notes persona writes the notes. Episode-coverage summaries recover from an output-token limit by retrying only the failed chunk once at 3,000 tokens, then splitting that chunk into two if needed. Each half has the same bounded retry, with no further splitting; successful chunks are not rerun, no source text is omitted, and truncated model responses are not accepted. Summaries use the podcast-specific request timeout, not the generic lightweight-call timeout. The overall eight-minute deadline and Thursday schedule are unchanged; a terminal failure cancels outstanding requests. Tracking topics over time matters here and in competitive monitoring (use case 5); nowhere else.
+2. **Podcast topic organisation.** Each Thursday Athena prepares a ranked topic brief for the Friday recording, threaded to earlier episodes, and creates that recording's **Podcast** episode in Think ("Cloudy with a Chance of Insights: Episode N: <title>", numbered from the last episode). The episode is a note content type with five tabs: **Prep** (the brief conversation), **Script** (a free-text intro, then unnumbered, reorderable topic cards, each a short synopsis plus a few bullet points; no outro. Drafted from prep and presented on the Elgato display through Athena Desktop), **Transcript** (a Riverside .txt, .srt or .docx export), **Show Notes** (drafted by the show notes persona from the transcript only) and **Campaign**. Today's podcast card opens the episode's Prep tab. Episode-coverage summaries recover from an output-token limit by retrying only the failed chunk once at 3,000 tokens, then splitting that chunk into two if needed. Each half has the same bounded retry, with no further splitting; successful chunks are not rerun, no source text is omitted, and truncated model responses are not accepted. Summaries use the podcast-specific request timeout, not the generic lightweight-call timeout. The overall eight-minute deadline and Thursday schedule are unchanged; a terminal failure cancels outstanding requests. Tracking topics over time matters here and in competitive monitoring (use case 5); nowhere else.
 
 Podcast news research replaces unreadable source candidates with the next ranked
 readable candidates, keeping the Discover/web selection order. At most 32 source
@@ -125,7 +125,6 @@ of inventing a brief.
 | **Knowledge graph** (`/graph`) | A simple force-directed 2D graph and an accessible relationship list, without a 3D option. Search, focus and inspect recorded or explicitly labelled inferred connections; start from a note's Connections-panel mini graph. |
 | **Memory** (`/memory`) | What Athena remembers about Richard and his work. |
 | **People** (`/people`) | Contacts with email aliases, organisation, role and topics. Import contact reports from Markdown; mention people with `@` in notes and chat. |
-| **Autocue** (`/autocue`) | A full-screen teleprompter for note scripts, paced by the speaker's voice or a gamepad. Runs outside the normal app shell. |
 | **Projects** (`/projects`) | Project goal, role, dates, expected outputs, and the project **cockpit**, which holds the register of questions, risks and issues, and review packets. |
 | **Share** | Manual, review-before-send emails through SMTP2GO (Mural links, draw.io attachments, GitHub note links), Mural export, GitHub note publishing and Bluesky/LinkedIn personal-profile posting from Discover articles. Automatic publishing is permitted only through an explicitly enabled Jobs workflow with automatic delivery selected. |
 | **Management** | Tag Manager, repo-to-tag and repo-to-project mappings, Knowledge health (AI usage, sync runs, index freshness), practice-exam score history, and voice transcription and speech. |

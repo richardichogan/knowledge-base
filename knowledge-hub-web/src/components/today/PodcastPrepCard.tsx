@@ -2,7 +2,8 @@ import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import { requireTodayData } from '../../services/useTodayBrief';
-import { podcastBriefUrl } from '../../types/podcastPrep';
+import { podcastBriefUrl, type PodcastPrepRun } from '../../types/podcastPrep';
+import { episodeUrl } from '../../types/podcastEpisodes';
 
 export function usePodcastPrep() {
   return useQuery({
@@ -10,6 +11,17 @@ export function usePodcastPrep() {
     queryFn: async () => requireTodayData(await api.getPodcastPrep()),
     refetchInterval: 30_000, staleTime: 15_000,
   });
+}
+
+/** The episode's Prep tab when the brief created one; otherwise the brief chat. */
+function useBriefHref(run: PodcastPrepRun | null | undefined): string | null {
+  const episode = useQuery({
+    queryKey: ['podcast-episode-for-recording', run?.recordingDate],
+    queryFn: async () => requireTodayData(await api.podcastEpisodeForRecording(run!.recordingDate)),
+    enabled: !!run?.generatedAt, retry: false, staleTime: 60_000,
+  });
+  if (!run?.generatedAt) return null;
+  return episode.data?.noteId ? episodeUrl(episode.data.noteId, 'prep') : podcastBriefUrl(run);
 }
 
 export const PodcastPrepCard: React.FC = () => {
@@ -23,6 +35,7 @@ export const PodcastPrepCard: React.FC = () => {
   const run = data?.run;
   const brief = run?.generatedAt ? run : data?.latestBrief;
   const running = run?.status === 'running';
+  const briefHref = useBriefHref(brief);
   return (
     <section className="podcast-prep" aria-labelledby="podcast-prep-title" aria-busy={running || generate.isPending}>
       <div className="podcast-prep__heading"><h2 id="podcast-prep-title">Podcast preparation</h2>
@@ -38,7 +51,7 @@ export const PodcastPrepCard: React.FC = () => {
             : run?.status === 'ready' ? <p>{run.warnings.length ? 'Brief ready, with research limitations noted.' : 'Your shortlist and three recommended discussions are ready.'}</p>
               : <p>Prepared automatically before a scheduled Friday recording. You can also prepare it now.</p>}
         <div className="podcast-prep__actions">
-          {brief?.generatedAt && <a href={podcastBriefUrl(brief)} target="_blank" rel="noreferrer">Open {brief.recordingDate === data.nextRecording ? 'podcast brief' : `last brief (${brief.recordingDate})`}</a>}
+          {brief?.generatedAt && briefHref && <a href={briefHref} target="_blank" rel="noreferrer">Open {brief.recordingDate === data.nextRecording ? 'podcast brief' : `last brief (${brief.recordingDate})`}</a>}
           <button type="button" disabled={running || generate.isPending || Boolean(data.scheduleWarning)}
             onClick={() => { generate.mutate(); }}>
             {running || generate.isPending ? 'Preparing...' : run?.generatedAt ? 'Refresh brief' : run?.status === 'failed' ? 'Retry preparation' : 'Prepare now'}
@@ -54,6 +67,7 @@ export const PodcastPrepNotification: React.FC = () => {
   const qc = useQueryClient();
   const { data } = usePodcastPrep();
   const run = data?.run?.status === 'ready' ? data.run : data?.latestBrief;
+  const briefHref = useBriefHref(run);
   const acknowledge = useMutation({
     mutationFn: async () => {
       if (!run?.generatedAt) throw new Error('No completed podcast brief to acknowledge');
@@ -67,7 +81,7 @@ export const PodcastPrepNotification: React.FC = () => {
       <span><strong>Podcast brief ready</strong> — recording {run.recordingDate}.
         {run.warnings.length > 0 ? ' Check the research limitations.' : ''}</span>
       <div className="podcast-prep__actions">
-        <a href={podcastBriefUrl(run)} target="_blank" rel="noreferrer">Open podcast brief</a>
+        <a href={briefHref ?? podcastBriefUrl(run)} target="_blank" rel="noreferrer">Open podcast brief</a>
         <button type="button" disabled={acknowledge.isPending} onClick={() => { acknowledge.mutate(); }}>Dismiss</button>
       </div>
       {acknowledge.isError && <p className="podcast-prep__error" role="alert">Could not dismiss this notification. Please retry.</p>}

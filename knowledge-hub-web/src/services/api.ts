@@ -47,6 +47,7 @@ import type {
   CreateUseCaseInput, DraftSpecResult, HandoffInput, HandoffResult, UseCase, UseCaseDetail, UseCasePatch, UseCaseSourceRef,
 } from '../types/useCases';
 import type { PodcastPrepStatus } from '../types/podcastPrep';
+import type { PodcastEpisode, ScriptCard } from '../types/podcastEpisodes';
 import type { DiscoverFormat, DiscoverParking, ParkingSelection } from '../types/discover';
 import type { WatchlistInput, Watchlist, WatchRun, WatchBaselineVersion, InterestWeight, WatchCompanyKnowledge } from '../types/watchlists';
 import type { BacklinkPage, EntityLinkTarget, EntityLinkType } from '../notes/entityLinks';
@@ -113,6 +114,7 @@ const AGENT_STREAM_CHECK_MS = 5_000;
 // Blob upload + OCR polling on the backend can take up to ~40s; give image
 // uploads a much longer client-side timeout than regular API calls.
 const IMAGE_UPLOAD_TIMEOUT_MS = 60_000;
+const PODCAST_DRAFT_TIMEOUT_MS = 300_000;
 // AI chat turns can chain several tool calls (KG search, Library search, task
 // writes) plus an LLM generation pass — this routinely exceeds the default
 // 8s timeout, which was silently killing the request with no visible error.
@@ -2324,6 +2326,36 @@ export class KnowledgeHubApi {
 
   async acknowledgePodcastPrep(recordingDate: string, generatedAt: string): Promise<ApiResponse<null>> {
     return (await this.client.post<ApiResponse<null>>('/api/today/podcast-prep/acknowledge', { recordingDate, generatedAt })).data;
+  }
+
+  // ── Podcast episodes ────────────────────────────────────────────────────────
+
+  async podcastEpisodeForRecording(recordingDate: string): Promise<ApiResponse<{ noteId: string | null }>> {
+    return (await this.client.get<ApiResponse<{ noteId: string | null }>>(`/api/podcast-episodes/recording/${encodeURIComponent(recordingDate)}`)).data;
+  }
+  async getPodcastEpisode(id: string): Promise<ApiResponse<PodcastEpisode>> {
+    return (await this.client.get<ApiResponse<PodcastEpisode>>(`/api/podcast-episodes/${encodeURIComponent(id)}`)).data;
+  }
+  async savePodcastScript(id: string, intro: string, cards: ScriptCard[], revision: number): Promise<ApiResponse<PodcastEpisode>> {
+    return (await this.client.put<ApiResponse<PodcastEpisode>>(`/api/podcast-episodes/${encodeURIComponent(id)}/script`, { intro, cards, revision })).data;
+  }
+  async draftPodcastScript(id: string, revision: number): Promise<ApiResponse<PodcastEpisode>> {
+    return (await this.client.post<ApiResponse<PodcastEpisode>>(`/api/podcast-episodes/${encodeURIComponent(id)}/script/draft`, { revision },
+      { timeout: PODCAST_DRAFT_TIMEOUT_MS })).data;
+  }
+  async uploadPodcastTranscript(id: string, file: File, revision: number): Promise<ApiResponse<PodcastEpisode>> {
+    const formData = new FormData();
+    formData.append('revision', String(revision));
+    formData.append('file', file);
+    return (await this.client.post<ApiResponse<PodcastEpisode>>(`/api/podcast-episodes/${encodeURIComponent(id)}/transcript`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }, timeout: IMAGE_UPLOAD_TIMEOUT_MS,
+    })).data;
+  }
+  async startPodcastShowNotes(id: string): Promise<ApiResponse<PodcastEpisode>> {
+    return (await this.client.post<ApiResponse<PodcastEpisode>>(`/api/podcast-episodes/${encodeURIComponent(id)}/show-notes/session`)).data;
+  }
+  async savePodcastShowNotes(id: string, revision: number): Promise<ApiResponse<PodcastEpisode>> {
+    return (await this.client.post<ApiResponse<PodcastEpisode>>(`/api/podcast-episodes/${encodeURIComponent(id)}/show-notes`, { revision })).data;
   }
 
   /** Today's morning briefing (null before 09:00 UK time, or if not made yet). */

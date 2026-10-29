@@ -42,7 +42,6 @@ const TimelinePage = deferredView('Activity', async () => ({ default: (await imp
 const NotesPage = deferredView('Think', async () => ({ default: (await import('./notes/NotesPage')).NotesPage }));
 const NotePopout = deferredView('Note', async () => ({ default: (await import('./notes/NotePopout')).NotePopout }));
 const DocumentsPage = deferredView('Library', async () => ({ default: (await import('./pages/DocumentsPage')).DocumentsPage }));
-const AutocueApp = deferredView('Autocue', async () => ({ default: (await import('./features/autocue/AutocueApp')).AutocueApp }));
 const Presenter = deferredView('Presentation', async () => ({ default: (await import('./features/autocue/Presenter')).Presenter }));
 const GraphPage = deferredView('Graph', async () => ({ default: (await import('./pages/GraphPage')).GraphPage }));
 const AIChatPage = deferredView('Athena', async () => ({ default: (await import('./pages/AIChatPage')).AIChatPage }));
@@ -66,7 +65,6 @@ const WorkspaceRoutes: React.FC = () => {
   return <>
             <Routes location={workspace}>
               <Route path="/integrations/mural/callback" element={<MuralCallback />} />
-              <Route path="/autocue/*" element={<AutocueApp />} />
               <Route path="/present" element={<Presenter />} />
               <Route path="/chat" element={<AIChatPage standalone />} />
               <Route path="/think/notes/:noteId/popout" element={<NotePopout />} />

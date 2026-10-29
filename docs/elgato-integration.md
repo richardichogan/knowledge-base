@@ -144,7 +144,7 @@ Pause retains position; Stop resets to the beginning; reaching the end stops.
 and as its own Stream Deck action, closes the output window while keeping the
 note and main application open. It preserves the display settings and does not
 replace Stop/reset. Use Present to reopen the output.
-The legacy standalone browser autocue remains available.
+The legacy standalone browser Autocue (`/autocue`) has been removed; the Elgato presenter is the only teleprompter.
 
 ## Failure and reconnect behavior
 
