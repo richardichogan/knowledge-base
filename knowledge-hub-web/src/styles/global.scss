@@ -296,14 +296,25 @@ body.cds--body--with-modal-open {
 }
 
 .kh-background-work {
-  flex: 0 0 auto;
-  margin-block: 8px;
-  border-bottom: 1px solid var(--cds-border-subtle-01);
+  position: absolute;
+  top: 100%;
+  right: 16px;
+  box-sizing: border-box;
+  width: 380px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - var(--kh-header-height) - 12px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px;
+  border: 1px solid var(--cds-border-subtle-01);
+  background: var(--cds-layer-01);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 1;
   color: var(--cds-text-secondary);
   font-size: var(--kh-text-meta);
-  > summary { cursor: pointer; min-height: 32px; padding-block: 8px; color: var(--cds-text-primary); }
+  > h2 { margin: 0; color: var(--cds-text-primary); font-size: var(--kh-section-title); font-weight: 600; }
   > p { margin-block: 8px; font-size: var(--kh-text-body); line-height: 1.6; }
-  &__list { list-style: none; margin: 0; padding: 0; max-height: 280px; overflow: auto; }
+  &__list { list-style: none; margin: 0; padding: 0; }
   &__list li { padding-block: 12px; border-top: 1px solid var(--cds-border-subtle-01); }
   &__list p { margin-block: 4px; line-height: 1.5; overflow-wrap: anywhere; }
   &__list a { color: var(--kh-link-prose); }
@@ -378,12 +389,6 @@ body.cds--body--with-modal-open {
   &:hover { color: var(--kh-accent); }
 }
 .kh-triage--comfortable .notes-list-item { padding-block: 16px; }
-.kh-discover--compact {
-  .dc-feed--discover { gap: 8px; }
-  .dc-card { padding-block: 8px; }
-  .dc-card-synopsis { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-}
-
 :root {
   // Emit all Carbon g100 theme tokens at :root so elements rendered OUTSIDE
   // the scoped <Theme> div (e.g. React portals into document.body — context
@@ -7706,6 +7711,7 @@ body.kh-pane-resizing {
   gap: 0.5rem 1rem;
   margin-bottom: 1rem;
   border-bottom: 1px solid var(--cds-border-subtle-01);
+  > .dc-tabs { flex-basis: 100%; }
 }
 
 .dc-format-picker {

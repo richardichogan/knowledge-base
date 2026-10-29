@@ -81,7 +81,9 @@ async function capture(db: Pool, filename: string, text: string, sourcePath: str
     for (const task of parsed.tasks) {
       const project = projects.rows.find(p => normaliseIdentity(p.name) === normaliseIdentity(task.project)
         || normaliseIdentity(p.id) === normaliseIdentity(task.project))?.id ?? null;
-      if (project === null) result.warnings.push(`Project needs filing: ${task.project} — ${task.title}`);
+      if (project === null) result.warnings.push(task.project
+        ? `Project needs filing: ${task.project} — ${task.title}`
+        : `Project not stated: ${task.title}`);
       const tracked = await client.query<{ task_id: string | null; snapshot: unknown; last_report_date: string }>(
         `SELECT task_id, snapshot, to_char(last_report_date,'YYYY-MM-DD') AS last_report_date FROM daily_insights_tasks WHERE identity_key=$1`, [task.key]);
       const prior = tracked.rows[0];
@@ -89,7 +91,13 @@ async function capture(db: Pool, filename: string, text: string, sourcePath: str
         result.tasksPreserved++;
         continue;
       }
-      const body = `Owner: ${task.owner}\nProject: ${task.project}\nDue (as reported): ${task.dueText}\nSource: ${task.source}\nDaily Insights: ${parsed.date} (${filename})`;
+      const body = [
+        task.owner && `Owner: ${task.owner}`,
+        task.project && `Project: ${task.project}`,
+        task.dueText && `Due (as reported): ${task.dueText}`,
+        task.source && `Source: ${task.source}`,
+        `Daily Insights: ${parsed.date} (${filename})`,
+      ].filter(Boolean).join('\n');
       let taskId: string | null = prior?.task_id ?? null;
       let owned = prior?.snapshot != null;
       if (prior === undefined) {
@@ -123,8 +131,12 @@ async function capture(db: Pool, filename: string, text: string, sourcePath: str
       [task.key, taskId, parsed.date, JSON.stringify(snapshot), JSON.stringify(task)]);
     }
     const calendarIds: string[] = [];
+    const meetingOccurrences = new Map<string, number>();
     for (const meeting of parsed.meetings) {
-      const id = `ibm-daily-${parsed.date}-${meeting.start.replace(':', '')}-${digest(normaliseIdentity(meeting.title)).slice(0, MEETING_ID_CHARS)}`;
+      const baseId = `ibm-daily-${parsed.date}-${meeting.start.replace(':', '')}-${digest(normaliseIdentity(meeting.title)).slice(0, MEETING_ID_CHARS)}`;
+      const occurrence = (meetingOccurrences.get(baseId) ?? 0) + 1;
+      meetingOccurrences.set(baseId, occurrence);
+      const id = occurrence === 1 ? baseId : `${baseId}-${occurrence}`;
       calendarIds.push(id);
       const start = londonTime(parsed.date, meeting.start);
       const end = londonTime(parsed.date, meeting.end);

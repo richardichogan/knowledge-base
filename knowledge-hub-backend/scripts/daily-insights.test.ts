@@ -168,13 +168,13 @@ test('AI extraction handles semantic prose without Markdown contracts and retain
   assert.match(parsed.warnings.join(), /Not assigned to Richard/);
 });
 
-test('inventory mismatch requests one AI correction before saving a complete capture', async context => {
+test('invalid source references request one AI correction before saving', async context => {
   const { db, pool } = await fixture();
   let extractions = 0;
   context.mock.method(FoundryClient.prototype, 'chatBulk', async (messages: { content: string }[]) => {
     extractions++;
-    if (extractions === 1) return JSON.stringify({ ...extraction(), tasks: [] });
-    assert.match(messages.at(-1)?.content ?? '', /coverage mismatch/);
+    if (extractions === 1) return JSON.stringify({ ...extraction(), tasks: [{ ...extraction().tasks[0], evidenceLines: [999] }] });
+    assert.match(messages.at(-1)?.content ?? '', /invalid source line/);
     return JSON.stringify(extraction());
   });
   try {
@@ -184,23 +184,22 @@ test('inventory mismatch requests one AI correction before saving a complete cap
   } finally { await db.close(); }
 });
 
-test('unresolved extraction coverage failure never reconciles calendar or writes a receipt', async context => {
+test('unresolved invalid output never reconciles calendar or writes a receipt', async context => {
   const { db, pool } = await fixture();
-  context.mock.method(FoundryClient.prototype, 'chatBulk', async () => JSON.stringify({ ...extraction(), meetings: [] }));
+  context.mock.method(FoundryClient.prototype, 'chatBulk', async () => JSON.stringify({ ...extraction(), meetings: 'invalid' }));
   try {
-    await assert.rejects(captureReport(pool, filename, semanticReport, 'fixture'), /coverage mismatch/);
+    await assert.rejects(captureReport(pool, filename, semanticReport, 'fixture'), /invalid list/);
     assert.equal((await db.query('SELECT * FROM content_items')).rows.length, 0);
     assert.equal((await db.query('SELECT * FROM tasks')).rows.length, 0);
     assert.equal((await db.query('SELECT * FROM daily_insights_reports')).rows.length, 0);
   } finally { await db.close(); }
 });
 
-test('rejects incomplete, invented, invalid-date and invalid-clock extractions before any writes', () => {
+test('rejects malformed, invalid-date and invalid-clock output before any writes', () => {
   for (const change of [
-    { date: '2026-10-21' }, { knowledgeDate: '2026-10-18' }, { tasksComplete: false }, { meetingsComplete: false },
-    { knowledgeComplete: false }, { knowledgeEndLine: 999 }, { knowledgeStartLine: 0 }, { tasks: 'not an array' },
-    { dateEvidenceLines: [1.5] }, { dateEvidenceLines: [-1] },
-    { taskCount: 1, tasks: [{ ...extraction().tasks[0], title: 'Invented action' }] },
+    { date: '2026-10-21' }, { knowledgeDate: '2026-10-18' },
+    { knowledgeEndLine: 999 }, { knowledgeStartLine: 0 }, { tasks: 'not an array' },
+    { tasks: [{ ...extraction().tasks[0], title: '' }] },
     { taskCount: 1, tasks: [{ ...extraction().tasks[0], richardAssignee: 'Joel' }] },
     { taskCount: 1, tasks: [{ ...extraction().tasks[0], evidenceLines: [999] }] },
     { meetings: [{ ...extraction().meetings[0], start: '29:45' }] },
@@ -232,8 +231,43 @@ ${semanticKnowledge}`;
     { title: 'Second meeting', start: '16:00', end: '16:30', flag: 'Clash', evidenceLines: [2, 4] },
   ];
   assert.deepEqual(validateDailyExtraction(filename, grouped, output).meetings.map(meeting => meeting.title), ['First meeting', 'Second meeting']);
-  output.meetings[1]!.evidenceLines = [4];
-  assert.throws(() => validateDailyExtraction(filename, grouped, output), /unsupported meeting time/);
+  output.meetings.push({ ...output.meetings[0]! });
+  assert.equal(validateDailyExtraction(filename, grouped, output).meetings.length, 3);
+});
+
+test('missing metadata, learning sections and legacy summary counts do not gate understanding', () => {
+  const parsed = validateDailyExtraction(filename, semanticReport, {
+    ...extraction(), taskCount: 999, meetingCount: 0,
+    tasksComplete: false, meetingsComplete: false, knowledgeComplete: false,
+    knowledgeStartLine: null, knowledgeEndLine: null, dateEvidenceLines: [],
+    tasks: [{ ...extraction().tasks[0], title: 'Review the draft for the project',
+      project: null, dueText: null, source: null }],
+    meetings: [{ ...extraction().meetings[0], flag: null },
+      { title: 'All-day commitment', start: null, end: null, flag: null, evidenceLines: [2] }],
+  });
+  assert.equal(parsed.tasks.length, 1);
+  assert.equal(parsed.tasks[0]?.project, '');
+  assert.equal(parsed.tasks[0]?.due, null);
+  assert.equal(parsed.meetings.length, 1);
+  assert.equal(parsed.knowledge, semanticReport);
+  assert.ok(parsed.warnings.some(warning => warning.includes('All-day commitment')));
+});
+
+test('separate identical diary occurrences remain separate in storage and on reread', async () => {
+  const { db, pool } = await fixture();
+  const understand = async () => {
+    const result = validateDailyExtraction(filename, semanticReport, extraction());
+    result.meetings.push({ ...result.meetings[0]! });
+    return result;
+  };
+  try {
+    const result = await captureReport(pool, filename, semanticReport, 'fixture', undefined, understand);
+    assert.equal(result.meetings, 2);
+    assert.equal((await db.query("SELECT * FROM content_items WHERE source='graph-calendar'")).rows.length, 2);
+    const reread = await captureReport(pool, filename, semanticReport, 'fixture', undefined, understand);
+    assert.equal(reread.unchanged, true);
+    assert.equal((await db.query("SELECT * FROM content_items WHERE source='graph-calendar'")).rows.length, 2);
+  } finally { await db.close(); }
 });
 
 test('bulk client requests strict JSON and rejects truncated responses even if their JSON parses', async context => {

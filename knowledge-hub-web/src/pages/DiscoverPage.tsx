@@ -33,7 +33,7 @@ import { BlogPublishModal } from '../components/discover/BlogPublishModal';
 import { LinkedInDraftModal } from '../components/discover/LinkedInDraftModal';
 import { EmailInbox } from '../components/discover/EmailInbox';
 import { DEFAULT_DISCOVER_VIEW, DISCOVER_PREFERENCES_KEY, parseWorkspaceView, type DiscoverPreferences, type DiscoverTab } from '../utils/savedViews';
-import { usePersistedChoice, usePersistedText } from '../hooks/usePersistedState';
+import { usePersistedText } from '../hooks/usePersistedState';
 import { listShortcut, moveListFocus } from '../hooks/listKeyboard';
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -421,7 +421,6 @@ export const DiscoverPage: React.FC = () => {
   const [savedPage, setSavedPage] = usePersistedText('kh-discover-page', '1');
   const page = Math.max(1, Math.min(10000, Number(savedPage) || 1));
   const setPage = useCallback((next: number): void => { setSavedPage(String(next)); }, [setSavedPage]);
-  const [density, setDensity] = usePersistedChoice('kh-discover-density', ['compact', 'comfortable'] as const, 'comfortable');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchMessage, setBatchMessage] = useState('');
@@ -610,7 +609,7 @@ export const DiscoverPage: React.FC = () => {
   );
 
   return (
-    <div className={`page-root kh-discover--${density}`} role="main" onKeyDown={event => {
+    <div className="page-root" role="main" onKeyDown={event => {
       const key = listShortcut(event);
       if (key === 'j' || key === 'k') { event.preventDefault(); moveListFocus(event.currentTarget, '.dc-card[role="article"]', key === 'k'); }
     }}>
@@ -630,18 +629,6 @@ export const DiscoverPage: React.FC = () => {
 
       {/* ── Discovery views ── */}
       <div className="dc-toolbar">
-        {!isInbox && !isCfps && !isWatchlists && <div className="kh-triage-tools">
-          <button type="button" className="kh-btn-ghost" aria-pressed={density === 'compact'}
-            onClick={() => { setDensity(density === 'compact' ? 'comfortable' : 'compact'); }}>Compact spacing</button>
-          <span>J/K move · O open · S save · A archive. Save/archive do not apply to published or blog items.</span>
-          {selectedIds.size > 0 && <>
-            <span>{selectedIds.size} selected</span>
-            <button type="button" className="kh-btn-accent" disabled={batchBusy} onClick={() => { void changeSelection('saved'); }}>Save selected</button>
-            <button type="button" className="kh-btn-ghost" disabled={batchBusy} onClick={() => { void changeSelection('archived'); }}>Archive selected</button>
-            <button type="button" className="kh-btn-ghost" disabled={batchBusy} onClick={() => { setSelectedIds(new Set()); }}>Clear selection</button>
-          </>}
-        </div>}
-        {batchMessage && <p className="kh-work-context__meta" role="status">{batchMessage}</p>}
         <div className="dc-tabs kh-command-row">
           {PRIMARY_TABS.map((tab) => (
             <button
@@ -663,6 +650,16 @@ export const DiscoverPage: React.FC = () => {
             {MORE_TABS.map((tab) => <option key={tab.key} value={tab.key}>{tab.label}</option>)}
           </select>
         </div>
+        {!isInbox && !isCfps && !isWatchlists && <div className="kh-triage-tools">
+          <span>J/K move · O open · S save · A archive. Save/archive do not apply to published or blog items.</span>
+          {selectedIds.size > 0 && <>
+            <span>{selectedIds.size} selected</span>
+            <button type="button" className="kh-btn-accent" disabled={batchBusy} onClick={() => { void changeSelection('saved'); }}>Save selected</button>
+            <button type="button" className="kh-btn-ghost" disabled={batchBusy} onClick={() => { void changeSelection('archived'); }}>Archive selected</button>
+            <button type="button" className="kh-btn-ghost" disabled={batchBusy} onClick={() => { setSelectedIds(new Set()); }}>Clear selection</button>
+          </>}
+        </div>}
+        {batchMessage && <p className="kh-work-context__meta" role="status">{batchMessage}</p>}
 
         {!isWatchlists && activeQuery.isError && <DataNotice title="Discovery feed is unavailable" error={activeQuery.error} onRetry={() => { void activeQuery.refetch(); }} />}
         {!isWatchlists && changeError !== null && <DataNotice title="Discovery change was not saved" error={changeError} />}

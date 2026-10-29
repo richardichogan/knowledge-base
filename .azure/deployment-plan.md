@@ -2,6 +2,33 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-29, Daily Insights reading and toolbar):**
+- User requested deployment of the updated semantic daily-briefing procedure
+  and the approved Background work toolbar/Discover layout corrections.
+- Synced with origin/main at d903d34; live remote SHA matches. Git maintenance
+  reports a pre-existing packed-refs lock, but fetch/reference comparison and
+  merge confirm no remote commits are missing. No lock was removed.
+- All validation checks pass:
+  - [x] Both application `tsc --noEmit` checks passed after the final changes.
+  - [x] Backend build and frontend production build passed.
+  - [x] Full isolated backend release suite: 779 passed, zero failures.
+  - [x] Full isolated frontend release suite: 328 passed, zero failures.
+  - [x] Backend/frontend lint non-regression passed (547/623 and 22/41).
+  - [x] Fresh AI readings of the actual 28/29 October reports passed exact
+    diary checks: ten commitments each, private appointments and overlaps
+    retained, free-time gaps and next-day occurrences excluded, full learning
+    context retained. No production writes during these readings.
+  - [x] `git diff --check`, Azure authentication and existing ACA/SWA target
+    access passed. Current backend v271; release target v272.
+- Existing application-only AZCLI recipe and subscription are unchanged:
+  Alliance Tenant Reporting, rg-knowledge-hub-prod, kh-prod-api-vnet and
+  kh-prod-web. No provisioning, templates, policy, RBAC, secrets, migrations,
+  dependency or desktop executable changes. Infrastructure checks are N/A;
+  existing registry credentials are retained, not changed or printed.
+- Keep generated .impeccable hook metadata out of the release commit.
+- Evidence: session files/daily-release-backend.log,
+  daily-release-frontend.log and daily-release-web-build.log.
+
 **Release scope and Section 7: Validation Proof (2026-10-29 09:10 UTC, podcast source recovery):**
 - The user-approved production recovery passed coverage but failed on an
   unreadable YouTube source; no new brief was saved. User approved replacing

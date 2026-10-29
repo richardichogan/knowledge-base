@@ -37,22 +37,25 @@ specifically authorised `C:\Users\RichardHogan\OneDrive - IBM\Daily Insights`
 folder can also be registered using the existing **Add folder** button, including
 on desktop 0.1.3. No other folder named “Daily Insights” is implicitly enabled.
 
-Keep reports named `Daily-Briefing-YYYY-MM-DD.md`, with the matching report
-date and the previous day's knowledge. The backend uses the existing Azure AI
-bulk model to understand tasks, ownership, deadlines and meetings semantically;
-headings, field labels and Markdown layout are not a parsing contract. Tables,
-cards, nested meeting clashes and prose are supported without template aliases.
-The model references source line numbers; the importer checks extracted fields
-against those actual lines and copies yesterday's complete knowledge from its
-original source range, rather than asking the model to reproduce it.
-These checks must pass before anything is saved. The model inventories actions
-and timed entries before extracting them; the returned arrays must match that
-inventory. Failed validation allows one AI correction, never partial capture.
-Richard may be directly or jointly assigned, including role annotations;
-another owner's contextual mention of Richard is not an assignment. All-day FYI
-entries are flagged for review rather than assigned invented start/end times.
-Unavailable AI, malformed output, missing facts or incomplete extraction fail
-explicitly without partial writes; there is no regex-parser fallback.
+Keep reports named `Daily-Briefing-YYYY-MM-DD.md`. Athena reads each briefing
+for meaning using the existing Azure AI bulk model: work Richard needs to do,
+today's diary and relevant learning. This is not a fixed-format data import.
+Structure, headings, labels and available information may change daily; tasks
+can be expressed in prose without a project, owner label, deadline or citation.
+Missing optional information remains absent, never invented. Direct requests
+addressed to Richard in his personal briefing can identify his work; another
+person's task merely mentioning him does not assign it to him.
+
+Source passages support recognised facts. Unsupported optional metadata produces
+a review warning, not rejection of otherwise supported work. Summary counts and
+model completeness flags do not gate processing. Repeated meetings, private
+appointments and overlaps are legitimate diary context, preserved as separate
+listed occurrences, not treated as errors. Unknown times are not invented.
+The complete original briefing is retained in the receipt. An identifiable
+learning passage is copied verbatim; without a separate passage, the whole
+briefing is retained as context. Unavailable AI, malformed output, contradictory
+report dates or unsupported essential facts still fail explicitly, with one AI
+correction attempt; there is no regex-parser fallback.
 
 - All new reports are processed oldest first, so an offline gap is caught up
   and the latest report is not missed. Same-day corrections replace that day's

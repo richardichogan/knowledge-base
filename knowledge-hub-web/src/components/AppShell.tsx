@@ -145,6 +145,7 @@ export const AppShell: React.FC = () => {
           <button type="button" className="kh-header__utility kh-header__athena"
             title={isThink && !hasEmbeddedAthena ? 'Open a note or canvas to use Athena' : 'Open Athena'} aria-label="Open Athena" disabled={isThink && !hasEmbeddedAthena}
             onClick={() => { setMenu(null); launchAthena(); }}><img className="ai-brand-mark" src="/athena/ribbon-avatar-64.png" alt="" /></button>
+          <BackgroundWork />
           <button type="button" ref={narrow ? mobileRef : toolsRef}
             className={`kh-header__utility${tool || menu ? ' kh-header__utility--active' : ''}`}
             title={narrow ? 'Navigation and Tools' : 'Tools'} aria-label={narrow ? 'Navigation and Tools' : 'Tools'}
@@ -166,7 +167,6 @@ export const AppShell: React.FC = () => {
           {tool && <p className="kh-tools-location">Tools / {tool.label}</p>}
           <DayCheckinBanner />
           <PodcastPrepNotification />
-          <BackgroundWork />
           <div className="kh-shell__page" id="kh-main-content" tabIndex={-1}><Outlet /></div>
         </div>
       </div>
