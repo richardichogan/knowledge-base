@@ -312,20 +312,45 @@ walk(id,depth) AS (
   SELECT a.b,w.depth+1 FROM walk w JOIN adj a ON a.a=w.id
     WHERE w.depth<$2 AND (cardinality($5::text[])=0 OR a.edge_type=ANY($5))
 ),
-candidates AS (
-  SELECT n.* FROM all_nodes n
-  WHERE ($1::text IS NULL AND n.updated_at >= $3::timestamptz OR $1 IS NOT NULL AND n.id IN (SELECT id FROM walk))
-    AND (cardinality($4::text[])=0 OR n.ref_type=ANY($4))
+walk_distances AS MATERIALIZED (
+  SELECT id,MIN(depth) AS hop FROM walk GROUP BY id
+),
+candidates AS MATERIALIZED (
+  SELECT n.*,0 AS hop FROM all_nodes n
+    WHERE $1::text IS NULL AND n.updated_at >= $3::timestamptz
+      AND (cardinality($4::text[])=0 OR n.ref_type=ANY($4))
+  UNION ALL
+  SELECT n.*,w.hop FROM all_nodes n JOIN walk_distances w ON w.id=n.id
+    WHERE $1::text IS NOT NULL AND (cardinality($4::text[])=0 OR n.ref_type=ANY($4))
 ),
 ranked AS (
   SELECT *,row_number() OVER (PARTITION BY ref_type ORDER BY updated_at DESC,id) AS type_rank FROM candidates
 ),
 chosen AS (
   SELECT * FROM ranked ORDER BY (id IN (SELECT id FROM root)) DESC,
-    CASE WHEN $1::text IS NOT NULL THEN (SELECT MIN(depth) FROM walk WHERE walk.id=ranked.id) ELSE 0 END,
+    hop,
     ($1::text IS NOT NULL AND id IN (SELECT id FROM recorded_neighbours)) DESC,
     ($1::text IS NULL AND type_rank<=20) DESC, (ref_type='project') DESC, updated_at DESC,id
   LIMIT ${NODE_CAP}
+),
+chosen_taxonomy AS MATERIALIZED (
+  SELECT n.id AS source,t.id,t.name,t.parent_id,t.role FROM chosen n JOIN tags t ON t.name=ANY(n.tags)
+  UNION
+  SELECT m.source,t.id,t.name,t.parent_id,t.role FROM tag_memberships m
+    JOIN chosen n ON n.id=m.source JOIN tags t ON t.id=m.tag_id
+),
+chosen_tag_metadata AS (
+  SELECT t.source,array_agg(DISTINCT t.name ORDER BY t.name) AS names,
+    MIN(p.name) FILTER (WHERE t.role='concept') AS concept_parent
+    FROM chosen_taxonomy t LEFT JOIN tags p ON p.id=t.parent_id GROUP BY t.source
+),
+enriched_nodes AS (
+  SELECT n.*,m.names AS taxonomy_names,m.concept_parent,
+    COALESCE(c.url,'/chat?session='||COALESCE(o.session_id,d.session_id)) AS url
+    FROM chosen n LEFT JOIN chosen_tag_metadata m ON m.source=n.id
+    LEFT JOIN content_records c ON c.id::text=n.ref_id AND c.ref_type=n.ref_type
+    LEFT JOIN chat_outputs o ON n.ref_type='chat_output' AND o.id::text=n.ref_id
+    LEFT JOIN chat_decisions d ON n.ref_type='decision' AND d.id::text=n.ref_id
 ),
 chosen_edges AS (
   SELECT e.* FROM all_edges e JOIN chosen s ON s.id=e.source JOIN chosen t ON t.id=e.target
@@ -343,18 +368,9 @@ export async function readGraphAtlas(db: Pick<Pool, 'query'>, query: AtlasQuery,
     `${PROJECTION}
     SELECT (SELECT id FROM root ORDER BY id LIMIT 1) AS root_id,
       COALESCE((SELECT jsonb_agg(jsonb_build_object('id',id,'refId',ref_id,'refType',ref_type,'title',LEFT(title,240),
-        'tags',ARRAY(SELECT DISTINCT name FROM (
-          SELECT unnest(chosen.tags) AS name
-          UNION ALL SELECT t.name FROM tag_memberships m JOIN tags t ON t.id=m.tag_id WHERE m.source=chosen.id
-        ) names ORDER BY name),'createdAt',created_at,'updatedAt',updated_at,'projectIds',project_ids,
-        'url',COALESCE((SELECT c.url FROM content_records c WHERE c.id::text=chosen.ref_id AND c.ref_type=chosen.ref_type),
-          (SELECT '/chat?session='||session_id FROM chat_outputs WHERE chosen.ref_type='chat_output' AND id::text=chosen.ref_id),
-          (SELECT '/chat?session='||session_id FROM chat_decisions WHERE chosen.ref_type='decision' AND id::text=chosen.ref_id)),
-        'timestampBasis',timestamp_basis,'conceptParent',(
-          SELECT p.name FROM tags t JOIN tags p ON p.id=t.parent_id
-          WHERE (t.name=ANY(chosen.tags) OR t.id IN (SELECT tag_id FROM tag_memberships WHERE source=chosen.id))
-            AND t.role='concept' ORDER BY p.name LIMIT 1
-        ))) FROM chosen),'[]') AS nodes,
+        'tags',ARRAY(SELECT DISTINCT name FROM unnest(tags||COALESCE(taxonomy_names,'{}'::text[])) name ORDER BY name),
+        'createdAt',created_at,'updatedAt',updated_at,'projectIds',project_ids,
+        'url',url,'timestampBasis',timestamp_basis,'conceptParent',concept_parent)) FROM enriched_nodes),'[]') AS nodes,
       COALESCE((SELECT jsonb_agg(jsonb_build_object('id',id,'source',source,'target',target,'edgeType',edge_type,
         'confidence',confidence,'metadata',metadata,'createdAt',created_at,'origin',origin)) FROM bounded_edges),'[]') AS edges,
       (SELECT count(*)::int FROM all_nodes) AS total_nodes,(SELECT count(*)::int FROM all_edges) AS total_edges,

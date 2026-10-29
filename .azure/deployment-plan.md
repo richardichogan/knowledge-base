@@ -2,6 +2,49 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-29, graph/podcast correction):**
+- User reported note graphs failing after v268 and approved preserving graph
+  behaviour while optimizing the query. The original verification used depth
+  one, not the note preview's actual depth two; it missed the timeout regression.
+- Exact two-hop production-data query took 7.2–8.5 seconds against an eight-second
+  client timeout. Precompute traversal distances, tag/parent metadata and record
+  URLs with joins instead of repeated scans for each node. A repeatable-read
+  comparison returned identical nodes, edges, metadata and statistics:
+  old 7075ms, corrected 1610ms, 500 nodes, 630 edges and four direct tag links.
+  Depth, content, caps and the client timeout remain unchanged.
+- User confirmed Thursday podcast preparation must remain and approved bounded
+  recovery: retry only an output-limited episode-summary chunk at 3000 tokens,
+  then split it into two if needed. Each half has the same retry without further
+  splitting; outages/cancellation propagate and the overall deadline stays.
+  User also approved one paid recovery run against real production content
+  after deployment, saving the research brief to its existing conversation only.
+- Actual usage evidence: all three automatic runs for recording 2026-10-30
+  failed in podcast-coverage at exactly 1500 completion tokens, before topic
+  proposal generation. No schedule or publication-workflow changes are needed.
+- All validation checks pass:
+  - [x] Synced origin/main; both `tsc --noEmit` checks passed.
+  - [x] Backend build and lint non-regression passed (547/623).
+  - [x] Affected graph and podcast cases passed 28/28 in the credential-isolated
+    environment, covering Thursday scheduling, token recovery/splitting,
+    source preservation, bounded failure, cancellation and graph metadata.
+  - [x] Full release suites/builds for unchanged code are reused from the
+    preceding release; no repeat of the full suites or frontend deployment.
+  - [x] `git diff --check` passed. Existing Azure target access is confirmed:
+    backend v268/revision 0000265; next backend target v269.
+- Existing application-only AZCLI recipe, subscription and Docker packaging
+  remain unchanged. No infrastructure, RBAC, secrets, migration, dependency or
+  frontend changes; provisioning/template/what-if checks are N/A.
+- Fit: authoritative graph architecture and typed contracts are retained;
+  ACA/SWA/shared-data hosting is unchanged; model recovery adds bounded calls
+  only after a typed output-limit failure; no authorization or secret changes.
+  The smallest safer correction is precomputed graph sets plus local summary
+  recovery, without hiding links, accepting truncated output or resetting the
+  schedule/automatic-attempt limit.
+- Evidence: session files/graph-hotfix-tests.log,
+  graph-podcast-hotfix-tests.log and direct comparison/model-usage output.
+
+**Previous graph release:**
+
 **Release scope (2026-10-29, graph integrity):**
 - User requested the graph wiring gaps be fixed and reviewed thoroughly, then
   merged, pushed and deployed. Preserve existing screens and interactions.
@@ -35,7 +78,7 @@
   response interceptor. Updated that mock; affected API/graph cases passed 16/16.
 - Both `npm run build`, both `npm run lint:check`, both final `tsc --noEmit`
   checks and `git diff --check` passed. No browser launched.
-- Final read-only production query of the original note returned all four
+- Final read-only depth-one production query of the original note returned all four
   saved taxonomy links with inferred links disabled: Agentic, Generative AI,
   Autonomous AI Decision Making, Learning and Development. Query completed in
   1612ms, with unique live nodes, no dangling edges and caps respected.

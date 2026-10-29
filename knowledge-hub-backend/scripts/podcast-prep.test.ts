@@ -3,10 +3,12 @@ import { readFile } from 'node:fs/promises';
 import { mock, test } from 'node:test';
 import type { Pool } from 'pg';
 import { PGlite } from '@electric-sql/pglite';
+import type { FoundryClient } from '../src/ai/foundryClient.js';
+import { AiError, AiOutputLimitError } from '../src/types/errors.js';
 import { articleProse } from '../src/utils/articleReading.js';
 import { getSchedule } from '../src/ai/contentSchedule.js';
 import { acknowledgePodcastPrep, claimPodcastPrep, generatePodcastPrep, getPodcastPrepStatus, podcastPrepDue, podcastRecordingDate } from '../src/ai/podcastPrep.js';
-import { isFreshEvidence, isMicrosoftRelevant, mapPodcastResearch, parsePodcastProposal, rankPodcastCandidates, selectPodcastSources, readPodcastSource, isNewsItem, showLaneScore, tavilyNewsTopic, renderPodcastBrief, selectEpisodeDocuments, type PodcastEvidence, type PodcastTopic, type ShowEpisode } from '../src/ai/podcastPrepResearch.js';
+import { isFreshEvidence, isMicrosoftRelevant, mapPodcastResearch, parsePodcastProposal, rankPodcastCandidates, selectPodcastSources, readPodcastSource, isNewsItem, showLaneScore, tavilyNewsTopic, renderPodcastBrief, selectEpisodeDocuments, summarisePodcastCoverage, type PodcastEvidence, type PodcastTopic, type ShowEpisode } from '../src/ai/podcastPrepResearch.js';
 
 const now = new Date('2026-10-15T06:00:00Z');
 const recording = '2026-10-16';
@@ -296,6 +298,68 @@ test('research workers preserve order, run at most three requests and propagate 
     controller.abort(new Error('Preparation deadline'));
     return 1;
   }, controller.signal), /deadline/);
+  assert.equal(calls, 1);
+});
+
+test('coverage retries only the capped chunk with a larger allowance and retains successful summaries', async () => {
+  const calls: Array<{ text: string; tokens: number | undefined }> = [];
+  const client: Pick<FoundryClient, 'chat'> = {
+    chat: async (_model, messages, tokens) => {
+      const input = JSON.parse(String(messages[1]?.content)) as { text: string };
+      calls.push({ text: input.text, tokens });
+      if (input.text === 'Long source' && tokens === 1500) throw new AiOutputLimitError();
+      return `Complete summary of ${input.text}`;
+    },
+  };
+  const doc = { title: 'Episode 44', date: '2026-10-06', url: null };
+  const summaries = await mapPodcastResearch(['Short source', 'Long source'],
+    body => summarisePodcastCoverage('44', doc, body, undefined, client));
+  assert.deepEqual(summaries, ['Complete summary of Short source', 'Complete summary of Long source']);
+  assert.deepEqual(calls.filter(c => c.text === 'Short source').map(c => c.tokens), [1500]);
+  assert.deepEqual(calls.filter(c => c.text === 'Long source').map(c => c.tokens), [1500, 3000]);
+});
+
+test('coverage splits only after its bounded retry and includes every source character in order', async () => {
+  const doc = { title: 'Episode 44', date: '2026-10-06', url: 'https://example.test/episode' };
+  const source = 'First argument.\nSecond argument.\nThird argument.';
+  const calls: Array<{ text: string; tokens: number | undefined }> = [];
+  const client: Pick<FoundryClient, 'chat'> = {
+    chat: async (_model, messages, tokens) => {
+      const input = JSON.parse(String(messages[1]?.content)) as typeof doc & { text: string; episode: string };
+      assert.equal(input.episode, '44');
+      assert.equal(input.title, doc.title);
+      assert.equal(input.date, doc.date);
+      assert.equal(input.url, doc.url);
+      calls.push({ text: input.text, tokens });
+      if (input.text === source) throw new AiOutputLimitError();
+      return input.text;
+    },
+  };
+  const result = await summarisePodcastCoverage('44', doc, source, undefined, client);
+  assert.deepEqual(calls.map(c => c.tokens), [1500, 3000, 1500, 1500]);
+  assert.equal(calls[2]!.text + calls[3]!.text, source);
+  assert.equal(result, `${calls[2]!.text}\n\n${calls[3]!.text}`);
+});
+
+test('coverage recovery remains bounded and propagates outages and cancellation without extra calls', async () => {
+  const doc = { title: 'Episode 44', date: '2026-10-06', url: null };
+  let calls = 0;
+  const limited: Pick<FoundryClient, 'chat'> = {
+    chat: async () => { calls++; throw new AiOutputLimitError(); },
+  };
+  await assert.rejects(summarisePodcastCoverage('44', doc, 'Complete source', undefined, limited), AiOutputLimitError);
+  assert.equal(calls, 4, 'one original retry, then one half retry without recursive splitting');
+  calls = 0;
+  const outage = new AiError('Provider unavailable');
+  const offline: Pick<FoundryClient, 'chat'> = { chat: async () => { calls++; throw outage; } };
+  await assert.rejects(summarisePodcastCoverage('44', doc, 'Complete source', undefined, offline), error => error === outage);
+  assert.equal(calls, 1);
+  calls = 0;
+  const controller = new AbortController();
+  const stopped: Pick<FoundryClient, 'chat'> = {
+    chat: async () => { calls++; controller.abort(new Error('Preparation deadline')); throw new AiOutputLimitError(); },
+  };
+  await assert.rejects(summarisePodcastCoverage('44', doc, 'Complete source', controller.signal, stopped), /Preparation deadline/);
   assert.equal(calls, 1);
 });
 

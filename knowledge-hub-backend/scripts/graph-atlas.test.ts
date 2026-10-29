@@ -31,7 +31,12 @@ test('atlas binds filters and exposes cap truncation without any write query', a
     assert.match(sql, /tag_memberships AS MATERIALIZED/);
     assert.match(sql, /'tagged_with',1,jsonb_build_object\('evidence','Saved taxonomy membership'/);
     assert.match(sql, /SELECT t\.name FROM note_tags nt JOIN tags t/);
-    assert.match(sql, /SELECT MIN\(depth\) FROM walk/);
+    assert.match(sql, /walk_distances AS MATERIALIZED/);
+    assert.match(sql, /SELECT id,MIN\(depth\) AS hop FROM walk GROUP BY id/);
+    assert.match(sql, /JOIN walk_distances w ON w.id=n.id/);
+    assert.match(sql, /chosen_tag_metadata AS/);
+    assert.match(sql, /FROM enriched_nodes/);
+    assert.doesNotMatch(sql, /SELECT MIN\(depth\) FROM walk|WHERE m.source=chosen.id|WHERE source=chosen.id/);
     assert.doesNotMatch(sql, /use_count|TAG_OVERLAP_MAX_USES/);
     return { rows: [{ root_id: 'company:123', nodes: [], edges: [], total_nodes: 600, total_edges: 3000, matched_nodes: 501, matched_edges: 2501 }] };
   });

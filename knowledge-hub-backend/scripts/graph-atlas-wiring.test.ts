@@ -190,6 +190,11 @@ test('atlas projects authoritative entities, every saved relationship family and
       assert.ok(!g.nodes.some(n => n.id === `note:${id(4)}` || n.refId === id(17) || n.refId === id(18)));
       assert.ok(!g.edges.some(e => e.edgeType === 'tag_overlap' || e.origin === 'inferred'));
       assert.equal(g.nodes.find(n => n.id === `decision:${id(61)}`)?.url, `/chat?session=${id(60)}`);
+      assert.equal(g.nodes.find(n => n.id === `chat_output:${id(62)}`)?.url, `/chat?session=${id(60)}`);
+      assert.equal(g.nodes.find(n => n.id === `document:${id(11)}`)?.url, 'https://example.test/doc');
+      assert.equal(g.nodes.find(n => n.id === `note:${id(1)}`)?.url, null);
+      assert.deepEqual(g.nodes.find(n => n.id === `note:${id(1)}`)?.tags, ['Agentic']);
+      assert.equal(g.nodes.find(n => n.id === `note:${id(1)}`)?.conceptParent, 'AI');
       assert.equal((await graph(`diagram:${id(50)}`, '1')).rootId, `canvas:${id(50)}`);
       assert.equal((await graph(id(100), '1')).rootId, `note:${id(1)}`);
       assert.equal((await graph(`source:content_item:${id(17)}`, '1')).rootId, `note:${id(2)}`);
@@ -201,6 +206,7 @@ test('atlas projects authoritative entities, every saved relationship family and
       const g = await graph(`note:${id(1)}`);
       assert.ok(g.stats.truncated);
       assert.ok(g.nodes.length <= 500 && g.edges.length <= 2500);
+      assert.equal(g.nodes.find(n => n.id === `note:${id(1)}`)?.conceptParent, 'AI');
       assert.ok(edge(g, `note:${id(1)}`, `tag:${id(30)}`, 'tagged_with'));
       assert.ok(edge(g, `note:${id(1)}`, `canvas:${id(50)}`, 'mentions'));
       assert.ok((await graph(`note:${id(1)}`, '1', 'true')).edges.some(e => e.origin === 'inferred'));
