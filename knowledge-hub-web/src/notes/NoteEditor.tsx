@@ -96,6 +96,48 @@ function portalInto(slot: HTMLElement | null | undefined, node: React.ReactNode)
   return slot ? createPortal(node, slot) : node;
 }
 
+function NoteActionGroup({ label, children }: { label: string; children: React.ReactNode }): React.ReactElement {
+  const [expanded, setExpanded] = useState(false);
+  const id = React.useId();
+  return <li className="notes-action-group" role="none">
+    <button type="button" className="kb-menu__item notes-action-group__toggle" role="menuitem"
+      aria-expanded={expanded} aria-controls={expanded ? id : undefined}
+      onClick={() => { setExpanded(value => !value); }}>
+      <span>{label}</span><ChevronDown size={16} className="notes-action-group__chevron" />
+    </button>
+    {expanded && <ul id={id} className="notes-action-group__items" role="group" aria-label={label}>
+      {children}
+    </ul>}
+  </li>;
+}
+
+function navigateNoteActions(event: React.KeyboardEvent<HTMLUListElement>): void {
+  const target = event.target;
+  if (!(target instanceof HTMLButtonElement)) return;
+  const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
+  const index = buttons.indexOf(target);
+  if (index < 0) return;
+  let next: HTMLButtonElement | undefined;
+  if (event.key === 'ArrowDown') next = buttons[(index + 1) % buttons.length];
+  if (event.key === 'ArrowUp') next = buttons[(index - 1 + buttons.length) % buttons.length];
+  if (event.key === 'Home') next = buttons[0];
+  if (event.key === 'End') next = buttons.at(-1);
+  if (next) { event.preventDefault(); next.focus(); }
+  if (event.key === 'ArrowRight' && target.hasAttribute('aria-expanded')) {
+    event.preventDefault();
+    if (target.getAttribute('aria-expanded') === 'false') target.click();
+    else buttons[index + 1]?.focus();
+  }
+  if (event.key === 'ArrowLeft') {
+    const toggle = target.closest('.notes-action-group')?.querySelector<HTMLButtonElement>('.notes-action-group__toggle');
+    if (toggle?.getAttribute('aria-expanded') === 'true') {
+      event.preventDefault();
+      toggle.click();
+      toggle.focus();
+    }
+  }
+}
+
 function extractTitle(blocks: { type: string; content?: unknown }[]): string {
   for (const block of blocks) {
     if (block.type === 'heading') {
@@ -753,6 +795,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
 
   useEffect(() => {
     if (!exportMenuOpen) return;
+    exportMenuRef.current?.querySelector<HTMLButtonElement>('[role="menu"] button:not(:disabled)')?.focus();
     const close = (e: MouseEvent): void => {
       if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) setExportMenuOpen(false);
     };
@@ -1022,12 +1065,33 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
               aria-haspopup="menu"
               aria-expanded={exportMenuOpen}
               onClick={() => { setExportMenuOpen((v) => !v); }}
+              onKeyDown={event => {
+                if (event.key === 'ArrowDown') { event.preventDefault(); setExportMenuOpen(true); }
+              }}
             >
               <ChevronDown size={16} /><span className="notes-action-label">{exporting ? 'Exporting…' : githubBusy ? 'Publishing…' : 'Actions'}</span>
             </button>
             {exportMenuOpen && (
-              <ul className="kb-menu" role="menu">
-                {actionContent}
+              <ul className="kb-menu notes-actions-menu" role="menu" aria-label="Document actions"
+                onBlur={event => {
+                  if (event.relatedTarget instanceof Node && !exportMenuRef.current?.contains(event.relatedTarget)) {
+                    setExportMenuOpen(false);
+                  }
+                }}
+                onKeyDown={event => {
+                  if (event.key === 'Escape') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setExportMenuOpen(false);
+                    exportMenuRef.current?.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')?.focus();
+                  } else navigateNoteActions(event);
+                }}>
+                <li role="menuitem">
+                  <button type="button" className="kb-menu__item notes-copy-btn" disabled={copying} title="Copy the whole note, including unsaved changes"
+                    onClick={() => { setExportMenuOpen(false); void handleCopyNote(); }}>
+                    <Copy size={16} /> {copying ? 'Copying...' : 'Copy note'}
+                  </button>
+                </li>
                 {onPresent && (
                   <li role="menuitem">
                     <button type="button" className="kb-menu__item" disabled={historyBusy}
@@ -1066,33 +1130,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
                   </button>
                 </li>
                 <li className="kb-menu__sep" role="separator" />
-                {!usesDesignVisual && <li role="menuitem">
-                  <button type="button" className="kb-menu__item" disabled={historyBusy || preparingSpecification}
-                    title="Create the full IMAGINE specification from this note and its Athena conversation; keep the source unchanged"
-                    onClick={() => {
-                      setExportMenuOpen(false);
-                      setPreparingSpecification(true);
-                      void doSave().then(saved => {
-                        if (!saved) throw new Error('Save the source note before creating its demo specification. Resolve the save error and retry.');
-                        if (!mountedRef.current || getActiveBlockNoteEditor() !== editorRef.current) return;
-                        openAthena(imagineDemoSpecificationPrompt(doc.id, savedDocRef.current.title), {
-                          ...(pageContext?.id === doc.id ? pageContext : {}),
-                          type: 'note', id: doc.id, title: savedDocRef.current.title,
-                          ...(projectIdRef.current ? { projectId: projectIdRef.current } : {}),
-                        });
-                      }).catch((error: unknown) => {
-                        if (mountedRef.current) setNotification({ kind: 'error', msg: error instanceof Error ? error.message : 'Could not prepare the demo specification. Retry from this note.' });
-                      }).finally(() => { if (mountedRef.current) setPreparingSpecification(false); });
-                    }}>
-                    <DocumentExport size={16} /> {preparingSpecification ? 'Preparing specification...' : 'Create demo specification'}
-                  </button>
-                </li>}
-                <li role="menuitem">
-                  <button type="button" className="kb-menu__item notes-copy-btn" disabled={copying} title="Copy the whole note, including unsaved changes"
-                    onClick={() => { setExportMenuOpen(false); void handleCopyNote(); }}>
-                    <Copy size={16} /> {copying ? 'Copying...' : 'Copy note'}
-                  </button>
-                </li>
+                <NoteActionGroup label="Export">
                 <li role="menuitem">
                   <button type="button" className="kb-menu__item" disabled={exporting} onClick={() => { void handleExportMarkdown(); }}>
                     <DocumentExport size={16} /> Export as Markdown (.md)
@@ -1110,24 +1148,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
                     <ImageIcon size={16} /> Export as Image (.png)
                   </button>
                 </li>
-                {(onMapNote || onCreateDiagram) && <li className="kb-menu__sep" role="separator" />}
-                {onMapNote && (
-                  <li role="menuitem">
-                    <button type="button" className="kb-menu__item" title="Open the brainstorm linked to this note, or start one with this note as its centre"
-                      onClick={() => { setExportMenuOpen(false); onMapNote(doc.id); }}>
-                      <Idea size={16} /> Linked brainstorm
-                    </button>
-                  </li>
-                )}
-                {onCreateDiagram && (
-                  <li role="menuitem">
-                    <button type="button" className="kb-menu__item" disabled={creatingDiagram} title="Create an editable diagram linked to this note"
-                      onClick={() => { setExportMenuOpen(false); void createDiagram(); }}>
-                      <Diagram size={16} /> {creatingDiagram ? 'Creating diagram...' : 'Linked diagram'}
-                    </button>
-                  </li>
-                )}
-                <li className="kb-menu__sep" role="separator" />
+                </NoteActionGroup>
+                <NoteActionGroup label="Share & publish">
                 <li role="menuitem">
                   <button type="button" className="kb-menu__item" disabled={preparingEmail || externalBusy || historyBusy}
                     title="Email the current note text, including unsaved writing, with headings, lists and links"
@@ -1150,13 +1172,54 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
                     <Launch size={16} /> Share GitHub note by email
                   </button>
                 </li>
+                </NoteActionGroup>
+                <NoteActionGroup label="Create & build">
+                {actionContent}
+                {!usesDesignVisual && <li role="menuitem">
+                  <button type="button" className="kb-menu__item" disabled={historyBusy || preparingSpecification}
+                    title="Create the full IMAGINE specification from this note and its Athena conversation; keep the source unchanged"
+                    onClick={() => {
+                      setExportMenuOpen(false);
+                      setPreparingSpecification(true);
+                      void doSave().then(saved => {
+                        if (!saved) throw new Error('Save the source note before creating its demo specification. Resolve the save error and retry.');
+                        if (!mountedRef.current || getActiveBlockNoteEditor() !== editorRef.current) return;
+                        openAthena(imagineDemoSpecificationPrompt(doc.id, savedDocRef.current.title), {
+                          ...(pageContext?.id === doc.id ? pageContext : {}),
+                          type: 'note', id: doc.id, title: savedDocRef.current.title,
+                          ...(projectIdRef.current ? { projectId: projectIdRef.current } : {}),
+                        });
+                      }).catch((error: unknown) => {
+                        if (mountedRef.current) setNotification({ kind: 'error', msg: error instanceof Error ? error.message : 'Could not prepare the demo specification. Retry from this note.' });
+                      }).finally(() => { if (mountedRef.current) setPreparingSpecification(false); });
+                    }}>
+                    <DocumentExport size={16} /> {preparingSpecification ? 'Preparing specification...' : 'Create demo specification'}
+                  </button>
+                </li>}
+                {onMapNote && (
+                  <li role="menuitem">
+                    <button type="button" className="kb-menu__item" title="Open the brainstorm linked to this note, or start one with this note as its centre"
+                      onClick={() => { setExportMenuOpen(false); onMapNote(doc.id); }}>
+                      <Idea size={16} /> Linked brainstorm
+                    </button>
+                  </li>
+                )}
+                {onCreateDiagram && (
+                  <li role="menuitem">
+                    <button type="button" className="kb-menu__item" disabled={creatingDiagram} title="Create an editable diagram linked to this note"
+                      onClick={() => { setExportMenuOpen(false); void createDiagram(); }}>
+                      <Diagram size={16} /> {creatingDiagram ? 'Creating diagram...' : 'Linked diagram'}
+                    </button>
+                  </li>
+                )}
                 <li role="menuitem">
                   <button type="button" className="kb-menu__item" title="Turn this note into a build spec for GitHub cloud coding agents"
                     onClick={() => { setExportMenuOpen(false); setBuildDialogOpen(true); }}>
                     <Code size={16} /> Send to Build
                   </button>
                 </li>
-                {(onImport || onRecovery) && <li className="kb-menu__sep" role="separator" />}
+                </NoteActionGroup>
+                {(onImport || onRecovery) && <NoteActionGroup label="Manage">
                 {onImport && (
                   <li role="menuitem">
                     <button type="button" className="kb-menu__item" title="Import a Markdown or text file as a note"
@@ -1173,6 +1236,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
                     </button>
                   </li>
                 )}
+                </NoteActionGroup>}
                 {onDelete && <li className="kb-menu__sep" role="separator" />}
                 {onDelete && (
                   <li role="menuitem">

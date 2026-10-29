@@ -115,12 +115,12 @@ test('configurable headers and local icons render in standard and AI-flow export
   assert.equal(diagramTextLayout(decision, layout).anchor, 'end');
 });
 
-test('connectors distinguish branches and declared sync/control without losing custom styling', () => {
+test('connectors keep Yes/No neutral and distinguish declared sync/control without losing custom styling', () => {
   assert.equal(diagramEdgeAppearance(connector()).stroke, '#8d8d8d');
   const no = diagramEdgeAppearance(connector({ label: 'No' }));
-  assert.equal(no.stroke, '#da1e28');
-  assert.equal(no.dash, '4 4');
-  assert.equal(diagramEdgeAppearance(connector({ label: 'Yes' })).label, '#198038');
+  assert.equal(no.stroke, '#8d8d8d');
+  assert.equal(no.dash, undefined);
+  assert.equal(diagramEdgeAppearance(connector({ label: 'Yes' })).label, '#525252');
   const sync = diagramEdgeAppearance(connector({ flow: { edgeType: 'primary_flow', interaction: 'sync' } }));
   assert.equal(sync.stroke, '#a8a8a8');
   assert.equal(sync.dash, '4 4');
@@ -149,7 +149,7 @@ test('modern SVG contains local role icons, tinted chips and the saved grid with
   assert.match(svg, /fill="#fff0f7"/);
   assert.match(svg, /data-ai-chip="sensitivity"/);
   assert.match(svg, /id="export-grid" width="20" height="20"/);
-  assert.match(svg, /stroke-dasharray="4 4"/);
+  assert.doesNotMatch(svg, /stroke-dasharray="4 4"/);
   assert.doesNotMatch(svg, /<foreignObject|https:\/\/|fonts\.googleapis|unpkg/);
   assert.equal(JSON.stringify(doc), before);
 });

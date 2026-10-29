@@ -196,6 +196,10 @@ export async function saveDiagram(canvasId: string, body: unknown): Promise<Diag
     const elementIds = [...document.nodes.map((n) => n.id), ...document.edges.map((e) => e.id), ...(document.footnotes ?? []).map((f) => f.id)];
     await client.query(
       `DELETE FROM diagram_element_notes WHERE canvas_id = $1 AND NOT (element_id = ANY($2::uuid[]))`, [canvasId, elementIds]);
+    await client.query(
+      `DELETE FROM entity_manual_links
+       WHERE (a_type='diagram' AND a_id=$1 AND a_element<>'' AND NOT (a_element=ANY($2::text[])))
+          OR (b_type='diagram' AND b_id=$1 AND b_element<>'' AND NOT (b_element=ANY($2::text[])))`, [canvasId, elementIds]);
     await client.query(`UPDATE canvases SET updated_at = NOW() WHERE id = $1`, [canvasId]);
     await client.query('COMMIT');
     return { revision: next, document };

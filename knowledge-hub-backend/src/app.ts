@@ -41,6 +41,7 @@ import { connectionRouter } from './routes/connectionRoutes.js';
 import certScoresRouter from './routes/certScores.js';
 import { graphRouter } from './routes/graphRoutes.js';
 import { canvasRouter } from './routes/canvasRoutes.js';
+import { entityRelationshipsRouter } from './routes/entityRelationships.js';
 import { buildRouter } from './routes/build.js';
 import { useCasesRouter } from './routes/useCases.js';
 import { designsRouter } from './routes/designs.js';
@@ -177,6 +178,7 @@ export function createApp(readiness: () => RuntimePhase = () => 'starting'): exp
   app.use('/api/cert-scores', certScoresRouter);
   app.use('/api/graph', graphRouter);
   app.use('/api/canvases', canvasRouter);
+  app.use('/api/entity-relationships', entityRelationshipsRouter);
   app.use('/api/build', buildRouter);
   app.use('/api/use-cases', useCasesRouter);
   app.use('/api/designs', designsRouter);

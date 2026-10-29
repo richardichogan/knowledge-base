@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bot, Chat, DataBase, DecisionTree, Locked, ToolKit, User, UserAdmin, Code, Task, Document, Folder, Cloud, Idea, Flow, Rocket, CheckmarkOutline, type CarbonIconType } from '@carbon/icons-react';
+import { Bot, Chat, DataBase, DecisionTree, Locked, ToolKit, User, UserAdmin, Code, Task, Document, Folder, Cloud, Idea, Flow, Rocket, CheckmarkOutline, Screen, type CarbonIconType } from '@carbon/icons-react';
 import { DIAGRAM_ICON_KINDS, type AiFlowStepType, type DiagramNode, type DiagramIconName } from './diagramTypes';
 import { HEXAGON_INSET, wrapText, type Rect } from './diagramGeometry';
 import { diagramTextLayout } from './diagramText';
@@ -21,6 +21,7 @@ export const DIAGRAM_SHAPE_ICONS = {
   user: { label: 'Person', icon: User }, 'user-admin': { label: 'Steward', icon: UserAdmin },
   bot: { label: 'Bot', icon: Bot }, 'tool-kit': { label: 'Tools', icon: ToolKit },
   'data-base': { label: 'Database', icon: DataBase }, code: { label: 'Code', icon: Code },
+  system: { label: 'System', icon: Screen },
   task: { label: 'Task', icon: Task }, document: { label: 'Document', icon: Document },
   folder: { label: 'Folder', icon: Folder }, cloud: { label: 'Cloud', icon: Cloud },
   chat: { label: 'Chat', icon: Chat }, idea: { label: 'Idea', icon: Idea },
@@ -33,6 +34,7 @@ const HEADER_PRESETS: Record<string, { tint: string; colour: string; ink: string
   agent: { tint: '#f6f2ff', colour: '#8a3ffc', ink: '#6929c4', icon: Bot, label: 'Bot' },
   human: { tint: '#defbe6', colour: '#24a148', ink: '#0e6027', icon: User, label: 'Person' },
   pipeline: { tint: '#edf5ff', colour: '#0f62fe', ink: '#0043ce', icon: Flow, label: 'Flow' },
+  system: { tint: '#f4f4f4', colour: '#525252', ink: '#393939', icon: Screen, label: 'System' },
 };
 
 export interface DiagramRoleLayout {

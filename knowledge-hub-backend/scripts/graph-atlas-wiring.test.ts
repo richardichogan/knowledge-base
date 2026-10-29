@@ -47,6 +47,7 @@ test('atlas projects authoritative entities, every saved relationship family and
       CREATE TABLE canvas_diagrams(canvas_id uuid,document jsonb);
       CREATE TABLE diagram_element_notes(canvas_id uuid,element_id uuid,note_id text,created_at timestamptz DEFAULT now());
       CREATE TABLE diagram_drilldowns(canvas_id uuid,node_id uuid,child_canvas_id uuid);
+      CREATE TABLE entity_manual_links(id uuid,a_type text,a_id text,a_element text,b_type text,b_id text,b_element text,created_at timestamptz DEFAULT now());
       CREATE TABLE use_cases(id uuid PRIMARY KEY,title text,project_id text,stage text DEFAULT 'candidate',spec_note_id uuid,build_spec_id uuid,
         created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
       CREATE TABLE use_case_sources(use_case_id uuid,source_type text,source_id text,added_at timestamptz DEFAULT now());

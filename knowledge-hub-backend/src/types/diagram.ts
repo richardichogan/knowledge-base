@@ -6,7 +6,7 @@
 export interface DiagramPoint { x: number; y: number }
 export type DiagramPort = 'top' | 'right' | 'bottom' | 'left';
 export type DiagramKind = 'process' | 'decision' | 'hexagon' | 'terminator' | 'document' | 'arrow' | 'line' | 'text' | 'image' | 'container' | 'swimlane';
-export const DIAGRAM_ICON_NAMES = ['user', 'user-admin', 'bot', 'tool-kit', 'data-base', 'code', 'task', 'document', 'folder', 'cloud', 'chat', 'idea', 'locked', 'decision-tree', 'flow', 'rocket', 'checkmark'] as const;
+export const DIAGRAM_ICON_NAMES = ['user', 'user-admin', 'bot', 'tool-kit', 'data-base', 'system', 'code', 'task', 'document', 'folder', 'cloud', 'chat', 'idea', 'locked', 'decision-tree', 'flow', 'rocket', 'checkmark'] as const;
 export type DiagramIconName = typeof DIAGRAM_ICON_NAMES[number];
 export const DIAGRAM_ICON_KINDS: readonly DiagramKind[] = ['process', 'decision', 'hexagon', 'terminator', 'document'];
 export const DIAGRAM_ARROW_DIRECTIONS = ['right', 'left', 'up', 'down', 'left-right', 'up-down'] as const;

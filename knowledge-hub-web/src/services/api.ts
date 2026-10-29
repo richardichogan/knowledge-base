@@ -4,6 +4,7 @@
  */
 
 import axios, { type AxiosInstance } from 'axios';
+import type { Relationship, RelationshipScope } from '../types/entityRelationships';
 import type { Design, DesignAsset, DesignDetail, DesignArtifact, DesignFeedback, DesignCollaboration, DesignProposal, DesignPackage, DesignPublication } from '../types/designs';
 import type {
   ApiResponse,
@@ -833,6 +834,21 @@ export class KnowledgeHubApi {
 
   async deletePerson(id: string): Promise<ApiResponse<{ deleted: boolean }>> {
     return (await this.client.delete<ApiResponse<{ deleted: boolean }>>(`/api/people/${encodeURIComponent(id)}`)).data;
+  }
+
+  async getRelationships(source: RelationshipScope): Promise<ApiResponse<Relationship[]>> {
+    return (await this.client.get<ApiResponse<Relationship[]>>(
+      `/api/entity-relationships/${source.type}/${encodeURIComponent(source.id)}`, { params: { elementId: source.elementId } })).data;
+  }
+
+  async addRelationship(source: RelationshipScope, target: { type: string; id: string }): Promise<ApiResponse<Relationship[]>> {
+    return (await this.client.post<ApiResponse<Relationship[]>>(
+      `/api/entity-relationships/${source.type}/${encodeURIComponent(source.id)}`, target, { params: { elementId: source.elementId } })).data;
+  }
+
+  async removeRelationship(source: RelationshipScope, key: string): Promise<ApiResponse<Relationship[]>> {
+    return (await this.client.delete<ApiResponse<Relationship[]>>(
+      `/api/entity-relationships/${source.type}/${encodeURIComponent(source.id)}`, { params: { elementId: source.elementId, key } })).data;
   }
 
   async getLinkTargets(q = '', type?: EntityLinkType, id?: string, exclude?: string, signal?: AbortSignal): Promise<ApiResponse<EntityLinkTarget[]>> {

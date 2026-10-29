@@ -22,6 +22,7 @@ import { boardColumnForUseCase } from '../features/useCases/useCaseView';
 import { TagPicker } from '../components/TagPicker';
 import { EntityChip, IdentityChip, identitiesFor, useIdentity } from '../identity';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
+import { EntityLinks, useEntityRelationships } from '../components/connections/EntityLinks';
 import type { PlanTask as Task, TaskStatus, TaskPriority } from '../types/task';
 import { FOCUS_GROUPS, focusDate, groupForFocus, isRecentlyCompleted, originHref, originLabel, taskAthenaPrompt, taskHealth, RECENT_COMPLETED_DAYS, type FocusGroupId } from '../features/plan/taskInsights';
 import { dateOnlyToLocal, localDateKey } from '../utils/dateOnly';
@@ -415,50 +416,22 @@ const FocusView: React.FC<{
 // ── Task activity section (log + linked items) ────────────────────────────────
 
 interface TaskNote { id: string; body: string; createdAt: string; }
-interface TaskLink { id: string; targetType: string; targetId: string; targetTitle: string; targetUrl: string; }
 
 const TaskActivitySection: React.FC<{ taskId: string }> = ({ taskId }) => {
   const qc = useQueryClient();
   const [tab, setTab] = useState<'activity' | 'linked'>('activity');
   const [draft, setDraft] = useState('');
-  const [search, setSearch] = useState('');
-  const [searchResults, setSearchResults] = useState<{ id: string; title: string; source: string; url?: string }[]>([]);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { data: notesData } = useQuery({ queryKey: ['task-notes', taskId], queryFn: () => api.getTaskNotes(taskId), staleTime: 0 });
-  const { data: linksData } = useQuery({ queryKey: ['task-links', taskId], queryFn: () => api.getTaskLinks(taskId), staleTime: 0 });
+  const { data: links = [] } = useEntityRelationships({ type: 'task', id: taskId });
 
   const notes: TaskNote[] = (notesData as { success: boolean; data?: TaskNote[] } | undefined)?.success ? (notesData as { data: TaskNote[] }).data : [];
-  const links: TaskLink[] = (linksData as { success: boolean; data?: TaskLink[] } | undefined)?.success ? (linksData as { data: TaskLink[] }).data : [];
 
   const addNote = useMutation({
     mutationFn: (body: string) => api.addTaskNote(taskId, body),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ['task-notes', taskId] }); setDraft(''); },
   });
 
-  const addLink = useMutation({
-    mutationFn: (link: { targetType: string; targetId: string; targetTitle: string; targetUrl: string }) => api.addTaskLink(taskId, link),
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['task-links', taskId] }); setSearch(''); setSearchResults([]); },
-  });
-
-  const removeLink = useMutation({
-    mutationFn: (linkId: string) => api.removeTaskLink(taskId, linkId),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['task-links', taskId] }),
-  });
-
-  const handleSearchChange = (val: string): void => {
-    setSearch(val);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!val.trim()) { setSearchResults([]); return; }
-    debounceRef.current = setTimeout(async () => {
-      const res = await api.search({ q: val.trim(), pageSize: 6 });
-      const items = (res as { success: boolean; data?: { items: { id: string; title: string; source: string; url?: string }[] } }).success
-        ? (res as { data: { items: { id: string; title: string; source: string; url?: string }[] } }).data.items : [];
-      setSearchResults(items);
-    }, 300);
-  };
-
-  const linkedIds = new Set(links.map((l) => l.targetId));
 
   return (
     <div className="kb-task-activity">
@@ -520,47 +493,7 @@ const TaskActivitySection: React.FC<{ taskId: string }> = ({ taskId }) => {
       {/* Linked items tab */}
       {tab === 'linked' && (
         <div className="kb-task-activity__panel">
-          {links.length > 0 && (
-            <ul className="kb-task-activity__link-list">
-              {links.map((l) => (
-                <li key={l.id} className="kb-task-activity__link-item">
-                  <a
-                    className="kb-task-activity__link-title"
-                    href={l.targetUrl || '#'}
-                    target={l.targetType === 'chat' ? undefined : '_blank'}
-                    rel="noopener noreferrer"
-                  >
-                    {l.targetTitle || l.targetId}
-                  </a>
-                  <span className="kb-task-activity__link-type">{l.targetType}</span>
-                  <button type="button" className="kb-task-activity__chip-remove" title="Remove link" onClick={() => removeLink.mutate(l.id)}>×</button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <input
-            className="kb-task-activity__search"
-            placeholder="Search notes and documents to link…"
-            value={search}
-            onChange={(e) => handleSearchChange(e.target.value)}
-          />
-          {searchResults.length > 0 && (
-            <ul className="kb-task-activity__results">
-              {searchResults.map((item) => (
-                <li key={item.id} className="kb-task-activity__result">
-                  <span className="kb-task-activity__result-title">{item.title}</span>
-                  {linkedIds.has(item.id)
-                    ? <span className="kb-task-activity__result-linked">✓ Linked</span>
-                    : <button
-                        type="button"
-                        className="kb-task-activity__result-btn"
-                        onClick={() => addLink.mutate({ targetType: item.source === 'note' ? 'note' : 'document', targetId: item.id, targetTitle: item.title, targetUrl: item.url ?? '' })}
-                      >Link</button>
-                  }
-                </li>
-              ))}
-            </ul>
-          )}
+          <EntityLinks key={taskId} source={{ type: 'task', id: taskId }} />
         </div>
       )}
     </div>

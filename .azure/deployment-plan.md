@@ -2,6 +2,73 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-29 17:34 UTC, links and diagram controls):**
+- User requested deploy, then merge and push of the approved shared Manage
+  links modal, grouped Think Actions, diagram description bullets, neutral
+  Yes/No connectors and visible System header/icon preset.
+- Synced origin/main; live remote and local base both ad54ffc. Existing
+  packed-refs lock maintenance warnings did not prevent synchronization.
+- All validation checks pass:
+  - [x] Both applications: `npx tsc --noEmit`, `npm run lint:check` and
+    `npm run build` passed. Lint non-regression: backend 547/623, web 22/41.
+  - [x] Full isolated backend release suite: 783 passed, zero failures.
+  - [x] Full isolated frontend release suite: 333 passed, zero failures,
+    including new description/theme coverage and existing export checks.
+  - [x] Added new relationship/description cases to the isolated runner;
+    updated graph fixture and approved neutral-connector expectations.
+  - [x] `git diff --check`, Azure authentication and existing target access
+    passed. Current backend v273; release image v274. Web asset
+    index-CfVj0Ptc.js.
+- Application-only AZCLI deployment to the existing Alliance Tenant Reporting
+  subscription, rg-knowledge-hub-prod, kh-prod-api-vnet and kh-prod-web.
+  No infrastructure, RBAC, policy, dependency, secret or desktop changes.
+  Provisioning/template checks are N/A. Dockerfile retains lockfile-backed
+  installs and copies migration SQL; ACR performs the container build.
+- Additive migration 118 was already applied to shared production data with
+  explicit user approval; production startup will skip the recorded migration.
+- Change-for-fit: shared UI/API reuse fits existing architecture; ACA/SWA and
+  production-data assumptions are preserved; no added dependency or service
+  cost; typed scopes validate endpoints and keys; parameterized SQL and
+  scoped deletion preserve existing secret/security handling. The smallest
+  safer implementation retains legacy relationships and adds storage only for
+  missing combinations. The fit helper returned no diff, so this assessment
+  uses the actual worktree diff and relationship implementation instead.
+- Evidence: session files/links-release-{backend,frontend}.log and
+  links-release-web-build.log. Exclude generated .impeccable hook metadata.
+
+**Release scope and Section 7: Validation Proof (2026-10-29, voice parity and Word export):**
+- User requested deployment of the completed voice/composer parity, detailed
+  review-context fixes, and Think Actions > Export as Word (.docx).
+- Synced origin/main at bd59663; live remote SHA matches. Existing packed-refs
+  lock warnings did not prevent fetch or merge. No lock removed.
+- All validation checks pass:
+  - [x] Both application `tsc --noEmit` checks and production builds passed.
+  - [x] Full isolated backend release suite ran once: 779/781 initially passed.
+    Restored review limits for explicit cursor/offset reads; all 68 affected
+    context, evidence and document-reading cases then passed.
+  - [x] Full isolated frontend suite: 329 existing cases passed; new Word test
+    needed browser-localStorage setup. Its affected rerun passed, inspecting
+    the actual DOCX archive for headings, emphasis, lists, tables, labels,
+    no hyperlink relationships and no duplicate title.
+  - [x] Backend/frontend lint non-regression passed (547/623 and 22/41);
+    corrected backend file and new Word converter lint passed.
+  - [x] Final `git diff --check` passed. Azure subscription, ACA and SWA access
+    confirmed. Current image v272; next release image v273.
+- Existing application-only AZCLI targets, registry credentials and packaging
+  are unchanged. No infrastructure, policy, RBAC, migration or secret changes;
+  provisioning/template checks are N/A. No desktop executable changes.
+- Change-for-fit: (1) shared composer, existing reading pipeline and Think
+  Actions fit the architecture; (2) ACA/SWA/shared-production-data hosting is
+  preserved; (3) user-approved docx is lazy-loaded and generates locally,
+  without paid service; existing checkpoint reading remains bounded;
+  (4) typed contracts and exclusions/dismissal are preserved; (5) no secrets
+  committed or uploaded and Word contains no clickable hyperlink targets;
+  (6) this reuses existing paths without new workspace, server endpoint or
+  separate voice implementation.
+- Keep generated .impeccable hook metadata out of the release commit.
+- Evidence: session files/voice-word-release-{backend,frontend,affected}.log
+  and voice-word-release-web-build.log. Frontend asset index-DzQ5VB_2.js.
+
 **Release scope and Section 7: Validation Proof (2026-10-29, Daily Insights reading and toolbar):**
 - User requested deployment of the updated semantic daily-briefing procedure
   and the approved Background work toolbar/Discover layout corrections.

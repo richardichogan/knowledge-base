@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useProjects } from '../../hooks/useProjects';
 import { ProjectOptions } from '../../components/ProjectOptions';
 import { api, type CanvasFullApi, type CanvasSummaryApi } from '../../services/api';
+import { DiagramDescriptionEditor } from './DiagramDescriptionEditor';
 
 export function DiagramMetadata({ canvas, onSaved }: {
   canvas: CanvasFullApi;
@@ -41,10 +42,8 @@ export function DiagramMetadata({ canvas, onSaved }: {
       <input aria-label="Diagram title property" maxLength={200} value={title} disabled={saving}
         onChange={(event) => { setTitle(event.target.value); }} />
     </label>
-    <label className="dg-properties__field">Description
-      <textarea aria-label="Diagram description" rows={3} maxLength={10000} value={description} disabled={saving}
-        onChange={(event) => { setDescription(event.target.value); }} />
-    </label>
+    <DiagramDescriptionEditor label="Diagram description" rows={3} value={description} disabled={saving}
+      onChange={value => { setDescription(value); }} />
     <label className="dg-properties__field">Project
       <select aria-label="Diagram project" value={project} disabled={saving || projects.isPending}
         onChange={(event) => { setProject(event.target.value); }}>

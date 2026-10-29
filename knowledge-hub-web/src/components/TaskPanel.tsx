@@ -5,9 +5,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Close, Edit, TrashCan, Document, Notebook, Chat } from '@carbon/icons-react';
+import { Close, Edit, TrashCan } from '@carbon/icons-react';
 import { api } from '../services/api';
-import type { ContentItemSummary } from '../types/contentItem';
+import { EntityLinks } from './connections/EntityLinks';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -32,15 +32,6 @@ interface TaskNote {
   createdAt: string;
 }
 
-interface TaskLink {
-  id: string;
-  taskId: string;
-  targetType: 'note' | 'document' | 'chat';
-  targetId: string;
-  targetTitle: string;
-  targetUrl?: string;
-  createdAt: string;
-}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -121,122 +112,7 @@ const ActivityLog: React.FC<{ taskId: string }> = ({ taskId }) => {
 };
 
 const LinkedItems: React.FC<{ taskId: string }> = ({ taskId }) => {
-  const queryClient = useQueryClient();
-  const [query, setQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<ContentItemSummary[]>([]);
-  const [searching, setSearching] = useState(false);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const { data: linksData } = useQuery({
-    queryKey: ['task-links', taskId],
-    queryFn: () => api.getTaskLinks(taskId),
-    staleTime: 0,
-  });
-
-  const links: TaskLink[] = (linksData as { success: boolean; data?: TaskLink[] } | undefined)?.success
-    ? (linksData as { data: TaskLink[] }).data
-    : [];
-
-  const addLink = useMutation({
-    mutationFn: (link: { targetType: string; targetId: string; targetTitle: string }) =>
-      api.addTaskLink(taskId, link),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['task-links', taskId] });
-      setQuery('');
-      setSearchResults([]);
-    },
-  });
-
-  const removeLink = useMutation({
-    mutationFn: (linkId: string) => api.removeTaskLink(taskId, linkId),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['task-links', taskId] }),
-  });
-
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!query.trim()) { setSearchResults([]); return; }
-    debounceRef.current = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const res = await api.search({ q: query.trim(), pageSize: 8 });
-        const items = (res as { success: boolean; data?: { items: ContentItemSummary[] } }).success
-          ? (res as { data: { items: ContentItemSummary[] } }).data.items
-          : [];
-        setSearchResults(items);
-      } finally {
-        setSearching(false);
-      }
-    }, 300);
-  }, [query]);
-
-  const linkedIds = new Set(links.map((l) => l.targetId));
-
-  return (
-    <section className="tp-section">
-      <h3 className="tp-section__heading">Linked items</h3>
-
-      {links.length > 0 && (
-        <div className="tp-links">
-          {links.map((l) => (
-            <div key={l.id} className="tp-link-chip">
-              {l.targetType === 'chat'
-                ? <Chat size={12} className="tp-link-chip__icon" />
-                : l.targetType === 'note'
-                  ? <Notebook size={12} className="tp-link-chip__icon" />
-                  : <Document size={12} className="tp-link-chip__icon" />
-              }
-              {l.targetType === 'chat'
-                ? <a className="tp-link-chip__title" href={l.targetUrl || `/chat?session=${encodeURIComponent(l.targetId)}`} title="Open this Athena chat">{l.targetTitle || 'Athena chat'}</a>
-                : <span className="tp-link-chip__title">{l.targetTitle || l.targetId}</span>}
-              <button
-                className="tp-link-chip__remove"
-                title="Remove link"
-                onClick={() => removeLink.mutate(l.id)}
-              >
-                <Close size={10} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="tp-link-search">
-        <input
-          className="tp-link-search__input"
-          placeholder="Search notes and documents…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        {searching && <span className="tp-link-search__hint">Searching…</span>}
-        {searchResults.length > 0 && (
-          <ul className="tp-link-results">
-            {searchResults.map((item) => {
-              const alreadyLinked = linkedIds.has(item.id);
-              const targetType = item.source === 'note' ? 'note' : 'document';
-              return (
-                <li key={item.id} className={`tp-link-results__item${alreadyLinked ? ' tp-link-results__item--linked' : ''}`}>
-                  {targetType === 'note'
-                    ? <Notebook size={12} />
-                    : <Document size={12} />
-                  }
-                  <span className="tp-link-results__title">{item.title}</span>
-                  {!alreadyLinked && (
-                    <button
-                      className="tp-link-results__add"
-                      onClick={() => addLink.mutate({ targetType, targetId: item.id, targetTitle: item.title })}
-                    >
-                      Link
-                    </button>
-                  )}
-                  {alreadyLinked && <span className="tp-link-results__linked">Linked</span>}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
-    </section>
-  );
+  return <section className="tp-section"><EntityLinks key={taskId} source={{ type: 'task', id: taskId }} /></section>;
 };
 
 // ── TaskPanel ─────────────────────────────────────────────────────────────────

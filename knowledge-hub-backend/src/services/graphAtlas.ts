@@ -212,7 +212,8 @@ raw_edges AS (
     jsonb_build_object('evidence','Saved taxonomy parent'),NULL,'explicit' FROM tags WHERE parent_id IS NOT NULL
   UNION ALL SELECT 'tag-project:'||id,'tag:'||id,'project:'||project_id,'identifies',1,
     jsonb_build_object('evidence','Saved project filing tag'),NULL,'explicit' FROM tags WHERE project_id IS NOT NULL
-  UNION ALL SELECT 'task-link:'||id,'task:'||task_id,target_type||':'||target_id,'references',1,
+  UNION ALL SELECT 'task-link:'||id,'task:'||task_id,
+    CASE WHEN target_type='diagram' THEN 'canvas' ELSE target_type END||':'||target_id,'references',1,
     jsonb_build_object('evidence','Saved task link'),created_at,'explicit' FROM task_links
   UNION ALL SELECT 'note-source:'||n.id||':'||item,'note:'||n.id,'content_item:'||item,'references',1,
     jsonb_build_object('evidence','Saved linked source'),NULL,'explicit' FROM notes n CROSS JOIN LATERAL unnest(n.linked_items) item
@@ -241,6 +242,11 @@ raw_edges AS (
     jsonb_build_object('evidence','Saved diagram drilldown','elementId',node_id),NULL,'explicit' FROM diagram_drilldowns d
     WHERE EXISTS(SELECT 1 FROM canvas_diagrams cd CROSS JOIN LATERAL jsonb_array_elements(cd.document->'nodes') element
       WHERE cd.canvas_id=d.canvas_id AND element->>'id'=d.node_id::text)
+  UNION ALL SELECT 'manual-link:'||id,
+    CASE WHEN a_type='diagram' THEN 'canvas' ELSE a_type END||':'||a_id,
+    CASE WHEN b_type='diagram' THEN 'canvas' ELSE b_type END||':'||b_id,'references',1,
+    jsonb_build_object('evidence','Saved manual link','sourceElementId',NULLIF(a_element,''),'targetElementId',NULLIF(b_element,'')),created_at,'explicit'
+    FROM entity_manual_links
   UNION ALL SELECT 'usecase-source:'||use_case_id||':'||source_type||':'||source_id,'usecase:'||use_case_id,
     source_type||':'||source_id,'derived_from',1,jsonb_build_object('evidence','Saved Use Case source'),added_at,'explicit' FROM use_case_sources
   UNION ALL SELECT 'usecase-spec:'||id,'usecase:'||id,'note:'||spec_note_id,'specifies',1,

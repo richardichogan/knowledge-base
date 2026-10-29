@@ -46,7 +46,7 @@ import {
 } from './diagramGeometry';
 import { diagramLineJumpGeometry } from './diagramLineJumps';
 import { DiagramIconPicker } from './DiagramIconPicker';
-import { DiagramNoteLinks } from './DiagramNoteLinks';
+import { EntityLinks } from '../../components/connections/EntityLinks';
 import { DiagramMetadata } from './DiagramMetadata';
 import { DiagramDescriptionEditor } from './DiagramDescriptionEditor';
 import { descriptionPlainText, descriptionRuns, formatDescription, styledLines } from './diagramMarkdown';
@@ -68,7 +68,6 @@ import { DiagramFootnoteControls } from './DiagramFootnoteControls';
 import { DiagramLegend } from './DiagramLegend';
 import { DiagramVersions } from './DiagramVersions';
 import { DiagramTextCheck } from './DiagramTextCheck';
-import { DiagramElementNotes } from './DiagramElementNotes';
 import { diagramEditorNodeColours, diagramNodeRadius, diagramNodeShadow, diagramNodeStrokeWidth, diagramEdgeAppearance, DIAGRAM_SHADOWS } from './diagramTheme';
 import { DiagramRoleBadge, diagramRoleLayout, DIAGRAM_ROLES, DIAGRAM_SHAPE_ICONS } from './DiagramRoleBadge';
 import { diagramBorderDash } from './diagramStroke';
@@ -576,7 +575,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
 
   const beforeElementLink = useCallback(async (): Promise<boolean> => {
     const ok = await saveNow();
-    if (!ok) notify('error', 'Save the diagram before linking notes — the latest changes haven’t saved yet.', { key: 'element-note-save' });
+    if (!ok) notify('error', 'Save the diagram before managing links — the latest changes haven’t saved yet.', { key: 'element-link-save' });
     return ok;
   }, [saveNow, notify]);
 
@@ -1870,7 +1869,6 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const notesPosition = doc.notesPanel ?? 'bottom';
   const showNotes = footnotes.length > 0 && !notesHidden;
   const notesBlock = useMemo(() => notesBlockOf(doc, notesHidden), [doc, notesHidden]);
-  const elementNotes = canvas?.elementNotes ?? [];
   const keyDim = (stroke: string | undefined): boolean => keyFilter !== null && (stroke ?? '').toLowerCase() !== keyFilter;
   const footnoteR = FOOTNOTE_RADIUS * Math.max(1, 0.75 / z);
   const singleId = singleNode?.id ?? singleEdge?.id;
@@ -2840,9 +2838,9 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
             });
           }}><Copy size={16} /> Copy image</button>
         </div>}
-        {singleId !== undefined && <DiagramElementNotes
-          key={`notes-${singleId}`} canvasId={canvasId} elementId={singleId} title="Notes linked to this shape"
-          notes={elementNotes.filter((l) => l.elementId === singleId)} onOpenNote={onOpenNote} beforeChange={beforeElementLink}
+        {singleId !== undefined && <EntityLinks
+          key={`links-${singleId}`} source={{ type: 'diagram', id: canvasId, elementId: singleId }} title="Shape links"
+          onOpenNote={onOpenNote} beforeChange={beforeElementLink}
         />}
         {singleFootnote !== undefined && <DiagramFootnoteControls canvasId={canvasId} doc={doc} footnoteId={singleFootnote.id}
           onChange={changeAnnotations} onCopied={(message) => { notify('info', message, { key: 'footnote-copy' }); }} />}
@@ -2865,7 +2863,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           <button type="button" className="dg-text-btn" onClick={() => { askAthena(singleId); }}><Chat size={16} /> Ask Athena</button>
         </div>}
         </details>
-        <DiagramNoteLinks canvasId={canvasId} notes={canvas?.linkedNotes ?? []} onOpenNote={onOpenNote} />
+        <EntityLinks key={canvasId} source={{ type: 'diagram', id: canvasId }} title="Diagram links" onOpenNote={onOpenNote} beforeChange={beforeElementLink} />
           </div>,
         },
         ...(designPanel ? [{ id: 'design', label: 'Design', content: <div className="dg-properties">{designPanel}</div> }] : []),
@@ -2969,8 +2967,12 @@ function DiagramProperties({ item, kind, titleLimit, aiFlow, onIconChange, onRes
             onChange={event => { change('header', event.target.value); }} />
         </label>
         <div className="dg-shape-presets" role="group" aria-label="Header presets">
-          {['Agent', 'Human', 'Pipeline', ''].map(header => <button type="button" className="dg-text-btn" key={header}
-            aria-pressed={item.header === header} onClick={() => { firstEdit.current = true; change('header', header); }}>
+          {['Agent', 'Human', 'Pipeline', 'System', ''].map(header => <button type="button" className="dg-text-btn" key={header}
+            aria-pressed={item.header === header} onClick={() => {
+              firstEdit.current = true;
+              change('header', header);
+              if (header === 'System') onIconChange('system');
+            }}>
             {header || 'None'}
           </button>)}
           {aiFlow && item.flow && <button type="button" className="dg-text-btn" onClick={onResetHeader}

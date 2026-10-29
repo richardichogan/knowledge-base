@@ -94,9 +94,8 @@ export function diagramEdgeAppearance(edge: DiagramEdge): { stroke: string; widt
   const defaultStyle = defaults === undefined
     ? ['#525252', '#161616', '#8d8d8d'].includes(edge.stroke.toLowerCase()) && !edge.dashed
     : edge.stroke.toLowerCase() === defaults.stroke && edge.dashed === defaults.dashed;
-  const branch = edge.label.trim().toLowerCase();
-  const no = branch === 'no' || edge.flow?.gateOutcome === 'rework';
-  const yes = branch === 'yes' || edge.flow?.gateOutcome === 'pass';
+  const no = edge.flow?.gateOutcome === 'rework';
+  const yes = edge.flow?.gateOutcome === 'pass';
   const control = edge.flow?.edgeType === 'control';
   const sync = edge.flow?.interaction === 'sync';
   let stroke = edge.stroke;

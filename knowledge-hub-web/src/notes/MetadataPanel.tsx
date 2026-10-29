@@ -12,6 +12,7 @@ import type { NoteDocument } from './types';
 import { TagPicker } from '../components/TagPicker';
 import { CollapsibleSection } from '../components/CollapsibleSection';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
+import { EntityLinks } from '../components/connections/EntityLinks';
 import { NoteMaps } from '../features/canvas/NoteMaps';
 import { RelatedSparks } from '../features/sparks/RelatedSparks';
 import type { Project } from '../services/api';
@@ -430,6 +431,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
 
         {tab === 'connections' && (
           <div role="tabpanel" id="think-side-panel-connections" aria-labelledby="think-side-tab-connections" className="notes-meta-tabpanel">
+            <EntityLinks key={noteId} source={{ type: 'note', id: noteId }} />
             <NoteMiniGraph key={noteId} noteId={noteId} />
             <NoteBacklinks noteId={noteId} />
             <UnlinkedMentions noteId={noteId} />
