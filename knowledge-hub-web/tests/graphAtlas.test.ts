@@ -12,6 +12,40 @@ const edge = (source: string, target: string): GraphEdge => ({
   id: `${source}-${target}`, source, target, edgeType: 'references', confidence: 1, metadata: null,
 });
 
+test('saved taxonomy tags are explicit navigable neighbours without inferred-link opt-in', () => {
+  const note = node('note:source'), tag = { ...node('tag:agentic'), title: 'Agentic' };
+  const relationship = { ...edge(note.id, tag.id), edgeType: 'tagged_with', origin: 'explicit' as const };
+  const graph = neighbourhood([note, tag], [relationship].filter(e => !isInferred(e)), note.id);
+  assert.equal(graph.nodes.length, 2);
+  assert.equal(graph.edges[0]?.edgeType, 'tagged_with');
+  assert.equal(graphNodeHref(tag), '/graph?seed=tag%3Aagentic');
+});
+
+test('all graph entity routes preserve the saved record identity and reject unsafe external URLs', () => {
+  for (const [type, href] of [
+    ['canvas', '/think?mapId=x'], ['usecase', '/plan?view=use-cases&useCase=x'],
+    ['document', '/library?docId=x'], ['task', '/plan?taskId=x'], ['build_spec', '/build?spec=x'],
+    ['spark', '/think?view=sparks&sparkId=x'],
+  ]) assert.equal(graphNodeHref(node(`${type}:x`)), href);
+  assert.equal(graphNodeHref({ ...node('pull_request:x'), url: 'https://example.test/pr' }), 'https://example.test/pr');
+  assert.equal(graphNodeHref({ ...node('pull_request:x'), url: 'javascript:alert(1)' }), '/my-work');
+  assert.equal(graphNodeHref({ ...node('decision:x'), url: '/chat?session=abc' }), '/chat?session=abc');
+  assert.equal(graphNodeHref({ ...node('register_issue:x'), projectIds: ['p&x'] }), '/projects?projectId=p%26x');
+});
+
+test('graph refreshes after successful writes and applies inferred opt-in before server caps', () => {
+  const hook = readFileSync(new URL('../src/hooks/useGraphData.ts', import.meta.url), 'utf8');
+  const client = readFileSync(new URL('../src/services/api.ts', import.meta.url), 'utf8');
+  const page = readFileSync(new URL('../src/pages/GraphPage.tsx', import.meta.url), 'utf8');
+  assert.match(hook, /includeInferred = false/);
+  assert.match(page, /includeInferred: inferred/);
+  assert.match(client, /p\['include_inferred'\] = String\(params.includeInferred\)/);
+  assert.match(hook, /addEventListener\('athena-graph-changed'/);
+  assert.match(hook, /removeEventListener\('athena-graph-changed'/);
+  assert.match(client, /response.data\?\.success === true/);
+  assert.match(client, /new Event\('athena-graph-changed'\)/);
+  assert.match(hook, /staleTime: 0/);
+});
 test('project layout is deterministic under reordering and separates nodes in 3D', () => {
   const nodes = [node('note:b', ['alpha']), node('project:alpha', ['alpha']), node('company:c', ['alpha']), node('note:a')];
   const a = atlasLayout(nodes), b = atlasLayout([...nodes].reverse());

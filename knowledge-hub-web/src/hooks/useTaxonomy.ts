@@ -78,7 +78,10 @@ export function useUpdateTag() {
   return useMutation({
     mutationFn: ({ id, ...input }: { id: string; name?: string; colour?: string | null }) =>
       api.updateTag(id, input),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: TAXONOMY_KEY }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: TAXONOMY_KEY });
+      void qc.invalidateQueries({ queryKey: ['graph'] });
+    },
   });
 }
 
@@ -90,6 +93,8 @@ export function useDeleteTag() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: TAXONOMY_KEY });
       void qc.invalidateQueries({ queryKey: PENDING_KEY });
+      void qc.invalidateQueries({ queryKey: ['graph'] });
+      void qc.invalidateQueries({ queryKey: ['note-tags'] });
     },
   });
 }
@@ -121,8 +126,8 @@ export function useSetNoteTags(noteId: string | null) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['note-tags', noteId] });
       void qc.invalidateQueries({ queryKey: ['notes'] }); // matches NotesPage queryKey
+      void qc.invalidateQueries({ queryKey: ['graph'] });
     },
   });
 }
-
 

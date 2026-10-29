@@ -18,18 +18,18 @@ export function NoteMiniGraph({ noteId }: { noteId: string }): React.ReactElemen
       <Link to={`/graph?seed=${encodeURIComponent(seed)}`}>Explore graph →</Link></div>
     {isLoading ? <p role="status">Loading connections…</p>
       : isError ? <DataNotice title="Note graph is unavailable" error={error} onRetry={() => { void retry(); }} />
-        : graph.nodes.length <= 1 ? <p>No visible connections yet. Link a project or mention another record to start a neighbourhood.</p>
+        : graph.nodes.length <= 1 ? <p>No visible connections yet. Add a tag, link a project or mention another record to start a neighbourhood.</p>
           : <>
             <AtlasForceMap compact scope={seed} depth={2} nodes={graph.nodes} edges={graph.edges} selected={chosen?.id ?? seed}
               onSelect={node => { setSelected(node?.id ?? null); }} />
             {chosen && <div className="note-mini-graph__selection"><strong>{chosen.title}</strong><span>{chosen.refType}</span>
-              <Link to={graphNodeHref(chosen)}>Open in hub</Link>
+              <Link to={graphNodeHref(chosen)}>Open record</Link>
               <Link to={`/graph?seed=${encodeURIComponent(chosen.id)}`}>Explore from here</Link></div>}
             <details><summary>Browse connected records</summary>
               <ul>{graph.nodes.filter(n => n.id !== seed).map(n => <li key={n.id}>
                 <button type="button" className="note-mini-graph__record" aria-pressed={selected === n.id}
                   onClick={() => { setSelected(n.id); }}>{n.title}</button>
-                <span>{n.refType}</span> <Link to={graphNodeHref(n)}>Open in hub</Link>
+                <span>{n.refType}</span> <Link to={graphNodeHref(n)}>Open record</Link>
               </li>)}</ul>
             </details>
             {data?.stats.truncated && <p>Showing a partial neighbourhood. Open the graph to explore further.</p>}

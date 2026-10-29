@@ -31,7 +31,7 @@ export const GraphPage: React.FC = () => {
     slidePanels(() => { setInspectorOpenNow(next); });
     window.setTimeout(() => { setLayoutVersion(v => v + 1); }, 280);
   }, [setInspectorOpenNow]);
-  const { data, isLoading, isError, error, retry } = useGraphData({ days, seed, depth });
+  const { data, isLoading, isError, error, retry } = useGraphData({ days, seed, depth, includeInferred: inferred });
   const nodes = data?.nodes ?? EMPTY_NODES, edges = data?.edges ?? EMPTY_EDGES;
   const allowedEdges = useMemo(() => edges.filter(e => inferred || !isInferred(e)), [edges, inferred]);
   const atlas = useMemo(() => buildAtlasData(nodes, allowedEdges), [nodes, allowedEdges]);
@@ -145,7 +145,7 @@ export const GraphPage: React.FC = () => {
             {item.project ? `${items.get(item.project)?.name ?? 'Project'} · ` : 'No loaded project assignment · '}
             {item.last > 14 ? `quiet ${item.last} days` : `active ${item.last} days ago`} · {connections.length} loaded connections
           </p>
-          <div className="atlas__actions"><Link to={graphNodeHref(node)}>Open in hub</Link>
+          <div className="atlas__actions"><Link to={graphNodeHref(node)}>Open record</Link>
             <button onClick={() => { start(node.id); }}>Explore from here</button></div>
           <h3>Recorded connections</h3>
           {connections.length ? <ul className="atlas__connections">{connections.map(link => <li key={link.edge.id}>

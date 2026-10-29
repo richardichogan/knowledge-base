@@ -7,22 +7,13 @@ import React, { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Tag } from '@carbon/react';
 import type { GraphNode, GraphEdge } from '../../services/api';
+import { graphNodeHref } from './atlasModel';
 
 interface GraphNodeDetailProps {
   node: GraphNode;
   edges: GraphEdge[];
   onStartHere: (nodeId: string) => void;
   onClose: () => void;
-}
-
-/** Maps ref_type to its native hub route. */
-function routeForNode(refType: string, refId: string): string {
-  if (refType === 'note')                              return `/think?noteId=${encodeURIComponent(refId)}`;
-  if (refType === 'document')                         return '/library';
-  if (refType === 'task')                             return '/plan';
-  if (refType === 'discover_item' || refType === 'cfp_item') return '/discover';
-  if (refType === 'spark')                            return '/think';
-  return `/my-work?highlight=${encodeURIComponent(refId)}`;
 }
 
 /** Counts edges by type for the summary list. */
@@ -85,9 +76,13 @@ export const GraphNodeDetail: React.FC<GraphNodeDetailProps> = ({ node, edges, o
         <Button
           kind="primary"
           size="sm"
-          onClick={() => { void navigate(routeForNode(node.refType, node.refId)); }}
+          onClick={() => {
+            const href = graphNodeHref(node);
+            if (/^https?:\/\//i.test(href)) window.location.assign(href);
+            else void navigate(href);
+          }}
         >
-          Open in hub
+          Open record
         </Button>
         <Button
           kind="tertiary"

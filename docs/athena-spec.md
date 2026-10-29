@@ -194,6 +194,48 @@ Reply metadata sits in a quiet reference area below the answer. **Context & refe
 
 The atlas reads existing entity records and saved relationships without creating a second authoritative graph. It includes company/programme links, people and roles, note links, decisions and semantic relationships alongside indexed source connections. Inferred links are hidden by default and never presented as confirmed roles or facts. Positions organise neighbourhoods; distance does not measure relationship strength.
 
+Saved taxonomy tags are live graph entities connected by `tagged_with` edges,
+including automatically assigned tags and filing tags. These edges reflect saved
+membership, not a confirmed semantic assertion; their evidence identifies the
+assignment source and tag role. Popular tags are not excluded by the legacy
+shared-tag 50-use cutoff. Note, task, Discover, Library, content-item and CFP
+tag junctions share the same projection, including Library `repo::path` and
+upload identities. Taxonomy parents and project filing identities are linked.
+Exploring a tag shows its tagged records within
+the normal graph caps; direct neighbours take priority over second-hop context.
+Adding, removing or renaming a tag is reflected without a graph-sync job.
+Inline passage markers (Important, Follow-up, Question, Risk and Issue) remain
+separate and do not automatically become graph records.
+
+The graph reads current source records rather than trusting the `nodes` index
+for existence, titles or saved relationships. Sparks and themes, live canvases,
+Use Cases, source content (including calendar, email and publications), chat
+outputs and build specifications join the existing entity types without waiting
+for a sync. Archived notes/tasks, dropped Use Cases, deleted canvases and
+publication mirrors are excluded; links to publication mirrors resolve to their
+original Think note. Existing indexed UUID seeds remain supported.
+
+Resolved `[[links]]` and `@mentions` connect their saved targets. Endpoint aliases
+normalise diagram/canvas, article/Discover, Use Case, Library and semantic-source
+identities. Saved task/source links, Spark capture and graduation, canvas pinned
+notes and referenced cards, connections between referenced cards, diagram
+annotations and live drilldowns, Use Case sources/specs/builds, Design assets
+(including inherited assets and exclusions), note conversations, outputs,
+register questions/risks/issues, passage extractions, build PRs and publication
+attribution are projected from their authoritative storage. Arbitrary external
+URLs connect only when they identify an existing indexed content record;
+unresolved text, diagram shapes and free-text canvas cards do not invent global
+knowledge entities.
+
+Legacy cached `has_spark` and `on_map` edges are replaced by live links; cached
+pairwise `tag_overlap` edges are superseded by taxonomy membership paths so
+removing a tag cannot leave a false connection. Timestamp-proximity edges stay
+excluded. Inferred links remain explicitly labelled; the existing opt-in now
+filters them on the server before neighbourhood traversal and caps, preventing
+hidden inferred neighbours from crowding out recorded connections. Graph views
+refresh after successful record writes and on reopening/focus. External records
+open their stored HTTP(S) URL; native records retain their specific hub route.
+
 The supplied [Knowledge Atlas handoff](specs/knowledge-atlas.md) now defines the graph's visual and motion language. The actual `public/athena/atlas-graph.js` custom element renders the Carbon G100 dot grid, rounded project hulls, ringed project hubs, degree-sized items, curved relationships and unlinked groups. The main page has type chips, search, 7/30/90-day activity controls, a legend and a 360px inspector. Full-graph labels share a six-title maximum, prioritising the root, hover and selection before path/search matches and project hubs. Titles are regular-weight, ellipsised and collision-checked; selecting a densely connected node or zooming in never labels every neighbour. Full titles and activity details remain available through hover and the inspector rather than secondary text around nodes.
 
 The supplied spring/repulsion constants, seeded cluster bloom, ambient drift, activity pulses and directional flow particles are retained. Dragging holds a node at the pointer while its neighbours react; releasing resumes physics, rather than permanently pinning every node as the previous renderer did. Reflow restarts the deterministic layout. Canvas dragging pans; wheel/pinch zoom at the pointer; selection eases to a record and draws in its neighbours. Zoom, Fit and Reflow controls are scoped to their own graph.

@@ -23,7 +23,7 @@ test('daily capture has an AI-sized timeout rather than the ordinary eight-secon
   let timeout = 0;
   const globals = globalThis as unknown as { __dailyApiFixture?: unknown };
   globals.__dailyApiFixture = {
-    interceptors: { request: { use() {} } },
+    interceptors: { request: { use() {} }, response: { use() {} } },
     post: async (path: string, _input: unknown, config: { timeout: number }) => {
       assert.equal(path, '/api/capture/daily-insights');
       timeout = config.timeout;

@@ -10,6 +10,7 @@ import type { GraphNode, GraphEdge } from '../../services/api';
 const EDGE_LABELS: Record<string, string> = {
   has_spark:            'Sparks',
   tag_overlap:          'Shared tags',
+  tagged_with:          'Tagged with',
   references:           'References',
   thematically_related: 'Thematic',
 };

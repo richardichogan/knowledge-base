@@ -137,6 +137,18 @@ function makeClient(baseURL: string, token: string): AxiosInstance {
     if (signedIn !== '') config.headers.set('Authorization', `Bearer ${signedIn}`);
     return config;
   });
+  client.interceptors.response.use(response => {
+    const method = response.config.method?.toLowerCase();
+    const path = response.config.url ?? '';
+    if (method && ['post', 'put', 'patch', 'delete'].includes(method)
+      && response.data?.success === true
+      && /^\/api\/(?:notes|tasks|canvases|designs|use-cases|taxonomy|tags|people|companies|projects|sparks|documents|discover|ai|build|semantic)(?:\/|$)/.test(path)
+      && !/\/(?:link-suggestions|link-preview|search|preview)(?:\/|$)/.test(path)
+      && typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('athena-graph-changed'));
+    }
+    return response;
+  });
   return client;
 }
 
@@ -553,6 +565,7 @@ export interface GraphNode {
   updatedAt?: string;
   projectIds?: string[];
   timestampBasis?: 'source' | 'index';
+  url?: string | null;
 }
 
 export interface GraphEdge {
@@ -2261,6 +2274,7 @@ export class KnowledgeHubApi {
     depth?: number;
     edgeTypes?: string[];
     nodeTypes?: string[];
+    includeInferred?: boolean;
   }): Promise<ApiResponse<GraphResponse>> {
     const p: Record<string, string> = {};
     if (params.days !== undefined) p['days'] = String(params.days);
@@ -2268,6 +2282,7 @@ export class KnowledgeHubApi {
     if (params.depth !== undefined) p['depth'] = String(params.depth);
     if (params.edgeTypes?.length) p['edge_types'] = params.edgeTypes.join(',');
     if (params.nodeTypes?.length) p['node_types'] = params.nodeTypes.join(',');
+    if (params.includeInferred !== undefined) p['include_inferred'] = String(params.includeInferred);
     const r = await this.client.get<ApiResponse<GraphResponse>>('/api/graph', { params: p });
     return r.data;
   }

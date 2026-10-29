@@ -18,6 +18,17 @@ const nodes = [node('project:a', 'Alpha', [], 25), node('project:b', 'Beta', [],
 const edges = [edge('note:a', 'project:a', 'belongs_to'), edge('note:b', 'project:b', 'belongs_to'),
   edge('person:p', 'note:a'), edge('person:p', 'note:b'), edge('company:m', 'note:m', 'mentions')];
 
+test('saved tags keep their own type and relationship without inventing project membership', () => {
+  const data = buildAtlasData([node('note:n', 'Briefing', ['a']), node('tag:t', 'Agentic')],
+    [edge('note:n', 'tag:t', 'tagged_with')], now);
+  assert.equal(data.types['tag']?.label, 'Tags');
+  assert.equal(data.types['tag']?.color, '#be95ff');
+  assert.equal(data.nodes.find(n => n.id === 'tag:t')?.type, 'tag');
+  assert.equal(data.nodes.find(n => n.id === 'tag:t')?.project, null);
+  assert.equal(data.edges[0]?.inferred, false);
+  assert.equal(data.edges[0]?.rel, 'tagged with');
+});
+
 test('adapter uses actual IDs, whole-day activity, project membership, island components and exact handoff colours', () => {
   const before = JSON.stringify({ nodes, edges });
   const data = buildAtlasData(nodes, edges, now);

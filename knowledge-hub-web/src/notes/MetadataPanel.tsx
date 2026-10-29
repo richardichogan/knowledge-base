@@ -132,6 +132,10 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
   const { pageContext, registerAthenaLauncher, request: athenaRequest } = useAthenaContext();
   const qc = useQueryClient();
   const [retagging, setRetagging] = useState(false);
+  const tagSignature = [...taxonomyTagIds].sort().join(',');
+  useEffect(() => {
+    void qc.invalidateQueries({ queryKey: ['graph'] });
+  }, [qc, noteId, tagSignature]);
   const [athenaBusy, setAthenaBusy] = useState(false);
   const [storedTab, setTab] = usePersistedChoice<SidePanelTab>('kh_think_side_tab', SIDE_PANEL_TABS, 'athena');
   const [useCaseOpen, setUseCaseOpen] = useState(false);

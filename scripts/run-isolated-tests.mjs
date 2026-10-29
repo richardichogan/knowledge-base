@@ -73,6 +73,7 @@ const tests = frontend ? [
   'scripts/managed-jobs-api.test.ts',
   'scripts/memory-suggestions.test.ts',
   'scripts/graph-atlas.test.ts',
+  'scripts/graph-atlas-wiring.test.ts',
   'scripts/demo-specification.test.ts',
   'scripts/diagram-layout.test.ts',
   'scripts/company-relationships.test.ts',

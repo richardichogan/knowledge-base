@@ -22,6 +22,7 @@ export const TYPE_TO_FAMILY: Record<string, Family> = {
   discover_item:   'inbound',
   cfp_item:        'inbound',
   note:            'thinking',
+  tag:             'thinking',
   spark:           'thinking',
   commit:          'output',
   pull_request:    'output',

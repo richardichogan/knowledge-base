@@ -10,17 +10,26 @@ export function graphNodeHref(node: GraphNode): string {
   const id = encodeURIComponent(node.refId);
   switch (node.refType) {
     case 'note': return `/think?view=notes&noteId=${id}`;
+    case 'tag': return `/graph?seed=${encodeURIComponent(node.id)}`;
     case 'company': return `/companies?companyId=${id}`;
     case 'person': return `/people?personId=${id}`;
     case 'project': return `/projects?projectId=${id}`;
     case 'canvas': return `/think?mapId=${id}`;
-    case 'spark': return '/think?view=sparks';
-    case 'task': return '/plan';
+    case 'spark': return `/think?view=sparks&sparkId=${id}`;
+    case 'spark_theme': return '/think?view=sparks';
+    case 'task': return `/plan?taskId=${id}`;
+    case 'usecase': return `/plan?view=use-cases&useCase=${id}`;
+    case 'build_spec': return `/build?spec=${id}`;
+    case 'chat_output': case 'decision': return node.url?.startsWith('/chat?session=') ? node.url : '/chat';
     case 'chat': return `/chat?session=${id}`;
-    case 'decision': return '/chat';
-    case 'risk': return '/projects';
-    case 'document': return '/library';
-    case 'discover_item': case 'cfp_item': return '/discover';
+    case 'risk': case 'question': case 'register_issue':
+      return node.projectIds?.[0] ? `/projects?projectId=${encodeURIComponent(node.projectIds[0])}` : '/projects';
+    case 'document': return `/library?docId=${id}`;
+    case 'discover_item': return '/discover';
+    case 'cfp_item': return '/discover?tab=cfps';
+    case 'commit': case 'pull_request': case 'issue': case 'github_item':
+    case 'blog_post': case 'podcast_episode': case 'meeting': case 'email': case 'content_item':
+      return node.url && /^https?:\/\//i.test(node.url) ? node.url : '/my-work';
     default: return `/my-work?highlight=${id}`;
   }
 }

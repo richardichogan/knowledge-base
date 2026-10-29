@@ -2,6 +2,65 @@
 
 **Status:** Validated
 
+**Release scope (2026-10-29, graph integrity):**
+- User requested the graph wiring gaps be fixed and reviewed thoroughly, then
+  merged, pushed and deployed. Preserve existing screens and interactions.
+- Project live entities and saved relationships from authoritative records:
+  taxonomy memberships, resolved note links, task/source links, Sparks, canvases,
+  Use Cases, Design assets, conversations, register items and build outputs.
+  Canonical aliases prevent missing endpoints and duplicate publication mirrors.
+- Remove stale cached membership links; filter inferred links before graph
+  traversal/caps; refresh graph views after successful writes and on reopening.
+- Existing application-only AZCLI recipe and production targets are unchanged.
+  No new infrastructure, dependencies, migrations, paid model calls, content
+  mutations, unattended delivery or desktop package.
+- All validation checks pass:
+  - [x] `git fetch origin` / `git merge --no-edit origin/main`: already current.
+  - [x] Both apps: `npx --no-install tsc --noEmit` and production builds passed.
+  - [x] Both isolated release suites ran once; failed/affected checks resolved.
+  - [x] Lint non-regression passed (backend 547/623; frontend 22/41).
+    `git diff --check` passed.
+  - [x] Azure CLI 2.79.0, authenticated subscription and existing ACA/SWA access
+    confirmed. Dockerfile includes lockfiles, schema and all migrations.
+    Current backend image v267; release target v268.
+
+**Section 7: Validation Proof (2026-10-29 08:15 UTC, graph integrity):**
+- Backend `npm run test:isolated`: 742/744 initially passed, including every
+  new graph wiring case. Two unrelated timing-sensitive cases failed under the
+  full concurrent run: delayed autotag queries in the task-calendar fixture and
+  the 40ms turn-progress deadline. Both unchanged affected files passed 11/11
+  in the same credential-isolated environment; the full suite was not restarted.
+- Frontend `npm run test:isolated`: 260/261 primary cases and all 49 bundled UI
+  cases passed. The one failure was the daily-capture Axios mock lacking the new
+  response interceptor. Updated that mock; affected API/graph cases passed 16/16.
+- Both `npm run build`, both `npm run lint:check`, both final `tsc --noEmit`
+  checks and `git diff --check` passed. No browser launched.
+- Final read-only production query of the original note returned all four
+  saved taxonomy links with inferred links disabled: Agentic, Generative AI,
+  Autonomous AI Decision Making, Learning and Development. Query completed in
+  1612ms, with unique live nodes, no dangling edges and caps respected.
+- Read-only endpoint coverage audit found only archived or missing saved
+  targets, deliberately excluded instead of resurrected. Regression coverage
+  includes canonical aliases, relationship families, cap priority, inferred
+  opt-in and relationship removal despite legacy cached edges.
+- AZCLI application-only validation: `az version`, `az account show`,
+  `az containerapp show` and `az staticwebapp show` passed against the approved
+  targets. No template/provisioning/policy/RBAC changes; these infrastructure
+  checks are N/A. Existing registry uses its existing credential configuration,
+  not managed identity; no role or secret changes. Backend Docker build occurs
+  in ACR from the pushed, synced main source using the established runbook.
+- Change-for-fit report: (1) read-through projection fits the existing graph
+  service and domain tables; (2) ACA/SWA and shared production data are preserved;
+  (3) no new dependencies or automatic AI spend, with bounded graph responses;
+  (4) typed contracts and validated query bindings are preserved;
+  (5) no new secrets or authorization changes, and external navigation permits
+  HTTP(S) only; (6) the smallest safer implementation is this authoritative
+  projection, without a second graph store, backfill or content mutation.
+- Evidence: session files/graph-release-*.log and final read-only query output.
+  Release commit and deployed identifiers are recorded in the completion handoff.
+
+**Previous release:**
+
 **Release scope (2026-10-28, usability and connected-work features):**
 - User approved all six recommended improvements, followed by merge, push and
   deployment. Extend existing screens and interactions; no new workspace,
