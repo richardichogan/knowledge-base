@@ -2,6 +2,55 @@
 
 **Status:** Validated
 
+**Release execution (2026-10-30, Podcast documents and publishing safeguards):**
+- Application commit ebe708ea38d12eeca7a179efd120847ff1b62bac pushed to
+  main and richardichogan-link-think-chat-projects; both remote refs verified.
+- ACR run ca8q built kh-prod-api:v277 from that exact main commit.
+  Container App revision kh-prod-api-vnet--0000274 started successfully;
+  startup reports Migration complete, database pool ready and production workers started.
+- Frontend deployed to kh-prod-web. Custom-domain HTML at
+  https://athena.themicrosoftcloudblog.com/ matches the built
+  /assets/index-DsNCadwa.js entry, with referenced assets returning HTTP 200.
+- Desktop v0.1.10 published as the latest GitHub release, with installer,
+  blockmap and latest.yml. Asset filenames match updater metadata.
+- No manual publication, retrospective schedule reset or score backfill performed.
+
+**Release scope and Section 7: Validation Proof (2026-10-30, Podcast documents and publishing safeguards):**
+- User requested deploy, merge and push of the pending work. Existing application-only
+  AZCLI targets remain kh-prod-api-vnet and kh-prod-web, rg-knowledge-hub-prod,
+  Alliance Tenant Reporting. Desktop version 0.1.10 includes the 2px/s Elgato step.
+- All validation checks pass:
+  - [x] Fetch/merge origin/main: already current at 15de759; live remote SHA agrees.
+    Existing shared packed-refs maintenance lock remains untouched.
+  - [x] Both TypeScript checks and final production builds passed. Lint
+    non-regression: backend 546/623, frontend 22/41. New lint findings corrected.
+  - [x] Full credential-isolated backend suite: 899 passed, zero failures.
+    Full frontend suite including bundles: 342 passed, zero failures.
+    After lint-only edits, all 11 directly affected backend cases passed.
+  - [x] Desktop suite 13 passed; Elgato suite 7 passed. Desktop 0.1.10
+    NSIS packaging succeeded, preserving existing unsigned release configuration.
+  - [x] Azure CLI authentication, live ACA image/identity and SWA reads passed.
+    Azure MCP failed initialization with application-bundle corruption;
+    authenticated CLI used instead. Current backend v276; release v277.
+  - [x] Additive migration127 already applied through tracked migration runner
+    to the shared database. Current episode Prep converted once: 107 blocks,
+    13 headings, links preserved, original history retained, repeat unchanged.
+  - [x] Diff whitespace checks passed; existing Docker packaging includes migrations
+    and package-lock. No infrastructure, policy, identity, registry authentication,
+    RBAC, dependency or secret changes. Bicep/template/what-if and azd provisioning
+    are not applicable; existing ACR performs the container build.
+- Fit: (1) existing Think editor, note history, specialist jobs and publishing
+  planner are reused; (2) ACA/SWA/shared-data and Desktop updater hosting remain
+  unchanged; (3) no new packages/resources or unbounded model work; (4) typed
+  episode status, optimistic revisions and worker lease fences are retained;
+  (5) no secrets committed, Spotify HTML is allowlisted and approval remains
+  exact-version with holds/account/delivery checks; (6) safest scope is the
+  requested changes only, preserving original prep history and existing queues.
+- No manual publication, retrospective schedule reset or score backfill is part
+  of deployment. Local automatic delivery remains disabled.
+- Evidence: session files/podcast-release-{backend,frontend,affected,web-build,
+  installer}.log. Exclude hook cache and generated installers from Git.
+
 **Release scope and Section 7: Validation Proof (2026-10-30, authored prompter spacing and formatting):**
 - User explicitly requested deployment of the completed presentation change,
   including the required Athena Desktop update. Frontend and Desktop 0.1.9 only;
