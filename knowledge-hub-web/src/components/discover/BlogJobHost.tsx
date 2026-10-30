@@ -10,6 +10,8 @@ import { BlogDraftEditor, type BlogPublishSource } from './BlogPublishModal';
 function isBlogJobResult(value: unknown): value is BlogJobResult {
   if (!value || typeof value !== 'object') return false;
   const data = value as Record<string, unknown>;
+  if (data['workforceAssignmentId'] !== undefined && (typeof data['workforceAssignmentId'] !== 'string'
+    || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(data['workforceAssignmentId']))) return false;
   if (typeof data['url'] !== 'string' || typeof data['subjectId'] !== 'string'
     || !data['draft'] || typeof data['draft'] !== 'object'
     || !data['verification'] || typeof data['verification'] !== 'object') return false;
@@ -55,7 +57,8 @@ export const BlogJobHost: React.FC = () => {
     void navigate({ pathname: location.pathname, search: search ? `?${search}` : '', hash: location.hash }, { replace: true, state: location.state });
   };
   const job = query.data;
-  if (job && job.status !== 'queued' && job.status !== 'running' && isBlogJobResult(job.result)) {
+  if (job && isBlogJobResult(job.result)
+    && (job.result.workforceAssignmentId || job.status !== 'queued' && job.status !== 'running')) {
     const result = job.result;
     const prefix = 'spark-theme:';
     const source: BlogPublishSource | undefined = result.subjectId.startsWith(prefix) ? {

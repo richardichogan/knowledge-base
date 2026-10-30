@@ -5,6 +5,7 @@
 import { XMLParser } from 'fast-xml-parser';
 import { lookup } from 'node:dns/promises';
 import { isIPv4, isIPv6 } from 'node:net';
+import { rethrowAssignmentControl, withAssignmentResearch } from '../../agents/workforce/modelBudget.js';
 
 export interface FeedArticle {
   title: string;
@@ -142,7 +143,10 @@ const MAX_REDIRECTS = 5;
 export async function fetchPublic(raw: string, init: { headers: Record<string, string>; timeoutMs: number }): Promise<Response> {
   let url = await assertPublicUrl(raw);
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    const response = await fetch(url, { headers: init.headers, redirect: 'manual', signal: AbortSignal.timeout(init.timeoutMs) });
+    const response = await withAssignmentResearch(signal => fetch(url, {
+      headers: init.headers, redirect: 'manual',
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(init.timeoutMs)]) : AbortSignal.timeout(init.timeoutMs),
+    }));
     const location = response.headers.get('location');
     if (response.status >= 300 && response.status < 400 && location !== null) {
       url = await assertPublicUrl(new URL(location, url).toString());
@@ -214,7 +218,8 @@ export async function fetchPageDescription(url: string): Promise<string> {
     void reader.cancel().catch(() => undefined);
     const description = metaContent(html, 'og:description') || metaContent(html, 'description') || metaContent(html, 'twitter:description');
     return toPlainSummary(description);
-  } catch {
+  } catch (error) {
+    rethrowAssignmentControl(error);
     return '';
   }
 }

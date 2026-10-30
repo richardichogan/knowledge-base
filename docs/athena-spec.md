@@ -473,6 +473,197 @@ after navigation or reload; completion notices link to the saved result.
 Completion is not approval or publication. This is not a combined monitor for
 all chats, imports and scheduled jobs.
 
+The workforce foundation adds versioned assignment, artifact-reference and
+owner-approved budget-profile storage without enabling a new team or changing
+publication authority. Budget profiles start disabled; approved numeric limits
+are immutable and require a new version to change. Reservations are durable
+lifetime charges, including unknown provider usage, not credits automatically
+refunded for retries. Assignment-aware Foundry calls reserve their allowance
+before dispatch, including each streamed transport retry, and reconcile usage
+without refunding uncertain responses. Text input uses a conservative byte-based
+reservation plus output/context headroom, not a monetary-cost guarantee.
+Images and provider-managed tools are refused without an approved accounting
+contract. Public-page redirect hops and Tavily research operations use the same
+call allowance; cancellation and budget failures cannot become optional missing
+evidence. These guards do not activate budgets for legacy standalone jobs.
+
+The manual-blog acceptance controller atomically commits a canonical domain
+write, its immutable reference and its fixed successor. Replayed completion
+cannot regenerate output or advance twice. Only the critic step may provide a
+validated review disposition; the fixed chain allows one author revision and
+an independent recheck, never an automatic second revision. A waiting disposition
+retains its artifact without queuing a successor. Assignment claim, renewal,
+expired-lease recovery, classified failures and explicit authorised resume
+preserve the same pool, attempt limit, original scope, deadline and allowance.
+An installed domain executor can use the existing worker's two concurrency
+slots; unregistered workflows are never claimed. Legacy prerequisite failure
+handling excludes assignment-backed steps.
+
+The blog role services separate research/prompt preparation from authoring
+while reusing the existing link and exact source-footer rules. Iris receives
+only explicitly supplied source/author records; it has no database access or
+private-corpus search capability and sanitises author context before sharing it. Calliope
+authors candidates, while Momus reviews every paragraph and the whole piece
+without editing or saving. A targeted author revision is bound to the exact
+reviewed draft and evidence, refuses an incomplete critique and accepts or
+rejects the entire protected passage patch set. Ambiguous quotations and
+whole-piece omissions are not converted into unrestricted rewrites. A revision
+does not certify itself; the fixed controller still requires independent recheck.
+
+Assignment chat notices use a transactional outbox: the assistant message,
+conversation timestamp and event receipt commit together. Retries do not
+duplicate a notice, superseded events do not announce stale states, and a
+deleted conversation is explicitly recorded as undeliverable. Notice delivery
+does not grant publishing authority or undo delivery.
+Durable owner-bound acknowledgement now covers global assignment notices as
+well as the conversation outbox. The existing app-wide job feed announces the
+assignment outcome and refreshes its conversation and Background work; a chat
+outcome is not announced before its transactional conversation receipt exists.
+Released feed subscriptions reject stale in-flight polling results.
+Multiple events for the same assignment revision share one chat outcome and
+one acknowledgement state, including events arriving after acknowledgement.
+
+Owner-scoped assignment status, cancel and explicit resume endpoints expose
+operational metadata rather than raw briefs or evidence. Resume refuses an
+uninstalled source-authorised executor. Assignment-owned steps are excluded
+from legacy job lists, and individual job reads/actions enforce assignment
+ownership. Existing Background work now displays one assignment with its named
+worker/stage, readiness/attention/cancelled state and any canonical draft link.
+Cancel/resume use the existing confirmation dialogs, revision-bound requests
+and visible action errors; they do not move editor controls or refresh budgets.
+
+The manual-blog domain adapter stores immutable per-attempt stage snapshots in
+the existing job domain and references their exact signatures. The original
+draft job remains the editor link; subsequent reviews and the single targeted
+revision update its canonical checkpoint without changing the saved original
+or earlier artifact revisions. Its full checkpoint signature is revalidated,
+so user changes to the draft, evidence or review context stop automatic
+application rather than being overwritten. The existing exact send/recheck
+contract remains authoritative.
+An open workforce editor retains its original snapshot across background
+refreshes. The first actual user edit sends an owner-checked intent that
+supersedes active team work and fences its pending steps. It does not autosave
+the user's text or replace the original editor. Local edits remain intact if
+the request fails; the existing error surface explains the failure, and a
+recheck retries the coordination before starting. If the team saved a newer
+version before receiving the edit intent, the editor reports that race instead
+of claiming nothing changed.
+
+The source adapter reads only explicitly selected Discover/theme, published
+blog context, active applicable author memories and user-authored messages.
+It locks and checks exact versions, project boundaries, excluded aliases,
+theme membership and the originating conversation's exclusion/project snapshot.
+It does not give a specialist a database or unrestricted private search.
+The agreed format and instruction are retained. The app-facing prepare/commission
+API binds source versions, owner, originating action and the approved numeric
+profile; preparation does not call a model. The existing explicit Start drafting
+and Generate again actions now check the server's workforce capability. Disabled
+pilot installations keep their legacy writer; enabled installations use the
+bounded team and surface missing-profile/source failures without a legacy
+fallback. These convenience actions retain automatic author/voice grounding
+through a trusted bounded selector: up to 12 applicable active memories, three
+voice samples, three related authored posts, up to five earlier links for a
+Quick take, and six relevant user-authored messages from each of at most two
+permitted conversations. Every selected record is version-bound before a role
+reads it. Roles receive no database or corpus search capability.
+
+Selection enforces project boundaries and source/conversation/graph exclusions
+before applying its limits. Voice, authored perspective and earlier links have
+separate purposes; writing samples are not factual research evidence. Related
+context selection is deterministic lexical retrieval, not a paid embedding/model
+step outside the assignment budget. Existing configured background is permitted
+only when there is no stored author profile of any status; it cannot revive a
+paused or dismissed profile. An empty permitted author-record set fails before
+commissioning, research or model expenditure rather than widening retrieval or
+weakening privacy checks. Operational grounding quality remains a pilot gate.
+
+Athena's existing blog handoff can commission the same team with authenticated
+owner, server-issued per-turn action identity, explicit format, verified source
+exclusions and strict project boundary. Read-only, missing-boundary and unsupported
+collection/date/state-filtered turns fail closed. Model-supplied confirmation or
+owner fields cannot grant this authority. Assignment status remains read-only.
+
+Owner/pool/request-scoped action receipts let an exact retry recover its already
+committed assignment without selecting new context or spending another allowance,
+even if sources or the approved profile have since changed. Changed format,
+instruction, candidate, trusted scope or immediate recheck source cannot reuse
+that action identity. New actions still enforce current authority, source and
+profile gates. Commissioning locks the action identity before the subject so
+concurrent reuse across different subjects cannot race the request constraint.
+After acquiring that lock, exact receipt recovery precedes source authorisation
+and subject locking. This also covers a retry that began before the first
+commission committed; recovery does not repeat canonical saves or start work.
+
+The existing Recheck action recognises workforce drafts and commissions an
+explicit new bounded Momus-only review of the exact submitted text against the
+unchanged saved evidence and original draft. It does not resume/refill the old
+assignment, conduct fresh research, invoke an author or grant another automatic
+revision. Retries reuse their request identity. Original source, conversation and
+checkpoint versions are revalidated; changed evidence is not silently refreshed.
+Legacy recheck cannot accept workforce drafts, including when the pilot is
+disabled. The submitted candidate and its explicitly unverified editor projection
+are saved in the commissioning transaction, before a reviewer can claim the job.
+A failed save rolls back both the assignment and job. The saved candidate remains
+accessible if review has not started, fails, is cancelled or waits for attention;
+an open editor still retains its own snapshot. A subsequent explicit recheck can
+follow a cancelled pre-review checkpoint back through its version-bound lineage
+to real accepted evidence/original-draft provenance. This does not fabricate an
+accepted review or weaken the publishing gate.
+
+`ATHENA_WORKFORCE_MANUAL_BLOG` defaults to disabled. Only an explicit enablement
+registers the concrete executor, and that flag cannot supply a missing
+owner-approved numeric budget. No numeric profile is seeded/enabled and no
+migration or live pilot has been performed by these changes. The adapter/API
+code is not proof of SQL race correctness, editorial quality, full existing-UI
+integration or accepted operational pilot evidence. Those remain rollout gates,
+and subsequent feature migrations remain gated on accepted blog-pilot evidence.
+
+#### Manual-blog local pilot setup
+
+The backend includes `npm run workforce:setup -- --help`. Setup is explicit,
+does not generate content or publish, and never starts a worker. From
+`knowledge-hub-backend`, use `npm run workforce:setup -- --check --owner <id>`
+for read-only configuration readiness. The owner is the actual authenticated
+application ID, not a display name; existing development authentication uses
+`dev-user`. Missing migrations/profile or an unset executor flag produces a
+nonzero readiness result with the next required step.
+
+After draining incompatible workers, run
+`npm run workforce:setup -- --apply --owner <id> --calls <approved-count> --tokens <approved-total> --minutes <approved-duration> --approve --workers-drained`.
+Shared production data additionally requires `--shared-database`. No numeric
+allowance is silently supplied. The command applies only workforce migrations
+123-126 through the existing tracked/advisory-locked migration helper, refuses
+missing earlier application migrations and running specialist jobs, and creates
+an immutable owner-approved budget version. Repeating the current limits reuses
+the current enabled profile; changing limits creates a version rather than
+altering a running assignment's allowance. Existing profiles are not disabled.
+
+Start the local backend with `ATHENA_WORKFORCE_MANUAL_BLOG=true` after setup;
+keep its development mode and local worker-pool isolation. In Discover or Spark,
+use the existing Start drafting action, choose Quick take/Article and inspect
+the named stages in Background work. Open the saved candidate through its result
+link. Editing stops automatic application; Recheck saves the submitted candidate
+and commissions a separate Momus-only review. Publishing remains gated by the
+exact reviewed content and the existing explicit send action. A configuration
+readiness result is not operational or editorial acceptance evidence.
+When the executor flag is enabled, startup also checks the tracked workforce
+migrations and required runtime columns before starting any jobs. Incomplete
+setup keeps readiness failed with a setup-specific error, rather than admitting
+requests to a worker that cannot run them. The setup command uses the same check.
+
+Specialist execution uses owned, renewable leases. Startup does not requeue
+another worker's unexpired attempt; recovery only claims expired work in the
+same pool and supported protocol. Draft checkpoints and generated Design,
+Podcast and learning writes reject expired or superseded attempts. Equivalent
+handoffs are serialised per subject, and a different request cannot silently
+replace one already running. New assignment-backed steps are not admitted by
+the shared worker until their versioned domain executor is installed.
+
+The first rollout must drain incompatible old workers before leased work is
+admitted. These changes do not increase concurrency or enable local automatic
+delivery, migrate historical results into newly reviewed assignments, or claim
+that existing standalone model calls already have assignment-wide budgets.
+
 Project cockpits show linked records changed since the previous successful visit
 on the same browser, initially the last 24 hours, with selectable periods.
 Notes, tasks, recorded decisions, risks/issues and canonical source activity

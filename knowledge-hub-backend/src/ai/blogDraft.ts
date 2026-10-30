@@ -159,6 +159,24 @@ export type BlogDraftWriter = (
   client: Pick<FoundryClient, 'chat'>, system: string, user: string, quick: boolean, sourceUrl: string | null,
 ) => Promise<BlogDraft>;
 
+export interface PreparedBlogDraft {
+  system: string;
+  user: string;
+  quick: boolean;
+  sourceUrl: string | null;
+  reference: { title: string; publishedAt: string | null } | null;
+  allowedLinks: string[];
+}
+
+/** Reuses the established output/link/footer contract without performing any review or authoring. */
+export function finishPreparedBlogDraft(prepared: PreparedBlogDraft, draft: BlogDraft): BlogDraft {
+  const content = keepAllowedLinks(draft.content, prepared.allowedLinks);
+  return {
+    ...draft, content: prepared.reference
+      ? withSourceReference(content, prepared.reference.title, prepared.sourceUrl, prepared.reference.publishedAt) : content,
+  };
+}
+
 /** Related-post links are drafting context, not evidence for the current subject. */
 export function blogEvidence(user: string): string {
   const parsed: unknown = JSON.parse(user);
@@ -242,6 +260,16 @@ export async function generateBlogDraft(
   client: Pick<FoundryClient, 'chat'> = getFoundryClient('discover-blog'),
   writer: BlogDraftWriter = draftWithLimits,
 ): Promise<BlogDraft> {
+  const prepared = await prepareBlogDraft(source, sourceUrl, length, earlierPosts, client);
+  const draft = await writer(client, prepared.system, prepared.user, prepared.quick, prepared.sourceUrl);
+  return finishPreparedBlogDraft(prepared, draft);
+}
+
+/** Iris prepares the same source/prompt package; Calliope receives it only after durable acceptance. */
+export async function prepareBlogDraft(
+  source: BlogSource, sourceUrl: string | null, length: BlogLength, earlierPosts: EarlierPost[],
+  client: Pick<FoundryClient, 'chat'>,
+): Promise<PreparedBlogDraft> {
   const quick = length === 'short';
   const system = [
     'Write a draft post for The Microsoft Cloud Blog (enterprise IT, Microsoft cloud audience) from the supplied source, in the house style below.',
@@ -266,11 +294,12 @@ export async function generateBlogDraft(
     sourceDateProvenance: source.publicationDateKnown === true && source.publishedAt ? 'Discover feed publication timestamp' : 'Publication date unverified',
     ...(quick ? { earlierPosts } : {}),
   }), client);
-  const draft = await writer(client, system, user, quick, sourceUrl);
   const research = (JSON.parse(user) as { research: BlogResearch }).research;
-  const content = keepAllowedLinks(draft.content, [...(quick ? earlierPosts.map(p => p.url) : []), ...research.documents.map(doc => doc.url)]);
   const date = source.publicationDateKnown === true ? source.publishedAt : null;
-  return { ...draft, content: withSourceReference(content, source.title, sourceUrl, date) };
+  return {
+    system, user, quick, sourceUrl, reference: { title: source.title, publishedAt: date ?? null },
+    allowedLinks: [...(quick ? earlierPosts.map(p => p.url) : []), ...research.documents.map(doc => doc.url)],
+  };
 }
 
 const escapeHtml = (value: string): string => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -291,6 +320,15 @@ export async function generateIdeasBlogDraft(
   client: Pick<FoundryClient, 'chat'> = getFoundryClient('spark-blog'),
   writer: BlogDraftWriter = draftWithLimits,
 ): Promise<BlogDraft> {
+  const prepared = await prepareIdeasBlogDraft(theme, ideas, length, earlierPosts, client);
+  const draft = await writer(client, prepared.system, prepared.user, prepared.quick, null);
+  return finishPreparedBlogDraft(prepared, draft);
+}
+
+export async function prepareIdeasBlogDraft(
+  theme: string, ideas: Array<{ body: string; sourceTitle: string | null }>,
+  length: BlogLength, earlierPosts: EarlierPost[], client: Pick<FoundryClient, 'chat'>,
+): Promise<PreparedBlogDraft> {
   const quick = length === 'short';
   const system = [
     'Write a draft post for The Microsoft Cloud Blog (enterprise IT, Microsoft cloud audience) that develops the author\'s own captured ideas on one theme into a single coherent argument, in the house style below.',
@@ -312,9 +350,9 @@ export async function generateIdeasBlogDraft(
     theme, ideas: ideas.map(i => ({ idea: i.body.slice(0, MAX_IDEA_CHARS), from: i.sourceTitle })),
     ...(quick ? { earlierPosts } : {}),
   }), client);
-  const draft = await writer(client, system, user, quick, null);
   const research = (JSON.parse(user) as { research: BlogResearch }).research;
-  return { ...draft, content: keepAllowedLinks(draft.content, [
-    ...(quick ? earlierPosts.map(p => p.url) : []), ...research.documents.map(doc => doc.url),
-  ]) };
+  return {
+    system, user, quick, sourceUrl: null, reference: null,
+    allowedLinks: [...(quick ? earlierPosts.map(p => p.url) : []), ...research.documents.map(doc => doc.url)],
+  };
 }

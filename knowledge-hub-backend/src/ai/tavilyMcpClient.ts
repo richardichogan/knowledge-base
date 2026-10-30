@@ -23,6 +23,7 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { LlmToolDefinition } from './foundryClient.js';
 import { TAVILY_MCP_URL, TAVILY_MCP_TOOL_CACHE_MS, TAVILY_MCP_TIMEOUT_MS } from '../config/constants.js';
 import { env } from '../config/env.js';
+import { rethrowAssignmentControl, withAssignmentResearch } from '../agents/workforce/modelBudget.js';
 
 let client: Client | null = null;
 let connecting: Promise<Client> | null = null;
@@ -54,7 +55,9 @@ async function getClient(): Promise<Client> {
     url.searchParams.set('tavilyApiKey', env.TAVILY_API_KEY!);
     const transport = new StreamableHTTPClientTransport(url);
     // Same SDK typing gap as learnMcpClient.ts — cast at this single call site.
-    await c.connect(transport as unknown as Transport, { timeout: TAVILY_MCP_TIMEOUT_MS });
+    await withAssignmentResearch(signal => c.connect(transport as unknown as Transport, {
+      timeout: TAVILY_MCP_TIMEOUT_MS, ...(signal ? { signal } : {}),
+    }));
     client = c;
     return c;
   })();
@@ -79,9 +82,10 @@ function resetConnection(): void {
 /**
  * Returns Tavily's currently advertised MCP tools, as OpenAI-style
  * function-calling definitions ready to merge into Athena's tool list.
- * Cached for TAVILY_MCP_TOOL_CACHE_MS; returns `[]` (never throws) if
+ * Cached for TAVILY_MCP_TOOL_CACHE_MS; returns `[]` if
  * TAVILY_API_KEY is unset or the server is unreachable, so a missing key or
- * a Tavily outage never breaks chat.
+ * a Tavily outage never breaks chat. Worker cancellation and assignment
+ * control failures propagate rather than masquerade as unavailable evidence.
  */
 export async function getTavilyMcpTools(): Promise<LlmToolDefinition[]> {
   if (!isTavilyEnabled()) return [];
@@ -89,7 +93,9 @@ export async function getTavilyMcpTools(): Promise<LlmToolDefinition[]> {
 
   try {
     const c = await getClient();
-    const { tools } = await c.listTools(undefined, { timeout: TAVILY_MCP_TIMEOUT_MS });
+    const { tools } = await withAssignmentResearch(signal => c.listTools(undefined, {
+      timeout: TAVILY_MCP_TIMEOUT_MS, ...(signal ? { signal } : {}),
+    }));
     cachedTools = tools.map((tool) => ({
       type: 'function' as const,
       function: {
@@ -102,6 +108,7 @@ export async function getTavilyMcpTools(): Promise<LlmToolDefinition[]> {
     cacheExpiresAt = Date.now() + TAVILY_MCP_TOOL_CACHE_MS;
     return cachedTools;
   } catch (err) {
+    rethrowAssignmentControl(err);
     console.error('[tavilyMcpClient] Failed to list tools — Tavily tools unavailable this turn:', err);
     resetConnection();
     return [];
@@ -121,7 +128,9 @@ export function isTavilyMcpTool(name: string): boolean {
 export async function callTavilyMcpTool(name: string, args: Record<string, unknown>): Promise<unknown> {
   try {
     const c = await getClient();
-    const result = await c.callTool({ name, arguments: args }, undefined, { timeout: TAVILY_MCP_TIMEOUT_MS });
+    const result = await withAssignmentResearch(signal => c.callTool({ name, arguments: args }, undefined, {
+      timeout: TAVILY_MCP_TIMEOUT_MS, ...(signal ? { signal } : {}),
+    }));
     const content = Array.isArray(result.content) ? result.content : [];
     const text = content
       .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
@@ -129,6 +138,7 @@ export async function callTavilyMcpTool(name: string, args: Record<string, unkno
       .join('\n\n');
     return { result: text !== '' ? text : result.content };
   } catch (err) {
+    rethrowAssignmentControl(err);
     resetConnection();
     return { error: err instanceof Error ? err.message : 'Tavily MCP request failed' };
   }

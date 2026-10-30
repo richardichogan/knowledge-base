@@ -11,6 +11,7 @@ import { BLOG_SPECIALIST, evaluateBlogRecheck, jobData, loadBlogRecheckCheckpoin
 import { parseBlogReviewBody } from '../../services/blogPublisher.js';
 import { KnowledgeHubError, NotFoundError, ValidationError } from '../../types/errors.js';
 import { registerSpecialist } from '../registry.js';
+import { currentAgentAttempt } from '../attempt.js';
 
 const SUBJECT = /^(discover|spark-theme):([0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12})$/i;
 const RELATED_CHARS = 10000;
@@ -101,16 +102,19 @@ registerSpecialist({
     let stages = Array.isArray(saved?.stages) ? [...saved.stages] : [];
     let remediationUsed = saved?.remediationUsed === true || (!!saved?.draft && !saved.originalDraft);
     const save = async (candidate: BlogDraft, sourceEvidence: string): Promise<void> => {
+      signal.throwIfAborted();
+      currentAgentAttempt()?.budgetSignal?.throwIfAborted();
       const data = {
         ...jobData(jobId, subjectId, candidate, { verified: false, issues: ['Verification is not complete.'] }),
         workflow: { originalAvailable: !!originalDraft, stages, remediationUsed },
       };
       const updated = await db.query(
         `UPDATE agent_jobs SET input = jsonb_set(input, '{blogCheckpoint}', $3::jsonb), result = $4::jsonb, updated_at = NOW()
-          WHERE id = $1 AND status = 'running' AND attempts = $2 RETURNING id`,
+          WHERE id = $1 AND status = 'running' AND attempts = $2 AND lease_until>clock_timestamp()
+            AND ($5::uuid IS NULL OR lease_owner=$5) RETURNING id`,
         [jobId, attempt, JSON.stringify({ draft: candidate, evidence: sourceEvidence, ...(originalDraft ? { originalDraft } : {}),
           ...(reviewBaseDraft ? { reviewBaseDraft } : {}), voiceSamples, stages, remediationUsed }),
-          JSON.stringify({ data, summary: 'The draft is saved and awaiting verification.' })],
+          JSON.stringify({ data, summary: 'The draft is saved and awaiting verification.' }), currentAgentAttempt()?.owner ?? null],
       );
       if (!updated.rowCount) throw new StaleBlogWorkerError('This blog job was interrupted; the current worker cannot overwrite its saved draft.');
       draft = candidate;

@@ -1,4 +1,5 @@
 import type { NoteEditProposal } from './noteEdits.js';
+import { randomUUID } from 'node:crypto';
 import { DESIGN_CHAT_TOOLS, type DesignTurnState } from './designTools.js';
 import { PODCAST_CHAT_TOOLS, type PodcastTurnState } from './podcastTools.js';
 import { getDesign } from '../designs/designStore.js';
@@ -146,6 +147,7 @@ export async function handleConversationTurn(
   onToolCall?: (toolName: string) => void,
   /** Per-turn tool context: the open Think note, and a collector for proposed edits to it. */
   toolContext: {
+    userId?: string | undefined;
     noteId?: string | undefined; designOwner?: string | undefined; designState?: DesignTurnState;
     podcastOwner?: string | undefined; podcastState?: PodcastTurnState;
     noteEdits?: NoteEditProposal[]; mapChanges?: MapChangeProposal[];
@@ -154,6 +156,7 @@ export async function handleConversationTurn(
   /** Live turn hooks (background turns): streamed text, activity lines, Stop, a longer time budget. */
   hooks: TurnHooks = {},
 ): Promise<string> {
+  const workforceRequestId = randomUUID();
   hooks.signal?.throwIfAborted();
   hooks.onActivity?.('Loading context');
   // A mind map open beside the chat (noteId "map:<id>"): Athena gets its outline and can propose changes.
@@ -563,7 +566,7 @@ Only operate on the script when the request concerns it; unrelated questions rem
             }
           }
           const execute = async (argumentsJson: string): Promise<unknown> => filterExcluded(
-            await executeToolCall(db, call.function.name, argumentsJson, activeProjectId ?? undefined, { sessionId, userMessage, ...toolContext, retrievalScope, retrievalAudit, excludedIds: excluded, exclusionsFailed, strictProjectId, signal: hooks.signal, mapAliases: mapOutlineResult?.aliases, mapCanvas: openMap ?? undefined }),
+            await executeToolCall(db, call.function.name, argumentsJson, activeProjectId ?? undefined, { sessionId, userMessage, ...toolContext, workforceRequestId, readOnly: hooks.readOnlyTools === true, retrievalScope, retrievalAudit, excludedIds: excluded, exclusionsFailed, strictProjectId, signal: hooks.signal, mapAliases: mapOutlineResult?.aliases, mapCanvas: openMap ?? undefined }),
             excluded);
           const args = parseToolArgs(toolArguments);
           const wholeRead = wholeReadRequested && sessionId !== undefined;

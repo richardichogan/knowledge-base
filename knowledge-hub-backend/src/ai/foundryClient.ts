@@ -1,5 +1,5 @@
 import { env } from '../config/env.js';
-import { AiError, AiOutputLimitError, ConfigurationError } from '../types/errors.js';
+import { AiError, AiOutputLimitError, ConfigurationError, KnowledgeHubError, ValidationError } from '../types/errors.js';
 import {
   AI_DEFAULT_MAX_TOKENS,
   AI_REQUEST_TIMEOUT_MS,
@@ -12,11 +12,24 @@ import type { TokenUsage } from './aiUsage.js';
 import { request as requestHttp } from 'undici';
 import { STATUS_CODES } from 'node:http';
 import { reviewContextTokens } from './knowledge/reviewContext.js';
+import { currentAgentAttempt } from '../agents/attempt.js';
+import { beginAssignmentModelCall, type AssignmentModelCall } from '../agents/workforce/modelBudget.js';
 
 const DEFAULT_CHAT_TEMPERATURE = 0.7;
 const AI_RESPONSE_HEADERS_TIMEOUT_MS = 30_000;
 const NATIVE_FETCH_HEADERS_TIMEOUT_MS = 300_000;
 const MAX_ERROR_DETAILS_CHARS = 300;
+
+function attemptSignal(signal?: AbortSignal): AbortSignal | undefined {
+  const attempt = currentAgentAttempt();
+  const worker = attempt?.budgetSignal ?? attempt?.signal;
+  return worker && signal && worker !== signal ? AbortSignal.any([worker, signal]) : worker ?? signal;
+}
+
+function stoppedReason(signal: AbortSignal): KnowledgeHubError {
+  const reason: unknown = signal.reason;
+  return reason instanceof KnowledgeHubError ? reason : new AiStoppedError();
+}
 
 function transportCode(error: unknown): string | undefined {
   if (!(error instanceof Error)) return undefined;
@@ -27,19 +40,23 @@ function transportCode(error: unknown): string | undefined {
 /** Retry only before headers: no tool execution or partial answer is replayed. */
 async function fetchModelStream(
   url: string, init: RequestInit, signal: AbortSignal,
-  onActivity?: (line: string) => void,
-): Promise<Response> {
+  maxOutputTokens: number, onActivity?: (line: string) => void,
+): Promise<{ response: Response; budget: AssignmentModelCall | undefined }> {
   for (let attempt = 0; ; attempt++) {
+    signal.throwIfAborted();
+    const budget = await beginAssignmentModelCall(JSON.parse(String(init.body)), maxOutputTokens);
     const controller = new AbortController();
     const headersTimeout = setTimeout(() => {
       controller.abort(new Error('The model endpoint did not send response headers within 30 seconds'));
     }, AI_RESPONSE_HEADERS_TIMEOUT_MS);
     try {
-      const response = await fetch(url, { ...init, signal: AbortSignal.any([signal, controller.signal]) });
+      const response = await fetch(url, { ...init, signal: AbortSignal.any([signal, controller.signal, ...(budget ? [budget.signal] : [])]) });
       clearTimeout(headersTimeout);
-      return response;
+      return { response, budget };
     } catch (error) {
       clearTimeout(headersTimeout);
+      await budget?.finish(undefined);
+      if (budget?.signal.aborted) throw budget.signal.reason;
       if (signal.aborted) throw error;
       const code = transportCode(error);
       const stalled = controller.signal.aborted;
@@ -224,6 +241,7 @@ export class FoundryClient {
     callerSignal?: AbortSignal,
     options: { requireDedicatedRoute?: boolean } = {},
   ): Promise<string> {
+    callerSignal = attemptSignal(callerSignal);
     const endpoint = env.AZURE_OPENAI_ENDPOINT_GPT54;
     const apiKey = env.AZURE_OPENAI_API_KEY_GPT54;
     if (endpoint === undefined || endpoint === '' || apiKey === undefined || apiKey === '') {
@@ -244,6 +262,7 @@ export class FoundryClient {
     const signal = callerSignal ? AbortSignal.any([timeout, callerSignal]) : timeout;
     let usage: TokenUsage | undefined;
     let response: Response;
+    let budget: AssignmentModelCall | undefined;
     try {
       signal.throwIfAborted();
       const url = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`;
@@ -254,12 +273,14 @@ export class FoundryClient {
           ...(jsonSchema !== undefined && { response_format: { type: 'json_schema', json_schema: { ...jsonSchema, strict: true } } }) }),
         signal,
       } as const;
+      budget = await beginAssignmentModelCall(JSON.parse(options.body), maxTokens);
+      const boundedOptions = budget ? { ...options, signal: AbortSignal.any([signal, budget.signal]) } : options;
       if (timeoutMs > NATIVE_FETCH_HEADERS_TIMEOUT_MS) {
         // Native fetch has a separate five-minute headers deadline; AbortSignal alone cannot extend it.
-        const result = await requestHttp(url, { ...options, headersTimeout: timeoutMs, bodyTimeout: timeoutMs });
+        const result = await requestHttp(url, { ...boundedOptions, headersTimeout: timeoutMs, bodyTimeout: timeoutMs });
         response = new Response(await result.body.text(), { status: result.statusCode, statusText: STATUS_CODES[result.statusCode] ?? '' });
       } else {
-        response = await fetch(url, options);
+        response = await fetch(url, boundedOptions);
       }
       if (!response.ok) {
         throw new AiError(`${response.status.toString()} ${response.statusText}: ${(await response.text()).slice(0, MAX_ERROR_DETAILS_CHARS)}`);
@@ -276,12 +297,12 @@ export class FoundryClient {
       const code = transportCode(err);
       const isTimeout = signal.aborted || err instanceof Error && err.name === 'TimeoutError'
         || code === 'UND_ERR_HEADERS_TIMEOUT' || code === 'UND_ERR_BODY_TIMEOUT';
-      const failure = callerSignal?.aborted ? new AiStoppedError() : err instanceof AiError ? err
+      const failure = callerSignal?.aborted ? stoppedReason(callerSignal) : budget?.signal.aborted ? stoppedReason(budget.signal) : err instanceof KnowledgeHubError ? err
         : new AiError(isTimeout ? `Bulk request timed out after ${timeoutMs.toString()}ms${code ? ` (${code})` : ''}`
         : `Bulk request failed: ${err instanceof Error ? err.message : String(err)}${code ? ` (${code})` : ''}`);
       this.logCall('bulk', deployment, 'chat', startedAt, usage, failure);
       throw failure;
-    }
+    } finally { await budget?.finish(usage); }
   }
 
   /**
@@ -333,6 +354,7 @@ export class FoundryClient {
     extras: { builtInTools?: Array<Record<string, unknown>>; onActivity?: (line: string) => void } = {},
   ): Promise<{ content: string | null; toolCalls: LlmToolCall[]; finishReason: string | undefined }> {
     const startedAt = Date.now();
+    signal = attemptSignal(signal);
     const deployment = route?.deployment ?? this.getDeployment(model);
     const api = model === 'reasoning' && (route?.api ?? env.AZURE_OPENAI_GPT54_API) === 'responses' ? 'responses' : 'chat';
     try {
@@ -359,6 +381,9 @@ export class FoundryClient {
     /** Responses API only: built-in tools (e.g. code_interpreter) and progress lines for them. */
     extras: { builtInTools?: Array<Record<string, unknown>>; onActivity?: (line: string) => void } = {},
   ): Promise<{ content: string | null; toolCalls: LlmToolCall[]; finishReason: string | undefined; usage: TokenUsage | undefined }> {
+    if (currentAgentAttempt()?.assignmentId && extras.builtInTools?.length) {
+      throw new ValidationError('This assignment has no approved budget for provider-managed tool execution.');
+    }
     const deployment = route?.deployment ?? this.getDeployment(model);
     const { endpoint, apiKey } = this.getConnection(model);
     const viaResponses = model === 'reasoning' && (route?.api ?? env.AZURE_OPENAI_GPT54_API) === 'responses';
@@ -378,23 +403,21 @@ export class FoundryClient {
     const timeout = AbortSignal.timeout(timeoutMs);
 
     let response: Response;
+    let budget: AssignmentModelCall | undefined;
     try {
-      response = await fetchModelStream(url, {
+      const opened = await fetchModelStream(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(apiKey !== undefined && { 'api-key': apiKey }),
         } as Record<string, string>,
         body: JSON.stringify(body),
-      }, signal !== undefined ? AbortSignal.any([timeout, signal]) : timeout, extras.onActivity);
+      }, signal !== undefined ? AbortSignal.any([timeout, signal]) : timeout, maxTokens, extras.onActivity);
+      response = opened.response;
+      budget = opened.budget;
     } catch (err) {
       throw streamError(model, err, timeoutMs, signal);
     }
-    if (!response.ok || response.body === null) {
-      const text = await response.text();
-      throw new AiError(`${response.status} ${response.statusText}: ${text}`);
-    }
-
     let content = '';
     let usage: TokenUsage | undefined;
     let finishReason: string | undefined;
@@ -444,6 +467,10 @@ export class FoundryClient {
     };
 
     try {
+      if (!response.ok || response.body === null) {
+        const text = await response.text();
+        throw new AiError(`${response.status} ${response.statusText}: ${text}`);
+      }
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -460,9 +487,10 @@ export class FoundryClient {
         }
       }
     } catch (err) {
-      if (err instanceof AiError) throw err;
+      if (budget?.signal.aborted) throw budget.signal.reason;
+      if (err instanceof KnowledgeHubError) throw err;
       throw streamError(model, err, timeoutMs, signal);
-    }
+    } finally { await budget?.finish(usage); }
 
     toolCalls.push(...[...partialCalls.entries()].sort((a, b) => a[0] - b[0]).map(([, c]) => c));
     if (toolCalls.length > 0) finishReason = 'tool_calls';
@@ -490,13 +518,17 @@ export class FoundryClient {
     signal?: AbortSignal,
     route?: ModelRoute,
   ): Promise<ChatCompletionResponse> {
+    signal = attemptSignal(signal);
     const startedAt = Date.now();
     const deployment = route?.deployment ?? this.getDeployment(model);
     const api = model === 'reasoning' && (route?.api ?? env.AZURE_OPENAI_GPT54_API) === 'responses' ? 'responses' : 'chat';
     let usage: TokenUsage | undefined;
+    let budget: AssignmentModelCall | undefined;
     try {
       signal?.throwIfAborted();
-      const data = await this.requestRaw(model, messages, tools, maxTokens, toolChoice, timeoutMsOverride, jsonSchema, signal, route);
+      budget = await beginAssignmentModelCall({ messages, tools, jsonSchema, toolChoice }, maxTokens);
+      const boundedSignal = budget ? AbortSignal.any([budget.signal, ...(signal ? [signal] : [])]) : signal;
+      const data = await this.requestRaw(model, messages, tools, maxTokens, toolChoice, timeoutMsOverride, jsonSchema, boundedSignal, route);
       usage = tokenUsageFrom(data.usage);
       if (tools === undefined) {
         if (data.choices[0]?.finish_reason === 'length') throw new AiOutputLimitError();
@@ -507,10 +539,10 @@ export class FoundryClient {
       this.logCall(model, deployment, api, startedAt, usage);
       return data;
     } catch (err) {
-      const failure = signal?.aborted ? new AiStoppedError() : err;
+      const failure: unknown = signal?.aborted ? stoppedReason(signal) : budget?.signal.aborted ? stoppedReason(budget.signal) : err;
       this.logCall(model, deployment, api, startedAt, usage, failure);
       throw failure;
-    }
+    } finally { await budget?.finish(usage); }
   }
 
   private async requestRaw(
@@ -657,7 +689,8 @@ export class AiStoppedError extends AiError {
   constructor() { super('Stopped'); this.name = 'AiStoppedError'; }
 }
 
-function streamError(model: AiModel, err: unknown, timeoutMs: number, signal: AbortSignal | undefined): AiError {
+function streamError(model: AiModel, err: unknown, timeoutMs: number, signal: AbortSignal | undefined): KnowledgeHubError {
+  if (err instanceof KnowledgeHubError) return err;
   if (signal?.aborted === true) return new AiStoppedError();
   const isTimeout = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
   const code = transportCode(err);

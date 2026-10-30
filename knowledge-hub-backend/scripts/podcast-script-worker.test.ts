@@ -30,7 +30,9 @@ for (const mode of ['save', 'changed-before-run', 'changed-during-run', 'stale-a
     let saves = 0;
     let intro = 'Original intro';
     const savedCards: Array<{ title: string; synopsis: string; bullets: string[] }> = [];
+    t.mock.method(db, 'connect', async () => ({ query: (sql: string, values?: unknown[]) => db.query(sql, values), release() {} }));
     t.mock.method(db, 'query', async (sql: string, values: unknown[] = []) => {
+      if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(sql)) return { rows: [], rowCount: 0 };
       if (sql.includes('FROM podcast_episodes e JOIN notes')) return { rows: [{
         note_id: noteId, content: JSON.stringify({ title: 'Episode', contentType: 'podcast-episode' }), project_id: null,
         episode_number: 1, recording_date: null, prep_session_id: jobId, script_intro: intro, script_cards: savedCards,
@@ -44,6 +46,7 @@ for (const mode of ['save', 'changed-before-run', 'changed-during-run', 'stale-a
       if (sql.startsWith('UPDATE podcast_episodes')) {
         assert.match(sql, /revision=\$2/);
         assert.match(sql, /agent_jobs WHERE id=\$5 AND status='running' AND attempts=\$6/);
+        assert.match(sql, /lease_until>clock_timestamp\(\)/);
         assert.deepEqual(values.slice(4), [jobId, 1]);
         if (mode === 'stale-attempt') return { rows: [], rowCount: 0 };
         saves++;

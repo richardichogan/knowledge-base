@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
+import { lockAgentAttempt } from '../agents/attempt.js';
 import * as mammoth from 'mammoth';
 import { getFoundryClient, type LlmJsonSchema } from '../ai/foundryClient.js';
 import { getSessionHistory } from '../ai/chatSessionStore.js';
@@ -145,16 +146,27 @@ export async function saveScript(db: Pool, noteId: string, input: Record<string,
   const intro = text(input['intro'] ?? '', 'The intro', MAX_INTRO);
   const cards = parseCards(input['cards']);
   worker?.signal.throwIfAborted();
-  const updated = await db.query(`UPDATE podcast_episodes SET script_intro=$3,script_cards=$4,script_note_id=NULL,revision=revision+1,updated_at=NOW()
-    WHERE note_id=$1 AND revision=$2
-    AND ($5::uuid IS NULL OR EXISTS (SELECT 1 FROM agent_jobs WHERE id=$5 AND status='running' AND attempts=$6))`,
-  [noteId, current.revision, intro, JSON.stringify(cards), worker?.jobId ?? null, worker?.attempt ?? null]);
-  if (!updated.rowCount) throw conflict();
-  // Earlier episodes copied the script into a separate Autocue note; the Elgato presenter reads the episode directly.
-  if (current.script_note_id) {
-    await db.query("UPDATE notes SET status='archived',updated_at=NOW() WHERE id=$1 AND status='active'", [current.script_note_id]);
-    await db.query("DELETE FROM content_items WHERE source='note' AND source_id=$1", [current.script_note_id]);
-  }
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    await lockAgentAttempt(client);
+    const updated = await client.query(`UPDATE podcast_episodes SET script_intro=$3,script_cards=$4,script_note_id=NULL,revision=revision+1,updated_at=NOW()
+      WHERE note_id=$1 AND revision=$2
+      AND ($5::uuid IS NULL OR EXISTS (SELECT 1 FROM agent_jobs WHERE id=$5 AND status='running' AND attempts=$6 AND lease_until>clock_timestamp()))`,
+    [noteId, current.revision, intro, JSON.stringify(cards), worker?.jobId ?? null, worker?.attempt ?? null]);
+    if (!updated.rowCount) throw conflict();
+    // Earlier episodes copied the script into a separate Autocue note; the Elgato presenter reads the episode directly.
+    if (current.script_note_id) {
+      await client.query("UPDATE notes SET status='archived',updated_at=NOW() WHERE id=$1 AND status='active'", [current.script_note_id]);
+      await client.query("DELETE FROM content_items WHERE source='note' AND source_id=$1", [current.script_note_id]);
+    }
+    await lockAgentAttempt(client);
+    worker?.signal.throwIfAborted();
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally { client.release(); }
   return getEpisode(db, noteId);
 }
 

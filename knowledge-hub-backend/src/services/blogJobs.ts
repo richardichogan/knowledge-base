@@ -79,6 +79,8 @@ export async function loadBlogRecheckCheckpoint(db: Pool, id: string, subjectId?
 }
 
 export async function queueBlogRecheck(db: Pool, id: string, body: unknown): Promise<AgentJob> {
+  const assigned = await db.query('SELECT id FROM agent_jobs WHERE id=$1 AND assignment_id IS NOT NULL', [id]);
+  if (assigned.rowCount) throw new ConflictError('Workforce drafts require the explicit, budgeted workforce recheck action.', 'BLOG_WORKFORCE_RECHECK_REQUIRED');
   const { checkpoint, subjectId } = await loadBlogRecheckCheckpoint(db, id);
   const post = parseBlogReviewBody(body);
   if (post.slug || post.sourceUrl) throw new ValidationError('A blog draft recheck cannot change the source or slug.');

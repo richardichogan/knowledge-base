@@ -16,6 +16,8 @@ const { filterImportantEmails } = await import('../src/integrations/email/emailI
 const { analyzeImageWithVision } = await import('../src/services/visionAnalyzer.js');
 const { modelReadingSteps } = await import('../src/ai/knowledge/documentReading.js');
 const { startAgentWorker, stopAgentWorker } = await import('../src/agents/engine.js');
+const { withAgentAttempt } = await import('../src/agents/attempt.js');
+const { withAssignmentResearch, rethrowAssignmentControl } = await import('../src/agents/workforce/modelBudget.js');
 const { decomposeSpec } = await import('../src/build/decompose.js');
 const { withAiWorkflow, withAiStage, setAiWorkflowOutcome } = await import('../src/ai/aiWorkflow.js');
 const { recordAiUsage } = await import('../src/ai/aiUsage.js');
@@ -96,6 +98,220 @@ test('pre-cancelled work never sends a model request', async t => {
   await assert.rejects(new FoundryClient().chat('standard', [], 100, 1000, signal), AiStoppedError);
   await assert.rejects(new FoundryClient().chatBulk([], 100, 1000, 'low', undefined, signal), AiStoppedError);
   assert.equal(fetch.mock.callCount(), 0);
+});
+
+test('all Foundry APIs inherit worker cancellation even when a helper omits its signal', async t => {
+  usage(t);
+  const fetch = t.mock.method(globalThis, 'fetch', async () => completion());
+  const signal = AbortSignal.abort();
+  await withAgentAttempt({ jobId: 'fixture', attempt: 1, owner: 'fixture', assignmentId: null, signal }, async () => {
+    const client = new FoundryClient('fixture');
+    await assert.rejects(client.chat('standard', [], 100, 1000), AiStoppedError);
+    await assert.rejects(client.chat('reasoning', [], 100, 1000), AiStoppedError);
+    await assert.rejects(client.chatBulk([], 100, 1000, 'low'), AiStoppedError);
+    await assert.rejects(client.chatWithToolsStream('standard', [], [], 100, 'auto', 1000, () => {}), AiStoppedError);
+  });
+  assert.equal(fetch.mock.callCount(), 0);
+});
+
+function durableBudget(t: TestContext, limit: number) {
+  const identity = { assignmentId: 'fixture-assignment', jobId: 'fixture-job', owner: 'fixture-owner', attempt: 1 };
+  const counters = { calls: 0, tokens: 0 };
+  const reservations = new Map<string, { tokens: number; status: string; actual: number | null; kind: string }>();
+  const query = async (sql: string, values: unknown[] = []) => {
+    if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [], rowCount: 0 };
+    if (sql.includes('SELECT p.limits')) return { rows: [{
+      limits: { calls: limit, tokens: 100000, durationMs: 60000 },
+      calls_reserved: String(counters.calls), tokens_reserved: String(counters.tokens), remaining_ms: 60000,
+    }], rowCount: 1 };
+    if (sql.includes('SELECT id FROM agent_jobs')) return { rows: [{ id: identity.jobId }], rowCount: 1 };
+    if (sql.includes('UPDATE agent_assignments SET calls_reserved')) {
+      counters.calls++;
+      counters.tokens += Number(values[1]);
+      return { rows: [], rowCount: 1 };
+    }
+    if (sql.includes('INSERT INTO agent_budget_reservations')) {
+      reservations.set(String(values[0]), { tokens: Number(values[4]), status: 'reserved', actual: null, kind: String(values[5]) });
+      return { rows: [], rowCount: 1 };
+    }
+    if (sql.includes('SELECT assignment_id,tokens_reserved')) {
+      const saved = reservations.get(String(values[0]));
+      assert.ok(saved);
+      return { rows: [{ assignment_id: identity.assignmentId, tokens_reserved: String(saved.tokens) }], rowCount: 1 };
+    }
+    if (sql.includes('SELECT id FROM agent_assignments')) return { rows: [{ id: identity.assignmentId }], rowCount: 1 };
+    if (sql.includes("UPDATE agent_assignments SET status='waiting'")) return { rows: [{ revision: 2 }], rowCount: 1 };
+    if (sql.includes("UPDATE agent_jobs SET status='queued'")) return { rows: [], rowCount: 1 };
+    if (sql.includes('INSERT INTO agent_assignment_events')) return { rows: [], rowCount: 1 };
+    if (sql.includes('UPDATE agent_budget_reservations SET tokens_actual')) {
+      const saved = reservations.get(String(values[0]));
+      assert.ok(saved);
+      assert.equal(saved.status, 'reserved');
+      saved.actual = values[1] === null ? null : Number(values[1]);
+      saved.status = saved.actual === null ? 'unknown' : 'known';
+      return { rows: [{ id: values[0] }], rowCount: 1 };
+    }
+    throw new Error(`Unexpected budget query: ${sql}`);
+  };
+  t.mock.method(db, 'connect', async () => ({ query, release() {} }));
+  const run = <T>(action: () => Promise<T>) => withAgentAttempt({
+    ...identity, signal: new AbortController().signal, budgetDb: db,
+  }, action);
+  return { counters, reservations, run };
+}
+
+function streamedCompletion(): Response {
+  return new Response(`data: ${JSON.stringify({
+    choices: [{ delta: { content: 'Done' }, finish_reason: 'stop' }],
+    usage: { prompt_tokens: 10, completion_tokens: 2 },
+  })}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+}
+
+for (const api of ['chat', 'responses', 'bulk', 'stream'] as const) {
+  test(`${api} reserves the shared allowance before dispatch and cannot spend it again`, async t => {
+    usage(t);
+    const budget = durableBudget(t, 1);
+    const fetch = t.mock.method(globalThis, 'fetch', async () => {
+      assert.equal(budget.counters.calls, 1);
+      assert.ok(budget.counters.tokens > 100);
+      assert.equal([...budget.reservations.values()][0]!.status, 'reserved');
+      return api === 'stream' ? streamedCompletion()
+        : api === 'responses' ? Response.json({
+          status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: 'Done' }] }],
+          usage: { input_tokens: 10, output_tokens: 2 },
+        }) : completion();
+    });
+    const client = new FoundryClient('budget-fixture');
+    const messages = [{ role: 'user' as const, content: 'Use only the commissioned evidence.' }];
+    const call = () => api === 'bulk' ? client.chatBulk(messages, 100, 10000)
+      : api === 'stream' ? client.chatWithToolsStream('standard', messages, [], 100, 'auto', 10000, () => {})
+        : client.chat(api === 'responses' ? 'reasoning' : 'standard', messages, 100, 10000);
+    await budget.run(async () => {
+      await call();
+      assert.equal([...budget.reservations.values()][0]!.actual, 12);
+      await assert.rejects(call, /budget is exhausted/);
+    });
+    assert.equal(fetch.mock.callCount(), 1);
+    assert.equal(budget.counters.calls, 1);
+    assert.equal([...budget.reservations.values()][0]!.status, 'known');
+  });
+}
+
+test('a stream transport retry consumes a new reservation and retains the uncertain first charge', async t => {
+  usage(t);
+  const budget = durableBudget(t, 2);
+  let dispatches = 0;
+  t.mock.method(globalThis, 'fetch', async () => {
+    dispatches++;
+    assert.equal(budget.counters.calls, dispatches);
+    if (dispatches === 1) {
+      const error = new Error('Connection reset before headers.');
+      Object.assign(error, { code: 'ECONNRESET' });
+      throw error;
+    }
+    return streamedCompletion();
+  });
+  await budget.run(() => new FoundryClient().chatWithToolsStream('standard', [], [], 100, 'auto', 10000, () => {}));
+  assert.equal(dispatches, 2);
+  assert.deepEqual([...budget.reservations.values()].map(item => [item.status, item.actual]), [['unknown', null], ['known', 12]]);
+});
+
+test('a stream retry is refused before dispatch when the shared call allowance is spent', async t => {
+  usage(t);
+  const budget = durableBudget(t, 1);
+  const fetch = t.mock.method(globalThis, 'fetch', async () => {
+    const error = new Error('Connection reset before headers.');
+    Object.assign(error, { code: 'ECONNRESET' });
+    throw error;
+  });
+  await assert.rejects(budget.run(() =>
+    new FoundryClient().chatWithToolsStream('standard', [], [], 100, 'auto', 10000, () => {})), /budget is exhausted/);
+  assert.equal(fetch.mock.callCount(), 1);
+  assert.equal([...budget.reservations.values()][0]!.status, 'unknown');
+});
+
+test('assignment calls without durable budget context and unbudgeted modalities never reach a provider', async t => {
+  usage(t);
+  const fetch = t.mock.method(globalThis, 'fetch', async () => completion());
+  await withAgentAttempt({
+    assignmentId: 'fixture-assignment', jobId: 'fixture-job', owner: 'fixture-owner', attempt: 1,
+    signal: new AbortController().signal,
+  }, async () => {
+    await assert.rejects(new FoundryClient().chat('standard', []), /durable model-call budget/);
+    await assert.rejects(new FoundryClient().chatBulk([]), /durable model-call budget/);
+  });
+  const budget = durableBudget(t, 2);
+  await budget.run(async () => {
+    await assert.rejects(new FoundryClient().chatWithTools('standard', [
+      { role: 'user', content: [{ type: 'image_url', image_url: { url: 'https://image.fixture.invalid/image' } }] },
+    ], [], 100), /no approved budget/);
+    await assert.rejects(new FoundryClient().chatWithToolsStream('reasoning', [], [], 100, 'auto', 10000, () => {},
+      undefined, undefined, { builtInTools: [{ type: 'code_interpreter' }] }), /no approved budget/);
+  });
+  assert.equal(budget.counters.calls, 0);
+  assert.equal(fetch.mock.callCount(), 0);
+});
+
+test('cached-client use outside an assignment does not inherit its budget', async t => {
+  usage(t);
+  const budget = durableBudget(t, 1);
+  const client = new FoundryClient('budget-fixture');
+  const fetch = t.mock.method(globalThis, 'fetch', async () => completion());
+  await budget.run(() => client.chat('standard', [], 100));
+  await client.chat('standard', [], 100);
+  assert.equal(fetch.mock.callCount(), 2);
+  assert.equal(budget.counters.calls, 1);
+});
+
+test('research and generation share the same call allowance and research does not invent model token usage', async t => {
+  usage(t);
+  const budget = durableBudget(t, 2);
+  t.mock.method(globalThis, 'fetch', async () => completion());
+  let reads = 0;
+  await budget.run(async () => {
+    assert.equal(await withAssignmentResearch(async signal => {
+      assert.ok(signal);
+      reads++;
+      return 'Official source text';
+    }), 'Official source text');
+    await new FoundryClient().chat('standard', [], 100);
+    await assert.rejects(withAssignmentResearch(async () => { reads++; return 'Must not be read'; }), /budget is exhausted/);
+  });
+  assert.equal(reads, 1);
+  assert.deepEqual([...budget.reservations.values()].map(item => [item.kind, item.status, item.actual]),
+    [['research', 'known', 0], ['model', 'known', 12]]);
+});
+
+test('failed research retains its call charge and cannot be hidden by optional-evidence fallbacks', async t => {
+  usage(t);
+  const budget = durableBudget(t, 1);
+  await budget.run(async () => {
+    await assert.rejects(withAssignmentResearch(async () => { throw new Error('Remote research failed.'); }), /Remote research failed/);
+    try { await withAssignmentResearch(async () => 'Must not run'); }
+    catch (error) {
+      assert.throws(() => rethrowAssignmentControl(error), /budget is exhausted/);
+      return;
+    }
+    assert.fail('The spent allowance must stop the next research request.');
+  });
+  assert.equal(budget.counters.calls, 1);
+  assert.deepEqual([...budget.reservations.values()].map(item => [item.kind, item.status, item.actual]), [['research', 'unknown', null]]);
+});
+
+test('the assignment deadline survives native body-abort errors and cannot become missing research', async t => {
+  usage(t);
+  const budget = durableBudget(t, 1);
+  const deadline = new AbortController();
+  t.mock.method(AbortSignal, 'timeout', () => deadline.signal);
+  await budget.run(async () => {
+    await assert.rejects(withAssignmentResearch(async signal => {
+      assert.ok(signal);
+      deadline.abort();
+      throw new DOMException('The operation was aborted.', 'AbortError');
+    }), /operation was aborted/);
+    assert.throws(() => rethrowAssignmentControl(new DOMException('The operation was aborted.', 'AbortError')), /assignment deadline expired/);
+  });
+  assert.equal([...budget.reservations.values()][0]!.status, 'unknown');
 });
 
 test('bulk fallback retains the requested timeout', async t => {

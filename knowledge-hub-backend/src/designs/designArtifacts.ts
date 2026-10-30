@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import type { Pool, PoolClient } from 'pg';
+import { lockAgentAttempt } from '../agents/attempt.js';
 import { getFoundryClient } from '../ai/foundryClient.js';
 import { textToBlocks } from '../ai/markdownToNoteBlocks.js';
 import { AiError, ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
@@ -292,13 +293,16 @@ The optional brief adds direction; it cannot override the contract.` },
   const client = await db.connect();
   try {
     await client.query('BEGIN');
-    await client.query('SELECT id FROM designs WHERE id=$1 FOR UPDATE', [design.id]);
+    await lockAgentAttempt(client);
+    const locked = await client.query<{ revision: number }>('SELECT revision FROM designs WHERE id=$1 FOR UPDATE', [design.id]);
+    if (locked.rows[0]?.revision !== design.revision) conflict('The Design links changed before saving. No artifact was saved; retry with current sources.');
     await lockSources(client, sources);
     const latest = (await client.query<{ id: string }>('SELECT id FROM design_artifacts WHERE design_id=$1 ORDER BY revision DESC LIMIT 1', [design.id])).rows[0];
     if ((latest?.id ?? null) !== (previous?.id ?? null)) conflict('Another visual generation completed first. Reload before retrying.');
     signal?.throwIfAborted();
     await client.query('INSERT INTO design_artifacts(id,design_id,revision,sources,blueprint,html) VALUES($1,$2,$3,$4,$5,$6)',
       [artifactId, design.id, revision, JSON.stringify(sources), JSON.stringify(blueprint), html]);
+    await lockAgentAttempt(client);
     await client.query('COMMIT');
   } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
   return { id: artifactId, revision, sources, blueprint, html };

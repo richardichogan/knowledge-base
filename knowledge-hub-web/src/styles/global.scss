@@ -367,6 +367,21 @@ body.cds--body--with-modal-open {
   &__state { margin-inline-start: 12px; text-transform: capitalize; }
   &__state--failed { color: var(--cds-support-error); }
   &__state--running, &__state--queued { color: var(--kh-accent); }
+  &__state--waiting, &__state--superseded, &__state--attention { color: var(--cds-support-warning); }
+  &__state--cancelled { color: var(--cds-text-helper); }
+  &__error { color: var(--cds-support-error); }
+  &__assignment-title { color: var(--cds-text-primary); font-size: var(--kh-text-body); font-weight: 600; overflow-wrap: anywhere; }
+  &__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-block-start: 8px; }
+  &__action {
+    min-height: 32px; padding: 4px 8px; border: 1px solid var(--cds-border-subtle-01);
+    border-radius: var(--kh-radius-sm); background: transparent; color: var(--cds-text-secondary);
+    font: inherit; cursor: pointer;
+    &:hover:not(:disabled) { background: var(--cds-layer-hover-01); border-color: var(--kh-accent); color: var(--kh-accent); }
+    &:active:not(:disabled) { background: var(--cds-layer-02); }
+    &:disabled { opacity: 0.5; cursor: not-allowed; }
+    &--cancel { color: var(--cds-support-error); }
+    &--cancel:hover:not(:disabled) { border-color: var(--cds-support-error); color: var(--cds-support-error); }
+  }
 }
 
 .kh-work-context {

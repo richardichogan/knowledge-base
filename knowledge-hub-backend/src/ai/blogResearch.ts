@@ -3,6 +3,7 @@ import { readPublicPage, readingExcerpt } from '../utils/articleReading.js';
 import { parseTavilySearch, normaliseDigestUrl } from './digestWebSearch.js';
 import type { FoundryClient, LlmJsonSchema } from './foundryClient.js';
 import { callTavilyMcpTool, getTavilyMcpTools, isTavilyEnabled } from './tavilyMcpClient.js';
+import { rethrowAssignmentControl } from '../agents/workforce/modelBudget.js';
 
 const MAX_QUERIES = 2;
 const MAX_DOCUMENTS = 2;
@@ -126,6 +127,7 @@ export async function researchBlogEvidence(
             found = true;
             break;
           } catch (error) {
+            rethrowAssignmentControl(error);
             console.warn(`[blog-research] Could not read official documentation (${error instanceof Error ? error.name : 'unknown error'}).`);
           }
         }

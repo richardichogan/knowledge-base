@@ -89,7 +89,7 @@ export interface ChatTurnResult {
 }
 
 /** Runs one chat turn from a /chat request body: saves it to the session and returns the reply payload. */
-export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = {}): Promise<ChatTurnResult> {
+export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = {}, userId?: string): Promise<ChatTurnResult> {
   hooks.signal?.throwIfAborted();
   const { sessionId: providedSessionId, message, model, persona: requestedPersona, projectId, pageContext: requestedPageContext, noteId, screenReview, outputsPanel, localFolders: requestedLocalFolders } = reqBody as {
     sessionId?: string;
@@ -233,7 +233,7 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   const modelReply = await handleConversationTurn(
     db, modelHistory, message, effectiveModel, persona, effectiveSessionId, alreadyHeld ? undefined : pageContext,
     (toolName) => { toolsUsed.add(toolName); },
-    { noteId: openNoteId, designOwner, designState, podcastOwner, podcastState, noteEdits, mapChanges, localFolders, localFileWrites },
+    { userId, noteId: openNoteId, designOwner, designState, podcastOwner, podcastState, noteEdits, mapChanges, localFolders, localFileWrites },
     { ...hooks, contextUsed, onAudit: (row) => { audit.row = row; } },
   );
   hooks.signal?.throwIfAborted();
@@ -359,7 +359,9 @@ router.get('/usage-summary', (req: Request, res: Response, next: NextFunction): 
 router.post('/chat', (req: Request, res: Response, next: NextFunction): void => {
   void (async () => {
     try {
-      const data = await runChatTurn(req.body);
+      const input: unknown = req.body;
+      if (!input || typeof input !== 'object' || Array.isArray(input)) throw new ValidationError('The chat request must be an object.');
+      const data = await runChatTurn(input as Record<string, unknown>, {}, 'userId' in req && typeof req.userId === 'string' ? req.userId : undefined);
       const body: ApiSuccess<ChatTurnResult> = { success: true, data };
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) {
@@ -387,7 +389,8 @@ router.post('/chat/turns', (req: Request, res: Response, next: NextFunction): vo
       await setPendingTurn(db, sessionId, { turnId, message: shown, startedAt: new Date().toISOString() });
       startTurnJob(
         turnId, sessionId, shown,
-        (hooks) => runChatTurn({ ...reqBody, sessionId }, { ...hooks, budgetMs: AI_BACKGROUND_TURN_BUDGET_MS }),
+        (hooks) => runChatTurn({ ...reqBody, sessionId }, { ...hooks, budgetMs: AI_BACKGROUND_TURN_BUDGET_MS },
+          'userId' in req && typeof req.userId === 'string' ? req.userId : undefined),
         () => { void setPendingTurn(db, sessionId, null, turnId).catch((err: unknown) => { console.error('[turn] could not clear pending turn:', err); }); },
       );
       const body: ApiSuccess<{ turnId: string; sessionId: string }> = { success: true, data: { turnId, sessionId } };

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { generateBlogDraft, generateIdeasBlogDraft, keepAllowedLinks, withSourceReference, type BlogDraft } from '../src/ai/blogDraft.js';
-import { hasCurrentBlogEditorialReview, paragraphReviewCoverage, recheckParagraphUnits, repairBlogDraft, reviewBlogArgument, verifyBlogDraft } from '../src/ai/blogEditorial.js';
+import { finishPreparedBlogDraft, generateBlogDraft, generateIdeasBlogDraft, keepAllowedLinks, withSourceReference, type BlogDraft, type PreparedBlogDraft } from '../src/ai/blogDraft.js';
+import { critiqueBlogCandidate, hasCurrentBlogEditorialReview, paragraphReviewCoverage, recheckParagraphUnits, repairBlogDraft, reviseBlogCandidate, reviewBlogArgument, verifyBlogDraft } from '../src/ai/blogEditorial.js';
 import { isOfficialBlogDocumentation, researchBlogEvidence } from '../src/ai/blogResearch.js';
 import type { FoundryClient } from '../src/ai/foundryClient.js';
 import { anonymiseBlogAuthorContext } from '../src/ai/blogAuthorContext.js';
@@ -24,6 +24,107 @@ const noSearch = {
   search: async () => { throw new Error('Unnecessary search'); },
   read: async () => { throw new Error('Unnecessary read'); },
 };
+
+const teamDraft: BlogDraft = {
+  ...draft, content: '<p>I would choose this control careful.</p><p>I would record the owner clear.</p>',
+};
+
+function teamCriticClient(): Pick<FoundryClient, 'chat'> {
+  return {
+    chat: async (_model, messages, _tokens, _timeout, _signal, schema) => {
+      if (schema?.name === 'blog_paragraph_review') {
+        assert.match(messages[0]!.content, /read-only recheck.*Never propose an edit/s);
+        return JSON.stringify({ action: 'keep', after: '', findings: [] });
+      }
+      if (schema?.name === 'blog_editorial_review') return emptyEditorial;
+      assert.equal(schema?.name, 'blog_review_findings');
+      if (!messages[0]!.content.includes('Review style, length and coherence')) return emptyFindings;
+      const request = JSON.parse(messages[1]!.content) as { passages: Array<{ id: string; before: string }> };
+      return JSON.stringify({ findings: request.passages.filter(item =>
+        item.before === 'I would choose this control careful.' || item.before === 'I would record the owner clear.').map(item => ({
+        id: item.id, reason: 'Correct the ungrammatical adverb.', kind: 'style', claim: '', contradiction: '', sourceIds: [],
+      })) });
+    },
+  };
+}
+
+test('independent team critique is read-only and records full original paragraph coverage', async () => {
+  const before = JSON.stringify(teamDraft);
+  const result = await critiqueBlogCandidate(teamDraft, teamDraft, evidence, 'exact-editor-signature', teamCriticClient());
+  assert.equal(JSON.stringify(teamDraft), before);
+  assert.equal(result.verification.verified, true, 'Ordinary style findings remain advisory.');
+  assert.equal(result.complete, true);
+  assert.equal(result.findings.length, 2);
+  assert.deepEqual(paragraphReviewCoverage(teamDraft, result.stages, 'exact-editor-signature'), []);
+  assert.equal(hasCurrentBlogEditorialReview(teamDraft, result.stages), true);
+});
+
+test('targeted team revision accepts one complete protected patch set without changing metadata', async () => {
+  const critique = await critiqueBlogCandidate(teamDraft, teamDraft, evidence, 'editor-signature', teamCriticClient());
+  const revised = await reviseBlogCandidate(teamDraft, evidence, critique, {
+    chat: async (_model, messages, _tokens, _timeout, _signal, schema) => {
+      assert.equal(schema?.name, 'blog_passage_edits');
+      const { finding } = JSON.parse(messages[1]!.content) as { finding: { id: string; before: string } };
+      return JSON.stringify({ edits: [{ id: finding.id, after: finding.before.replace('careful.', 'carefully.').replace('clear.', 'clearly.'), remove: '' }] });
+    },
+  });
+  assert.equal(revised.content, '<p>I would choose this control carefully.</p><p>I would record the owner clearly.</p>');
+  assert.deepEqual({ ...revised, content: teamDraft.content }, teamDraft);
+  assert.equal(teamDraft.content, '<p>I would choose this control careful.</p><p>I would record the owner clear.</p>');
+});
+
+test('a later invalid team edit rejects the entire candidate instead of partially saving an earlier edit', async () => {
+  const critique = await critiqueBlogCandidate(teamDraft, teamDraft, evidence, 'editor-signature', teamCriticClient());
+  const before = JSON.stringify(teamDraft);
+  let calls = 0;
+  await assert.rejects(reviseBlogCandidate(teamDraft, evidence, critique, {
+    chat: async (_model, messages) => {
+      calls++;
+      const { finding } = JSON.parse(messages[1]!.content) as { finding: { id: string; before: string } };
+      return JSON.stringify({ edits: [{ id: finding.id, after: calls === 1
+        ? finding.before.replace('careful.', 'carefully.') : '<p>A whole replacement paragraph.</p>', remove: '' }] });
+    },
+  }), /unsafe.*No edit was applied/);
+  assert.equal(calls, 2);
+  assert.equal(JSON.stringify(teamDraft), before);
+});
+
+test('team revision refuses changed draft or evidence before making a model call', async () => {
+  const critique = await critiqueBlogCandidate(teamDraft, teamDraft, evidence, 'editor-signature', teamCriticClient());
+  const forbidden: Pick<FoundryClient, 'chat'> = { chat: async () => { throw new Error('A stale review must never dispatch authoring.'); } };
+  await assert.rejects(reviseBlogCandidate({ ...teamDraft, title: 'User edited title' }, evidence, critique, forbidden), /changed after independent review/);
+  await assert.rejects(reviseBlogCandidate(teamDraft, `${evidence} `, critique, forbidden), /changed after independent review/);
+});
+
+test('a critic that attempts paragraph edits cannot certify complete coverage or trigger author revision', async t => {
+  t.mock.method(console, 'warn', () => {});
+  const normal = teamCriticClient();
+  const critique = await critiqueBlogCandidate(teamDraft, teamDraft, evidence, 'editor-signature', {
+    chat: async (...args) => args[5]?.name === 'blog_paragraph_review'
+      ? JSON.stringify({ action: 'replace', after: 'An unsolicited rewrite.', findings: [{
+        reason: 'Rewrite this paragraph.', claim: 'control', sourceIds: [],
+      }] })
+      : normal.chat(...args),
+  });
+  assert.equal(critique.complete, false);
+  assert.equal(critique.verification.verified, false);
+  assert.ok(paragraphReviewCoverage(teamDraft, critique.stages, 'editor-signature').length);
+  await assert.rejects(reviseBlogCandidate(teamDraft, evidence, critique, {
+    chat: async () => { throw new Error('An incomplete critique must not dispatch the author.'); },
+  }), /review is incomplete/);
+});
+
+test('separated author finalisation retains allowed links and the established exact source footer', () => {
+  const prepared: PreparedBlogDraft = {
+    system: '', user: '{}', quick: false, sourceUrl: official,
+    reference: { title: 'Original & awkward source title', publishedAt: null }, allowedLinks: [official],
+  };
+  const candidate = { ...draft, content: `<p><a href="${official}">Documentation</a> and <a href="https://invalid.test">unapproved link</a>.</p>` };
+  const result = finishPreparedBlogDraft(prepared, candidate);
+  assert.equal(result.content, withSourceReference(keepAllowedLinks(candidate.content, [official]), prepared.reference!.title, official, null));
+  assert.doesNotMatch(result.content, /href="https:\/\/invalid.test"/);
+  assert.equal(candidate.content.includes('href="https://invalid.test"'), true);
+});
 
 test('a topic with no capability gap does not search or promote old research into primary evidence', async () => {
   const result = await researchBlogEvidence(JSON.stringify({

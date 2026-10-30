@@ -809,6 +809,9 @@ export async function executeToolCall(
   argsJson: string,
   activeProjectId?: string,
   turn: {
+    userId?: string | undefined;
+    workforceRequestId?: string | undefined;
+    readOnly?: boolean | undefined;
     userMessage?: string | undefined;
     sessionId?: string | undefined; noteId?: string | undefined; designOwner?: string | undefined; designState?: DesignTurnState; noteEdits?: NoteEditProposal[];
     podcastOwner?: string | undefined; podcastState?: PodcastTurnState;

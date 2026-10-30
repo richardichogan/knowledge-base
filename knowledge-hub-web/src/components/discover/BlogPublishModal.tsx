@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
 import { alertDialog, confirmDialog } from '../../services/appDialogs';
 import { Launch, Renew, Upload } from '@carbon/icons-react';
 import { api, type BlogDraft, type BlogJobResult } from '../../services/api';
 import type { ApiResponse } from '../../types';
-import { describeApiError } from '../../services/apiError';
+import { describeApiError, requireApiData } from '../../services/apiError';
 import { AppDialog } from '../AppDialog';
 import { BlogPostEditor } from './BlogPostEditor';
 import { rememberAgentJob } from '../../services/agentJobStore';
@@ -96,7 +96,12 @@ export interface BlogPublishSource {
 
 type Props = { itemId?: string; source?: BlogPublishSource; title: string; onClose: () => void };
 
-async function startBlogJob(subjectId: string, length: 'short' | 'long'): Promise<void> {
+async function startBlogJob(subjectId: string, length: 'short' | 'long', requestId: string): Promise<void> {
+  if (requireApiData(await api.workforceCapabilities()).manualBlog) {
+    const result = requireApiData(await api.startWorkforceBlog(subjectId, length, requestId));
+    window.dispatchEvent(new CustomEvent('athena-assignment-updated', { detail: { assignmentId: result.assignment.id } }));
+    return;
+  }
   const response = await api.handOffToSpecialist('blog-writer', subjectId, { length });
   if (!response.success) throw new Error(response.error?.message ?? 'Could not start the blog specialist.');
   if (response.data.status === 'needs_confirmation') throw new Error(response.data.message);
@@ -120,6 +125,7 @@ const BlogDraftStartedDialog: React.FC<{ title: string; onClose: () => void }> =
 
 export const BlogPublishModal: React.FC<Props> = ({ itemId, source, title, onClose }) => {
   const [length, setLength] = useState<'short' | 'long' | null>(null);
+  const [startRequest] = useState(() => crypto.randomUUID());
   const [starting, setStarting] = useState(false);
   const [started, setStarted] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -128,7 +134,7 @@ export const BlogPublishModal: React.FC<Props> = ({ itemId, source, title, onClo
     if (!length || starting) return;
     setStarting(true);
     setError(null);
-    try { await startBlogJob(subjectId, length); setStarted(true); }
+    try { await startBlogJob(subjectId, length, `${startRequest}:${length}`); setStarted(true); }
     catch (e) { setError(describeApiError(e)); }
     finally { setStarting(false); }
   }
@@ -167,7 +173,13 @@ export const BlogDraftEditor: React.FC<Props & { jobId: string; initial: BlogJob
   };
   const queryClient = useQueryClient();
   const [edits, setEdits] = useState<Edits>({});
-  const job = initial;
+  const [editRequest] = useState(() => crypto.randomUUID());
+  const [startRequest] = useState(() => crypto.randomUUID());
+  const recheckRequest = useRef<{ signature: string; id: string } | null>(null);
+  const editingAcknowledged = useRef(false);
+  const editingPromise = useRef<Promise<void> | null>(null);
+  const [workforceSnapshot] = useState(() => initial.workforceAssignmentId ? initial : null);
+  const job = workforceSnapshot ?? initial;
   const [publishing, setPublishing] = useState(false);
   const [checking, setChecking] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -184,6 +196,24 @@ export const BlogDraftEditor: React.FC<Props & { jobId: string; initial: BlogJob
     retry: false, refetchOnWindowFocus: false,
   });
   const d = job.draft;
+  function stopTeamOnEdit(): Promise<void> {
+    if (!job.workforceAssignmentId || editingAcknowledged.current) return Promise.resolve();
+    if (editingPromise.current) return editingPromise.current;
+    const originalSignature = JSON.stringify([d.postType, d.title, d.excerpt, d.summary, d.content, d.keyTakeaways, d.categories, d.tags]);
+    editingPromise.current = api.beginWorkforceBlogEdit(jobId, originalSignature, editRequest).then(response => {
+      const receipt = requireApiData(response);
+      editingAcknowledged.current = true;
+      window.dispatchEvent(new CustomEvent('athena-assignment-updated', { detail: { assignmentId: receipt.assignmentId } }));
+      if (receipt.changedBeforeEditing) setError('A newer team version was saved before editing started. Your local edits are retained; recheck your chosen draft before sending.');
+    }).finally(() => { editingPromise.current = null; });
+    return editingPromise.current;
+  }
+  function changeEdits(patch: Partial<Edits>): void {
+    setEdits(current => ({ ...current, ...patch }));
+    void stopTeamOnEdit().catch((error: unknown) => {
+      setError(`Background editing could not be stopped: ${describeApiError(error)}. Your edits remain local. Recheck will retry before starting.`);
+    });
+  }
   const value = {
     postType: edits.postType ?? d?.postType ?? 'article',
     title: edits.title ?? d?.title ?? '',
@@ -196,7 +226,7 @@ export const BlogDraftEditor: React.FC<Props & { jobId: string; initial: BlogJob
   };
   const set = (key: keyof Edits) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>): void => {
     const next = e.target.value;
-    setEdits(c => ({ ...c, [key]: next }));
+    changeEdits({ [key]: next });
   };
   const post = {
     postType: value.postType, title: value.title.trim(), excerpt: value.excerpt.trim(), summary: value.summary.trim(),
@@ -212,6 +242,15 @@ export const BlogDraftEditor: React.FC<Props & { jobId: string; initial: BlogJob
     setChecking(true);
     setError(null);
     try {
+      await stopTeamOnEdit();
+      if (job.workforceAssignmentId) {
+        const signature = JSON.stringify(post);
+        if (recheckRequest.current?.signature !== signature) recheckRequest.current = { signature, id: crypto.randomUUID() };
+        const receipt = requireApiData(await api.recheckWorkforceBlog(jobId, post, recheckRequest.current.id));
+        window.dispatchEvent(new CustomEvent('athena-assignment-updated', { detail: { assignmentId: receipt.assignment.id } }));
+        onClose();
+        return;
+      }
       const response = await api.recheckBlogJob(jobId, post);
       if (!response.success) throw new Error(response.error?.message ?? 'Could not recheck the draft.');
       rememberAgentJob(response.data);
@@ -223,7 +262,7 @@ export const BlogDraftEditor: React.FC<Props & { jobId: string; initial: BlogJob
   async function generateAgain(): Promise<void> {
     setStarting(true);
     setError(null);
-    try { await startBlogJob(target.key, d.postType === 'quick' ? 'short' : 'long'); setStarted(true); }
+    try { await stopTeamOnEdit(); await startBlogJob(target.key, d.postType === 'quick' ? 'short' : 'long', startRequest); setStarted(true); }
     catch (e) { setError(describeApiError(e)); }
     finally { setStarting(false); }
   }
@@ -325,14 +364,14 @@ export const BlogDraftEditor: React.FC<Props & { jobId: string; initial: BlogJob
         <div>
           <label className="dc-linkedin__label" htmlFor="blog-type">Post type</label>
           <select id="blog-type" className="dc-filter-select" value={value.postType}
-            onChange={(e) => { const next = e.target.value as BlogDraft['postType']; setEdits(c => ({ ...c, postType: next })); }}>
+            onChange={(e) => { const next = e.target.value as BlogDraft['postType']; changeEdits({ postType: next }); }}>
             <option value="article">Article</option><option value="quick">Quick take</option><option value="weekly">Weekly</option>
             <option value="newsletter">Newsletter</option><option value="podcast">Podcast</option>
           </select>
         </div>
       </div>
       <BlogPostEditor value={value.content} disabled={busy}
-        onChange={content => { setEdits(current => ({ ...current, content })); }} />
+        onChange={content => { changeEdits({ content }); }} />
       <details className="dc-blog-section">
       <summary>Post details</summary>
       <div className="dc-blog-section__fields">

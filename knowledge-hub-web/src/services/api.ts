@@ -36,7 +36,7 @@ import type {
   MemoryScopeType,
 } from '../types';
 import { getApiToken } from './auth';
-import type { AgentHandOffResult, AgentJob } from '../types/agentJobs';
+import type { AgentHandOffResult, AgentJob, AssignmentNotice, AssignmentSummary } from '../types/agentJobs';
 import { requireApiData } from './apiError';
 import type { DecisionLinkCandidate, DecisionLinkInput, DecisionSemantics } from '../types/semanticDecision';
 import { normaliseTask } from '../types/task';
@@ -706,6 +706,7 @@ export interface BlogDraft {
 }
 
 export interface BlogJobResult {
+  workforceAssignmentId?: string;
   url: string;
   subjectId: string;
   draft: BlogDraft;
@@ -2724,6 +2725,12 @@ export class KnowledgeHubApi {
   async recheckBlogJob(id: string, post: Omit<BlogDraft, 'sourceUrl'>): Promise<ApiResponse<AgentJob>> {
     return (await this.client.post<ApiResponse<AgentJob>>(`/api/agent-jobs/${encodeURIComponent(id)}/blog-recheck`, post, { timeout: CHAT_TIMEOUT_MS })).data;
   }
+  async recheckWorkforceBlog(id: string, post: Omit<BlogDraft, 'sourceUrl'>, requestId: string): Promise<ApiResponse<{ assignment: AssignmentSummary; existing: boolean }>> {
+    return (await this.client.post<ApiResponse<{ assignment: AssignmentSummary; existing: boolean }>>(`/api/agent-jobs/${encodeURIComponent(id)}/workforce-blog-recheck`, { post, requestId })).data;
+  }
+  async beginWorkforceBlogEdit(id: string, draftSignature: string, requestId: string): Promise<ApiResponse<{ assignmentId: string; changedBeforeEditing: boolean }>> {
+    return (await this.client.post<ApiResponse<{ assignmentId: string; changedBeforeEditing: boolean }>>(`/api/agent-jobs/${encodeURIComponent(id)}/blog-edit-start`, { draftSignature, requestId })).data;
+  }
   async acknowledgeAgentJob(id: string): Promise<void> {
     await this.client.post(`/api/agent-jobs/${encodeURIComponent(id)}/ack`, {});
   }
@@ -2732,6 +2739,27 @@ export class KnowledgeHubApi {
   }
   async listRecentAgentJobs(): Promise<ApiResponse<AgentJob[]>> {
     return (await this.client.get<ApiResponse<AgentJob[]>>('/api/agent-jobs', { params: { limit: 30 } })).data;
+  }
+  async listWorkforceAssignments(): Promise<ApiResponse<AssignmentSummary[]>> {
+    return (await this.client.get<ApiResponse<AssignmentSummary[]>>('/api/agent-jobs/assignments')).data;
+  }
+  async workforceCapabilities(): Promise<ApiResponse<{ manualBlog: boolean }>> {
+    return (await this.client.get<ApiResponse<{ manualBlog: boolean }>>('/api/agent-jobs/workforce-capabilities')).data;
+  }
+  async startWorkforceBlog(subjectId: string, length: 'short' | 'long', requestId: string): Promise<ApiResponse<{ assignment: AssignmentSummary; existing: boolean }>> {
+    return (await this.client.post<ApiResponse<{ assignment: AssignmentSummary; existing: boolean }>>('/api/agent-jobs/assignments/manual-blog/start', { subjectId, length, requestId })).data;
+  }
+  async listWorkforceNotices(): Promise<ApiResponse<AssignmentNotice[]>> {
+    return (await this.client.get<ApiResponse<AssignmentNotice[]>>('/api/agent-jobs/assignment-notices')).data;
+  }
+  async acknowledgeWorkforceNotice(eventId: string): Promise<ApiResponse<{ acknowledged: boolean }>> {
+    return (await this.client.post<ApiResponse<{ acknowledged: boolean }>>(`/api/agent-jobs/assignment-notices/${encodeURIComponent(eventId)}/ack`, {})).data;
+  }
+  async cancelWorkforceAssignment(id: string, revision: number): Promise<ApiResponse<AssignmentSummary>> {
+    return (await this.client.post<ApiResponse<AssignmentSummary>>(`/api/agent-jobs/assignments/${encodeURIComponent(id)}/cancel`, { revision })).data;
+  }
+  async resumeWorkforceAssignment(id: string, revision: number, requestId: string): Promise<ApiResponse<AssignmentSummary>> {
+    return (await this.client.post<ApiResponse<AssignmentSummary>>(`/api/agent-jobs/assignments/${encodeURIComponent(id)}/resume`, { revision, requestId })).data;
   }
   /** Streams every live specialist job, then each change, until the signal aborts or the connection drops. */
   async streamAgentJobs(onJob: (job: AgentJob) => void, signal: AbortSignal): Promise<void> {

@@ -8,7 +8,8 @@
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { api } from './api';
 import { announceAthenaJob, clearAthenaJobProgress, updateAthenaJobProgress } from '../components/athena/AthenaJobNotice';
-import { isActiveAgentJob, type AgentJob } from '../types/agentJobs';
+import { assignmentStatusLabel, isActiveAgentJob, type AgentJob, type AssignmentNotice } from '../types/agentJobs';
+import { requireApiData } from './apiError';
 
 const RETRY_MIN_MS = 2_000;
 const RETRY_MAX_MS = 30_000;
@@ -21,6 +22,45 @@ let snapshot: AgentJob[] = [];
 let holders = 0;
 let controller: AbortController | null = null;
 let retryTimer: number | undefined;
+let assignmentTimer: number | undefined;
+let checkingAssignments = false;
+let assignmentFailureReported = false;
+let feedGeneration = 0;
+const ASSIGNMENT_POLL_MS = 5_000;
+
+async function receiveAssignmentNotice(notice: AssignmentNotice): Promise<void> {
+  const { assignment } = notice;
+  const id = `assignment-event-${notice.eventId}`;
+  if (claim(id)) {
+    announceAthenaJob({
+      id, always: true, ok: assignment.status === 'completed' && assignment.readiness === 'ready',
+      title: `Blog team: ${assignmentStatusLabel(assignment).toLowerCase()}`,
+      body: `${assignment.title}. ${assignment.reason ?? (assignment.status === 'completed'
+        ? 'The draft and independent review are saved. Publication remains a separate action.'
+        : 'Saved work remains available in Background work.')}`,
+      url: assignment.resultUrl ?? '/', tag: `assignment-${assignment.id}`, startedAt: Date.parse(assignment.createdAt),
+    });
+  }
+  if (notice.conversationId) window.dispatchEvent(new CustomEvent('athena-conversation-updated', { detail: { sessionId: notice.conversationId } }));
+  window.dispatchEvent(new CustomEvent('athena-assignment-updated', { detail: { assignmentId: assignment.id } }));
+  requireApiData(await api.acknowledgeWorkforceNotice(notice.eventId));
+}
+
+function checkAssignmentNotices(): void {
+  if (checkingAssignments || holders === 0) return;
+  checkingAssignments = true;
+  const generation = feedGeneration;
+  void api.listWorkforceNotices().then(async response => {
+    for (const notice of requireApiData(response)) {
+      if (holders === 0 || generation !== feedGeneration) return;
+      await receiveAssignmentNotice(notice);
+    }
+    assignmentFailureReported = false;
+  }).catch((error: unknown) => {
+    if (!assignmentFailureReported) console.error('[workforce] Assignment notices could not be refreshed; pending receipts will retry:', error);
+    assignmentFailureReported = true;
+  }).finally(() => { checkingAssignments = false; });
+}
 
 function changed(): void {
   snapshot = [...jobs.values()];
@@ -82,11 +122,19 @@ function connect(retryMs = RETRY_MIN_MS): void {
 /** Keeps the live stream open while anything holds it. */
 export function holdAgentJobFeed(): () => void {
   holders += 1;
-  if (holders === 1) connect();
+  if (holders === 1) {
+    feedGeneration += 1;
+    connect();
+    checkAssignmentNotices();
+    assignmentTimer = window.setInterval(checkAssignmentNotices, ASSIGNMENT_POLL_MS);
+  }
   return () => {
     holders -= 1;
     if (holders > 0) return;
+    feedGeneration += 1;
     window.clearTimeout(retryTimer);
+    window.clearInterval(assignmentTimer);
+    assignmentTimer = undefined;
     controller?.abort();
     controller = null;
   };

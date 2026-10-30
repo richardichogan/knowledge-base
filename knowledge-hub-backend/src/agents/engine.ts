@@ -18,6 +18,10 @@ import { ConflictError, KnowledgeHubError, NotFoundError, ValidationError } from
 import { appendAssistantMessage } from '../ai/chatSessionStore.js';
 import { getSpecialist, type Prerequisite } from './registry.js';
 import { withAiWorkflow } from '../ai/aiWorkflow.js';
+import { withAgentAttempt } from './attempt.js';
+import { AGENT_HEARTBEAT_MS, AGENT_LEASE_MS, AGENT_MAX_ATTEMPTS, AGENT_PROTOCOL_VERSION, contentSignature } from './workforce/contracts.js';
+import { claimConfiguredAssignment, recoverConfiguredAssignments, runConfiguredAssignment } from './workforce/dispatcher.js';
+import { deliverAssignmentNotices } from './workforce/notices.js';
 
 export type AgentJobStatus = 'queued' | 'running' | 'done' | 'failed';
 
@@ -57,9 +61,9 @@ interface JobRow {
   error: string | null; depends_on: string | null; is_step: boolean; conversation_id: string | null;
   requested_by: 'app' | 'chat'; attempts: number; acknowledged_at: Date | null; created_at: Date;
   started_at: Date | null; finished_at: Date | null;
+  lease_owner: string | null; lease_until: Date | null; assignment_id: string | null;
 }
 
-const MAX_ATTEMPTS = 3;
 const CONCURRENCY = 2;
 const POLL_MS = 5_000;
 const MAX_PROGRESS = 30;
@@ -109,8 +113,11 @@ function emit(row: JobRow): AgentJob {
   return job;
 }
 
-export async function getAgentJob(db: Pool, id: string): Promise<AgentJob> {
-  const { rows } = await db.query<JobRow>(`SELECT * FROM agent_jobs WHERE id = $1`, [id]);
+export async function getAgentJob(db: Pool, id: string, ownerId?: string): Promise<AgentJob> {
+  const { rows } = await db.query<JobRow>(
+    `SELECT * FROM agent_jobs j WHERE j.id=$1 AND (j.assignment_id IS NULL
+      OR EXISTS(SELECT 1 FROM agent_assignments a WHERE a.id=j.assignment_id AND a.owner_id=$2))`, [id, ownerId ?? null],
+  );
   if (!rows[0]) throw new NotFoundError('Specialist job');
   return toJob(rows[0]);
 }
@@ -119,7 +126,7 @@ export async function getAgentJob(db: Pool, id: string): Promise<AgentJob> {
 export async function listLiveAgentJobs(db: Pool): Promise<AgentJob[]> {
   const { rows } = await db.query<JobRow>(
     `SELECT * FROM agent_jobs
-      WHERE status = ANY($1) OR (acknowledged_at IS NULL AND finished_at > NOW() - INTERVAL '1 day')
+      WHERE assignment_id IS NULL AND (status = ANY($1) OR (acknowledged_at IS NULL AND finished_at > NOW() - INTERVAL '1 day'))
       ORDER BY created_at`,
     [ACTIVE],
   );
@@ -129,7 +136,7 @@ export async function listLiveAgentJobs(db: Pool): Promise<AgentJob[]> {
 export async function listAgentJobs(db: Pool, filter: { subjectType?: string | undefined; subjectId?: string | undefined; limit?: number | undefined }): Promise<AgentJob[]> {
   const { rows } = await db.query<JobRow>(
     `SELECT * FROM agent_jobs
-      WHERE ($1::text IS NULL OR subject_type = $1) AND ($2::text IS NULL OR subject_id = $2)
+      WHERE assignment_id IS NULL AND ($1::text IS NULL OR subject_type = $1) AND ($2::text IS NULL OR subject_id = $2)
       ORDER BY created_at DESC LIMIT $3`,
     [filter.subjectType ?? null, filter.subjectId ?? null, Math.min(Math.max(filter.limit ?? DEFAULT_LIST, 1), MAX_LIST)],
   );
@@ -156,19 +163,6 @@ export async function handOff(db: Pool, request: HandOffRequest): Promise<HandOf
   if (!specialist) throw new ValidationError(`There is no specialist called ${request.specialist}.`);
   const subject = await specialist.resolveSubject(db, request.subjectId);
   const input = specialist.parseInput ? specialist.parseInput(request.input ?? {}) : request.input ?? {};
-
-  const { rows: active } = await db.query<JobRow>(
-    `SELECT * FROM agent_jobs WHERE subject_type = $1 AND subject_id = $2 AND status = ANY($3) ORDER BY created_at`,
-    [specialist.subjectType, subject.id, ACTIVE],
-  );
-  const same = active.find((row) => row.specialist === specialist.id && !row.is_step)
-    ?? active.find((row) => row.specialist === specialist.id);
-  if (same) return { status: 'already_running', job: toJob(same) };
-  if (active[0]) {
-    const busy = getSpecialist(active[0].specialist)?.name ?? 'Another specialist';
-    throw new ConflictError(`${busy} is already working on ${subject.title || 'this'}. Try again when it finishes.`, 'AGENT_SUBJECT_BUSY');
-  }
-
   const prerequisites: Prerequisite[] = specialist.prerequisites ? await specialist.prerequisites(db, subject.id, input) : [];
   const overwrites = specialist.overwrites ? await specialist.overwrites(db, subject.id, input) : false;
   const plan: PlannedStep[] = [
@@ -180,16 +174,44 @@ export async function handOff(db: Pool, request: HandOffRequest): Promise<HandOf
     })),
     { specialist: specialist.id, specialistName: specialist.name, reason: specialist.description, overwrites },
   ];
-  if (!request.confirmed && plan.some((step) => step.overwrites)) {
-    const replaced = plan.filter((step) => step.overwrites).map((step) => `${step.specialistName}: ${step.reason}`);
-    return { status: 'needs_confirmation', plan, message: `This replaces existing work. ${replaced.join(' ')}` };
-  }
 
-  const pool = workerPool();
   const client = await db.connect();
   const created: JobRow[] = [];
   try {
     await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`agent-subject:${specialist.subjectType}:${subject.id}`]);
+    const { rows: active } = await client.query<JobRow>(
+      `SELECT * FROM agent_jobs WHERE subject_type = $1 AND subject_id = $2 AND status = ANY($3)
+        AND assignment_id IS NULL ORDER BY created_at`,
+      [specialist.subjectType, subject.id, ACTIVE],
+    );
+    const same = active.find((row) => row.specialist === specialist.id && !row.is_step)
+      ?? active.find((row) => row.specialist === specialist.id);
+    if (same) {
+      const previousInput = specialist.parseInput ? specialist.parseInput(same.input) : same.input;
+      if (contentSignature(previousInput) !== contentSignature(input)) {
+        throw new ConflictError('This specialist is already working on a different request for this subject.', 'AGENT_SUBJECT_BUSY');
+      }
+      await client.query('COMMIT');
+      return { status: 'already_running', job: toJob(same) };
+    }
+    if (active[0]) {
+      const busy = getSpecialist(active[0].specialist)?.name ?? 'Another specialist';
+      throw new ConflictError(`${busy} is already working on ${subject.title || 'this'}. Try again when it finishes.`, 'AGENT_SUBJECT_BUSY');
+    }
+    const assignment = await client.query(
+      `SELECT id FROM agent_assignments WHERE subject_type=$1 AND subject_id=$2 AND status IN ('queued','running','waiting')`,
+      [specialist.subjectType, subject.id],
+    );
+    if (assignment.rowCount) throw new ConflictError('An Athena assignment already owns this subject.', 'AGENT_SUBJECT_BUSY');
+
+    if (!request.confirmed && plan.some((step) => step.overwrites)) {
+      const replaced = plan.filter((step) => step.overwrites).map((step) => `${step.specialistName}: ${step.reason}`);
+      await client.query('COMMIT');
+      return { status: 'needs_confirmation', plan, message: `This replaces existing work. ${replaced.join(' ')}` };
+    }
+
+    const pool = workerPool();
     let previous: string | null = null;
     for (const step of prerequisites) {
       const stepSpecialist = getSpecialist(step.specialist);
@@ -206,7 +228,8 @@ export async function handOff(db: Pool, request: HandOffRequest): Promise<HandOf
     }));
     await client.query('COMMIT');
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => undefined);
+    try { await client.query('ROLLBACK'); }
+    catch (rollbackError) { console.error('[agents] Handoff rollback failed:', rollbackError); }
     throw error;
   } finally {
     client.release();
@@ -222,8 +245,8 @@ async function insertJob(client: PoolClient, job: {
 }): Promise<JobRow> {
   const { rows } = await client.query<JobRow>(
     `INSERT INTO agent_jobs (id, specialist, subject_type, subject_id, subject_title, subject_url, input,
-       depends_on, is_step, conversation_id, requested_by, worker_pool)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+       depends_on, is_step, conversation_id, requested_by, worker_pool, protocol_version)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 2) RETURNING *`,
     [randomUUID(), job.specialist, job.subjectType, job.subject.id, job.subject.title, job.subject.url,
       JSON.stringify(job.input), job.dependsOn, job.isStep, job.request.conversationId ?? null, job.request.requestedBy, job.pool],
   );
@@ -238,6 +261,7 @@ let running = 0;
 let draining = false;
 let filling: Promise<void> | undefined;
 let shutdown = new AbortController();
+let workerOwner = randomUUID();
 const inFlight = new Set<Promise<void>>();
 
 function wakeWorker(): void {
@@ -249,14 +273,25 @@ async function fill(): Promise<void> {
   const db = workerDb;
   if (!db || draining) return;
   try {
+    await recoverExpiredJobs(db);
+    await recoverConfiguredAssignments(db, workerPool());
+    try { await deliverAssignmentNotices(db, workerPool()); }
+    catch (error) {
+      console.error('[workforce] Chat notice delivery failed; pending events will be retried without stopping job execution:', error);
+    }
     await failBlockedJobs(db);
     while (running < CONCURRENCY && !shutdown.signal.aborted) {
       const row = await claim(db);
-      if (!row) break;
+      const assignment = row ? null : await claimConfiguredAssignment(db, workerPool(), workerOwner, shutdown.signal);
+      if (!row && !assignment) break;
       running += 1;
-      const work = runJob(db, row).catch((error: unknown) => {
-        // A job is never allowed to take the server down; an unrecorded job is requeued when the worker next starts.
-        console.error(`[agents] ${row.specialist} job ${row.id} could not record its outcome:`, error);
+      let execution: Promise<void>;
+      if (row) execution = runJob(db, row, workerOwner);
+      else if (assignment) execution = runConfiguredAssignment(db, assignment, completion => { agentJobEvents.emit('assignment', completion.assignment.id); });
+      else break;
+      const work = execution.catch((error: unknown) => {
+        // An unrecorded result is recoverable only after this owner's lease expires.
+        console.error(`[agents] Job ${row?.id ?? assignment?.identity.jobId} could not record its outcome:`, error);
       }).finally(() => {
         running -= 1;
         inFlight.delete(work);
@@ -271,17 +306,37 @@ async function fill(): Promise<void> {
 
 async function claim(db: Pool): Promise<JobRow | null> {
   const { rows } = await db.query<JobRow>(
-    `UPDATE agent_jobs SET status = 'running', started_at = NOW(), attempts = attempts + 1, progress = '[]'::jsonb, updated_at = NOW()
+    `UPDATE agent_jobs SET status = 'running', started_at = NOW(), attempts = attempts + 1, updated_at = NOW(),
+        lease_owner=$2,lease_until=clock_timestamp()+$3*INTERVAL '1 millisecond',protocol_version=$4
       WHERE id = (
         SELECT j.id FROM agent_jobs j LEFT JOIN agent_jobs d ON d.id = j.depends_on
-         WHERE j.worker_pool = $1 AND j.status = 'queued' AND (j.depends_on IS NULL OR d.id IS NULL OR d.status = 'done')
+         WHERE j.worker_pool = $1 AND j.status = 'queued' AND j.protocol_version<=$4 AND j.assignment_id IS NULL
+           AND (j.depends_on IS NULL OR d.status = 'done')
          ORDER BY j.created_at LIMIT 1 FOR UPDATE OF j SKIP LOCKED)
       RETURNING *`,
-    [workerPool()],
+    [workerPool(), workerOwner, AGENT_LEASE_MS, AGENT_PROTOCOL_VERSION],
   );
   if (!rows[0]) return null;
   emit(rows[0]);
   return rows[0];
+}
+
+async function recoverExpiredJobs(db: Pool): Promise<void> {
+  const failed = await db.query<JobRow>(
+    `UPDATE agent_jobs SET status='failed',finished_at=clock_timestamp(),updated_at=clock_timestamp(),
+      lease_owner=NULL,lease_until=NULL,error='It was interrupted too many times and stopped.'
+      WHERE worker_pool=$1 AND assignment_id IS NULL AND protocol_version<=$3 AND status='running'
+        AND (lease_until IS NULL OR lease_until<=clock_timestamp()) AND attempts>=$2 RETURNING *`,
+    [workerPool(), AGENT_MAX_ATTEMPTS, AGENT_PROTOCOL_VERSION],
+  );
+  for (const row of failed.rows) await finish(db, row);
+  const recovered = await db.query<JobRow>(
+    `UPDATE agent_jobs SET status='queued',lease_owner=NULL,lease_until=NULL,updated_at=clock_timestamp()
+      WHERE worker_pool=$1 AND assignment_id IS NULL AND protocol_version<=$2 AND status='running'
+        AND (lease_until IS NULL OR lease_until<=clock_timestamp()) RETURNING *`,
+    [workerPool(), AGENT_PROTOCOL_VERSION],
+  );
+  for (const row of recovered.rows) emit(row);
 }
 
 /** Fails jobs whose prerequisite failed, so a handoff never waits forever. */
@@ -290,8 +345,9 @@ async function failBlockedJobs(db: Pool): Promise<void> {
     `UPDATE agent_jobs j SET status = 'failed', finished_at = NOW(), updated_at = NOW(), error = 'An earlier step did not finish.'
        FROM agent_jobs d
       WHERE d.id = j.depends_on AND j.status = 'queued' AND d.status = 'failed' AND j.worker_pool = $1
+        AND j.assignment_id IS NULL AND d.assignment_id IS NULL AND j.protocol_version <= $2
       RETURNING j.*, d.specialist AS blocker, d.error AS blocker_error`,
-    [workerPool()],
+    [workerPool(), AGENT_PROTOCOL_VERSION],
   );
   for (const row of rows) {
     const name = getSpecialist(row.blocker)?.name ?? 'An earlier step';
@@ -317,52 +373,77 @@ async function record(db: Pool, sql: string, params: unknown[]): Promise<JobRow 
   }
 }
 
-async function runJob(db: Pool, row: JobRow): Promise<void> {
+async function runJob(db: Pool, row: JobRow, owner: string): Promise<void> {
   const specialist = getSpecialist(row.specialist);
+  const lease = new AbortController();
+  const signal = AbortSignal.any([shutdown.signal, lease.signal]);
+  let renewing = false;
+  const heartbeat = setInterval(() => {
+    if (renewing || signal.aborted) return;
+    renewing = true;
+    void db.query(
+      `UPDATE agent_jobs SET lease_until=clock_timestamp()+$4*INTERVAL '1 millisecond'
+        WHERE id=$1 AND attempts=$2 AND lease_owner=$3 AND status='running' AND lease_until>clock_timestamp() RETURNING id`,
+      [row.id, row.attempts, owner, AGENT_LEASE_MS],
+    ).then(result => {
+      if (!result.rowCount) lease.abort(new ConflictError('The specialist lost ownership of this attempt.', 'AGENT_ATTEMPT_CONFLICT'));
+    }).catch((error: unknown) => {
+      console.error('[agents] Lease renewal failed; stopping this attempt:', row.id, error);
+      lease.abort(new ConflictError('The specialist could not renew its ownership lease.', 'AGENT_ATTEMPT_CONFLICT'));
+    }).finally(() => { renewing = false; });
+  }, AGENT_HEARTBEAT_MS);
+  heartbeat.unref();
   let writes = Promise.resolve();
   const progress = (message: string): void => {
     const text = message.trim().slice(0, MAX_PROGRESS_CHARS);
-    if (!text) return;
+    if (!text || signal.aborted) return;
     writes = writes.then(async () => {
       const { rows } = await db.query<JobRow>(
         `UPDATE agent_jobs SET updated_at = NOW(),
                 progress = (SELECT COALESCE(jsonb_agg(value ORDER BY n), '[]'::jsonb) FROM (
                   SELECT value, n FROM jsonb_array_elements(progress || jsonb_build_array($2::text)) WITH ORDINALITY AS p(value, n)
                    ORDER BY n DESC LIMIT ${MAX_PROGRESS}) recent)
-          WHERE id = $1 AND status = 'running' AND attempts = $3 RETURNING *`,
-        [row.id, text, row.attempts],
+          WHERE id = $1 AND status = 'running' AND attempts = $3 AND lease_owner=$4
+            AND lease_until>clock_timestamp() RETURNING *`,
+        [row.id, text, row.attempts, owner],
       );
       if (rows[0]) emit(rows[0]);
     }).catch((error: unknown) => { console.error('[agents] Could not save progress:', error); });
   };
   try {
     if (!specialist) throw new ValidationError(`The ${row.specialist} specialist is not available on this server.`);
-    const done = await withAiWorkflow(db, { feature: row.specialist, jobId: row.id, attempt: row.attempts, signal: shutdown.signal }, async () => {
-      const outcome = await specialist.run({ db, jobId: row.id, attempt: row.attempts, subjectId: row.subject_id, input: row.input, progress, signal: shutdown.signal });
-      await writes;
-      const saved = await record(db,
-        `UPDATE agent_jobs SET status = 'done', result = $2, error = NULL, finished_at = NOW(), updated_at = NOW()
-          WHERE id = $1 AND status = 'running' AND attempts = $3 RETURNING *`,
-        [row.id, JSON.stringify({ data: outcome.data, summary: outcome.summary }), row.attempts],
-      );
-      if (!saved) throw new ConflictError('The specialist attempt stopped before its outcome was saved.', 'AGENT_ATTEMPT_CONFLICT');
-      return saved;
-    });
+    const done = await withAgentAttempt({ jobId: row.id, attempt: row.attempts, owner, assignmentId: row.assignment_id, signal, budgetDb: db },
+      () => withAiWorkflow(db, { feature: row.specialist, jobId: row.id, attempt: row.attempts, signal }, async () => {
+        signal.throwIfAborted();
+        const outcome = await specialist.run({ db, jobId: row.id, attempt: row.attempts, subjectId: row.subject_id, input: row.input, progress, signal });
+        await writes;
+        signal.throwIfAborted();
+        const saved = await record(db,
+          `UPDATE agent_jobs SET status = 'done', result = $2, error = NULL, finished_at = NOW(), updated_at = NOW(),lease_until=NULL,lease_owner=NULL
+            WHERE id = $1 AND status = 'running' AND attempts = $3 AND lease_owner=$4 AND lease_until>clock_timestamp() RETURNING *`,
+          [row.id, JSON.stringify({ data: outcome.data, summary: outcome.summary }), row.attempts, owner],
+        );
+        if (!saved) throw new ConflictError('The specialist attempt stopped before its outcome was saved.', 'AGENT_ATTEMPT_CONFLICT');
+        return saved;
+      }));
     if (done) await finish(db, done);
   } catch (error) {
     await writes;
     if (shutdown.signal.aborted) {
-      await record(db, `UPDATE agent_jobs SET status = 'queued', updated_at = NOW() WHERE id = $1 AND status = 'running' AND attempts = $2 RETURNING *`, [row.id, row.attempts]);
+      await record(db, `UPDATE agent_jobs SET status = 'queued', updated_at = NOW(),lease_owner=NULL,lease_until=NULL
+        WHERE id = $1 AND status = 'running' AND attempts = $2 AND lease_owner=$3 AND lease_until>clock_timestamp() RETURNING *`, [row.id, row.attempts, owner]);
       return;
     }
+    if (lease.signal.aborted) return;
     const message = error instanceof KnowledgeHubError ? error.message : 'The specialist hit an unexpected error.';
     if (!(error instanceof KnowledgeHubError)) console.error(`[agents] ${row.specialist} job ${row.id} failed:`, error);
     const failed = await record(db,
-      `UPDATE agent_jobs SET status = 'failed', error = $2, finished_at = NOW(), updated_at = NOW() WHERE id = $1 AND status = 'running' AND attempts = $3 RETURNING *`,
-      [row.id, message, row.attempts],
+      `UPDATE agent_jobs SET status = 'failed', error = $2, finished_at = NOW(), updated_at = NOW(),lease_owner=NULL,lease_until=NULL
+        WHERE id = $1 AND status = 'running' AND attempts = $3 AND lease_owner=$4 AND lease_until>clock_timestamp() RETURNING *`,
+      [row.id, message, row.attempts, owner],
     );
     if (failed) await finish(db, failed);
-  }
+  } finally { clearInterval(heartbeat); }
 }
 
 /** Publishes the outcome and, for the last job of a chat handoff, has Athena report back in that chat. */
@@ -385,23 +466,19 @@ async function finish(db: Pool, row: JobRow): Promise<void> {
   agentJobEvents.emit('job', job);
 }
 
-/** Starts this server's worker: requeues interrupted jobs, then polls and runs jobs. */
-export async function startAgentWorker(db: Pool): Promise<void> {
+/** Starts this worker without stealing another process's unexpired jobs. */
+export function startAgentWorker(db: Pool): Promise<void> {
+  if (workerDb) return Promise.reject(new ConflictError('The specialist worker is already started.', 'AGENT_WORKER_STARTED'));
   workerDb = db;
   draining = false;
   shutdown = new AbortController();
+  workerOwner = randomUUID();
   const pool = workerPool();
-  await db.query(
-    `UPDATE agent_jobs SET status = 'failed', finished_at = NOW(), updated_at = NOW(),
-            error = 'It was interrupted too many times and stopped.'
-      WHERE worker_pool = $1 AND status = 'running' AND attempts >= $2`,
-    [pool, MAX_ATTEMPTS],
-  );
-  await db.query(`UPDATE agent_jobs SET status = 'queued', updated_at = NOW() WHERE worker_pool = $1 AND status = 'running'`, [pool]);
   timer = setInterval(wakeWorker, POLL_MS);
   timer.unref();
   console.warn(`[agents] Specialist worker started for pool ${pool}.`);
   wakeWorker();
+  return Promise.resolve();
 }
 
 /** Stops claiming work; running jobs are returned to the queue for the next start. */

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
+import { lockAgentAttempt } from '../agents/attempt.js';
 import { getFoundryClient } from '../ai/foundryClient.js';
 import { requestEditorialJson } from '../publishing/editorial.js';
 import { ConflictError, ValidationError } from '../types/errors.js';
@@ -45,8 +46,14 @@ export async function prepareLearningSession(context: SpecialistContext): Promis
   const { db, subjectId, jobId, attempt, signal, progress } = context;
   const session = await getLearningSession(db, subjectId);
   try {
-    await db.query(`UPDATE learning_sessions SET status='preparing',error=NULL WHERE id=$1
-      AND EXISTS(SELECT 1 FROM agent_jobs WHERE id=$2 AND status='running' AND attempts=$3)`, [subjectId, jobId, attempt]);
+    await learningTransaction(db, async client => {
+      await lockAgentAttempt(client);
+      const saved = await client.query(`UPDATE learning_sessions SET status='preparing',error=NULL WHERE id=$1
+        AND EXISTS(SELECT 1 FROM agent_jobs WHERE id=$2 AND status='running' AND attempts=$3 AND lease_until>clock_timestamp())
+        RETURNING id`, [subjectId, jobId, attempt]);
+      if (!saved.rowCount) throw new ConflictError('This learning worker attempt is no longer current.', 'LEARNING_JOB_CHANGED');
+      await lockAgentAttempt(client);
+    });
     const existing = await db.query<{ position: number; status: string; chosen: number | null; skipped: boolean }>(
       `SELECT i.position,q.status,i.chosen,i.skipped FROM learning_items i JOIN learning_questions q ON q.id=i.question_id WHERE i.session_id=$1`, [subjectId]);
     const done = new Set(existing.rows.filter(row => row.status === 'ready').map(row => row.position));
@@ -56,11 +63,15 @@ export async function prepareLearningSession(context: SpecialistContext): Promis
     let plan = session.question_plan;
     if (!plan) {
       const proposed = planLearningQuestions(await learningProgress(db, session.owner_id), session.question_count, parseInt(subjectId.slice(ROTATION_SUFFIX), 16));
-      const saved = await db.query<{ question_plan: LearningTarget[] }>(`UPDATE learning_sessions SET question_plan=COALESCE(question_plan,$2::jsonb)
-        WHERE id=$1 AND EXISTS(SELECT 1 FROM agent_jobs WHERE id=$3 AND status='running' AND attempts=$4)
-        RETURNING question_plan`, [subjectId, JSON.stringify(proposed), jobId, attempt]);
-      if (!saved.rows[0]) throw new ConflictError('This learning worker attempt is no longer current.', 'LEARNING_JOB_CHANGED');
-      plan = saved.rows[0].question_plan;
+      plan = await learningTransaction(db, async client => {
+        await lockAgentAttempt(client);
+        const saved = await client.query<{ question_plan: LearningTarget[] }>(`UPDATE learning_sessions SET question_plan=COALESCE(question_plan,$2::jsonb)
+          WHERE id=$1 AND EXISTS(SELECT 1 FROM agent_jobs WHERE id=$3 AND status='running' AND attempts=$4 AND lease_until>clock_timestamp())
+          RETURNING question_plan`, [subjectId, JSON.stringify(proposed), jobId, attempt]);
+        if (!saved.rows[0]) throw new ConflictError('This learning worker attempt is no longer current.', 'LEARNING_JOB_CHANGED');
+        await lockAgentAttempt(client);
+        return saved.rows[0].question_plan;
+      });
     }
     if (plan.length !== session.question_count) throw new ValidationError('The learning plan does not match the session size.');
     for (const [position, target] of plan.entries()) {
@@ -126,7 +137,8 @@ replace the question entirely if the scenario cannot support a uniquely correct 
       }
       const accepted = candidate;
       await learningTransaction(db, async client => {
-        const job = await client.query("SELECT id FROM agent_jobs WHERE id=$1 AND status='running' AND attempts=$2 FOR UPDATE", [jobId, attempt]);
+        await lockAgentAttempt(client);
+        const job = await client.query("SELECT id FROM agent_jobs WHERE id=$1 AND status='running' AND attempts=$2 AND lease_until>clock_timestamp() FOR UPDATE", [jobId, attempt]);
         if (!job.rowCount) throw new ConflictError('This learning worker attempt is no longer current.', 'LEARNING_JOB_CHANGED');
         signal.throwIfAborted();
         await client.query("INSERT INTO learning_questions(id,payload,status) VALUES($1,$2::jsonb,'ready') ON CONFLICT(id) DO NOTHING",
@@ -138,23 +150,32 @@ replace the question entirely if the scenario cannot support a uniquely correct 
             SELECT 1 FROM learning_questions old WHERE old.id=learning_items.question_id AND old.status='held')
           RETURNING position`, [subjectId, position, accepted.id]);
         if (!inserted.rowCount) throw new ConflictError('A learning question changed during preparation. Retry the session.', 'LEARNING_CHANGED');
+        await lockAgentAttempt(client);
       });
     }
     return await learningTransaction(db, async client => {
-      const job = await client.query("SELECT id FROM agent_jobs WHERE id=$1 AND status='running' AND attempts=$2 FOR UPDATE", [jobId, attempt]);
+      await lockAgentAttempt(client);
+      const job = await client.query("SELECT id FROM agent_jobs WHERE id=$1 AND status='running' AND attempts=$2 AND lease_until>clock_timestamp() FOR UPDATE", [jobId, attempt]);
       if (!job.rowCount) throw new ConflictError('This learning worker attempt is no longer current.', 'LEARNING_JOB_CHANGED');
       signal.throwIfAborted();
       const available = await client.query(`SELECT q.id FROM learning_items i JOIN learning_questions q ON q.id=i.question_id
         WHERE i.session_id=$1 AND i.position<$2 AND q.status='ready' FOR UPDATE OF q`, [subjectId, session.question_count]);
       if (available.rows.length !== session.question_count) throw new ValidationError(`All ${session.question_count} questions must pass official-source checks before the session can open. Retry preparation.`);
       await client.query("UPDATE learning_sessions SET status='ready',error=NULL WHERE id=$1", [subjectId]);
+      await lockAgentAttempt(client);
       return available.rows.length;
     });
   } catch (error) {
     console.error('[Learning] Session preparation failed:', subjectId, error);
-    await db.query(`UPDATE learning_sessions SET status='failed',error=$2 WHERE id=$1
-      AND EXISTS(SELECT 1 FROM agent_jobs WHERE id=$3 AND status='running' AND attempts=$4)`,
-    [subjectId, 'The full session could not be source-verified. No unchecked questions will be shown. Retry preparation.', jobId, attempt]);
+    if (!signal.aborted) {
+      await learningTransaction(db, async client => {
+        await lockAgentAttempt(client);
+        await client.query(`UPDATE learning_sessions SET status='failed',error=$2 WHERE id=$1
+          AND EXISTS(SELECT 1 FROM agent_jobs WHERE id=$3 AND status='running' AND attempts=$4 AND lease_until>clock_timestamp())`,
+        [subjectId, 'The full session could not be source-verified. No unchecked questions will be shown. Retry preparation.', jobId, attempt]);
+        await lockAgentAttempt(client);
+      });
+    }
     throw error;
   }
 }

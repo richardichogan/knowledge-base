@@ -4,6 +4,7 @@
  * a missing spec is created and linked to the Design.
  */
 import type { Pool } from 'pg';
+import { currentAgentAttempt, lockAgentAttempt } from '../agents/attempt.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { getDesign } from './designStore.js';
 import { lockSources, sourceSnapshot } from './designArtifacts.js';
@@ -104,10 +105,14 @@ async function imagineDraft(user: string, progress: (message: string) => void, s
   const sectionParts: Record<string, DemoSpecificationPart> = {};
   const persist = async (): Promise<void> => {
     if (!checkpoint) return;
+    const attempt = currentAgentAttempt();
+    if (!attempt || attempt.jobId !== checkpoint.jobId) throw new ConflictError('The specification checkpoint has no current worker owner.', 'AGENT_ATTEMPT_CONFLICT');
+    signal?.throwIfAborted();
     const saved = await checkpoint.db.query(
       `UPDATE agent_jobs SET result=jsonb_build_object('specificationCheckpoint',$2::jsonb),updated_at=NOW()
-        WHERE id=$1 AND subject_id=$3 AND specialist='spec-writer' AND status='running' RETURNING id`,
-      [checkpoint.jobId, JSON.stringify({ fingerprint: checkpoint.fingerprint, parts, sections: sectionParts }), checkpoint.designId]);
+        WHERE id=$1 AND subject_id=$3 AND specialist='spec-writer' AND status='running'
+          AND attempts=$4 AND lease_owner=$5 AND lease_until>clock_timestamp() RETURNING id`,
+      [checkpoint.jobId, JSON.stringify({ fingerprint: checkpoint.fingerprint, parts, sections: sectionParts }), checkpoint.designId, attempt.attempt, attempt.owner]);
     if (!saved.rows.length) throw new ConflictError('The Spec writer job stopped before its progress could be saved. The existing spec was not replaced.', 'DESIGN_CONFLICT');
   };
   if (checkpoint) {
@@ -260,6 +265,7 @@ async function writeDesignSpecInner(db: Pool, designId: string, replace: boolean
   const publish: string[] = [];
   try {
     await client.query('BEGIN');
+    await lockAgentAttempt(client);
     const locked = (await client.query<{ revision: number }>('SELECT revision FROM designs WHERE id=$1 FOR UPDATE', [design.id])).rows[0];
     if (locked?.revision !== design.revision) throw new ConflictError('The Design links changed while Athena was writing. Nothing was saved; retry.', 'DESIGN_CONFLICT');
     await lockSources(client, sources);
@@ -277,6 +283,7 @@ async function writeDesignSpecInner(db: Pool, designId: string, replace: boolean
         ON CONFLICT(design_id,source_type,source_id) DO UPDATE SET role=EXCLUDED.role,excluded=false`, [design.id, noteId]);
       await client.query(`UPDATE designs SET selections=jsonb_set(selections,'{spec}',to_jsonb($2::text)),revision=revision+1,updated_at=NOW() WHERE id=$1`, [design.id, noteId]);
     }
+    await lockAgentAttempt(client);
     await client.query('COMMIT');
   } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
   return { noteId, title, created: !spec, notes, publish };

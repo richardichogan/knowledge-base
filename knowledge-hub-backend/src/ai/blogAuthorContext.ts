@@ -13,7 +13,7 @@ const MESSAGE_LIMIT = 6;
 const CONTEXT_TOKENS = 2200;
 const PRIVACY_TOKENS = 1200;
 const INSIGHT_FIELDS = 3;
-interface AuthorRecord {
+export interface BlogAuthorRecord {
   id: string;
   kind: 'profile' | 'preference' | 'published-post' | 'user-message';
   ref: string;
@@ -21,7 +21,7 @@ interface AuthorRecord {
 }
 export interface BlogAuthorContext {
   insights: Array<{ basis: 'position' | 'experience' | 'background'; text: string; sourceIds: string[] }>;
-  sources: Array<{ id: string; kind: AuthorRecord['kind']; ref: string }>;
+  sources: Array<{ id: string; kind: BlogAuthorRecord['kind']; ref: string }>;
   privacyChecked: true;
   withheldInsights: number;
 }
@@ -49,7 +49,7 @@ const PRIVACY_SCHEMA: LlmJsonSchema = {
   },
 };
 
-async function authorRecords(db: Pool, topic: string): Promise<AuthorRecord[]> {
+async function authorRecords(db: Pool, topic: string): Promise<BlogAuthorRecord[]> {
   const query = queryTerms(topic).join(' ');
   const filter = { sources: ['cms-blog'] };
   const [memories, knowledge, chats] = await Promise.all([
@@ -63,7 +63,7 @@ async function authorRecords(db: Pool, topic: string): Promise<AuthorRecord[]> {
     searchPastChats(db, query, undefined, CHAT_LIMIT),
   ]);
   if (knowledge.status === 'unavailable') throw new AiError('Author-context retrieval is unavailable. The blog cannot be grounded in your writing yet.');
-  const records: AuthorRecord[] = memories.rows.map(row => ({
+  const records: BlogAuthorRecord[] = memories.rows.map(row => ({
     id: '', kind: row.kind === 'profile' ? 'profile' : 'preference',
     ref: `memory:${row.id}`, text: row.content.slice(0, CONTEXT_CHARS),
   }));
@@ -91,7 +91,7 @@ export async function buildBlogAuthorContext(
 }
 
 export async function anonymiseBlogAuthorContext(
-  records: AuthorRecord[], topic: string, client: Pick<FoundryClient, 'chat'>,
+  records: BlogAuthorRecord[], topic: string, client: Pick<FoundryClient, 'chat'>,
 ): Promise<BlogAuthorContext> {
   const sourceData = records.map(({ id, kind, text }) => ({ id, kind, text }));
   const raw = await client.chat('standard', [

@@ -9,6 +9,10 @@ import { recoverInterruptedWork } from './sync/runStore.js';
 import { stopTurnJobs } from './ai/turnJobs.js';
 import { startAgentWorker, stopAgentWorker } from './agents/index.js';
 import { loadConnectionCredentials } from './services/connectionCredentials.js';
+import { registerManualBlogExecutor } from './agents/workforce/dispatcher.js';
+import { createManualBlogExecutor } from './agents/workforce/blogDomain.js';
+import { manualBlogSourceCapabilities } from './agents/workforce/blogSources.js';
+import { assertWorkforceSchemaReady } from './agents/workforce/readiness.js';
 
 assertSafeDatabase(env.DATABASE_MODE, env.DATABASE_URL, env.NODE_ENV);
 const sharedProductionDatabase = env.NODE_ENV === 'development' && env.DATABASE_MODE === 'production';
@@ -27,12 +31,14 @@ const runtime = createRuntime({
     } else {
       await runMigrations();
     }
+    if (env.ATHENA_WORKFORCE_MANUAL_BLOG) await assertWorkforceSchemaReady(getDb());
     await loadConnectionCredentials(getDb());
     await getDb().query('SELECT 1');
     if (!sharedProductionDatabase) await recoverInterruptedWork(getDb());
     await warmUpDb();
   },
   startJobs: () => {
+    if (env.ATHENA_WORKFORCE_MANUAL_BLOG) registerManualBlogExecutor(createManualBlogExecutor(getDb(), manualBlogSourceCapabilities()));
     credentialTimer = setInterval(() => {
       if (refreshingCredentials) return;
       refreshingCredentials = true;

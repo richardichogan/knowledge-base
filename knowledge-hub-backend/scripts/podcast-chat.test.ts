@@ -18,7 +18,8 @@ function fixture(t: TestContext) {
       { id: 'copilot', title: 'Copilot story', synopsis: 'Explain what users can actually do.', bullets: [] },
     ],
   };
-  t.mock.method(db, 'query', async (sql: string, values: unknown[] = []) => {
+  const query = async (sql: string, values: unknown[] = []) => {
+    if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(sql)) return { rows: [], rowCount: 0 };
     if (sql.includes('FROM podcast_episodes e JOIN notes')) return { rows: [{
       note_id: owner, content: JSON.stringify({ title: 'Episode 46', contentType: 'podcast-episode' }), project_id: null,
       episode_number: 46, recording_date: null, prep_session_id: null, script_intro: script.intro,
@@ -41,7 +42,9 @@ function fixture(t: TestContext) {
     }
     if (sql.startsWith('SELECT id FROM notes')) return { rows: [], rowCount: 0 };
     assert.fail(`Unexpected SQL: ${sql}`);
-  });
+  };
+  t.mock.method(db, 'query', query);
+  t.mock.method(db, 'connect', async () => ({ query, release() {} }));
   const state = { readCardIds: new Set<string>(), changed: false };
   const read = (args = {}) => executePodcastTool(db, 'read_podcast_script', owner, args, {}, state);
   const update = (args: Record<string, unknown>) => executePodcastTool(db, 'update_podcast_script', owner, args, {}, state);

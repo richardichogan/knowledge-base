@@ -6,10 +6,17 @@
  */
 import type { Pool } from 'pg';
 import type { LlmToolDefinition } from './foundryClient.js';
-import { getAgentJob, handOff, listAgentJobs, listSpecialists, getSpecialist, type AgentJob } from '../agents/index.js';
+import { getAgentJob, handOff, listAgentJobs, listSpecialists, getSpecialist, workerPool, type AgentJob } from '../agents/index.js';
 import { KnowledgeHubError } from '../types/errors.js';
+import { getAssignmentSummary, listAssignmentSummaries } from '../agents/workforce/status.js';
+import { hasManualBlogExecutor } from '../agents/workforce/dispatcher.js';
+import { startChatManualBlogCommission, type TrustedChatBlogAction } from '../agents/workforce/blogCommission.js';
 
-export const AGENT_TOOL_NAMES = new Set(['hand_off_to_specialist', 'check_specialist_jobs']);
+export interface AgentToolContext extends TrustedChatBlogAction {
+  designOwner?: string | undefined;
+}
+
+export const AGENT_TOOL_NAMES = new Set(['hand_off_to_specialist', 'check_specialist_jobs', 'check_workforce_assignments']);
 const RECENT_JOBS = 5;
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 
@@ -28,10 +35,19 @@ export function agentToolDefinitions(): LlmToolDefinition[] {
             subjectId: { type: 'string', description: 'ID of what to work on. Omit in a Design conversation to use the open Design.' },
             instruction: { type: 'string', description: 'Optional direction for the specialist, e.g. what the Blueprint should emphasise.' },
             length: { type: 'string', enum: ['short', 'long'], description: 'For the blog writer: short is Quick take, long is Article. Ask which before starting.' },
+            revision: { type: 'integer', minimum: 0, description: 'For Podcast script drafting: exact current episode revision from read_podcast_script. Never guess or reuse an earlier revision.' },
             confirmed: { type: 'boolean', description: 'He agreed to a plan that replaces existing work.' },
           },
           required: ['specialist'],
         },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'check_workforce_assignments',
+        description: 'Read Athena-owned workforce progress, current named specialist/stage, saved-result link and attention state for the authenticated owner. Does not commission, resume, cancel, edit or publish anything.',
+        parameters: { type: 'object', additionalProperties: false, properties: { assignmentId: { type: 'string', description: 'Exact assignment ID, or omit to list recent assignments.' } } },
       },
     },
     {
@@ -61,15 +77,22 @@ export async function executeAgentTool(
   db: Pool,
   name: string,
   args: Record<string, unknown>,
-  turn: { sessionId?: string | undefined; designOwner?: string | undefined },
+  turn: AgentToolContext,
 ): Promise<unknown> {
   const subjectArg = typeof args['subjectId'] === 'string' && args['subjectId'].trim() ? args['subjectId'].trim() : undefined;
   try {
+    if (name === 'check_workforce_assignments') {
+      if (!turn.userId) return { error: 'Authenticated owner identity is required to read workforce assignments.' };
+      const id = typeof args['assignmentId'] === 'string' ? args['assignmentId'].trim() : '';
+      if (id && !UUID.test(id)) return { error: 'A valid workforce assignment ID is required.' };
+      return id ? { assignment: await getAssignmentSummary(db, id, turn.userId) }
+        : { assignments: await listAssignmentSummaries(db, turn.userId) };
+    }
     if (name === 'check_specialist_jobs') {
       const jobId = typeof args['jobId'] === 'string' ? args['jobId'].trim() : '';
       if (jobId) {
         if (!UUID.test(jobId)) return { error: 'That is not a specialist job ID.' };
-        return brief(await getAgentJob(db, jobId));
+        return brief(await getAgentJob(db, jobId, turn.userId));
       }
       const subjectId = subjectArg ?? turn.designOwner;
       if (!subjectId) return { error: 'Give a jobId or subjectId, or open the Design.' };
@@ -88,10 +111,19 @@ export async function executeAgentTool(
     const subjectId = subjectArg ?? (specialist.subjectType === 'design' ? turn.designOwner : undefined);
     if (!subjectId) return { error: `Say which ${specialist.subjectType} ${specialist.name} should work on.` };
     const instruction = typeof args['instruction'] === 'string' && args['instruction'].trim() ? args['instruction'].trim() : undefined;
+    if (specialist.id === 'blog-writer' && hasManualBlogExecutor()) {
+      const commissioned = await startChatManualBlogCommission(db, workerPool(), { subjectId, length: args['length'], instruction }, turn);
+      return {
+        status: commissioned.existing ? 'already_running' : 'started',
+        assignment: await getAssignmentSummary(db, commissioned.assignment.id, commissioned.assignment.brief.ownerId),
+        note: 'Athena commissioned Iris, Calliope and Momus in the background. The independent review and any attention state will be reported in this chat. Publication remains a separate action.',
+      };
+    }
     const result = await handOff(db, {
       specialist: specialist.id,
       subjectId,
-      input: { ...(instruction ? { instruction } : {}), ...(typeof args['length'] === 'string' ? { length: args['length'] } : {}) },
+      input: { ...(instruction ? { instruction } : {}), ...(typeof args['length'] === 'string' ? { length: args['length'] } : {}),
+        ...(args['revision'] !== undefined ? { revision: args['revision'] } : {}) },
       conversationId: turn.sessionId ?? null,
       requestedBy: 'chat',
       confirmed: args['confirmed'] === true,
@@ -111,6 +143,6 @@ export async function executeAgentTool(
   } catch (error) {
     if (error instanceof KnowledgeHubError) return { error: error.message };
     console.error('[agents] Chat handoff failed:', error);
-    return { error: 'The handoff failed. Nothing was started.' };
+    return { error: 'The handoff could not be confirmed. Check Background work before retrying.' };
   }
 }
