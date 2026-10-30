@@ -2,6 +2,43 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-30, authored prompter spacing and formatting):**
+- User explicitly requested deployment of the completed presentation change,
+  including the required Athena Desktop update. Frontend and Desktop 0.1.9 only;
+  backend image v276, shared database and worker configuration remain unchanged.
+- Existing application-only AZCLI/SWA target: kh-prod-web, rg-knowledge-hub-prod,
+  Alliance Tenant Reporting. Azure CLI authentication and live SWA target read
+  passed. Azure MCP again failed initialization with application-bundle corruption;
+  authenticated CLI is used. No infrastructure, RBAC, policy, identity, migration,
+  dependency or secret changes; Bicep/template/what-if/container checks are N/A.
+- All validation checks pass:
+  - [x] Fetched origin and merged origin/main: already current at 4658441.
+    Existing packed-refs maintenance lock was not removed or otherwise modified.
+  - [x] Both application TypeScript checks and desktop typecheck passed.
+  - [x] Full isolated frontend suite ran once: only the presentation file failed
+    loading because of a CommonJS runtime import across application boundaries.
+    Changed it to a type-only contract import; all 13 affected presentation cases
+    pass. Other frontend cases passed; unchanged suites were not rerun.
+  - [x] Desktop suite: 13 passed. Elgato suite: 7 passed, including validation
+    and safe literal-text rendering of formatted scripts.
+  - [x] Production frontend build and Desktop 0.1.9 NSIS packaging passed.
+    Existing unsigned installer configuration is preserved; the signing helper
+    mentioned in the general runbook does not exist in this checkout.
+  - [x] Output JavaScript syntax and diff whitespace checks passed.
+- Fit report: (1) existing note conversion, presentation IPC and isolated output
+  renderer are reused; (2) existing SWA, desktop auto-update and backend hosting
+  assumptions are preserved; (3) no new dependencies, resources or paid model
+  calls; (4) typed, bounded style runs must exactly match the plain snapshot;
+  legacy plain-text payloads remain supported; (5) no secrets or raw HTML are
+  sent to the output, which constructs literal text spans with allowlisted
+  classes; (6) the smallest safer release changes only note spacing, inline
+  formatting and its existing transport, preserving saved-snapshot controls.
+- Existing presentation colours, font sizing and reading line-height remain
+  unchanged; hook warnings on those existing values are outside this release.
+- Evidence: session files/prompter-release-{web-tests,affected,desktop-tests,
+  elgato-tests,web-build,installer}.log. Exclude unrelated hook cache and generated
+  installers from Git; publish installer/update metadata through GitHub Releases.
+
 **Release scope and Section 7: Validation Proof (2026-10-30, manual-blog workforce pilot):**
 - User explicitly authorised shared DB changes and production deployment after
   the proposed per-assignment limits of 60 calls, 1,000,000 reserved tokens and

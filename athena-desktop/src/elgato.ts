@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ElgatoBridge } from './elgatoBridge';
-import { initialPresentation, parseCommand, playbackCommand, type CommandRequest, type DesktopCommandState, type PresentationScript } from './elgatoProtocol';
+import { initialPresentation, parseCommand, parsePresentationRuns, playbackCommand, type CommandRequest, type DesktopCommandState, type PresentationScript } from './elgatoProtocol';
 import { isAthenaFrame } from './navigation';
 import { wakePresentationDisplay } from './displayWake';
 
@@ -70,7 +70,7 @@ export function installElgato(
         const timer = setTimeout(() => { outputAcks.delete(seq); reject(new Error('Presentation display did not acknowledge the command.')); }, 3000);
         outputAcks.set(seq, () => { clearTimeout(timer); resolve(); });
         output?.webContents.send('presentation:update', {
-          state: state.presentation, sequence: seq, reset, ...(includeText ? { text: script?.text ?? '' } : {}),
+          state: state.presentation, sequence: seq, reset, ...(includeText ? { text: script?.text ?? '', runs: script?.runs } : {}),
         });
       });
     } catch (error) {
@@ -245,6 +245,9 @@ export function installElgato(
       if (typeof v.noteId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(v.noteId)
         || typeof v.title !== 'string' || v.title.length > 1000
         || typeof v.text !== 'string' || !v.text.trim() || v.text.length > 500_000) throw new Error('Choose a non-empty saved note (up to 500,000 characters).');
+      const runs = parsePresentationRuns(v.runs, v.text);
+      const sameScript = script?.noteId === v.noteId && script.text === v.text
+        && JSON.stringify(script.runs) === JSON.stringify(runs);
       const matches = screen.getAllDisplays().filter(d => direct ? fingerprint(d) === config.display : d.id === v.displayId);
       if (matches.length !== 1) throw new Error(direct ? 'Set your output display once in Athena > Presentation and Stream Deck, then try Present again.' : 'Choose an available output display.');
       const display = matches[0]!;
@@ -254,13 +257,13 @@ export function installElgato(
       } catch (error) {
         console.warn('[Presentation] Display wake request failed; continuing on the available output display:', error);
       }
-      if (direct && outputReady && output && outputOwner === event.sender.id && script?.noteId === v.noteId && script.text === v.text && state.presentation.displayId === display.id) {
+      if (direct && outputReady && output && outputOwner === event.sender.id && sameScript && state.presentation.displayId === display.id) {
         state.error = null;
         output.showInactive();
         publish();
         return;
       }
-      const resumeProgress = script !== null && script.noteId === v.noteId && script.text === v.text
+      const resumeProgress = sameScript
         ? state.presentation.progress : 0;
       config.display = fingerprint(display);
       config.noteId = v.noteId;
@@ -268,7 +271,7 @@ export function installElgato(
       trusted(event, !direct);
       state.error = null;
       output?.close();
-      script = { noteId: v.noteId, title: v.title, text: v.text };
+      script = { noteId: v.noteId, title: v.title, text: v.text, ...(runs ? { runs } : {}) };
       state.presentation = { ...state.presentation, sessionId: randomUUID(), noteId: script.noteId, title: script.title,
         displayId: display.id, status: 'ready', progress: resumeProgress, error: null };
       const win = new BrowserWindow({

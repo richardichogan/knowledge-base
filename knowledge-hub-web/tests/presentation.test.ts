@@ -174,9 +174,36 @@ test('presentation scripts preserve nested order, inline links, lists and table 
   ];
   const original = JSON.stringify(blocks);
   const result = presentationScript(original);
-  assert.equal(result.text, 'Opening\n\nA linked phrase\n\n  - Nested\n\n1. First\n\n2. Second\n\nA | B\n\nCaption');
+  assert.equal(result.text, 'Opening\nA linked phrase\n  - Nested\n1. First\n2. Second\nA | B\nCaption');
   assert.equal(result.warnings.length, 1);
   assert.equal(JSON.stringify(blocks), original);
+});
+test('presentation spacing follows authored empty blocks and hard breaks without extra blank lines', () => {
+  const result = presentationScript(JSON.stringify([
+    { type: 'paragraph', content: [{ text: 'First' }, { type: 'hardBreak' }, { text: 'Second' }] },
+    { type: 'paragraph', content: [] },
+    { type: 'paragraph', content: [{ text: 'Third\r\nFourth\n\nFifth' }] },
+    { type: 'paragraph', content: [] },
+  ]));
+  assert.equal(result.text, 'First\nSecond\n\nThird\nFourth\n\nFifth\n');
+  assert.equal(result.runs.map(run => run.text).join(''), result.text);
+});
+test('presentation retains inline formatting, heading emphasis, list markers and literal text safely', () => {
+  const result = presentationScript(JSON.stringify([
+    { type: 'heading', content: [{ text: 'Heading' }] },
+    { type: 'bulletListItem', content: [
+      { text: '<img src=x onerror=alert(1)>', styles: { bold: true, italic: true, textColor: 'red' } },
+      { text: ' more', styles: { underline: true, strike: true, code: true } },
+    ], children: [{ type: 'checkListItem', props: { checked: true }, content: [{ text: 'Nested', styles: { italic: true } }] }] },
+    { type: 'codeBlock', content: [{ text: 'literal()' }] },
+  ]));
+  assert.equal(result.text, 'Heading\n- <img src=x onerror=alert(1)> more\n  [x] Nested\nliteral()');
+  assert.deepEqual(result.runs.find(run => run.text === 'Heading')?.styles, ['bold']);
+  assert.deepEqual(result.runs.find(run => run.text.startsWith('<img'))?.styles, ['bold', 'italic']);
+  assert.deepEqual(result.runs.find(run => run.text === ' more')?.styles, ['underline', 'strike', 'code']);
+  assert.deepEqual(result.runs.find(run => run.text === 'Nested')?.styles, ['italic']);
+  assert.deepEqual(result.runs.find(run => run.text === 'literal()')?.styles, ['code']);
+  assert.equal(result.runs.map(run => run.text).join(''), result.text);
 });
 test('presentation extraction rejects malformed, excessively large and unsupported documents', () => {
   assert.throws(() => presentationScript('{'));

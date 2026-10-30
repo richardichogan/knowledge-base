@@ -47,6 +47,12 @@
     white-space: pre-wrap; overflow-wrap: anywhere; max-height: 60vh; overflow-y: auto;
     font-size: 20px; line-height: 1.65; border-block: 1px solid var(--cds-border-subtle, #393939); padding-block: 20px;
   }
+  &__text--bold { font-weight: 700; }
+  &__text--italic { font-style: italic; }
+  &__text--underline { text-decoration-line: underline; }
+  &__text--strike { text-decoration-line: line-through; }
+  &__text--underline.kh-presenter__text--strike { text-decoration-line: underline line-through; }
+  &__text--code { font-family: 'IBM Plex Mono', monospace; }
   &__controls section { border-top: 1px solid var(--cds-border-subtle, #393939); padding-block: 24px; }
   &__controls section:first-child { padding-top: 0; border-top: 0; }
   &__row { display: flex; flex-wrap: wrap; gap: 8px; }

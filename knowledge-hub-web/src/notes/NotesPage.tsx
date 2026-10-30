@@ -331,7 +331,7 @@ export const NotesPage: React.FC = () => {
     if (!saved) throw new Error('Save the note before presenting.');
     const script = presentationScript(saved.contentJson);
     if (!script.text.trim()) throw new Error('Choose a saved note containing text.');
-    await presentation.present({ noteId: saved.id, title: saved.title, text: script.text });
+    await presentation.present({ noteId: saved.id, title: saved.title, text: script.text, runs: script.runs });
   }
   useDesktopCommand('present-note', presentNote);
   const presentHandler = getDesktop()?.presentation ? (): void => { void presentNote().catch(err => {

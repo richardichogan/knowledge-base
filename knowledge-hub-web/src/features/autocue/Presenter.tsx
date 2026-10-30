@@ -82,7 +82,7 @@ export function Presenter(): React.JSX.Element {
     if (!desktop || !canStart || !selected || !script) return;
     void action(async () => {
       if (!connected || (desktop.present && playback?.noteId !== selected.id) || playback?.displayId !== Number(displayId)) {
-        await desktop.start({ noteId: selected.id, title: selected.title, text: script.text, displayId: Number(displayId) });
+        await desktop.start({ noteId: selected.id, title: selected.title, text: script.text, runs: script.runs, displayId: Number(displayId) });
       }
       await desktop.command({ id: crypto.randomUUID(), command: 'play', issuedAt: Date.now() });
     });
@@ -117,7 +117,9 @@ export function Presenter(): React.JSX.Element {
         {(note.error || scriptError) && <p className="kh-presenter__error" role="alert">{note.error?.message ?? scriptError}</p>}
         {script?.warnings.map(warning => <p key={warning}>{warning}</p>)}
         <h3>{selected?.title ?? 'No note selected'}</h3>
-        <p className="kh-presenter__preview">{script?.text || 'Choose a saved note with text to see its script here.'}</p>
+        <p className="kh-presenter__preview">{script?.text ? script.runs.map((run, index) =>
+          <span key={index} className={run.styles.map(style => `kh-presenter__text--${style}`).join(' ')}>{run.text}</span>)
+          : 'Choose a saved note with text to see its script here.'}</p>
         <p>The output uses a saved snapshot. Edits will not change a live presentation.</p>
       </section>
       <aside className="kh-presenter__controls" aria-label="Presenter controls">
@@ -133,7 +135,7 @@ export function Presenter(): React.JSX.Element {
           </div>
           <button className="kh-presenter__primary" disabled={expired || !selected || !script?.text || !displayId || busy || note.isFetching} onClick={() => {
             if (!selected || !script) return;
-            void action(() => desktop.start({ noteId: selected.id, title: selected.title, text: script.text, displayId: Number(displayId) }), 'Script opened, paused and ready.');
+            void action(() => desktop.start({ noteId: selected.id, title: selected.title, text: script.text, runs: script.runs, displayId: Number(displayId) }), 'Script opened, paused and ready.');
           }}>Open script on display</button>
           <button disabled={!selected || busy} onClick={() => { void action(async () => {
             if (connected) await desktop.command({ id: crypto.randomUUID(), command: 'pause', issuedAt: Date.now() });

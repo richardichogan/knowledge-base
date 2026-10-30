@@ -10,7 +10,18 @@ window.athenaOutput.onUpdate(update => {
   const progress = same && !update.reset
     ? viewport.scrollTop / Math.max(1, viewport.scrollHeight - viewport.clientHeight)
     : update.state.progress;
-  if (update.text !== undefined) script.textContent = update.text;
+  if (update.text !== undefined) {
+    if (update.runs) {
+      const fragment = document.createDocumentFragment();
+      for (const run of update.runs) {
+        const span = document.createElement('span');
+        span.textContent = run.text;
+        for (const style of run.styles) span.classList.add(`script-${style}`);
+        fragment.appendChild(span);
+      }
+      script.replaceChildren(fragment);
+    } else script.textContent = update.text;
+  }
   state = update.state;
   script.style.fontSize = `${state.fontSize}px`;
   document.body.classList.toggle('mirror', state.mirror);

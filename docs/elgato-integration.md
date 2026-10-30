@@ -82,6 +82,16 @@ rows, inline links retain their text, and media is represented by captions
 where available, with a visible notice. Unsupported or empty scripts show an
 error rather than opening a blank success state.
 
+Note scripts use one line break between saved blocks, without inserting an
+extra blank line. Explicit empty blocks and hard line breaks are retained, so
+spacing follows the saved note. Bold, italic, underline, strikethrough and code
+formatting are preserved in both the preview and output; list markers and nested
+indentation remain visible. Headings retain emphasis without enlarging the
+prompter's chosen text size. Formatting introduces no paragraph/list margins.
+The output constructs text spans from validated style names, never note HTML.
+These output-formatting changes require Athena Desktop 0.1.9 or later;
+older desktop versions continue to receive a plain-text script.
+
 ## Pair Stream Deck
 
 In the presenter window, select **Enable & copy pairing key**. Add any action

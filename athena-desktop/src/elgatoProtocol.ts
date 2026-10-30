@@ -20,7 +20,31 @@ export interface PresentationState {
   opacity: number;
   error: string | null;
 }
-export interface PresentationScript { noteId: string; title: string; text: string }
+export const PRESENTATION_STYLES = ['bold', 'italic', 'underline', 'strike', 'code'] as const;
+export type PresentationStyle = typeof PRESENTATION_STYLES[number];
+export interface PresentationRun { text: string; styles: PresentationStyle[] }
+export interface PresentationScript { noteId: string; title: string; text: string; runs?: PresentationRun[] }
+
+export function parsePresentationRuns(value: unknown, text: string): PresentationRun[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > 500_000) throw new Error('The presentation formatting is invalid or too large.');
+  let length = 0;
+  const runs = value.map((item: unknown): PresentationRun => {
+    if (!item || typeof item !== 'object') throw new Error('The presentation formatting is invalid.');
+    const run = item as Record<string, unknown>;
+    if (Object.keys(run).some(key => key !== 'text' && key !== 'styles') || typeof run.text !== 'string'
+      || !Array.isArray(run.styles) || run.styles.length > PRESENTATION_STYLES.length
+      || !run.styles.every((style: unknown) => PRESENTATION_STYLES.some(allowed => allowed === style))) {
+      throw new Error('The presentation formatting is invalid.');
+    }
+    length += run.text.length;
+    if (length > 500_000) throw new Error('The presentation formatting is too large.');
+    const styles = run.styles;
+    return { text: run.text, styles: PRESENTATION_STYLES.filter(style => styles.includes(style)) };
+  });
+  if (runs.map(run => run.text).join('') !== text) throw new Error('The formatted presentation does not match its script.');
+  return runs;
+}
 export interface PresentationDisplay {
   id: number; label: string; width: number; height: number; scale: number; primary: boolean;
 }

@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createContext, runInContext } from 'node:vm';
 import { ElgatoBridge } from '../src/elgatoBridge';
-import { initialPresentation, parseCommand, playbackCommand } from '../src/elgatoProtocol';
+import { initialPresentation, parseCommand, parsePresentationRuns, playbackCommand } from '../src/elgatoProtocol';
 import { createServer } from 'node:net';
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
@@ -35,6 +35,59 @@ test('manual transport changes actual speed, bounds font and resets explicitly',
   assert.equal(playbackCommand({ ...next, fontSize: 24 }, 'text-smaller').fontSize, 24);
   assert.equal(playbackCommand(next, 'stop').progress, 0);
   assert.equal(playbackCommand({ ...next, status: 'ended', progress: 1 }, 'play').progress, 0);
+});
+test('presentation formatting accepts only bounded text and supported styles with a matching plain snapshot', () => {
+  const runs = [{ text: 'Bold', styles: ['bold', 'italic'] }, { text: '\n- Item', styles: [] }];
+  assert.deepEqual(parsePresentationRuns(runs, 'Bold\n- Item'), runs);
+  assert.equal(parsePresentationRuns(undefined, 'Legacy plain script'), undefined);
+  assert.throws(() => parsePresentationRuns(runs, 'Different snapshot'), /does not match/);
+  assert.throws(() => parsePresentationRuns([{ text: 'x', styles: ['onclick'] }], 'x'), /invalid/);
+  assert.throws(() => parsePresentationRuns([{ text: 'x', styles: [], html: '<script>' }], 'x'), /invalid/);
+  assert.throws(() => parsePresentationRuns([{ text: 'x'.repeat(500_001), styles: [] }], ''), /too large/);
+  assert.throws(() => parsePresentationRuns([null], ''), /invalid/);
+});
+test('formatted output uses literal text nodes and style classes, and clears marks for a plain script', async () => {
+  let update: (value: unknown) => void = () => {};
+  type Span = { textContent: string; classList: { add: (value: string) => void }; classes: string[] };
+  let children: Span[] = [];
+  let text = '';
+  const script = {
+    style: {},
+    get textContent(): string { return text; },
+    set textContent(value: string) { text = value; children = []; },
+    replaceChildren: (fragment: { children: Span[] }) => { children = fragment.children; },
+  };
+  const context = createContext({
+    window: { athenaOutput: { onUpdate: (fn: typeof update) => { update = fn; }, report: () => {} } },
+    document: {
+      getElementById: (id: string) => id === 'viewport' ? { clientHeight: 100, scrollHeight: 100, scrollTop: 0 } : script,
+      body: { classList: { toggle: () => {} } },
+      createElement: (tag: string): Span => {
+        assert.equal(tag, 'span');
+        const classes: string[] = [];
+        return { textContent: '', classes, classList: { add: value => { classes.push(value); } } };
+      },
+      createDocumentFragment: () => {
+        const fragment = { children: [] as Span[], appendChild: (span: Span) => { fragment.children.push(span); } };
+        return fragment;
+      },
+    },
+    requestAnimationFrame: () => {},
+  });
+  runInContext(await readFile(join(__dirname, '../../assets/presentation.js'), 'utf8'), context);
+  const state = { ...initialPresentation(), sessionId: 'formatted', displayId: 1 };
+  const literal = '<img src=x onerror=alert(1)>';
+  update({ state, text: literal + '\n- Item', runs: [
+    { text: literal, styles: ['bold', 'italic'] }, { text: '\n- Item', styles: [] },
+  ], sequence: 1, reset: true });
+  assert.equal(children.map(span => span.textContent).join(''), literal + '\n- Item');
+  assert.deepEqual(children[0]?.classes, ['script-bold', 'script-italic']);
+  const formatted = children;
+  update({ state, sequence: 2 });
+  assert.equal(children, formatted);
+  update({ state, text: 'Plain replacement', sequence: 3, reset: true });
+  assert.equal(children.length, 0);
+  assert.equal(text, 'Plain replacement');
 });
 test('output acknowledges commands, maintains fractional pace, pauses immediately and resets', async () => {
   let update: (value: unknown) => void = () => {};
