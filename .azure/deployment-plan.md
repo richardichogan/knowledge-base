@@ -2,6 +2,29 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-30, compact presentation topic labels):**
+- User requested deployment of presentation-only Topic 1, Topic 2, etc.
+  Full saved titles and script-editor content remain unchanged.
+- Synced origin/main at 5f77d54; live remote SHA matches. No conflicts.
+- All validation checks pass:
+  - [x] Both application `npx tsc --noEmit` checks passed after this change;
+    reused unchanged results from this session.
+  - [x] Frontend `npm run test:isolated` ran once: 337 passed, zero failures.
+    Covers current card order, untitled cards, intro-only scripts and unchanged
+    saved content. Unchanged backend release validation is reused.
+  - [x] Frontend `npm run build` and scoped ESLint passed. Served release
+    entry is index-iIibTptw.js.
+  - [x] Azure authentication and existing ACA/SWA target reads passed.
+- Frontend-only AZCLI/SWA release to existing kh-prod-web in
+  rg-knowledge-hub-prod, Alliance Tenant Reporting. Backend image v275 is
+  unchanged. No infrastructure, policy, RBAC, migration, dependency, secret
+  or desktop executable changes; template/container-build checks are N/A.
+- Fits existing presentation text conversion and ACA/SWA hosting; no added
+  dependencies/cost, weaker contracts or secret handling. Smallest safe change
+  replaces only presentation headings and preserves saved card data.
+- Evidence: session files/topic-label-release-{tests,build}.log.
+  Generated .impeccable hook metadata is excluded from the release.
+
 **Release scope (2026-10-30, Podcast script and adaptive Quick learning):**
 - User requested completion, merge, push and deployment to the existing production targets.
 - Preserve the completed Podcast script worker, Athena script tools, sentence spacing,

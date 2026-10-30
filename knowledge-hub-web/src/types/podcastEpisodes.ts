@@ -25,9 +25,9 @@ export function episodeUrl(noteId: string, tab: PodcastEpisodeTab = 'prep'): str
   return `/think?episode=${encodeURIComponent(noteId)}&tab=${tab}`;
 }
 
-/** Plain text sent to the Elgato presenter: the intro, then each topic card with its bullet points. */
+/** Presentation-only text with compact numbered headings; saved topic titles stay unchanged. */
 export function episodeScriptText(intro: string, cards: ScriptCard[]): string {
-  return [scriptSentenceLines(intro), ...cards.map(card => [card.title.trim(), scriptSentenceLines(card.synopsis),
+  return [scriptSentenceLines(intro), ...cards.map((card, index) => [`Topic ${index + 1}`, scriptSentenceLines(card.synopsis),
     card.bullets.map(item => item.trim()).filter(Boolean).map(item => `• ${scriptSentenceLines(item)}`).join('\n\n')].filter(Boolean).join('\n\n'))]
     .filter(Boolean).join('\n\n');
 }

@@ -92,6 +92,10 @@ Existing local/production worker-pool separation applies; local drafting still u
 The Podcast script writer has its own spoken-voice guidance, separate from blog drafting:
 conversational British English, natural contractions, short speakable sentences and accessible
 explanations, with technical detail limited to what explains the key features and constraints.
+The presentation display labels cards **Topic 1**, **Topic 2**, etc. in their current
+order instead of showing full topic titles. Saved titles and script-editor headings
+remain unchanged.
+
 Each topic card targets a three-to-five-minute segment, no more than five minutes including
 its synopsis and supporting discussion, with room for conversation rather than padding.
 This is a drafting/pacing target, not a measured recording-duration guarantee.

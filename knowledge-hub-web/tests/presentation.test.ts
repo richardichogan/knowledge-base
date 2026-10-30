@@ -22,9 +22,20 @@ test('podcast Elgato export separates sentences without altering stored cards or
     bullets: ['First feature. Its constraint.', 'A possible enterprise use.'] }];
   const original = JSON.stringify(cards);
   assert.equal(episodeScriptText('Welcome. Recorded as live.', cards),
-    'Welcome.\n\nRecorded as live.\n\nEnterprise use\n\nStart here.\n\nThen explain the impact.\n\nThis part is optional.'
+    'Welcome.\n\nRecorded as live.\n\nTopic 1\n\nStart here.\n\nThen explain the impact.\n\nThis part is optional.'
     + '\n\n• First feature.\n\nIts constraint.\n\n• A possible enterprise use.');
   assert.equal(JSON.stringify(cards), original);
+});
+
+test('podcast presentation numbers topics in current order without including full titles', () => {
+  const cards = [
+    { id: 'second', title: 'A very long second topic title', synopsis: 'Second topic script.', bullets: [] },
+    { id: 'first', title: 'A very long first topic title', synopsis: 'First topic script.', bullets: ['Key point.'] },
+    { id: 'untitled', title: '', synopsis: 'Untitled topic script.', bullets: [] },
+  ];
+  assert.equal(episodeScriptText('', cards),
+    'Topic 1\n\nSecond topic script.\n\nTopic 2\n\nFirst topic script.\n\n• Key point.\n\nTopic 3\n\nUntitled topic script.');
+  assert.equal(episodeScriptText('Intro only.', []), 'Intro only.');
 });
 
 test('podcast bullet continuation lines round-trip without becoming extra bullet points', () => {
