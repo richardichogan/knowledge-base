@@ -31,6 +31,7 @@ import { HTTP_STATUS, AI_BACKGROUND_TURN_BUDGET_MS } from '../config/constants.j
 import { ValidationError } from '../types/errors.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 import type { AiModel, ChatPageContext, WriteActionType, WriteActionPayload } from '../types/aiContext.js';
+import type { PodcastTurnState } from '../ai/podcastTools.js';
 import { getDesign } from '../designs/designStore.js';
 import type { DesignTurnState } from '../ai/designTools.js';
 
@@ -64,6 +65,7 @@ router.get('/mention-targets', (req: Request, res: Response, next: NextFunction)
  */
 /** The reply payload for one chat turn (POST /chat response data and a background turn's result). */
 export interface ChatTurnResult {
+  podcastChanged?: { noteId: string };
   designChanged?: { parentNoteId: string; noteIds: string[] };
   reply: string;
   sessionId: string;
@@ -193,9 +195,17 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   const localFolders = parseLocalFolders(requestedLocalFolders);
   let openNoteId = typeof noteId === 'string' && noteId.trim() !== '' ? noteId.trim() : undefined;
   let designOwner: string | undefined;
+  let podcastOwner: string | undefined;
+  const podcastState: PodcastTurnState = { readCardIds: new Set(), changed: false };
   const designState: DesignTurnState = { changedNoteIds: [] };
+  const podcastCandidate = pageContext?.podcastEpisodeId ?? (pageContext?.type === 'note' ? pageContext.id : undefined);
+  if (!openNoteId && typeof podcastCandidate === 'string' && /^[0-9a-f-]{36}$/i.test(podcastCandidate)) {
+    const owner = (await db.query<{ type: string }>("SELECT note_list_metadata(content)->>'contentType' AS type FROM notes WHERE id=$1 AND status='active'", [podcastCandidate])).rows[0];
+    if (owner?.type === 'podcast-episode') openNoteId = podcastCandidate;
+  }
   if (openNoteId && /^[0-9a-f-]{36}$/i.test(openNoteId)) {
     const owner = (await db.query<{ type: string }>("SELECT note_list_metadata(content)->>'contentType' AS type FROM notes WHERE id=$1 AND status='active'", [openNoteId])).rows[0];
+    if (owner?.type === 'podcast-episode') podcastOwner = openNoteId;
     if (owner?.type === 'design') {
       const design = await getDesign(db, openNoteId);
       designOwner = design.parentNoteId;
@@ -223,7 +233,7 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   const modelReply = await handleConversationTurn(
     db, modelHistory, message, effectiveModel, persona, effectiveSessionId, alreadyHeld ? undefined : pageContext,
     (toolName) => { toolsUsed.add(toolName); },
-    { noteId: openNoteId, designOwner, designState, noteEdits, mapChanges, localFolders, localFileWrites },
+    { noteId: openNoteId, designOwner, designState, podcastOwner, podcastState, noteEdits, mapChanges, localFolders, localFileWrites },
     { ...hooks, contextUsed, onAudit: (row) => { audit.row = row; } },
   );
   hooks.signal?.throwIfAborted();
@@ -232,7 +242,7 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   // Deliverables live in Outputs, never also in the reply: if Athena saved one this turn, any pasted
   // copy is taken out of the reply; if she didn't but wrote one he asked for, it's moved to Outputs.
   // (Only where the Outputs panel is shown.)
-  const reply = outputsPanel === false || designOwner !== undefined
+  const reply = outputsPanel === false || designOwner !== undefined || podcastOwner !== undefined
     ? modelReply
     : await (toolsUsed.has('save_output')
       ? removeSavedCopiesFromReply(db, effectiveSessionId, turnStartedAt, modelReply)
@@ -310,6 +320,7 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
       // Proposed writes to files on his PC, applied by Athena Desktop on "Apply".
       localFileWrites,
       ...(designOwner && designState.changedNoteIds.length > 0 ? { designChanged: { parentNoteId: designOwner, noteIds: [...new Set(designState.changedNoteIds)] } } : {}),
+      ...(podcastOwner && podcastState.changed ? { podcastChanged: { noteId: podcastOwner } } : {}),
   };
 }
 

@@ -2,6 +2,59 @@
 
 **Status:** Validated
 
+**Release scope (2026-10-30, Podcast script and adaptive Quick learning):**
+- User requested completion, merge, push and deployment to the existing production targets.
+- Preserve the completed Podcast script worker, Athena script tools, sentence spacing,
+  selected-passage editing and existing editors. Quick learning stays in the Tools modal.
+- New tests contain ten independently reviewed questions; existing five-question sessions
+  retain their answers and size. Add canonical topic scores/history, six weak-area and four
+  breadth questions after three eligible answers per topic, using the latest ten results.
+- Queue daily tests at 22:00 Europe/London Sunday–Thursday via the existing production
+  scheduler/worker. No new cloud resources, packages, secrets, desktop or hosting changes.
+- Learning migration 121 is already applied; additive migration 122 adds daily dates,
+  frozen adaptive plans and per-session sizes while preserving existing records.
+- Application-only AZCLI recipe: existing ACA/SWA targets in Alliance Tenant Reporting.
+  Infrastructure, Bicep, what-if, RBAC and policy changes are N/A; ACR performs the Docker build.
+- All validation checks pass:
+  - [x] Both TypeScript checks, lint non-regression and application builds.
+  - [x] Full credential-isolated backend/frontend release suites, once each.
+  - [x] Shared learning-only migration and actual modal/history verification.
+  - [x] Diff integrity, existing Azure authentication/targets and Docker packaging.
+
+**Section 7: Validation Proof (2026-10-30 release):**
+- `git fetch origin` and `git merge --no-edit origin/main`: already current at 85a2086.
+- Azure authentication/target reads passed: backend v275, existing ACA hostname and SWA
+  nice-mud-0f780fb03.7.azurestaticapps.net. No provisioning or credentials changes.
+- Both applications: `npx tsc --noEmit`, `npm run lint:check` and application
+  builds passed. Lint non-regression: backend 547/623, frontend 22/41.
+- Full isolated backend release suite ran once: 797/799 passed. Two new Podcast
+  fixtures incorrectly intercepted the guarded UPDATE as a worker SELECT.
+  Corrected the fixture; all 16 affected learning/Podcast cases then passed,
+  including final source-redirect aliases. Full isolated frontend suite: 306
+  passed. Unchanged full suites were not repeated.
+- Applied only additive learning migration 122 using the existing migration
+  guard. Actual shared-data modal shows the preserved five-question 5/5 result:
+  Zero Trust 2/2, Power Platform 1/1, GitHub Copilot 1/1 and GitHub Enterprise 1/1.
+  Dated answer history and the saved evidence-backed learning discussion work.
+- Actual new session 0e25ddf6-b117-49b6-aa45-27c123be5122 completed with ten planned,
+  ten assigned and ten approved questions; specialist status is done. Operational
+  model/network failures were explicit; retry preserved approved positions and
+  no unchecked question or synthetic score was added.
+- `git diff --check` passed. Azure CLI 2.79.0, authenticated subscription and
+  existing ACA/SWA access confirmed. Dockerfile retains lockfile-backed installs,
+  TypeScript compilation, schema and migration copies. ACR performs image build;
+  provisioning, template, what-if, RBAC and policy changes are N/A.
+- Change-for-fit: existing modal, specialist, scheduler and typed API fit the
+  architecture; ACA/SWA and shared-production-data hosting are preserved.
+  No dependencies or resources added; requested nightly generation adds model
+  usage. Owner-scoped parameterized queries preserve data contracts and security,
+  with no secret changes. The smallest safer version reuses these paths and
+  preserves legacy sessions. The fit helper returned no diff; assessment uses
+  the actual worktree changes.
+- Evidence: session files/learning-daily-release-{backend-tests,web-tests,
+  affected,web-build}.log and learning-daily-real-ten-final.log. Exclude generated
+  .impeccable hook metadata. Backend release target v276.
+
 **Release scope and Section 7: Validation Proof (2026-10-29 17:34 UTC, links and diagram controls):**
 - User requested deploy, then merge and push of the approved shared Manage
   links modal, grouped Think Actions, diagram description bullets, neutral

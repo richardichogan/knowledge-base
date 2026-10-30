@@ -7,9 +7,10 @@ const Memory = deferredView('Memory', async () => ({ default: (await import('../
 const Connections = deferredView('Connections and sync', async () => ({ default: (await import('../pages/TimelinePage')).TimelinePage }));
 const RepoMappings = deferredView('Repo project mappings', async () => ({ default: (await import('../pages/RepoProjectMappingsPage')).RepoProjectMappingsPage }));
 const Jobs = deferredView('Jobs', async () => ({ default: (await import('../pages/JobsPage')).JobsPage }));
+const Learning = deferredView('Quick learning', async () => ({ default: (await import('../pages/LearningPage')).LearningPage }));
 
 const TITLES: Record<SettingsView, string> = {
-  memory: 'Memory', sync: 'Connections and sync', 'repo-projects': 'Repo project mappings', jobs: 'Jobs',
+  memory: 'Memory', sync: 'Connections and sync', 'repo-projects': 'Repo project mappings', jobs: 'Jobs', learning: 'Quick learning',
 };
 
 export function SettingsDialog({ view, onClose }: { view: SettingsView; onClose: () => void }): React.ReactElement {
@@ -20,5 +21,6 @@ export function SettingsDialog({ view, onClose }: { view: SettingsView; onClose:
     {view === 'sync' && <Connections settingsOnly />}
     {view === 'repo-projects' && <RepoMappings embedded />}
     {view === 'jobs' && <Jobs onClose={onClose} />}
+    {view === 'learning' && <Learning />}
   </AppDialog>;
 }

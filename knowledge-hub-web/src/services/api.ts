@@ -48,6 +48,7 @@ import type {
 } from '../types/useCases';
 import type { PodcastPrepStatus } from '../types/podcastPrep';
 import type { PodcastEpisode, ScriptCard } from '../types/podcastEpisodes';
+import type { LearningOverview, LearningQuestionView, LearningSession, LearningMessage, LearningTopicHistory } from '../types/learning';
 import type { DiscoverFormat, DiscoverParking, ParkingSelection } from '../types/discover';
 import type { WatchlistInput, Watchlist, WatchRun, WatchBaselineVersion, InterestWeight, WatchCompanyKnowledge } from '../types/watchlists';
 import type { BacklinkPage, EntityLinkTarget, EntityLinkType } from '../notes/entityLinks';
@@ -114,7 +115,6 @@ const AGENT_STREAM_CHECK_MS = 5_000;
 // Blob upload + OCR polling on the backend can take up to ~40s; give image
 // uploads a much longer client-side timeout than regular API calls.
 const IMAGE_UPLOAD_TIMEOUT_MS = 60_000;
-const PODCAST_DRAFT_TIMEOUT_MS = 300_000;
 // AI chat turns can chain several tool calls (KG search, Library search, task
 // writes) plus an LLM generation pass — this routinely exceeds the default
 // 8s timeout, which was silently killing the request with no visible error.
@@ -2328,6 +2328,40 @@ export class KnowledgeHubApi {
     return (await this.client.post<ApiResponse<null>>('/api/today/podcast-prep/acknowledge', { recordingDate, generatedAt })).data;
   }
 
+  async learningOverview(): Promise<ApiResponse<LearningOverview>> {
+    return (await this.client.get<ApiResponse<LearningOverview>>('/api/learning')).data;
+  }
+  async learningTopicHistory(topic: string, offset: number): Promise<ApiResponse<LearningTopicHistory>> {
+    return (await this.client.get<ApiResponse<LearningTopicHistory>>(`/api/learning/topics/${encodeURIComponent(topic)}/history`, { params: { offset } })).data;
+  }
+  async startLearning(): Promise<ApiResponse<{ id: string }>> {
+    return (await this.client.post<ApiResponse<{ id: string }>>('/api/learning/sessions')).data;
+  }
+  async learningSession(id: string): Promise<ApiResponse<LearningSession>> {
+    return (await this.client.get<ApiResponse<LearningSession>>(`/api/learning/sessions/${encodeURIComponent(id)}`)).data;
+  }
+  async learningJobs(id: string): Promise<ApiResponse<AgentJob[]>> {
+    return (await this.client.get<ApiResponse<AgentJob[]>>(`/api/learning/sessions/${encodeURIComponent(id)}/jobs`)).data;
+  }
+  async prepareLearning(id: string): Promise<ApiResponse<AgentHandOffResult>> {
+    return (await this.client.post<ApiResponse<AgentHandOffResult>>(`/api/learning/sessions/${encodeURIComponent(id)}/prepare`)).data;
+  }
+  async learningQuestion(id: string, position: number): Promise<ApiResponse<LearningQuestionView>> {
+    return (await this.client.get<ApiResponse<LearningQuestionView>>(`/api/learning/sessions/${encodeURIComponent(id)}/items/${position}`, { timeout: 45_000 })).data;
+  }
+  async learningAnswer(id: string, position: number, chosen: number): Promise<ApiResponse<{ saved: boolean }>> {
+    return (await this.client.post<ApiResponse<{ saved: boolean }>>(`/api/learning/sessions/${encodeURIComponent(id)}/items/${position}/answer`, { chosen }, { timeout: 45_000 })).data;
+  }
+  async learningSkip(id: string, position: number): Promise<ApiResponse<{ saved: boolean }>> {
+    return (await this.client.post<ApiResponse<{ saved: boolean }>>(`/api/learning/sessions/${encodeURIComponent(id)}/items/${position}/skip`)).data;
+  }
+  async learningReport(id: string, position: number, reason: string): Promise<ApiResponse<{ saved: boolean }>> {
+    return (await this.client.post<ApiResponse<{ saved: boolean }>>(`/api/learning/sessions/${encodeURIComponent(id)}/items/${position}/report`, { reason })).data;
+  }
+  async learningDiscuss(id: string, position: number, question: string): Promise<ApiResponse<LearningMessage>> {
+    return (await this.client.post<ApiResponse<LearningMessage>>(`/api/learning/sessions/${encodeURIComponent(id)}/items/${position}/discuss`, { question }, { timeout: 180_000 })).data;
+  }
+
   // ── Podcast episodes ────────────────────────────────────────────────────────
 
   async podcastEpisodeForRecording(recordingDate: string): Promise<ApiResponse<{ noteId: string | null }>> {
@@ -2339,9 +2373,11 @@ export class KnowledgeHubApi {
   async savePodcastScript(id: string, intro: string, cards: ScriptCard[], revision: number): Promise<ApiResponse<PodcastEpisode>> {
     return (await this.client.put<ApiResponse<PodcastEpisode>>(`/api/podcast-episodes/${encodeURIComponent(id)}/script`, { intro, cards, revision })).data;
   }
-  async draftPodcastScript(id: string, revision: number): Promise<ApiResponse<PodcastEpisode>> {
-    return (await this.client.post<ApiResponse<PodcastEpisode>>(`/api/podcast-episodes/${encodeURIComponent(id)}/script/draft`, { revision },
-      { timeout: PODCAST_DRAFT_TIMEOUT_MS })).data;
+  async draftPodcastScript(id: string, revision: number, confirmed: boolean): Promise<ApiResponse<AgentHandOffResult>> {
+    return (await this.client.post<ApiResponse<AgentHandOffResult>>(`/api/podcast-episodes/${encodeURIComponent(id)}/script/draft`, { revision, confirmed })).data;
+  }
+  async listPodcastScriptJobs(subjectId: string): Promise<ApiResponse<AgentJob[]>> {
+    return (await this.client.get<ApiResponse<AgentJob[]>>('/api/agent-jobs', { params: { subjectType: 'podcast-episode', subjectId, limit: 10 } })).data;
   }
   async uploadPodcastTranscript(id: string, file: File, revision: number): Promise<ApiResponse<PodcastEpisode>> {
     const formData = new FormData();

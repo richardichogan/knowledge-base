@@ -1,3 +1,5 @@
+import { scriptSentenceLines } from '../features/podcasts/scriptFormatting';
+
 export interface ScriptCard { id: string; title: string; synopsis: string; bullets: string[] }
 export interface PodcastEpisode {
   noteId: string;
@@ -25,7 +27,7 @@ export function episodeUrl(noteId: string, tab: PodcastEpisodeTab = 'prep'): str
 
 /** Plain text sent to the Elgato presenter: the intro, then each topic card with its bullet points. */
 export function episodeScriptText(intro: string, cards: ScriptCard[]): string {
-  return [intro.trim(), ...cards.map(card => [card.title.trim(), card.synopsis.trim(),
-    card.bullets.map(item => item.trim()).filter(Boolean).map(item => `• ${item}`).join('\n')].filter(Boolean).join('\n\n'))]
+  return [scriptSentenceLines(intro), ...cards.map(card => [card.title.trim(), scriptSentenceLines(card.synopsis),
+    card.bullets.map(item => item.trim()).filter(Boolean).map(item => `• ${scriptSentenceLines(item)}`).join('\n\n')].filter(Boolean).join('\n\n'))]
     .filter(Boolean).join('\n\n');
 }

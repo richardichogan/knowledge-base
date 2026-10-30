@@ -149,6 +149,18 @@ function computeSelectedText(editor: BlockNoteEditor<any, any, any>): string {
 // edits be applied only to the note they were written for.
 let activeNoteId: string | null = null;
 let designChatBridge: { owner: string; prepare: () => Promise<(changed: boolean) => Promise<void>> } | null = null;
+let podcastChatBridge: { owner: string; prepare: () => Promise<(changed: boolean) => Promise<void>> } | null = null;
+
+export function setPodcastChatBridge(owner: string, prepare: () => Promise<(changed: boolean) => Promise<void>>): () => void {
+  const bridge = { owner, prepare };
+  podcastChatBridge = bridge;
+  return () => { if (podcastChatBridge === bridge) podcastChatBridge = null; };
+}
+
+export async function preparePodcastChat(owner: string): Promise<(changed: boolean) => Promise<void>> {
+  if (podcastChatBridge?.owner !== owner) throw new Error('Reopen the Podcast episode before asking Athena to work on its script.');
+  return podcastChatBridge.prepare();
+}
 
 export function setDesignChatBridge(owner: string, prepare: () => Promise<(changed: boolean) => Promise<void>>): () => void {
   const bridge = { owner, prepare };

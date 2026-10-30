@@ -27,6 +27,7 @@ export const PRIMARY_DESTINATIONS: NavigationDestination[] = [
 
 export const TOOL_GROUPS: NavigationGroup[] = [
   { label: 'Context and records', items: [
+    { id: 'learning', path: '/learn', label: 'Quick learning', icon: Book, description: 'Five-question Microsoft and GitHub quizzes with official-source explanations' },
     { id: 'people', path: '/people', label: 'People', icon: UserMultiple, description: 'Contacts, organisations and working relationships' },
     { id: 'companies', path: '/companies', label: 'Companies', icon: Building, description: 'Company pages, people and programme relationships' },
     { id: 'activity', path: '/my-work', label: 'Activity', icon: Activity, description: 'Activity from connected systems' },

@@ -19,6 +19,7 @@ import { validateNoteEdits, checkEditsAgainstNote, noteHeadings } from './noteEd
 import { JOB_TOOL, executeJobTool } from './jobTools.js';
 import { PUBLISHING_TOOL, executePublishingTool } from './publishingTools.js';
 import { executeDesignTool, type DesignTurnState } from './designTools.js';
+import { executePodcastTool, type PodcastTurnState } from './podcastTools.js';
 import type { NoteEditProposal } from './noteEdits.js';
 import { createMemory, listMemories, deleteMemory } from './athenaMemory.js';
 import type { Pool } from 'pg';
@@ -810,6 +811,7 @@ export async function executeToolCall(
   turn: {
     userMessage?: string | undefined;
     sessionId?: string | undefined; noteId?: string | undefined; designOwner?: string | undefined; designState?: DesignTurnState; noteEdits?: NoteEditProposal[];
+    podcastOwner?: string | undefined; podcastState?: PodcastTurnState;
     allowStructuralNoteEdits?: boolean | undefined;
     retrievalScope?: RetrievalScope | undefined; retrievalAudit?: RetrievalAudit | undefined;
     excludedIds?: ReadonlySet<string>;
@@ -841,6 +843,21 @@ export async function executeToolCall(
   if (AGENT_TOOL_NAMES.has(name)) return executeAgentTool(db, name, args, turn);
 
   if (turn.exclusionsFailed === true && EXCLUSION_GATED_TOOLS.has(name)) return EXCLUSIONS_UNAVAILABLE_RESULT;
+  if (name === 'read_podcast_script' || name === 'update_podcast_script') {
+    if (!turn.podcastOwner) return { error: 'Open the Podcast episode in Think before working with its script.' };
+    if (isOutsideCollectionTool(name, turn.retrievalScope)
+      || turn.retrievalScope && Object.keys(turn.retrievalScope.filter).length > 0) {
+      return { error: 'Podcast script operations are outside this request’s enforced collection scope.', code: 'scope_mismatch' };
+    }
+    try { return await executePodcastTool(db, name, turn.podcastOwner, args, turn, turn.podcastState); }
+    catch (error) {
+      console.error('[Podcast chat] Script operation failed:', error);
+      return { error: error instanceof Error ? error.message : 'The script operation failed. No completion has been confirmed.' };
+    }
+  }
+  if (turn.podcastOwner && ['create_note_draft', 'propose_note_edit', 'update_note', 'save_output'].includes(name)) {
+    return { error: 'The Podcast script is stored outside the parent note body. Use read_podcast_script and update_podcast_script for script fields, not a disconnected note or chat-only substitute.' };
+  }
   if (name === 'read_design_package' || name === 'save_design_documents') {
     if (isOutsideCollectionTool(name, turn.retrievalScope)) return { error: 'Design operations are outside this request’s enforced collection scope.', code: 'scope_mismatch' };
     if (!turn.designOwner) return { error: 'Open the Design in Think before working with its package.' };

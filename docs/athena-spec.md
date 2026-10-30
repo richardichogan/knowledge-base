@@ -79,7 +79,65 @@ In priority order:
    - Shape it into a spec for a product: an Imagine demo, the Imagine demo platform, or another IBM or personal product.
    - Hand it to GitHub Copilot to build. That is usually an interactive GitHub Copilot session; Athena Build is the option for clear, separable work.
    - See section 6.
-2. **Podcast topic organisation.** Each Thursday Athena prepares a ranked topic brief for the Friday recording, threaded to earlier episodes, and creates that recording's **Podcast** episode in Think ("Cloudy with a Chance of Insights: Episode N: <title>", numbered from the last episode). The episode is a note content type with five tabs: **Prep** (the brief conversation), **Script** (a free-text intro, then unnumbered, reorderable topic cards, each a short synopsis plus a few bullet points; no outro. Drafted from prep and presented on the Elgato display through Athena Desktop), **Transcript** (a Riverside .txt, .srt or .docx export), **Show Notes** (drafted by the show notes persona from the transcript only) and **Campaign**. Today's podcast card opens the episode's Prep tab. Episode-coverage summaries recover from an output-token limit by retrying only the failed chunk once at 3,000 tokens, then splitting that chunk into two if needed. Each half has the same bounded retry, with no further splitting; successful chunks are not rerun, no source text is omitted, and truncated model responses are not accepted. Summaries use the podcast-specific request timeout, not the generic lightweight-call timeout. The overall eight-minute deadline and Thursday schedule are unchanged; a terminal failure cancels outstanding requests. Tracking topics over time matters here and in competitive monitoring (use case 5); nowhere else.
+2. **Podcast topic organisation.** Each Thursday Athena prepares a ranked topic brief for the Friday recording, threaded to earlier episodes, and creates that recording's **Podcast** episode in Think ("Cloudy with a Chance of Insights: Episode N: <title>", numbered from the last episode). The episode is a note content type with five tabs: **Prep** (the brief conversation), **Script** (a free-text intro using the standard show opening and a brief running order drawn from Richard's, David's and Cyrus's topic lists in Prep, then unnumbered, reorderable topic cards; no outro. Each synopsis is a readable mini-script of up to three paragraphs that introduces its topic, backed by selective bullets highlighting key features, constraints, what has not yet been demonstrated and potential enterprise uses without presenting possibilities as confirmed capabilities. Drafted through the existing Draft script action and presented on the Elgato display through Athena Desktop), **Transcript** (a Riverside .txt, .srt or .docx export), **Show Notes** (drafted by the show notes persona from the transcript only) and **Campaign**. Today's podcast card opens the episode's Prep tab. Episode-coverage summaries recover from an output-token limit by retrying only the failed chunk once at 3,000 tokens, then splitting that chunk into two if needed. Each half has the same bounded retry, with no further splitting; successful chunks are not rerun, no source text is omitted, and truncated model responses are not accepted. Summaries use the podcast-specific request timeout, not the generic lightweight-call timeout. The overall eight-minute deadline and Thursday schedule are unchanged; a terminal failure cancels outstanding requests. Tracking topics over time matters here and in competitive monitoring (use case 5); nowhere else.
+
+**Draft script from prep** queues the Podcast script writer through Athena's persistent
+specialist worker system. Script generation and its synopsis style pass run in the background,
+with live progress, Background work history and a completion or failure notification linked
+to the episode's Script tab. The user can leave the episode or switch stages while it runs;
+script editing is disabled during generation. The worker saves only against the requested
+episode revision and its current job attempt, so newer saved changes are never overwritten.
+Existing local/production worker-pool separation applies; local drafting still uses the shared database.
+
+The Podcast script writer has its own spoken-voice guidance, separate from blog drafting:
+conversational British English, natural contractions, short speakable sentences and accessible
+explanations, with technical detail limited to what explains the key features and constraints.
+Each topic card targets a three-to-five-minute segment, no more than five minutes including
+its synopsis and supporting discussion, with room for conversation rather than padding.
+This is a drafting/pacing target, not a measured recording-duration guarantee.
+David's angle is deep architecture, Cyrus's is cyber security, and Richard's is enterprise
+alignment and practical organisational use. These angles do not substitute for the actual
+topic assignments supplied in Prep. Richard's cards introduce the topic and essential
+enterprise takeaway in the first paragraph, followed by optional detail and selective
+supporting bullets. Cards stay self-contained so he can shorten or skip his material live
+to preserve the other presenters' sections; Athena does not automatically cut topics or
+change the running order. The light style pass preserves this core-first structure.
+Athena drafts topic cards only for Richard, never scripts, synopses or bullets for David
+or Cyrus. They supply their own contributions, usually shortly before recording; their
+supplied topic lists are used only for brief intro running-order mentions. Missing lists
+are not invented and do not imply their sections are cancelled. After the running order,
+the intro briefly explains that the show is recorded as live, normally without editing
+except for technical issues, which are often left in too. This is not a live-stream claim
+or a promise that every recording is entirely unedited.
+
+The episode's embedded Athena chat resolves the structured script, not just its parent
+note title/body. `read_podcast_script` supplies the saved intro, complete paged cards with
+stable IDs/revision, worker state and per-card/combined spoken reading-time estimates at
+130–160 words per minute. Synopsis-only and all-written-material estimates are separate;
+live discussion and the other presenters are not measured. `update_podcast_script` saves
+explicitly requested intro or individual card-field edits through the normal script service,
+preserving all untouched content. It requires a current read and revision, checks source
+exclusions/project scope and rejects edits while the script worker is active. The editor
+saves pending changes before a chat turn, locks script editing during the turn and reloads
+saved episode data afterwards. Generic parent-note edits and disconnected drafts are not
+substitutes for a script edit. Full regeneration remains background specialist work.
+
+The Script editor leaves a full blank line between every intro, synopsis and bullet sentence
+(two newline characters, like separate short paragraphs). Continuation sentences remain under the same bullet marker; Enter starts
+a new bullet and Shift+Enter adds a line within it. Normal script saves retain this formatting
+and Elgato presentation applies it to the intro, synopses and bullet text as well. Left-button text selection (or keyboard
+selection) in intro, synopsis or bullet fields reveals a compact passage toolbar with
+Rewrite, Rephrase and Add specific content. The latter accepts an explicit addition.
+An action saves pending script edits, then opens a focused request in the existing Athena
+panel for the user to send. It identifies the episode, card, field and exact selected text;
+Athena reads the current script and changes only the requested passage through the normal
+script tool, asking rather than guessing if the passage is ambiguous or has changed.
+
+Generated podcast synopses receive a light AI-trope check using the relaxed article policy:
+factual lists, ordinary comparisons and occasional rhetorical contrasts are allowed.
+Only flagged synopses receive one targeted revision pass, preserving facts and spoken tone.
+The intro, bullets, unflagged synopses and manually saved edits are not rewritten.
+An incomplete or unsuccessful style pass fails visibly without replacing the saved script.
 
 Podcast news research replaces unreadable source candidates with the next ranked
 readable candidates, keeping the Discover/web selection order. At most 32 source
@@ -260,6 +318,87 @@ Think keeps its existing toolbar and pane layout. Note rows use a restrained acc
 The overview reserves space for different entity types before filling its 500-record limit with recent activity. Results are capped at 2,500 edges and visibly labelled when truncated. Search and filters operate on the loaded subset, not the entire knowledge base. Starting from a record loads one or two connection hops, retaining older context regardless of the overview's date filter. The note graph shows the loaded two-hop recorded neighbourhood without a second client-side node cap, labels truncated results and opens the full explorer.
 
 The supplied Active in controls replace the former historical-window playback. Activity is whole days since the latest stored update; project activity is the most recent loaded member update, falling back to the project itself only when it has no loaded members. It is **not a historical graph diff or a complete event log**. Indexed sources may have index timestamps rather than source dates. Deleted records, earlier revisions and unknown relationship start dates are not reconstructed.
+
+### Quick learning
+
+Quick learning opens in Athena's existing modal shell through the top-right Tools menu,
+keeping the current workspace underneath. Its `/learn` deep links also open the modal;
+it is not a standalone workspace page, Today widget or primary navigation destination.
+Questions, explanations and the learning-agent discussion all stay inside the same modal. New sessions contain ten
+single-answer, four-option questions across Microsoft and GitHub, mixing strategy,
+enablement and product knowledge at foundation, practitioner and advanced levels.
+There are no code-debugging or syntax-repair questions. Submitted answers are immutable.
+Progress, results and question-specific learning-agent discussions persist per authenticated
+user in the shared database, including unfinished sessions that can be resumed.
+Existing five-question sessions retain their original size, scores and answers.
+
+The start screen shows the daily test, topic progress and saved sessions; introductory
+copy and progress/history stay out of Q&A mode. Topic IDs come from the official-source
+catalog rather than model-generated names. Each topic shows lifetime correct/answered
+and accuracy, recent correct/answered and accuracy, and paginated dated answer history.
+Withdrawn questions keep their historical scores but do not influence adaptive ranking.
+After three source-valid answers for a topic, the latest ten determine weakness.
+Six of ten questions revisit weaker subjects; four maintain breadth, prioritising
+less-practised topics. Until weak areas have enough history, the mix remains balanced.
+Categories and levels still vary; topic-specific generation does not substitute a different
+subject when a candidate fails review. The chosen plan is persisted per session for retries.
+
+Production queues the next weekday's daily test at 22:00 Europe/London on Sunday–Thursday
+nights, including daylight-saving changes. One persisted daily session per owner and date
+prevents duplicate tests across scheduler ticks or restarts. Each learner is enrolled after
+using Quick learning with their authenticated account; the local `dev-user` is not scheduled.
+New daily sessions do not overwrite unfinished manual or older daily sessions.
+The existing production scheduler and specialist worker perform preparation; local automatic
+jobs remain disabled. A daily test becomes ready only when all ten questions pass review.
+The scoped learning agent receives the learner's topic progress and schedule as well as the
+question, submitted answer, evidence and discussion; scores remain immutable from chat.
+
+The `learning-question-writer` specialist prepares sessions in the existing background
+worker pool. It reuses unseen admissible bank questions where possible, or reads bounded
+official English Microsoft Learn/GitHub documentation to prepare candidates. Each option,
+correct-answer explanation and main explanation must cite numbered source passages.
+The application copies those passages directly from fetched text, rather than asking
+the model to reproduce quotations; invented or out-of-range references are rejected.
+Learner-facing explanations identify answers by their content, never internal indices,
+option numbers, letters or positions. Admission and follow-up validation reject such
+positional references rather than guessing which answer the prose intended.
+A separate model review must independently derive the same unique answer, confirm the
+evidence supports every claim and reject ambiguous guidance, unsupported negatives,
+missing product/plan qualifiers and coding questions. A rejected candidate can receive one
+targeted correction using the review findings, followed by the same strict review again.
+If it still fails, preparation tries a different official source and continues replacing
+rejected candidates until the slot passes, with one repair per candidate. Cancellation
+still stops work, and operational failures remain explicit. Rejected drafts are never assigned as quiz questions. A session becomes
+ready only when every required slot contains an approved question; operational failures remain explicit
+and can resume without discarding accepted questions or submitted answers. Unanswered held
+slots in older incomplete sessions can be replaced during preparation.
+There is no weakening of the admission rules or rejection-count cutoff. The initial documentation catalog
+is intentionally bounded; this is not exhaustive coverage of every Microsoft/GitHub product.
+There are no new model resources, dependencies or scheduled generation costs.
+
+Official pages are fetched again before displaying a question, accepting an answer or
+answering a follow-up. A normalised-text hash detects changes; changed questions are held
+out of the bank rather than served from stale evidence. Source failures withhold the
+question temporarily without pretending verification succeeded. Reports immediately
+hold the question and preserve the submitted answer; held questions are not automatically
+re-admitted. Later sessions can generate replacement questions. An evidence-reviewed
+candidate that still fails the semantic review is saved as a withheld slot, not a playable
+question, so the learner can continue past it without losing questions that passed.
+Preparation/network failures are visible and retryable; unchecked questions are never served.
+If no questions pass, the session remains unavailable.
+
+After submission, the page reveals the correct answer, why every option does or does
+not fit, supporting quotations, source links and check time. The dedicated learning
+agent receives the full persisted question, choices, explanations, official source text,
+submitted answer and recent saved discussion, not just a page title. Its source-backed
+follow-up answers undergo a separate evidence check before saving. Unsupported follow-ups
+receive an explicit refusal to guess. It cannot silently edit the key or regrade the learner;
+reporting is the correction path. The modal's conversation uses this dedicated agent
+rather than the ungrounded general chat, and leaves the underlying workspace's Athena context intact.
+
+These are AI-assisted evidence checks, not a guarantee of factual correctness. The UI
+states that limit; it does not label a model's confidence as proof. Past scores are
+historical results, not a promise that withdrawn questions remain current.
 
 ## 4. Core objects
 

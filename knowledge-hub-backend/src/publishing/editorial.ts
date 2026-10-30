@@ -96,14 +96,14 @@ export const EDITORIAL_SCHEMAS = {
   }) },
 } satisfies Record<string, LlmJsonSchema>;
 
-export async function requestEditorialJson(client: Pick<FoundryClient, 'chatBulk'>, system: string, input: unknown, tokens: number, schema: LlmJsonSchema, timeoutMs?: number): Promise<Record<string, unknown>> {
+export async function requestEditorialJson(client: Pick<FoundryClient, 'chatBulk'>, system: string, input: unknown, tokens: number, schema: LlmJsonSchema, timeoutMs?: number, signal?: AbortSignal): Promise<Record<string, unknown>> {
   const messages = [{ role: 'system' as const, content: system }, { role: 'user' as const, content: JSON.stringify(input) }];
   let raw: string;
-  try { raw = await client.chatBulk(messages, tokens, timeoutMs, 'low', schema); }
+  try { raw = await client.chatBulk(messages, tokens, timeoutMs, 'low', schema, signal); }
   catch (error) {
     if (!(error instanceof AiOutputLimitError)) throw error;
     console.warn('[Publishing] Structured output reached its token limit; retrying once with a bounded larger output allowance.');
-    try { raw = await client.chatBulk(messages, tokens * OUTPUT_RETRY_MULTIPLIER, timeoutMs, 'low', schema); }
+    try { raw = await client.chatBulk(messages, tokens * OUTPUT_RETRY_MULTIPLIER, timeoutMs, 'low', schema, signal); }
     catch (retryError) {
       if (!(retryError instanceof AiOutputLimitError)) throw retryError;
       throw new IntegrationError('editorial', 'The model could not finish the draft within its output allowance. Your saved draft is unchanged. Edit it or request another review.');

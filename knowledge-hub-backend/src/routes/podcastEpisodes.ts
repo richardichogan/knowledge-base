@@ -1,8 +1,9 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { getDb } from '../db/db.js';
-import { ValidationError } from '../types/errors.js';
+import { ConflictError, ValidationError } from '../types/errors.js';
+import { handOff } from '../agents/index.js';
 import { requiredText } from '../designs/designStore.js';
-import { draftScript, episodeForRecording, getEpisode, saveScript, saveShowNotes, saveTranscript, startShowNotes } from '../podcasts/podcastEpisodeStore.js';
+import { episodeForRecording, getEpisode, saveScript, saveShowNotes, saveTranscript, startShowNotes } from '../podcasts/podcastEpisodeStore.js';
 
 export const podcastEpisodesRouter = Router();
 const MAX_ID_LENGTH = 100;
@@ -22,7 +23,15 @@ podcastEpisodesRouter.get('/recording/:date', wrap(async req => {
 }));
 podcastEpisodesRouter.get('/:id', wrap(req => getEpisode(getDb(), id(req))));
 podcastEpisodesRouter.put('/:id/script', wrap(req => saveScript(getDb(), id(req), body(req))));
-podcastEpisodesRouter.post('/:id/script/draft', wrap(req => draftScript(getDb(), id(req), body(req))));
+podcastEpisodesRouter.post('/:id/script/draft', wrap(async req => {
+  const input = body(req);
+  const episode = await getEpisode(getDb(), id(req));
+  if (input['revision'] !== episode.revision) {
+    throw new ConflictError('This episode changed elsewhere. Reload it before drafting.', 'PODCAST_EPISODE_CONFLICT');
+  }
+  return handOff(getDb(), { specialist: 'podcast-script-writer', subjectId: episode.noteId,
+    input: { revision: episode.revision }, confirmed: input['confirmed'] === true, requestedBy: 'app' });
+}));
 podcastEpisodesRouter.post('/:id/transcript', wrap(req => {
   const fields = (req.body ?? {}) as Record<string, unknown>;
   return saveTranscript(getDb(), id(req), req.file, fields['revision']);

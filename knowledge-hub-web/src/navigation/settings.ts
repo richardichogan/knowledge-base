@@ -1,8 +1,9 @@
 import type { Location } from 'react-router-dom';
 
-export type SettingsView = 'memory' | 'sync' | 'repo-projects' | 'jobs';
+export type SettingsView = 'memory' | 'sync' | 'repo-projects' | 'jobs' | 'learning';
 
 export function settingsView(pathname: string, search = ''): SettingsView | undefined {
+  if (pathname === '/learn') return 'learning';
   if (pathname === '/memory') return 'memory';
   if (pathname === '/jobs') return 'jobs';
   if (pathname === '/settings/repo-mappings') return 'repo-projects';

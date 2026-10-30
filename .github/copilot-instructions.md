@@ -32,6 +32,18 @@ Path-specific rules live in `.github/instructions/*.instructions.md` (each scope
 
 ---
 
+## Athena Access and Editing — MANDATORY
+
+- **Every new or changed screen, content type and feature must be accessible to Athena as part of the implementation, not as a later enhancement.** Athena must be able to see the actual content, understand its structure and state, reason over it and, in most cases, directly edit it through supported application tools. A visible UI, title-only context or generated prose in chat is not sufficient.
+- Wire the active item, tab, selection, stable identifiers and relevant structured content into the existing Athena context and server-side retrieval mechanisms. Include content held outside the note body, linked assets and relevant background-job state. Support bounded retrieval of full content when it cannot fit in page context; do not silently omit content or depend on the user pasting it into chat.
+- Provide typed read and appropriate write tools using the same domain services, validation, permissions, revision/conflict checks and persistence as the normal editor. Respect existing confirmation and approval boundaries. Do not bypass these safeguards, overwrite unsaved user work or treat chat text as a successful edit.
+- Keep Athena, the editor and background workers synchronised: save or reconcile pending edits before an Athena mutation, propagate saved changes back to the relevant views and refresh Athena's context when content, selection or job state changes.
+- Preserve existing editors, properties panels and action locations. If an edit capability or read-only exception needs a design decision, ask the user; do not silently ship a feature Athena cannot operate.
+- Verify the actual integration before declaring a feature complete: Athena can retrieve the current content, answer a content-specific question and, where editing is supported, persist an edit that appears in the normal editor without losing unrelated content. Follow the repository's existing restrictions on test execution and browser permission; identify any unverified behaviour explicitly.
+- Athena must distinguish content it has actually retrieved from titles or partial excerpts, state access failures accurately and never claim to have read or changed content without evidence.
+
+---
+
 ## Terminal Commands — STRICT RULES
 
 - **Never use `head` or `tail` to truncate command output.** Run the full command or use `grep` to filter specifically.

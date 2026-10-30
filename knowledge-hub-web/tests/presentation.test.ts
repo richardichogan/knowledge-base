@@ -6,7 +6,40 @@ import { build } from 'esbuild';
 import { presentationScript } from '../src/features/autocue/presentationScript';
 import { appendVoiceTranscript, finishVoiceTranscript, submitVoiceTranscript } from '../src/services/voiceTranscript';
 import { encodeWav, resampleVoiceAudio } from '../src/components/athena/speech';
+import { parseScriptBullets, scriptSentenceLines } from '../src/features/podcasts/scriptFormatting';
+import { episodeScriptText } from '../src/types/podcastEpisodes';
 
+test('podcast sentence spacing leaves a blank line between sentences, preserving versions and links', () => {
+  const text = 'Welcome to the podcast. Here is the running order.\r\n\r\nDiscuss version 5.4 and Microsoft 365. See https://example.com/news.\nKeep this deliberate break.';
+  const expected = 'Welcome to the podcast.\n\nHere is the running order.\n\nDiscuss version 5.4 and Microsoft 365.\n\nSee https://example.com/news.\n\nKeep this deliberate break.';
+  assert.equal(scriptSentenceLines(text), expected);
+  assert.equal(scriptSentenceLines(expected), expected);
+  assert.equal(scriptSentenceLines('  '), '');
+});
+
+test('podcast Elgato export separates sentences without altering stored cards or adding bullet items', () => {
+  const cards = [{ id: 'card', title: 'Enterprise use', synopsis: 'Start here. Then explain the impact.\n\nThis part is optional.',
+    bullets: ['First feature. Its constraint.', 'A possible enterprise use.'] }];
+  const original = JSON.stringify(cards);
+  assert.equal(episodeScriptText('Welcome. Recorded as live.', cards),
+    'Welcome.\n\nRecorded as live.\n\nEnterprise use\n\nStart here.\n\nThen explain the impact.\n\nThis part is optional.'
+    + '\n\n• First feature.\n\nIts constraint.\n\n• A possible enterprise use.');
+  assert.equal(JSON.stringify(cards), original);
+});
+
+test('podcast bullet continuation lines round-trip without becoming extra bullet points', () => {
+  const bullets = ['A feature.\n\nIts constraint.', 'A possible enterprise use.'];
+  const displayed = bullets.map(item => `• ${item}`).join('\n\n');
+  assert.deepEqual(parseScriptBullets(displayed, displayed.length), { bullets, caret: displayed.length });
+  const continuationCaret = displayed.indexOf('constraint') + 4;
+  assert.equal(parseScriptBullets(displayed, continuationCaret).caret, continuationCaret);
+  const pasted = '- First.\nContinuation.\n- Second.';
+  assert.deepEqual(parseScriptBullets(pasted, pasted.length).bullets, ['First.\nContinuation.', 'Second.']);
+  const continuation = '• A feature.\n';
+  assert.deepEqual(parseScriptBullets(continuation, continuation.length), { bullets: ['A feature.\n'], caret: continuation.length });
+  assert.deepEqual(parseScriptBullets('• ', 2), { bullets: [''], caret: 2 });
+  assert.deepEqual(parseScriptBullets('', 0), { bullets: [], caret: 0 });
+});
 test('desktop speech selects the available panel, restores earlier handlers and waits for a revealed panel', async () => {
   const bundled = await build({
     stdin: { contents: "export { useDesktopCommand, runDesktopCommand } from './desktopCommands'; export { cleanups } from 'react';",

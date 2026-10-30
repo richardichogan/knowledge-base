@@ -19,6 +19,7 @@ import { isConnectionCheckInProgress } from './connectionWork.js';
 import { runClaimedJob } from './runStore.js';
 import { ukClock } from './ukClock.js';
 import { generatePodcastPrep, PODCAST_PREP_END_UTC_HOUR, PODCAST_PREP_START_UTC_HOUR } from '../ai/podcastPrep.js';
+import { prepareDueLearning } from '../learning/schedule.js';
 
 /**
  * Scheduler for sync jobs.
@@ -45,6 +46,7 @@ let lastMemoryReviewWeek = ''; // Week key of the last weekly memory review
 let briefingRunning = false;
 let podcastPrepRunning = false;
 let watchlistsRunning = false;
+let learningRunning = false;
 /** No briefing after this UK hour (e.g. a late restart) — it would no longer be a morning briefing. */
 const BRIEFING_LATEST_HOUR = 18;
 let lastFoundryBackfillAt = 0; // Track the last time we ran the Foundry IQ backfill sweep
@@ -69,6 +71,13 @@ export function startSyncScheduler(): void {
   console.warn('[Scheduler] Starting managed jobs and internal maintenance...');
 
   const db = getDb();
+  function prepareLearningIfDue(): void {
+    if (learningRunning) return;
+    learningRunning = true;
+    void prepareDueLearning(db).catch((error: unknown) => {
+      console.error('[Scheduler] Learning preparation failed:', error);
+    }).finally(() => { learningRunning = false; });
+  }
   function preparePodcastIfDue(): void {
     const clock = ukClock();
     if (clock.weekday !== 'Thu' || clock.hour < PODCAST_PREP_START_UTC_HOUR
@@ -93,6 +102,7 @@ export function startSyncScheduler(): void {
     initialTimer = undefined;
     if (!started) return;
     preparePodcastIfDue();
+    prepareLearningIfDue();
     void tickManagedJobs(db).catch((error: unknown) => console.error('[Jobs] Startup check failed:', error));
   }, INITIAL_SYNC_DELAY_MS);
   timers.push(setInterval(() => {
@@ -106,6 +116,7 @@ export function startSyncScheduler(): void {
     setInterval(() => {
       if (!started) return;
       preparePodcastIfDue();
+      prepareLearningIfDue();
       if (!watchlistsRunning && !isSyncInProgress() && !isConnectionCheckInProgress() && !env.isDevelopment) {
         watchlistsRunning = true;
         void runDueWatchlists(db)

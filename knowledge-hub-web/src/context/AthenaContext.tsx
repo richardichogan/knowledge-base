@@ -13,6 +13,8 @@
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 
 export interface AthenaPageContext {
+  podcastEpisodeId?: string;
+  podcastTab?: string;
   /** e.g. "content-item", "task", "note", "spark", "document" */
   type: string;
   /** Display title shown in the panel header and splash */

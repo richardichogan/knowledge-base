@@ -19,6 +19,7 @@ test('configuration routes open settings dialogs while working destinations stay
   assert.equal(settingsView('/memory'), 'memory');
   assert.equal(settingsView('/settings/repo-mappings'), 'repo-projects');
   assert.equal(settingsView('/my-work', '?sync=1'), 'sync');
+  assert.equal(settingsView('/learn', '?session=one&question=2'), 'learning');
   for (const path of ['/people', '/companies', '/library', '/graph', '/projects', '/health', '/my-work']) {
     assert.equal(settingsView(path), undefined, path);
   }
@@ -42,13 +43,17 @@ test('settings navigation preserves the exact workspace location, including unsa
   const jobs = { ...modal, pathname: '/jobs', search: '?jobId=job-1&runId=run-1' };
   assert.deepEqual(settingsBackground(jobs), workspace, 'a job run opens without replacing the underlying workspace');
   assert.deepEqual(settingsBackground({ ...jobs, search: '?jobId=job-2' }), workspace, 'filtering history keeps the return location');
+  const learning = { ...modal, pathname: '/learn', search: '?session=one&question=2' };
+  assert.deepEqual(settingsBackground(learning), workspace, 'learning opens over the exact existing workspace');
+  assert.deepEqual(settingsBackground({ ...learning, search: '?session=one&question=3' }), workspace, 'moving through the quiz preserves its workspace');
 });
 
 test('supporting records, configuration and management are separated without losing destinations', () => {
   assert.deepEqual(TOOL_GROUPS.map((group) => group.label), ['Context and records', 'Athena configuration', 'Management']);
   assert.deepEqual(TOOL_GROUPS[0]!.items.map((item) => [item.label, item.path]), [
-    ['People', '/people'], ['Companies', '/companies'], ['Activity', '/my-work'], ['Sources', '/library'], ['Knowledge graph', '/graph'],
+    ['Quick learning', '/learn'], ['People', '/people'], ['Companies', '/companies'], ['Activity', '/my-work'], ['Sources', '/library'], ['Knowledge graph', '/graph'],
   ]);
+  assert.equal(selectedTool('/learn', '')?.label, 'Quick learning');
   assert.equal(selectedTool('/memory', '')?.label, 'Memory');
   assert.equal(selectedTool('/people', '?personId=abc')?.label, 'People');
   assert.equal(selectedTool('/companies', '?companyId=abc')?.label, 'Companies');

@@ -16,7 +16,7 @@ import {
 } from '@carbon/react';
 import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, Menu, Idea, Notebook, Copy, View, Document as DocumentIcon, Compare } from '@carbon/icons-react';
 import { api } from '../services/api';
-import { prepareDesignChat } from '../utils/activeBlockNoteEditor';
+import { prepareDesignChat, preparePodcastChat } from '../utils/activeBlockNoteEditor';
 import { authSession } from '../services/authSession';
 import { describeApiError, requireApiData } from '../services/apiError';
 import { confirmDialog, alertDialog } from '../services/appDialogs';
@@ -864,7 +864,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       let finishDesign: ((changed: boolean) => Promise<void>) | undefined;
       let designChanged = true;
       try {
-        if (ctx?.conversationId && isNoteLinkedPanel) finishDesign = await prepareDesignChat(ctx.conversationId);
+        if (ctx?.podcastEpisodeId) finishDesign = await preparePodcastChat(ctx.podcastEpisodeId);
+        else if (ctx?.conversationId && isNoteLinkedPanel) finishDesign = await prepareDesignChat(ctx.conversationId);
         // In Athena Desktop, Athena may read and propose changes to the folders he chose on this PC.
       const desktop = getDesktop();
       let localFolders: Array<{ name: string; path: string }> = [];
@@ -892,7 +893,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           handlers,
           signal,
         );
-        if (result.success) designChanged = result.data.designChanged !== undefined;
+        if (result.success) designChanged = result.data.designChanged !== undefined || result.data.podcastChanged !== undefined;
         if (result.success) {
           const remaining = ATHENA_MIN_THINK_MS - (Date.now() - startedAt);
           if (remaining > 0) await new Promise<void>(resolve => { window.setTimeout(resolve, remaining); });

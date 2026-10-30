@@ -1,5 +1,6 @@
 import type { NoteEditProposal } from './noteEdits.js';
 import { DESIGN_CHAT_TOOLS, type DesignTurnState } from './designTools.js';
+import { PODCAST_CHAT_TOOLS, type PodcastTurnState } from './podcastTools.js';
 import { getDesign } from '../designs/designStore.js';
 import { buildStandingInstructionsBlock } from './athenaMemory.js';
 import type { Pool } from 'pg';
@@ -116,7 +117,7 @@ const NO_OUTPUTS_PANEL_NOTE = [
 const NOTE_EDIT_MAX_TOKENS = 14_000;
 
 /** Tools that change something; left out when a turn must only read. */
-const WRITE_TOOLS = new Set(['save_design_documents', 'set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'propose_local_file_write', 'remember', 'forget_memory', 'save_output', 'manage_scheduled_jobs', 'manage_publishing_feeds', 'hand_off_to_specialist', 'import_meeting_list', DEMO_SPECIFICATION_WRITE_TOOL, ...ASSET_WRITE_TOOLS]);
+const WRITE_TOOLS = new Set(['update_podcast_script', 'save_design_documents', 'set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'propose_local_file_write', 'remember', 'forget_memory', 'save_output', 'manage_scheduled_jobs', 'manage_publishing_feeds', 'hand_off_to_specialist', 'import_meeting_list', DEMO_SPECIFICATION_WRITE_TOOL, ...ASSET_WRITE_TOOLS]);
 
 function isStopped(hooks: TurnHooks): boolean {
   return hooks.signal?.aborted === true;
@@ -146,6 +147,7 @@ export async function handleConversationTurn(
   /** Per-turn tool context: the open Think note, and a collector for proposed edits to it. */
   toolContext: {
     noteId?: string | undefined; designOwner?: string | undefined; designState?: DesignTurnState;
+    podcastOwner?: string | undefined; podcastState?: PodcastTurnState;
     noteEdits?: NoteEditProposal[]; mapChanges?: MapChangeProposal[];
     localFolders?: LocalFolder[]; localFileWrites?: LocalFileWriteProposal[];
   } = {},
@@ -253,7 +255,16 @@ Use case = actors, goals, journey and outcomes; Spec = detailed behaviours, cons
 Call successful tools before claiming a save. There is no Apply preview for direct Design saves. Never invent a panel, button or link. On error report what failed and preserve writing; do not make disconnected substitutes.
 Existing interactive-visual feedback still requires its explicit Accept/Discard workflow. Do not claim to regenerate a visual or mutate a diagram through the document tools.
 Writing the whole spec from the use case, or generating the Blueprint, is specialist work: use hand_off_to_specialist (spec-writer or blueprint-designer) instead of writing it yourself. It runs in the background and reports back in this chat; do not wait for it or claim it has finished. Targeted edits to a section stay with save_design_documents.` : '';
-  const systemExtras = [RETRIEVAL_DICTIONARY, reviewBlock, designBlock, hooks.noOutputsPanel === true && !design ? NO_OUTPUTS_PANEL_NOTE : '', hooks.referenceBlock ?? '', standingBlock, peopleBlock, dateBlock, mapBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
+  const podcastBlock = toolContext.podcastOwner ? `## Working Podcast episode (server-resolved)
+Episode identity: ${toolContext.podcastOwner}. Active stage: ${pageContext?.podcastTab ?? 'unspecified'}.
+The intro and script cards are structured episode data, NOT the parent note body. Use read_podcast_script to retrieve their actual current text, revision, card identities, worker state and duration estimates.
+Use supplied word counts and the stated speaking-rate assumptions for reading-time questions; distinguish synopsis reading from bullets and live discussion. Do not ask the user to paste text that this tool can retrieve.
+Read remaining pages before claiming a complete script review. For explicit script edits, use update_podcast_script with the current revision and exact card IDs; preserve all other fields. This directly saves to the Script tab, with no Apply preview.
+Do not use generic note updates, Outputs or new notes as a substitute for script edits. Never claim a change without a successful save result.
+David and Cyrus supply their own contributions: draft only Richard's enterprise-alignment material. For complete regeneration use the podcast-script-writer specialist with the revision just read and the normal replacement confirmation; it works in the background.
+Targeted edits stay with the script tools. Do not run full generation for a small change, and do not write while a script worker is queued/running.
+Only operate on the script when the request concerns it; unrelated questions remain unrelated. Transcript, Show Notes and Campaign are separate stages, not parts of a script-field update.` : '';
+  const systemExtras = [RETRIEVAL_DICTIONARY, reviewBlock, designBlock, podcastBlock, hooks.noOutputsPanel === true && !design && !toolContext.podcastOwner ? NO_OUTPUTS_PANEL_NOTE : '', hooks.referenceBlock ?? '', standingBlock, peopleBlock, dateBlock, mapBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
   const safeHistory = await scrubExcludedHistory(db, history, excluded).catch(() => history.filter((m) => m.role !== 'assistant'));
   const baseMessages = await assembleMessages(context, safeHistory, userMessage, persona, pageContext, systemExtras);
   hooks.signal?.throwIfAborted();
@@ -276,11 +287,13 @@ Writing the whole spec from the use case, or generating the Blueprint, is specia
 
   const client = getFoundryClient('chat').scoped({ persona, sessionId });
   hooks.onActivity?.('Loading tools');
-  const allTools = [...await getToolDefinitions(), ...(design ? DESIGN_CHAT_TOOLS : []), ...(localFolders.length > 0 ? LOCAL_FILE_TOOLS : [])];
+  const allTools = [...await getToolDefinitions(), ...(design ? DESIGN_CHAT_TOOLS : []),
+    ...(toolContext.podcastOwner ? PODCAST_CHAT_TOOLS : []), ...(localFolders.length > 0 ? LOCAL_FILE_TOOLS : [])];
   hooks.signal?.throwIfAborted();
   const noteOpen = toolContext.noteId !== undefined && toolContext.noteId !== '' && !toolContext.noteId.startsWith('doc:') && mapId === undefined;
   const permittedTools = (hooks.readOnlyTools === true ? allTools.filter((t) => !WRITE_TOOLS.has(t.function.name)) : allTools)
     .filter(t => !design || !['create_note_draft', 'propose_note_edit', 'update_note', 'save_output', DEMO_SPECIFICATION_WRITE_TOOL, 'get_demo_specification_template'].includes(t.function.name))
+    .filter(t => !toolContext.podcastOwner || !['create_note_draft', 'propose_note_edit', 'update_note', 'save_output'].includes(t.function.name))
     .filter((t) => hooks.noOutputsPanel !== true || t.function.name !== 'save_output')
     .filter((t) => t.function.name !== 'propose_note_edit' || noteOpen)
     .filter((t) => t.function.name !== 'propose_map_changes' || mapOutlineResult !== null);
@@ -292,9 +305,10 @@ Writing the whole spec from the use case, or generating the Blueprint, is specia
     if (name === 'search_knowledge_base' || name === 'read_knowledge_record') return true;
     if (name === 'fetch_web_page') return filtered && projectId === null;
     // Other readers do not enforce content filters. Structured queries and Design reads enforce project IDs only.
-    return !filtered && (STRUCTURED_TOOL_NAMES.has(name) || name === 'read_design_package');
+    return !filtered && (STRUCTURED_TOOL_NAMES.has(name) || name === 'read_design_package' || name === 'read_podcast_script');
   };
   if (design) catalog.load(['read_design_package']);
+  if (toolContext.podcastOwner) catalog.load(['read_podcast_script']);
   const runtimeCapabilities = [
     '## Current chat runtime capabilities (authoritative for this turn)',
     `Persona: ${persona ?? 'general'}. ${hooks.readOnlyTools === true ? 'Read-only turn: mutation tools are withheld.' : 'Only the supplied tools can perform actions.'}`,
@@ -318,6 +332,8 @@ Writing the whole spec from the use case, or generating the Blueprint, is specia
   };
   const requiredFirstTool = design && permittedTools.some(tool => tool.function.name === 'read_design_package')
     ? { type: 'function' as const, function: { name: 'read_design_package' } }
+    : toolContext.podcastOwner && permittedTools.some(tool => tool.function.name === 'read_podcast_script')
+      ? { type: 'function' as const, function: { name: 'read_podcast_script' } }
     : undefined;
   let nextRoundTool: LlmToolChoice | undefined;
 
@@ -374,7 +390,7 @@ Writing the whole spec from the use case, or generating the Blueprint, is specia
     }
 
     const tools = catalog.schemas().filter(tool => supportsScope(tool.function.name));
-    const longForm = design || tools.some(tool => ['propose_note_edit', DEMO_SPECIFICATION_WRITE_TOOL, 'save_output', 'save_design_documents'].includes(tool.function.name));
+    const longForm = design || toolContext.podcastOwner || tools.some(tool => ['propose_note_edit', DEMO_SPECIFICATION_WRITE_TOOL, 'save_output', 'save_design_documents'].includes(tool.function.name));
     const maxTokens = longForm ? NOTE_EDIT_MAX_TOKENS : model === 'reasoning' ? AI_REASONING_MODEL_MAX_TOKENS : AI_CHAT_MAX_TOKENS;
     const roundToolChoice: LlmToolChoice = wrapUp ? 'none' : nextRoundTool ?? (i === 0 && requiredFirstTool !== undefined ? requiredFirstTool : 'auto');
     nextRoundTool = undefined;
