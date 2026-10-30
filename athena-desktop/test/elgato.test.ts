@@ -27,10 +27,13 @@ test('manual transport changes actual speed, bounds font and resets explicitly',
   assert.equal(next.progress, 0.4);
   assert.equal(next.status, 'paused');
   next = playbackCommand(next, 'faster');
-  assert.equal(next.speed, 90);
+  assert.equal(next.speed, 82);
+  assert.equal(playbackCommand(next, 'slower').speed, 80);
   assert.equal(next.progress, 0.4);
   assert.equal(playbackCommand({ ...next, speed: 300 }, 'faster').speed, 300);
   assert.equal(playbackCommand({ ...next, speed: 10 }, 'slower').speed, 10);
+  assert.equal(playbackCommand({ ...next, speed: 299 }, 'faster').speed, 300);
+  assert.equal(playbackCommand({ ...next, speed: 11 }, 'slower').speed, 10);
   assert.equal(playbackCommand({ ...next, fontSize: 96 }, 'text-larger').fontSize, 96);
   assert.equal(playbackCommand({ ...next, fontSize: 24 }, 'text-smaller').fontSize, 24);
   assert.equal(playbackCommand(next, 'stop').progress, 0);
@@ -340,7 +343,7 @@ test('presentation IPC confirms scaled negative-coordinate displays, protects ow
   assert.ok(savedConfig);
   assert.doesNotMatch(savedConfig, /Direct words|Saved words/);
   const saved = JSON.parse(savedConfig);
-  assert.deepEqual(saved.settings, { speed: 90, fontSize: 68, mirror: true, flip: false, opacity: 65 });
+  assert.deepEqual(saved.settings, { speed: 82, fontSize: 68, mirror: true, flip: false, opacity: 65 });
   assert.equal(saved.noteId, 'note-2');
   available = [{ ...removed, id: 44 }];
   const restartSetup = installElgato('https://athena.example', () => new Window(), () => workspace);
@@ -352,7 +355,7 @@ test('presentation IPC confirms scaled negative-coordinate displays, protects ow
   assert.equal(Window.instances.at(-1)!.options.opacity, 0.65);
   assert.equal(Window.instances.at(-1)!.options.x, -1707);
   const restored = Window.instances.at(-1)!.webContents.messages.find(message => message.channel === 'presentation:update')!.value as { state: { speed: number; fontSize: number; mirror: boolean } };
-  assert.equal(restored.state.speed, 90);
+  assert.equal(restored.state.speed, 82);
   assert.equal(restored.state.fontSize, 68);
   assert.equal(restored.state.mirror, true);
   // Stop resets playback; Stop presenting closes output without closing its source.

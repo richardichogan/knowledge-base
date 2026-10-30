@@ -66,6 +66,9 @@ test('focus projects, restore from shelved, and shelving protection', async () =
         ('old', 'Old', 'high', 'high', 'work', 'archived', null, null, null);
       CREATE TABLE content_items (id text, source text, title text, body text, url text, project_context text, published_at timestamptz,
         indexed_at timestamptz, workflow_state text, relevance_score real, relevance_explanation text, metadata jsonb DEFAULT '{}'::jsonb);
+      CREATE TABLE discover_parking (article_id text);
+      CREATE TABLE publishing_topics (id text, state text);
+      CREATE TABLE publishing_sources (item_id text, topic_id text);
       INSERT INTO content_items VALUES
         ('n1', 'note', 'Agent platform design', '', null, 'imagine', now(), now(), null, null, null, '{}'),
         ('a1', 'discovered-article', 'Agent-first platforms', '', 'https://x/a', 'msft-blog', now() - interval '20 days', now() - interval '20 days', 'shelved', 0.82, 'x', '{"shelvedReason":"stale","platform":"Archive","scoringVersion":2}'),
@@ -97,20 +100,33 @@ test('age never shelves unseen recommendations; explicit low-value triage still 
     await pg.exec(`CREATE TABLE content_items (
       id text, source text, workflow_state text, relevance_score real,
       indexed_at timestamptz DEFAULT now()-interval '365 days', metadata jsonb);
+      CREATE TABLE discover_parking (article_id text);
+      CREATE TABLE publishing_topics (id text, state text);
+      CREATE TABLE publishing_sources (item_id text, topic_id text);
       INSERT INTO content_items(id,source,workflow_state,relevance_score,metadata) VALUES
       ('good','discovered-article','to-review',0.74,'{"platform":"LinkedIn Standalone","scoringVersion":2}'),
       ('strong','discovered-article','to-review',0.95,'{"platform":"Full Blog Post","scoringVersion":2}'),
       ('low','discovered-article','to-review',0.2,'{"platform":"Archive","scoringVersion":2}'),
       ('restored','discovered-article','to-review',0.2,'{"platform":"Archive","scoringVersion":2,"restoredAt":"2025-01-01T00:00:00Z"}'),
       ('protected','discovered-article','to-review',0.2,'{"platform":"Archive","scoringVersion":2,"projectBoost":0.5}'),
-      ('saved','discovered-article','saved',0.2,'{"platform":"Archive","scoringVersion":2}');
+      ('saved','discovered-article','saved',0.2,'{"platform":"Archive","scoringVersion":2}'),
+      ('parked','discovered-article','to-review',0.2,'{"platform":"Archive","scoringVersion":2}'),
+      ('pending','discovered-article','to-review',0.2,'{"platform":"Archive","scoringVersion":2}'),
+      ('assessing','discovered-article','to-review',0.2,'{"platform":"Archive","scoringVersion":2}'),
+      ('ready','discovered-article','to-review',0.2,'{"platform":"Archive","scoringVersion":2}'),
+      ('held','discovered-article','to-review',0.2,'{"platform":"Archive","scoringVersion":2}'),
+      ('rejected','discovered-article','to-review',0.2,'{"platform":"Archive","scoringVersion":2}');
+      INSERT INTO discover_parking VALUES ('parked');
+      INSERT INTO publishing_topics VALUES ('pending','pending'),('assessing','assessing'),('ready','ready'),('held','held'),('rejected','rejected');
+      INSERT INTO publishing_sources SELECT id,id FROM publishing_topics;
     `);
     const db = { query: async (sql: string, params?: unknown[]) => pg.query(sql, params) } as unknown as Pool;
     await shelveStaleArticles(db);
     const states = Object.fromEntries((await pg.query<{ id: string; workflow_state: string }>(
       'SELECT id,workflow_state FROM content_items')).rows.map(row => [row.id, row.workflow_state]));
     assert.deepEqual(states, { good: 'to-review', strong: 'to-review', low: 'shelved',
-      restored: 'to-review', protected: 'to-review', saved: 'saved' });
+      restored: 'to-review', protected: 'to-review', saved: 'saved', parked: 'to-review',
+      pending: 'to-review', assessing: 'to-review', ready: 'to-review', held: 'to-review', rejected: 'shelved' });
   } finally { await pg.close(); }
 });
 test('archives unactioned articles after 14 days and low-value ones after 7, never saved, parked or live publishing sources', async () => {

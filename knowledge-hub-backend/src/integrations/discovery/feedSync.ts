@@ -118,20 +118,23 @@ async function checkSource(db: Pool, source: SourceRow): Promise<number> {
 }
 
 /**
- * Shelves explicitly low-value recommendations, never articles merely because of age.
+ * Shelves explicitly low-value recommendations, never selected publishing sources or parked articles.
  * Import time is not evidence that the user has seen or declined an article.
  */
 export async function shelveStaleArticles(db: Pool): Promise<number> {
   // Articles the scorer rates as not worth content (routed to Archive) go straight to Shelved: the new
   // feeds are high-volume and mostly routine, and these only add clutter. Still searchable by Athena.
   const low = await db.query(
-    `UPDATE content_items
+    `UPDATE content_items ci
         SET workflow_state = 'shelved',
             metadata = metadata || jsonb_build_object('shelvedAt', to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), 'shelvedReason', 'low')
       WHERE source = 'discovered-article' AND workflow_state = 'to-review'
         AND metadata->>'platform' = 'Archive' AND COALESCE((metadata->>'scoringVersion')::int, 1) >= 2
         AND COALESCE(NULLIF(metadata->>'restoredAt', ''), '') = ''
-        AND COALESCE((metadata->>'projectBoost')::numeric, 0) < $1::numeric`,
+        AND COALESCE((metadata->>'projectBoost')::numeric, 0) < $1::numeric
+        AND NOT EXISTS (SELECT 1 FROM discover_parking p WHERE p.article_id = ci.id)
+        AND NOT EXISTS (SELECT 1 FROM publishing_sources s JOIN publishing_topics t ON t.id = s.topic_id
+                         WHERE s.item_id = ci.id AND t.state IN ('pending', 'assessing', 'ready', 'held'))`,
     [PROJECT_PROTECT_BOOST],
   );
   return low.rowCount ?? 0;

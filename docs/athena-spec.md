@@ -81,6 +81,73 @@ In priority order:
    - See section 6.
 2. **Podcast topic organisation.** Each Thursday Athena prepares a ranked topic brief for the Friday recording, threaded to earlier episodes, and creates that recording's **Podcast** episode in Think ("Cloudy with a Chance of Insights: Episode N: <title>", numbered from the last episode). The episode is a note content type with five tabs: **Prep** (the brief conversation), **Script** (a free-text intro using the standard show opening and a brief running order drawn from Richard's, David's and Cyrus's topic lists in Prep, then unnumbered, reorderable topic cards; no outro. Each synopsis is a readable mini-script of up to three paragraphs that introduces its topic, backed by selective bullets highlighting key features, constraints, what has not yet been demonstrated and potential enterprise uses without presenting possibilities as confirmed capabilities. Drafted through the existing Draft script action and presented on the Elgato display through Athena Desktop), **Transcript** (a Riverside .txt, .srt or .docx export), **Show Notes** (drafted by the show notes persona from the transcript only) and **Campaign**. Today's podcast card opens the episode's Prep tab. Episode-coverage summaries recover from an output-token limit by retrying only the failed chunk once at 3,000 tokens, then splitting that chunk into two if needed. Each half has the same bounded retry, with no further splitting; successful chunks are not rerun, no source text is omitted, and truncated model responses are not accepted. Summaries use the podcast-specific request timeout, not the generic lightweight-call timeout. The overall eight-minute deadline and Thursday schedule are unchanged; a terminal failure cancels outstanding requests. Tracking topics over time matters here and in competitive monitoring (use case 5); nowhere else.
 
+**Create show notes** on the Show Notes tab queues the Podcast show-notes writer
+through the existing specialist job engine. No embedded Athena chat or manual
+save/export step is required. The transcript remains the authority for the episode
+content; the Prep conversation supplies candidate reference URLs only for resources
+actually discussed. Missing URLs can be located with bounded official-source
+searches and must be opened for verification. Unverifiable references are disclosed
+in the saved package, not only in a chat reply.
+
+Reference checking runs separately with at most four tool rounds and one candidate
+URL per resource, followed by a report of verified URLs and unavailable references.
+Drafting has only Output read/save tools: it cannot spend its save budget searching
+again. The worker preserves the established seven-output package and generates it in
+three bounded batches. Its job-owned draft workspace is reused on retries,
+without overwriting previous user conversations. Complete output names are checked
+before saving, with one bounded repair pass for missing or invalid batch outputs.
+Matching platform reference sets take priority over description length: both
+descriptions are shortened together if Spotify needs more room for the full footer.
+Spotify's body is converted to the permitted HTML tags if it was
+incorrectly returned as Markdown, validated against the platform's title/body
+limits, and saved in a native HTML code block for copying. Reference links remain
+clickable in prose and literal anchors in the Spotify source. Generation cannot
+publish, schedule, or invoke unrelated write tools. Episode revision checks and
+the current worker lease fence the final save; an existing show-notes document is
+never overwritten. Users can leave the tab while it runs, see progress/failures,
+and edit the resulting document in the unchanged Think editor/properties shell.
+Show Notes and legacy script documents are episode-owned internal records, not
+independent Think list entries. List counts and pagination exclude them; matching
+their content returns the parent Podcast episode. Existing generated content and
+the episode's Show Notes and Campaign editors remain available.
+Podcast Prep uses the existing Think note editor, not an embedded Athena chat.
+The episode note body holds the editable brief, with its headings, lists and
+source links. Existing saved briefs are converted once without another model
+call; non-empty document content is never overwritten, and clearing an imported
+brief does not cause it to be imported again. The original conversation remains
+stored as supporting history. No separate Prep entry is created in the note list.
+The Episode properties Progress list uses a checkmark for saved content and an
+empty circle for missing content. These indicate availability, not review or
+approval: Prep has saved document content, Script has saved intro or cards,
+Transcript has uploaded text, and Show Notes has a saved package.
+Campaign also appears in Progress, with its live preparation, approval, pause,
+attention or all-posts-sent status. Its check means a saved campaign plan exists,
+not that every post has been delivered.
+Prep shows the document loading/error states with Retry, not a conversation
+composer. Script drafting uses the edited Prep as the authoritative brief and
+the original conversation only as supporting history. Saving changes to the
+episode document advances the episode revision so stale script work cannot
+overwrite a script based on a newer brief.
+
+Explicit approval of the exact publishing draft version takes precedence over
+archiving or shelving its Discover source. Filing the source is not cancellation
+of an approved post; pause or hold publishing, or revoke its approval, to stop it.
+Held items do not reserve account capacity or displace eligible posts.
+Automatic low-value shelving, like age-based archiving, excludes parked articles
+and sources of live publishing topics (pending, assessing, ready or held).
+Discover evaluates short-social suitability independently of long-form depth.
+A concrete, timely development relevant to the audience can qualify for Bluesky
+with good or strong social fit even at a low composite score and zero analytical
+depth. This uses the existing LinkedIn Standalone short-social route, not a new
+content type. It does not promote blog, newsletter or podcast suitability.
+Zero audience relevance, zero novelty, advertorial exclusions and already-covered
+stories cannot use this low-composite exception. Existing scores are not
+automatically rewritten or rescored.
+An overdue approved commitment retains its assigned time and is shown as awaiting
+delivery checks instead of silently moving to a later slot. Actual sends still
+enforce current publishing windows, account limits, retry deadlines, approvals
+and package dependencies. Schedule inspection does not send posts.
+
 **Draft script from prep** queues the Podcast script writer through Athena's persistent
 specialist worker system. Script generation and its synopsis style pass run in the background,
 with live progress, Background work history and a completion or failure notification linked
@@ -178,7 +245,7 @@ of inventing a brief.
 |---|---|
 | **Today** (`/`) | What needs attention now: overdue, blocked or due tasks; failed connections; open Athena decisions; continue-working items; recent changes; and suggestions worth exploring (Discover picks with a reason, growing Spark themes). Also shows the Thursday podcast prep. |
 | **Discover** (`/discover`) | A ranked feed of articles from Microsoft and industry sources, weighted by relevance, freshness, authority and project fit, with calls for papers (CFPs), saved views and interest weights. **Sources** manages RSS/Atom feeds and **YouTube** channels, and imports single videos with a public-caption attempt; missing captions leave description-only evidence and separately attributed related background links. **Watchlists** monitor named competitors against a question and versioned baseline. **Parking lot** keeps items for a future newsletter or podcast. Items can be saved, turned into Sparks or use cases, or turned into quick LinkedIn, Bluesky and blog posts. |
-| **Plan** (`/plan`) | Tasks in Board and Focus views, with saved views, Athena check-ins and at-risk prompts. Open use cases appear in the Board's Backlog or In Progress columns without creating duplicate task records. |
+| **Plan** (`/plan`) | Tasks in Board and Focus views, with saved views, Athena check-ins and at-risk prompts. Status moves update immediately and reconcile only the saved task in place, preserving other task order and origin links without refetching the whole list. Completing recurring tasks still refreshes to discover the next occurrence. Failed moves restore the task and show an error. Open use cases appear in the Board's Backlog or In Progress columns without creating duplicate task records. |
 | **Think** (`/think`) | Notes (BlockNote editor with history, recovery, tags, `@` mentions of people, projects and documents, and GitHub publishing), **Sparks** (capture, connect into themes, mature, ship) and **canvases** (diagrams with drilldowns and links to notes, exportable to draw.io and Mural). |
 | **Build** (`/build`) | Specs are split into dependency-ordered tasks and dispatched to GitHub cloud coding agents (Copilot or Claude) as issues. Their PRs are tracked and merged. |
 | **Athena chat** | Available everywhere: a side panel, a floating widget and `/chat`. It has personas: general, brainstorming, blog post, LinkedIn, demo designer, web designer, podcast prep, podcast show notes and Copilot coach. Chats record decisions and Outputs, and can be turned into a spec note. |

@@ -122,6 +122,7 @@ interface AIChatPageProps {
   onBusyChange?: ((busy: boolean) => void) | undefined;
   /** Pins the chat to one existing conversation (e.g. a podcast episode's prep), without New chat or shared storage. */
   fixedSessionId?: string | undefined;
+  hideToolbar?: boolean;
 }
 
 // Send filtered 16kHz mono WAV to full-recording transcription.
@@ -289,6 +290,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   title,
   onBusyChange,
   fixedSessionId,
+  hideToolbar = false,
 }) => {
   // The Think-embedded panel manages its own per-note session (see the
   // note-linking effect below) instead of sharing localStorage-persisted
@@ -2149,6 +2151,16 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     </div>
   );
 
+  if (fixedSessionId !== undefined && isRestoringHistory) {
+    return <div className="kh-view-status" role="status" aria-live="polite">Loading prep conversation...</div>;
+  }
+  if (fixedSessionId !== undefined && historyError !== null) {
+    return <div className="ai-history-error" role="alert">
+      <p>{historyError}</p>
+      <Button kind="ghost" size="sm" onClick={() => handleSelectSession(fixedSessionId, true)}>Retry loading prep</Button>
+    </div>;
+  }
+
   return (
     <div ref={chatRootRef} className={standalone ? 'ai-chat-standalone' : compact ? `ai-chat-compact ai-chat-compact--${compactVariant}` : 'page-root'}>
       {standalone && (
@@ -2207,7 +2219,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           </div>
         </div>
       )}
-      {!standalone && (
+      {!standalone && !hideToolbar && (
         <div className={compact ? 'ai-new-chat-row ai-new-chat-row--compact' : 'ai-new-chat-row'}>
           {promptNavigation}
           <div className="ai-new-chat-row__actions">

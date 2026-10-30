@@ -14,11 +14,12 @@ const when = (date: string | null): string => date ? new Date(date).toLocaleStri
   dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/London',
 }) : 'Date needed';
 const queryKey = (noteId: string): string[] => ['podcast-campaign', noteId];
-function useCampaign(noteId: string, noteRevision: number) {
+export function usePodcastCampaign(noteId: string, noteRevision: number, enabled = true) {
   const qc = useQueryClient();
-  useEffect(() => { void qc.invalidateQueries({ queryKey: queryKey(noteId) }); }, [qc, noteId, noteRevision]);
+  useEffect(() => { if (enabled) void qc.invalidateQueries({ queryKey: queryKey(noteId) }); }, [qc, noteId, noteRevision, enabled]);
   return useQuery({
     queryKey: queryKey(noteId), queryFn: () => api.publishing<PodcastCampaignDetail>(`/podcasts/${noteId}`),
+    enabled,
     refetchInterval: query => query.state.data?.state === 'approved' ? 30_000 : false,
   });
 }
@@ -33,7 +34,7 @@ function Failure({ error, retry }: { error: unknown; retry?: () => void }): Reac
 }
 
 export function PodcastEpisodeLinks({ noteId, noteRevision }: { noteId: string; noteRevision: number }): React.ReactElement {
-  const query = useCampaign(noteId, noteRevision);
+  const query = usePodcastCampaign(noteId, noteRevision);
   if (!query.data) return <div className="notes-podcast">
     {query.isError ? <Failure error={query.error} retry={() => { void query.refetch(); }} /> : <p role="status">Loading episode links...</p>}
   </div>;
@@ -84,7 +85,7 @@ function EpisodeLinkForm({ data, loadError }: { data: PodcastCampaignDetail; loa
 export function PodcastCampaign({ noteId, noteRevision, beforePrepare }: {
   noteId: string; noteRevision: number; beforePrepare: () => Promise<boolean>;
 }): React.ReactElement {
-  const query = useCampaign(noteId, noteRevision);
+  const query = usePodcastCampaign(noteId, noteRevision);
   const qc = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
+import { Checkmark } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import { describeApiError, requireApiData } from '../../services/apiError';
 import { extractNoteBlockText, fetchNote, type NoteContentBlock } from '../../notes/noteStorage';
@@ -14,14 +15,12 @@ import { rememberAgentJob, useAgentJobs } from '../../services/agentJobStore';
 import { isActiveAgentJob } from '../../types/agentJobs';
 import { requestCompletionNotifications } from '../../chat/completionNotification';
 import { AthenaRibbon } from '../../components/athena/AthenaRibbon';
-import { PodcastCampaign } from '../../notes/PodcastCampaign';
+import { PodcastCampaign, usePodcastCampaign } from '../../notes/PodcastCampaign';
 import type { NoteDocument } from '../../notes/types';
 import { PODCAST_EPISODE_TABS, type PodcastEpisode, type PodcastEpisodeTab, type ScriptCard } from '../../types/podcastEpisodes';
 
 const NoteEditor = deferredView('Podcast episode', async () => ({ default: (await import('../../notes/NoteEditor')).NoteEditor }));
-const AIChatPage = deferredView('Athena', async () => ({ default: (await import('../../pages/AIChatPage')).AIChatPage }));
 const isTab = (value: string | null): value is PodcastEpisodeTab => PODCAST_EPISODE_TABS.some(tab => tab.key === value);
-const SHOW_NOTES_PROMPT = 'Draft the show notes for this episode from the attached transcript.';
 const HIDDEN = 'cds--visually-hidden';
 const newCard = (): ScriptCard => ({ id: crypto.randomUUID(), title: '', synopsis: '', bullets: [] });
 const formatDate = (value: string | null): string => value
@@ -38,10 +37,8 @@ export const PodcastEpisodeParent: React.FC<{
   const [switching, setSwitching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stageBusy, setStageBusy] = useState(false);
-  const [chatBusy, setChatBusy] = useState(false);
   const [scriptChatBusy, setScriptChatBusy] = useState(false);
   const scriptChatBusyRef = useRef(false);
-  const [showNotesPrompt, setShowNotesPrompt] = useState<{ prompt: string; sequence: number } | undefined>();
   const noteSave = useRef<(() => Promise<boolean>) | null>(null);
   const scriptSave = useRef<(() => Promise<boolean>) | null>(null);
   const registerSave = useCallback((save: (() => Promise<boolean>) | null) => { noteSave.current = save; }, []);
@@ -53,7 +50,8 @@ export const PodcastEpisodeParent: React.FC<{
   const { jobs: liveJobs } = useAgentJobs(id);
   const history = useQuery({ queryKey: ['podcast-script-jobs', id],
     queryFn: async () => requireApiData(await api.listPodcastScriptJobs(id)),
-    refetchInterval: query => query.state.data?.some(isActiveAgentJob) ? 5_000 : false });
+    refetchInterval: query => query.state.status === 'error'
+      || query.state.data?.some(isActiveAgentJob) || liveJobs.some(isActiveAgentJob) ? 5_000 : false });
   const scriptJobMap = new Map((history.data ?? []).map(job => [job.id, job]));
   for (const job of liveJobs) {
     const previous = scriptJobMap.get(job.id);
@@ -64,6 +62,18 @@ export const PodcastEpisodeParent: React.FC<{
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const activeScriptJob = scriptJobs.find(isActiveAgentJob);
   const latestScriptJob = activeScriptJob ?? scriptJobs[0];
+  const showNotesJobs = [...scriptJobMap.values()].filter(job => job.specialist === 'podcast-show-notes-writer')
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const activeShowNotesJob = showNotesJobs.find(isActiveAgentJob);
+  const latestShowNotesJob = activeShowNotesJob ?? showNotesJobs[0];
+  const showNotesJobId = latestShowNotesJob?.id;
+  const showNotesJobStatus = latestShowNotesJob?.status;
+  useEffect(() => {
+    if (!showNotesJobId || (showNotesJobStatus !== 'done' && showNotesJobStatus !== 'failed')) return;
+    void qc.invalidateQueries({ queryKey: ['podcast-episode', id] });
+    void qc.invalidateQueries({ queryKey: ['podcast-script-jobs', id] });
+    void qc.invalidateQueries({ queryKey: ['notes-list'] });
+  }, [id, qc, showNotesJobId, showNotesJobStatus]);
   const scriptJobId = latestScriptJob?.id;
   const scriptJobStatus = latestScriptJob?.status;
   useEffect(() => {
@@ -76,11 +86,17 @@ export const PodcastEpisodeParent: React.FC<{
   const documentId = (tab === 'show_notes' || tab === 'campaign') && showNotesId ? showNotesId : id;
   const document = useQuery({
     queryKey: ['podcast-episode-document', documentId],
-    queryFn: async () => { const doc = await fetchNote(documentId); if (!doc) throw new Error('The document is unavailable.'); return doc; },
+    queryFn: async () => {
+      if (documentId === id) qc.setQueryData(['podcast-episode', id], requireApiData(await api.ensurePodcastPrepDocument(id)));
+      const doc = await fetchNote(documentId);
+      if (!doc) throw new Error('The document is unavailable.');
+      return doc;
+    },
     enabled: !!episode, refetchOnWindowFocus: false, staleTime: 30_000,
   });
-  const busy = stageBusy || chatBusy || scriptChatBusy || workspaceBusy;
-  const { pageContext, setAthenaContext } = useAthenaContext();
+  const campaign = usePodcastCampaign(showNotesId ?? id, documentId === showNotesId ? document.data?.revision ?? 0 : 0, !!showNotesId);
+  const busy = stageBusy || scriptChatBusy || workspaceBusy;
+  const { setAthenaContext } = useAthenaContext();
   useEffect(() => {
     if (!document.data || !episode) return;
     const note = document.data;
@@ -147,11 +163,23 @@ export const PodcastEpisodeParent: React.FC<{
   if (query.isLoading) return <p className="kh-design-loading" role="status">Loading episode...</p>;
   if (!episode) return <p className="kh-design-loading kh-uc-error" role="alert">{describeApiError(query.error)} <button type="button" className="kh-btn-ghost" onClick={() => { void query.refetch(); }}>Retry</button></p>;
 
-  const stages: Array<{ label: string; done: boolean }> = [
-    { label: 'Prep', done: !!episode.prepSessionId },
+  const campaignData = campaign.data;
+  const campaignSent = !!campaignData?.plan?.posts.length && campaignData.plan.posts.every(post =>
+    campaignData.deliveries.some(delivery => delivery.identity === `podcast:${showNotesId}:${post.id}` && delivery.status === 'sent'));
+  const campaignStatus = !showNotesId ? 'Show Notes needed'
+    : campaign.isError ? 'Status unavailable'
+      : !campaignData ? 'Loading'
+        : campaignData.error ? 'Needs attention'
+          : campaignSent ? 'All posts sent'
+            : campaignData.state === 'paused' ? 'Paused'
+              : campaignData.state === 'approved' ? 'Approved'
+                : campaignData.plan ? 'Draft prepared' : 'Not prepared';
+  const stages: Array<{ label: string; done: boolean; status?: string }> = [
+    { label: 'Prep', done: episode.prepHasContent },
     { label: 'Script', done: episode.scriptCards.length > 0 || !!episode.scriptIntro },
     { label: 'Transcript', done: !!episode.transcript },
     { label: 'Show Notes', done: !!episode.showNotesNoteId },
+    { label: 'Campaign', done: !!campaignData?.plan, status: campaignStatus },
   ];
   const episodePanel = <div className="kh-design-work">
     <section aria-label="Episode details">
@@ -164,9 +192,20 @@ export const PodcastEpisodeParent: React.FC<{
     </section>
     <section aria-label="Episode progress">
       <h3>Progress</h3>
-      <ul className="kh-episode-stages">{stages.map(stage => <li key={stage.label} data-done={stage.done}>
-        <span className="kh-episode-stages__dot" aria-hidden="true" />{stage.label}<span className={HIDDEN}>{stage.done ? ', complete' : ', not started'}</span>
+      <p>Checks indicate saved content, not review or approval.</p>
+      <ul className="kh-episode-stages">{stages.map(stage => <li key={stage.label} data-done={stage.done}
+        title={stage.status ?? (stage.done ? 'Saved content available' : 'No saved content yet')}>
+        {stage.done
+          ? <Checkmark className="kh-episode-stages__check" size={16} aria-hidden="true" />
+          : <span className="kh-episode-stages__missing" aria-hidden="true"><span className="kh-episode-stages__dot" /></span>}
+        {stage.label}{stage.status
+          ? <span className="kh-episode-stages__status">{stage.status}</span>
+          : <span className={HIDDEN}>{stage.done ? ', saved content available' : ', no saved content yet'}</span>}
       </li>)}</ul>
+      {showNotesId && campaign.isError && <p className="kh-uc-error" role="alert">
+        {describeApiError(campaign.error)}{' '}
+        <button type="button" className="kh-btn-ghost" onClick={() => { void campaign.refetch(); }}>Retry campaign status</button>
+      </p>}
     </section>
   </div>;
 
@@ -186,19 +225,16 @@ export const PodcastEpisodeParent: React.FC<{
     {activeScriptJob && <p className="kh-design-hint kh-design-hint--busy" role="status"><AthenaRibbon size={20} mood="thinking" />
       {activeScriptJob.progress.at(-1) ?? 'Script generation is queued.'} You can leave this episode; Athena will notify you when it finishes.</p>}
     {latestScriptJob?.status === 'failed' && <p role="alert" className="kh-uc-error">{latestScriptJob.error ?? 'The script worker could not finish. Retry Draft script from prep.'}</p>}
-    {history.isError && <p role="alert" className="kh-uc-error">Script job status is unavailable. {describeApiError(history.error)}{' '}
+    {activeShowNotesJob && <p className="kh-design-hint kh-design-hint--busy" role="status"><AthenaRibbon size={20} mood="thinking" />
+      {activeShowNotesJob.progress.at(-1) ?? 'Show notes are queued.'} You can leave this episode; Athena will notify you when they are ready.</p>}
+    {latestShowNotesJob?.status === 'failed' && <p role="alert" className="kh-uc-error">{latestShowNotesJob.error ?? 'Show notes could not be completed. Retry Create show notes.'}</p>}
+    {history.isError && <p role="alert" className="kh-uc-error">Episode job status is unavailable. {describeApiError(history.error)}{' '}
       <button type="button" className="kh-btn-ghost" onClick={() => { void history.refetch(); }}>Retry</button></p>}
     {error && <p role="alert" className="kh-uc-error">{error}</p>}
   </div>;
 
   let body: React.ReactNode;
-  if (tab === 'prep') {
-    body = episode.prepSessionId
-      ? <div className="kh-episode-chat"><AIChatPage compact fixedSessionId={episode.prepSessionId} initialPersona="podcast_prep"
-        pageContext={pageContext?.podcastEpisodeId === id ? pageContext : undefined} onBusyChange={setChatBusy} /></div>
-      : <section className="kh-design-diagram-empty" aria-label="Prep"><h3>No prep conversation</h3>
-        <p>This episode was not created from a Thursday prep run, so there is no prep conversation to show.</p></section>;
-  } else if (tab === 'script') {
+  if (tab === 'script') {
     body = <ScriptEditor key={episode.noteId} episode={episode} busy={busy || switching || !!activeScriptJob} draftUnavailable={history.isPending || history.isError}
       onSaved={setEpisode} registerSave={registerScriptSave} onPresent={onPresent}
       onDraft={async () => {
@@ -222,26 +258,24 @@ export const PodcastEpisodeParent: React.FC<{
     body = !episode.transcript
       ? <section className="kh-design-diagram-empty" aria-label="Show notes"><h3>Upload the transcript first</h3>
         <p>Show notes are drafted from the Riverside transcript only. Upload it on the Transcript tab.</p></section>
-      : !episode.showNotesSessionId
-        ? <section className="kh-design-diagram-empty" aria-label="Show notes"><h3>Draft show notes</h3>
-          <p>Athena drafts the show notes from the transcript in a conversation you can refine before saving them to this episode.</p>
-          <button type="button" className="kh-btn-accent" disabled={busy} onClick={() => {
-            void runStage(async () => requireApiData(await api.startPodcastShowNotes(id)), 'The show notes conversation was not started.')
-              .then(next => { if (next) setShowNotesPrompt({ prompt: SHOW_NOTES_PROMPT, sequence: Date.now() }); });
-          }}>Draft show notes</button></section>
-        : <div className="kh-episode-chat">
-          <div className="kh-episode-chat__bar">
-            <p className="kh-design-hint">Refine the draft with Athena, then save it to this episode.</p>
-            <button type="button" className="kh-btn-accent" disabled={busy} onClick={() => {
-              void runStage(async () => requireApiData(await api.savePodcastShowNotes(id, episode.revision)), 'The show notes were not saved.')
-                .then(next => { if (next) void qc.invalidateQueries({ queryKey: ['notes-list'] }); });
-            }}>Save show notes to this episode</button>
-          </div>
-          <AIChatPage compact fixedSessionId={episode.showNotesSessionId} initialPersona="podcast_show_notes"
-            pageContext={{ type: 'document', title: episode.transcriptFilename ?? 'Episode transcript', detail: episode.transcript }}
-            promptRequest={showNotesPrompt}
-            onBusyChange={value => { setChatBusy(value); if (value) setShowNotesPrompt(undefined); }} />
-        </div>;
+      : <section className="kh-design-diagram-empty" aria-label="Show notes"><h3>Create show notes</h3>
+        <p>Create the show-notes package from the uploaded transcript, with copyable Spotify HTML and verified reference links. It will appear here as an editable document.</p>
+        <button type="button" className="kh-btn-accent" disabled={busy || switching || !!activeShowNotesJob || history.isPending || history.isError}
+          onClick={() => {
+            requestCompletionNotifications();
+            setStageBusy(true); setError(null);
+            void (async () => {
+              try {
+                await prepare();
+                const result = requireApiData(await api.createPodcastShowNotes(id, episode.revision));
+                if (result.status === 'needs_confirmation') throw new Error(result.message);
+                rememberAgentJob(result.job);
+                void qc.invalidateQueries({ queryKey: ['podcast-script-jobs', id] });
+              } catch (err) { setError(`Show notes were not started. ${describeApiError(err)}`); }
+              finally { setStageBusy(false); }
+            })();
+          }}>{activeShowNotesJob ? 'Creating show notes...' : 'Create show notes'}</button>
+      </section>;
   } else if (tab === 'campaign') {
     body = showNotesId && document.data?.id === showNotesId
       ? <div className="kh-episode-campaign"><PodcastCampaign key={showNotesId} noteId={showNotesId} noteRevision={document.data.revision ?? 0}
@@ -465,8 +499,8 @@ const ScriptEditor: React.FC<{
   return <section className="kh-episode-script" aria-label="Script">
     <div className="kh-design-actions kh-episode-script__actions">
       <button type="button" className="kh-btn-accent" disabled={locked || saving || !dirty} onClick={() => { setError(null); void save(); }}>{saving ? 'Saving...' : dirty ? 'Save script' : 'Saved'}</button>
-      <button type="button" className="kh-btn-ghost" disabled={locked || dirty || draftUnavailable || !episode.prepSessionId}
-        title={!episode.prepSessionId ? 'This episode has no prep conversation' : dirty ? 'Save your changes first' : undefined}
+      <button type="button" className="kh-btn-ghost" disabled={locked || dirty || draftUnavailable}
+        title={dirty ? 'Save your changes first' : undefined}
         onClick={() => { void onDraft(); }}>Draft script from prep</button>
       <button type="button" className="kh-btn-ghost" disabled={locked} onClick={() => { setCards(previous => [...previous, newCard()]); touch(); }}>Add card</button>
       <button type="button" className="kh-btn-ghost" disabled={locked || !onPresent || (!intro.trim() && !cards.length)}
@@ -480,7 +514,7 @@ const ScriptEditor: React.FC<{
         onAsk={askPassage('intro')}
         onChange={event => { setIntro(event.target.value); touch(); }} /></div>
     {!cards.length ? <div className="kh-design-diagram-empty"><h3>No topic cards yet</h3>
-      <p>Draft the script from the prep conversation, or add cards yourself. Each card is a short synopsis with a few bullet points.</p></div>
+      <p>Draft the script from the Prep document, or add cards yourself. Each card is a short synopsis with a few bullet points.</p></div>
       : <ol className="kh-episode-cards">{cards.map((card, index) => <li key={card.id} className="kh-episode-card" data-dragging={dragging === index || undefined}
         draggable={!locked && cardDragAllowed}
         onPointerDownCapture={event => { setCardDragAllowed(!(event.target instanceof HTMLElement && event.target.closest('textarea, input, button'))); }}

@@ -91,6 +91,11 @@ export interface TurnHooks {
   modelRoute?: ModelRoute;
   /** Only tools that read — for re-answering, so nothing is created twice. */
   readOnlyTools?: boolean;
+  /** Background document workers may save Outputs but must not invoke unrelated mutations. */
+  allowedWriteTools?: readonly string[];
+  /** Phase-specific workers can separate research capabilities from delivery. */
+  allowedTools?: readonly string[];
+  maxToolRounds?: number;
   /** Filled in with what the reply drew on (the "Used:" line). */
   contextUsed?: ContextUsed;
   /** Route persists this after the accepted reply has an assistant-message id. */
@@ -295,12 +300,15 @@ Only operate on the script when the request concerns it; unrelated questions rem
   hooks.signal?.throwIfAborted();
   const noteOpen = toolContext.noteId !== undefined && toolContext.noteId !== '' && !toolContext.noteId.startsWith('doc:') && mapId === undefined;
   const permittedTools = (hooks.readOnlyTools === true ? allTools.filter((t) => !WRITE_TOOLS.has(t.function.name)) : allTools)
+    .filter(t => hooks.allowedTools === undefined || hooks.allowedTools.includes(t.function.name))
+    .filter(t => hooks.allowedWriteTools === undefined || !WRITE_TOOLS.has(t.function.name) || hooks.allowedWriteTools.includes(t.function.name))
     .filter(t => !design || !['create_note_draft', 'propose_note_edit', 'update_note', 'save_output', DEMO_SPECIFICATION_WRITE_TOOL, 'get_demo_specification_template'].includes(t.function.name))
     .filter(t => !toolContext.podcastOwner || !['create_note_draft', 'propose_note_edit', 'update_note', 'save_output'].includes(t.function.name))
     .filter((t) => hooks.noOutputsPanel !== true || t.function.name !== 'save_output')
     .filter((t) => t.function.name !== 'propose_note_edit' || noteOpen)
     .filter((t) => t.function.name !== 'propose_map_changes' || mapOutlineResult !== null);
   const catalog = new ToolCatalog(permittedTools);
+  if (hooks.allowedTools?.includes('save_output')) catalog.load(['save_output']);
   const supportsScope = (name: string, scope = retrievalScope, projectId = strictProjectId): boolean => {
     const filtered = scope !== undefined && Object.keys(scope.filter).length > 0;
     if (!filtered && projectId === null) return true;
@@ -367,6 +375,8 @@ Only operate on the script when the request concerns it; unrelated questions rem
   const failedDocumentReads = new Set<string>();
   // Show Notes saves seven deliverables in three batches after one round of link checks, so it gets more rounds.
   let maxRounds = persona === 'podcast_show_notes' ? SHOW_NOTES_MAX_TOOL_ITERATIONS : AI_MAX_TOOL_ITERATIONS;
+  const minimumToolRounds = 2;
+  if (hooks.maxToolRounds !== undefined) maxRounds = Math.min(maxRounds, Math.max(minimumToolRounds, Math.floor(hooks.maxToolRounds)));
   for (let i = 0; i < maxRounds; i++) {
     if (isStopped(hooks)) throw new AiStoppedError();
     hooks.onActivity?.(i === 0 ? 'Thinking' : 'Reading what I found');

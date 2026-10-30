@@ -7,6 +7,7 @@ export interface PodcastEpisode {
   episodeNumber: number | null;
   recordingDate: string | null;
   prepSessionId: string | null;
+  prepHasContent: boolean;
   scriptIntro: string;
   scriptCards: ScriptCard[];
   transcript: string | null;

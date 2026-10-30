@@ -2371,6 +2371,9 @@ export class KnowledgeHubApi {
   async getPodcastEpisode(id: string): Promise<ApiResponse<PodcastEpisode>> {
     return (await this.client.get<ApiResponse<PodcastEpisode>>(`/api/podcast-episodes/${encodeURIComponent(id)}`)).data;
   }
+  async ensurePodcastPrepDocument(id: string): Promise<ApiResponse<PodcastEpisode>> {
+    return (await this.client.post<ApiResponse<PodcastEpisode>>(`/api/podcast-episodes/${encodeURIComponent(id)}/prep/document`)).data;
+  }
   async savePodcastScript(id: string, intro: string, cards: ScriptCard[], revision: number): Promise<ApiResponse<PodcastEpisode>> {
     return (await this.client.put<ApiResponse<PodcastEpisode>>(`/api/podcast-episodes/${encodeURIComponent(id)}/script`, { intro, cards, revision })).data;
   }
@@ -2390,6 +2393,9 @@ export class KnowledgeHubApi {
   }
   async startPodcastShowNotes(id: string): Promise<ApiResponse<PodcastEpisode>> {
     return (await this.client.post<ApiResponse<PodcastEpisode>>(`/api/podcast-episodes/${encodeURIComponent(id)}/show-notes/session`)).data;
+  }
+  async createPodcastShowNotes(id: string, revision: number): Promise<ApiResponse<AgentHandOffResult>> {
+    return (await this.client.post<ApiResponse<AgentHandOffResult>>(`/api/podcast-episodes/${encodeURIComponent(id)}/show-notes/create`, { revision })).data;
   }
   async savePodcastShowNotes(id: string, revision: number): Promise<ApiResponse<PodcastEpisode>> {
     return (await this.client.post<ApiResponse<PodcastEpisode>>(`/api/podcast-episodes/${encodeURIComponent(id)}/show-notes`, { revision })).data;

@@ -147,7 +147,7 @@ display; wake failure does not mean the screen is switched off. Desktop 0.1.7
 corrects the blocking wake-error behaviour in 0.1.6.
 
 Presentation scrolling is manual only. Speed defaults to 80 output CSS pixels
-per second, bounded to 10-300 in increments of 10. Faster/Slower change actual
+per second, bounded to 10-300 in increments of 2. Faster/Slower change actual
 playback speed, not the current line. Text size is 24-96 in increments of 4.
 Pause retains position; Stop resets to the beginning; reaching the end stops.
 **Stop presenting**, available beside **Present** in a Think note's Actions menu

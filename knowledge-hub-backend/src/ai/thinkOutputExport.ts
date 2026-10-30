@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
 import type { OutputFormat } from './chatOutputs.js';
+import { spotifyShowNotesSource } from './spotifyShowNotes.js';
 
 interface ExportOutput {
   title: string;
@@ -7,7 +8,7 @@ interface ExportOutput {
   content: string;
 }
 
-const SHOW_NOTES_ORDER = [
+export const SHOW_NOTES_ORDER = [
   'Titles and metadata',
   'YouTube show notes',
   'Spotify show notes',
@@ -34,7 +35,9 @@ export function combineOutputsForThink(
     : outputs;
   const sections = ordered.map((output) => {
     let content = output.content;
-    if (output.format !== 'markdown') {
+    if (output.title.toLowerCase() === 'spotify show notes') content = spotifyShowNotesSource(content);
+    if (output.format !== 'markdown' || output.title.toLowerCase() === 'spotify show notes') {
+      content = content.replace(/^```(?:html|text)?\s*\n([\s\S]*?)\n```\s*$/i, '$1');
       const runs = content.match(/`+/g) ?? [];
       const fence = '`'.repeat(Math.max(MIN_FENCE_LENGTH, ...runs.map((run) => run.length + 1)));
       const language = output.format === 'html' || output.title.toLowerCase() === 'spotify show notes' ? 'html' : 'text';

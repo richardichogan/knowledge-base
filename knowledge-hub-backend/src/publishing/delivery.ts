@@ -72,12 +72,14 @@ export async function reserveDelivery(db: Pool, destination: Destination, accoun
       if (!topic.rows[0] || topic.rows[0].state !== 'ready') throw new PublicationDeferred('Topic is held, rejected or not ready.');
     }
     if (context.draftId) {
-      const withdrawn = await c.query(`SELECT s.item_id FROM publishing_sources s JOIN content_items c ON c.id=s.item_id
-        WHERE s.topic_id=$1 AND c.workflow_state IN ('archived','shelved') LIMIT 1`, [context.topicId]);
-      if (withdrawn.rowCount) throw new PublicationDeferred('Source material was archived or shelved after selection.');
       const topicDrafts = (await c.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts WHERE topic_id=$1 ORDER BY id FOR UPDATE`, [context.topicId])).rows;
       const draft = topicDrafts.find(d => d.id === context.draftId);
       if (!draft || draft.destination !== destination || draft.version !== context.version || draft.content.account !== account) throw new PublicationDeferred('Draft, version or destination account changed. Review the current version.');
+      if (draft.approval !== 'approved') {
+        const withdrawn = await c.query(`SELECT s.item_id FROM publishing_sources s JOIN content_items c ON c.id=s.item_id
+          WHERE s.topic_id=$1 AND c.workflow_state IN ('archived','shelved') LIMIT 1`, [context.topicId]);
+        if (withdrawn.rowCount) throw new PublicationDeferred('Source material was archived or shelved after selection.');
+      }
       const required = draft.variant === 'blog' ? topicDrafts.filter(d => d.destination === 'blog' || d.destination === 'linkedin') : [];
       if (draft.variant === 'blog' && required.length !== PUBLISH_LIMITS.packageDestinations) throw new PublicationDeferred('Blog and LinkedIn drafts are both required.');
       for (const candidate of [draft, ...required]) {

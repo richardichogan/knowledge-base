@@ -409,7 +409,10 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
       const pageSize = positiveInteger(req.query['pageSize'], 'pageSize', DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
       const offset = (page - 1) * pageSize;
       if (!Number.isSafeInteger(offset)) throw new ValidationError('Note page is too large');
-      const conditions = ['n.status = $1'];
+      const conditions = ['n.status = $1', `NOT EXISTS (
+        SELECT 1 FROM podcast_episodes episode
+        WHERE n.id = episode.show_notes_note_id OR n.id = episode.script_note_id
+      )`];
       const params: unknown[] = [noteStatus(req.query['status'])];
       const filterValue = (name: string): string | undefined => {
         const value = req.query[name];
@@ -428,10 +431,15 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
       const q = filterValue('q');
       if (q !== undefined) {
         params.push(`%${q.replace(/[\\%_]/g, '\\$&')}%`);
-        conditions.push(grouped ? `(n.content ILIKE $${params.length} OR EXISTS (
+        const episodeMatch = `EXISTS (
+          SELECT 1 FROM podcast_episodes episode JOIN notes child
+            ON child.id = episode.show_notes_note_id OR child.id = episode.script_note_id
+          WHERE episode.note_id = n.id AND child.status = 'active' AND child.content ILIKE $${params.length}
+        )`;
+        conditions.push(grouped ? `(n.content ILIKE $${params.length} OR ${episodeMatch} OR EXISTS (
           SELECT 1 FROM design_note_memberships member JOIN notes child ON child.id::text=member.note_id
           WHERE member.parent_note_id=n.id AND child.status='active' AND child.content ILIKE $${params.length}
-        ))` : `n.content ILIKE $${params.length}`);
+        ))` : `(n.content ILIKE $${params.length} OR ${episodeMatch})`);
       }
       const contentType = filterValue('contentType');
       if (contentType !== undefined) {

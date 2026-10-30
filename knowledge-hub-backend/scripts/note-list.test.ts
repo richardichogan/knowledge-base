@@ -23,7 +23,9 @@ test('note summaries exhaust stable pages and filter saved writing, types and ex
     linked_items TEXT[] DEFAULT '{}', status TEXT DEFAULT 'active', project_id TEXT, revision INTEGER DEFAULT 1);
     CREATE TABLE tags (id UUID PRIMARY KEY, parent_id UUID);
     CREATE TABLE note_tags (note_id UUID REFERENCES notes(id), tag_id UUID REFERENCES tags(id),
-      PRIMARY KEY(note_id,tag_id));`);
+      PRIMARY KEY(note_id,tag_id));
+    CREATE TABLE podcast_episodes (note_id UUID PRIMARY KEY REFERENCES notes(id),
+      show_notes_note_id UUID REFERENCES notes(id), script_note_id UUID REFERENCES notes(id));`);
   const migration = await readFile(new URL('../src/db/migrations/064_note_list_metadata.sql', import.meta.url), 'utf8');
   await db.exec(migration);
   await db.exec(migration);
@@ -162,6 +164,18 @@ test('note summaries exhaust stable pages and filter saved writing, types and ex
     assert.equal(queuedIndexing, 2, 'Only accepted writing recovery and actual archive transition queue normal indexing; fixture callbacks never execute.');
     assert.equal((await read('status=archived')).total, 0);
 
+    await db.query('INSERT INTO notes(id,content) VALUES($1,$2),($3,$4),($5,$6)', [
+      id(120), writing('Podcast episode', 'podcast-episode'),
+      id(121), writing('Owned show notes', 'podcast-show-notes', 'Episode-owned reference content'),
+      id(122), writing('Owned script', 'podcast-script', 'Episode-owned script content'),
+    ]);
+    await db.query('INSERT INTO podcast_episodes VALUES($1,$2,$3)', [id(120), id(121), id(122)]);
+    assert.deepEqual((await read('q=Episode-owned')).items.map(item => item.id), [id(120)]);
+    assert.equal((await read('contentType=podcast-show-notes')).total, 0);
+    assert.equal((await read('contentType=podcast-script')).total, 0);
+    const owned = await fetch(`http://127.0.0.1:${address.port}/api/notes/${id(121)}`);
+    assert.equal(owned.status, 200, 'The episode editor can still load its owned show notes');
+
     await db.exec(`
       CREATE TABLE designs(id UUID PRIMARY KEY,parent_note_id UUID,source_note_id UUID,source_use_case_id UUID);
       CREATE TABLE design_assets(design_id UUID,source_type TEXT,source_id TEXT,role TEXT,excluded BOOLEAN,
@@ -189,6 +203,8 @@ test('note summaries exhaust stable pages and filter saved writing, types and ex
     const grouped = await read('structure=designs');
     const secondPage = await read('structure=designs&page=2');
     const groupedIds = [...grouped.items, ...secondPage.items].map(item => item.id);
+    assert.deepEqual((await read('structure=designs&q=Episode-owned')).items.map(item => item.id), [id(120)]);
+    assert.ok(!groupedIds.includes(id(121)) && !groupedIds.includes(id(122)));
     assert.equal(flat.total - grouped.total, 4, 'Count distinct originals, including shared memberships, before pagination');
     for (const hiddenId of [104, 105, 106, 107]) assert.ok(!groupedIds.includes(id(hiddenId)));
     for (const visibleId of [108, 110, 111, 112, 113]) assert.ok(groupedIds.includes(id(visibleId)));

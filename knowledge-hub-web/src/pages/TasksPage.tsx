@@ -959,6 +959,18 @@ export const TasksPage: React.FC<{
       });
       return { previous, queryKey };
     },
+    onSuccess: (saved) => {
+      queryClient.setQueriesData<ApiSuccess<PaginatedList<Task>>>({ queryKey: ['tasks'] }, (current) => {
+        if (current === undefined || !current.success) return current;
+        return {
+          ...current,
+          data: {
+            ...current.data,
+            items: current.data.items.map((task) => task.id === saved.id ? { ...saved, origin: task.origin ?? saved.origin ?? null } : task),
+          },
+        };
+      });
+    },
     onError: (error, { id }, ctx) => {
       const previous = ctx?.previous;
       if (ctx !== undefined && previous !== undefined) {
@@ -968,9 +980,11 @@ export const TasksPage: React.FC<{
       }
       setSaveError(describeApiError(error));
     },
-    onSettled: (_data, _error, { id }) => {
+    onSettled: (saved, _error, { id, status }, ctx) => {
       finishTaskAction(id);
-      void queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      const spawnedRecurrence = saved !== undefined && status === 'completed'
+        && ctx?.previous?.status !== 'completed' && saved.recurringCadence != null;
+      void queryClient.invalidateQueries({ queryKey: ['tasks'], refetchType: spawnedRecurrence ? 'active' : 'none' });
     },
   });
 

@@ -15474,6 +15474,7 @@ fieldset.proj-modal-body {
     &[aria-selected='true'] { font-weight: 600; }
   }
   &__check { flex-shrink: 0; color: var(--kh-accent); }
+  &__status { margin-left: auto; color: var(--cds-text-secondary); font-size: var(--kh-text-meta); }
 }
 .cv-details__footnote-remove { align-self: flex-start; margin-top: 0.25rem; }
 
@@ -16085,8 +16086,9 @@ fieldset.proj-modal-body {
   list-style: none; padding: 0; margin: 0;
   > li { display: flex; align-items: center; gap: 8px; min-height: 24px; color: var(--cds-text-secondary); }
   > li[data-done='true'] { color: var(--cds-text-primary); }
+  &__check { flex-shrink: 0; color: var(--kh-accent); }
+  &__missing { width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
   &__dot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid var(--cds-border-strong-01); flex-shrink: 0; }
-  > li[data-done='true'] &__dot { background: var(--kh-accent); border-color: var(--kh-accent); }
 }
 .kh-episode-chat {
   display: flex; flex-direction: column; flex: 1; min-height: 520px; height: 100%; min-width: 0;

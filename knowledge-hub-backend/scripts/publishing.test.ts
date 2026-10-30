@@ -1026,3 +1026,52 @@ test('blog-flow slots follow Blog then LinkedIn then Bluesky while standalone Bl
     assert.doesNotMatch(standalone[0]!.reason, /LinkedIn|blog/);
   } finally { await f.close(); }
 });
+
+test('held drafts do not reserve slots and overdue commitments are not silently rebooked', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db);
+    await source(f.db, t.id);
+    await enable(f.db);
+    const blue = await draft(f.db, t.id);
+    const settings = await store.feeds(f.db);
+    const now = new Date('2026-10-30T16:30:00Z');
+    const candidate = { ...blue, title: 'Fixture', topicState: 'ready', scheduleReason: null,
+      scheduledAt: '2026-10-30T08:00:00Z' };
+    const overdue = planSchedule([candidate], settings, [], now)[0]!;
+    assert.equal(overdue.scheduledAt, '2026-10-30T08:00:00.000Z');
+    assert.match(overdue.reason, /Overdue/);
+    const plan = planSchedule([
+      { ...candidate, held: true },
+      { ...candidate, id: randomUUID(), topicId: randomUUID(), scheduledAt: null },
+    ], settings, [], now);
+    const blocked = plan.find(post => post.draftId === blue.id)!;
+    assert.equal(blocked.scheduledAt, null);
+    assert.match(blocked.reason, /hold/i);
+    assert.equal(plan.find(post => post.draftId !== blue.id)!.scheduledAt,
+      planSchedule([{ ...candidate, id: 'other', scheduledAt: null }], settings, [], now)[0]!.scheduledAt,
+      'A blocked source must not consume the next available slot');
+  } finally { await f.close(); }
+});
+
+for (const state of ['shelved', 'archived']) {
+  test(`exact-version approval permits delivery with a ${state} source without bypassing holds or revocation`, async () => {
+    const f = await publishingFixture();
+    try {
+      const t = await topic(f.db);
+      const s = await source(f.db, t.id);
+      const blue = await draft(f.db, t.id);
+      await enable(f.db);
+      await f.db.query('UPDATE publishing_feeds SET policy=jsonb_set(policy,\'{days}\',\'[0,1,2,3,4,5,6]\')');
+      await f.db.query("INSERT INTO content_items(id,title,source,workflow_state) VALUES($1,'Filed source','discovered-article',$2)", [s.itemId, state]);
+      assert.ok((await listSchedule(f.db)).find(post => post.draftId === blue.id)!.scheduledAt);
+      await f.db.query('UPDATE publishing_drafts SET held=TRUE WHERE id=$1', [blue.id]);
+      await assert.rejects(reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(blue)), /held/);
+      await f.db.query("UPDATE publishing_drafts SET held=FALSE,approval='pending' WHERE id=$1", [blue.id]);
+      await assert.rejects(reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(blue)), /archived or shelved/);
+      await f.db.query("UPDATE publishing_drafts SET approval='approved' WHERE id=$1", [blue.id]);
+      await assert.rejects(reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', { ...context(blue), version: blue.version + 1 }), /version/);
+      await reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(blue));
+    } finally { await f.close(); }
+  });
+}

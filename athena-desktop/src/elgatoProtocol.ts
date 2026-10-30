@@ -79,8 +79,8 @@ export function playbackCommand(state: PresentationState, command: DesktopComman
       break;
     case 'pause': next.status = 'paused'; break;
     case 'stop': next.status = 'ready'; next.progress = 0; break;
-    case 'faster': next.speed = Math.min(300, state.speed + 10); break;
-    case 'slower': next.speed = Math.max(10, state.speed - 10); break;
+    case 'faster': next.speed = Math.min(300, state.speed + 2); break;
+    case 'slower': next.speed = Math.max(10, state.speed - 2); break;
     case 'text-larger': next.fontSize = Math.min(96, state.fontSize + 4); break;
     case 'text-smaller': next.fontSize = Math.max(24, state.fontSize - 4); break;
     default: throw new Error('Not a playback command.');

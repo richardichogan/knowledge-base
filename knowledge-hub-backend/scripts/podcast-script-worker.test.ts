@@ -20,7 +20,16 @@ test('podcast specialist requires a numeric revision and is registered for episo
   assert.deepEqual(specialist.parseInput!({ revision: 1 }), { revision: 1 });
 });
 
-for (const mode of ['save', 'changed-before-run', 'changed-during-run', 'stale-attempt', 'abort'] as const) {
+test('show-notes specialist is available to Athena and requires the current episode revision', () => {
+  const showNotes = getSpecialist('podcast-show-notes-writer')!;
+  assert.equal(showNotes.subjectType, 'podcast-episode');
+  for (const revision of [undefined, '1', -1, 1.5, NaN]) {
+    assert.throws(() => showNotes.parseInput!({ revision }), /revision/);
+  }
+  assert.deepEqual(showNotes.parseInput!({ revision: 1 }), { revision: 1 });
+});
+
+for (const mode of ['save', 'changed-before-run', 'changed-during-run', 'changed-prep-during-run', 'stale-attempt', 'abort'] as const) {
   test(`podcast worker: ${mode}`, async t => {
     const db = new Pool({ connectionString: 'postgresql://isolated.invalid/podcast-script' });
     t.after(() => db.end());
@@ -34,7 +43,8 @@ for (const mode of ['save', 'changed-before-run', 'changed-during-run', 'stale-a
     t.mock.method(db, 'query', async (sql: string, values: unknown[] = []) => {
       if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(sql)) return { rows: [], rowCount: 0 };
       if (sql.includes('FROM podcast_episodes e JOIN notes')) return { rows: [{
-        note_id: noteId, content: JSON.stringify({ title: 'Episode', contentType: 'podcast-episode' }), project_id: null,
+        note_id: noteId, content: JSON.stringify({ title: 'Episode', contentType: 'podcast-episode',
+          contentJson: JSON.stringify([{ type: 'paragraph', content: [{ type: 'text', text: 'Current edited Prep: focus on Azure deployment.', styles: {} }] }]) }), project_id: null,
         episode_number: 1, recording_date: null, prep_session_id: jobId, script_intro: intro, script_cards: savedCards,
         script_note_id: null, transcript: null, transcript_filename: null, transcript_uploaded_at: null,
         show_notes_session_id: null, show_notes_note_id: null, revision,
@@ -60,7 +70,8 @@ for (const mode of ['save', 'changed-before-run', 'changed-during-run', 'stale-a
       _messages: unknown, _tokens: unknown, _timeout: unknown, _effort: unknown, _schema: unknown, signal: AbortSignal,
     ) => {
       assert.equal(signal, controller.signal);
-      if (mode === 'changed-during-run') revision++;
+      assert.match(JSON.stringify(_messages), /Current edited Prep: focus on Azure deployment/);
+      if (mode === 'changed-during-run' || mode === 'changed-prep-during-run') revision++;
       if (mode === 'abort') controller.abort();
       return JSON.stringify(candidate);
     });

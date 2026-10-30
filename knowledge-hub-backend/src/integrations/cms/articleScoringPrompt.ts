@@ -8,6 +8,8 @@
  * (blog, newsletter, Microsoft podcast, LinkedIn) the article suits.
  */
 
+import { normaliseFormatFit } from './formatFit.js';
+
 export const COMMUNITY_COMPOSITE_CAP = 6;
 export const COMMUNITY_NOVELTY_CAP = 2;
 export const COMPOSITE_MAX = 10;
@@ -15,6 +17,8 @@ export const PERCENTAGE_MULTIPLIER = 100;
 export const FULL_BLOG_POST_DEPTH_MIN = 2;
 export const FULL_BLOG_POST_COMPOSITE_MIN = 8;
 export const ARCHIVE_COMPOSITE_MAX = 3;
+const GOOD_SOCIAL_FIT = 2;
+const FULLY_COVERED = 2;
 export const SCORE_BATCH_SIZE = 50;
 export const RELEVANCE_MAX_TOKENS = 1500; // headroom for the reasoning model's thinking tokens
 
@@ -315,7 +319,7 @@ Do not award automatic high scores, minimum scores or publishing recommendations
 Cloudy with a Chance of Insights is a MICROSOFT podcast, not a general AI or cloud show. A podcast candidate MUST have an explicit Microsoft news hook in the supplied article: Microsoft, Azure, Microsoft 365, Copilot, GitHub, Dynamics, Fabric, Entra, Purview, Teams, or Microsoft licensing/partners. Wider industry news qualifies only when the article itself directly connects it to a Microsoft development. OpenAI, Anthropic, Google or AWS news is NOT automatically Microsoft news. Do not invent a Microsoft angle or assume a connection from OpenAI's partnership. Without that explicit connection, podcast fit MUST be 0 and platform MUST NOT be Podcast Topic.
 Within that scope, favour enterprise discussions about AI adoption, value, operating models, procurement, cost, governance and organisational readiness. A Microsoft product mention alone does not make a worthwhile discussion.
 
-**Narrow product features score LOW.** A single service feature, new region, SKU, integration or "now supports..." note (databases, storage, compute, networking, Kubernetes, ML tooling and how-tos) is audienceFit 1 and strategicSignificance 0 unless it changes how enterprises should choose, combine or govern platforms. Most AWS "now supports" posts and Google Cloud feature posts are in this group. Customer-story posts ("How X uses Y") are marketing: audienceFit 1 at most.
+**Narrow product features have limited long-form potential.** A single service feature, new region, SKU, integration or "now supports..." note need not have strategic significance or analytical depth. Judge audience relevance separately: a useful Microsoft/IBM partnership, Foundry or AI-model update can directly serve his audience without changing enterprise architecture. It may make an excellent brief Bluesky update while being unsuitable on its own for a blog, newsletter or podcast. Do not inflate depth or strategy to justify social sharing, and do not award social fit merely for a vendor name. Customer-story posts ("How X uses Y") are marketing: audienceFit 1 at most.
 
 ## What he has published recently (his own pieces)
 ${coveredList}
@@ -368,15 +372,16 @@ When 1 or 2, put the title of his piece in "coveredBy".
 - **Newsletter Candidate**: composite 6-7, topic is broad and cross-cutting (suits a considered issue).
 - **Podcast Topic**: an explicit Microsoft news hook meeting the podcast scope above, with a genuine debate or tension that can sustain 10-15 minutes between three hosts. Rare.
 - **LinkedIn Standalone**: composite 4-7, quick-share. Most scored articles land here.
+- **LinkedIn Standalone** (existing short-social route, also used for Bluesky): social format fit >= 2, audienceFit > 0 and novelty > 0, even when composite <= 3. A useful factual update plus a link needs no original analysis.
 - **Archive**: composite <= 3, OR audienceFit = 0, OR novelty = 0. MANY articles belong here.
 
 ## Format fit (0-3 each, judged independently)
-Rate how well the article suits EACH format, regardless of the single platform above. 0 = no, 1 = weak, 2 = good, 3 = strong. Archive articles are 0 for all.
+Rate how well the article suits EACH format BEFORE choosing the platform. 0 = no, 1 = weak, 2 = good, 3 = strong. Do not zero social fit because long-form scores are low. Archive only if no routing rule, including short-social suitability, applies.
 - **newsletter**: a broad, cross-cutting topic worth a considered paragraph or section in a fortnightly issue.
 - **podcast**: an explicit Microsoft news hook meeting the mandatory podcast scope above, with a genuine debate three hosts could argue about for 10-15 minutes. No Microsoft connection = 0, regardless of general AI significance.
 - **fullBlog**: enough depth and strategic weight for a long-form analytical post (Formal sources, analyticalDepth 2). Rare.
 - **quickBlog**: a timely development worth a short, opinionated Quick Take reaction post.
-- **social**: worth sharing on LinkedIn or Bluesky with a one-line take.
+- **social**: worth a brief LinkedIn or Bluesky update with a source link. Timely, factual Microsoft/IBM partnership and AI-model developments can score 2-3 without strategic significance, original analysis or an opinionated take. For example, a relevant Microsoft Foundry model GA can be strong social material and score 0 for every long-form format. Require a concrete useful development in the supplied evidence; pure promotion, irrelevant or stale news is not enough. Limited descriptions do not establish long-form depth.
 
 ## Spark flag
 Default FALSE. True only when the article contains a SPECIFIC data point, statistic, customer example or counterargument that could be cited verbatim in future content. Expect ~25% sparks.
@@ -446,6 +451,13 @@ export function enforceScoreCaps(
     || parsed.composite <= ARCHIVE_COMPOSITE_MAX
   ) {
     parsed.platform = 'Archive';
+  }
+
+  const fit = normaliseFormatFit(parsed.formatFit);
+  if (parsed.platform === 'Archive' && fit && fit.social >= GOOD_SOCIAL_FIT
+    && parsed.audienceFit > 0 && parsed.novelty > 0
+    && parsed.sourceType !== 'Case Study or Advertorial' && (parsed.alreadyCovered ?? 0) < FULLY_COVERED) {
+    parsed.platform = 'LinkedIn Standalone';
   }
 
   return parsed;

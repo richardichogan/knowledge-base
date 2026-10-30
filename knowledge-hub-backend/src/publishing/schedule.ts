@@ -127,7 +127,8 @@ export function planSchedule(candidates: Candidate[], settings: PublishingFeed[]
     if (!reason) {
       const until = new Date(now.getTime() + PLANNING_HOURS * MS_PER_HOUR);
       const prior = draft.scheduledAt ? new Date(draft.scheduledAt) : undefined;
-      const due = prior && prior.getTime() >= now.getTime() - LEAD && prior.getTime() >= dependency
+      const overdue = prior !== undefined && prior.getTime() <= now.getTime();
+      const due = prior && prior.getTime() >= dependency
         && (!retry?.nextAttemptAt || prior.getTime() >= Date.parse(retry.nextAttemptAt));
       const options = [
         ...(due ? [prior] : []),
@@ -135,16 +136,20 @@ export function planSchedule(candidates: Candidate[], settings: PublishingFeed[]
         ...slots(feed, draft.destination, new Date(Math.max(earliest, dependency)), until),
       ];
       const hook = pair.find(d => d.destination === 'linkedin');
-      at = options.find(time => time < until && inWindow(feed.policy, time) && available(draft, time)
+      at = overdue ? prior : options.find(time => time < until && inWindow(feed.policy, time) && available(draft, time)
         && (draft.destination !== 'blog' || (hook
           && inWindow(feed.policy, new Date(time.getTime() + LEAD)) && available(hook, new Date(time.getTime() + LEAD)))));
+      const effectiveAt = at && new Date(Math.max(at.getTime(), now.getTime(), dependency,
+        retry?.nextAttemptAt ? Date.parse(retry.nextAttemptAt) : 0));
+      const canReserve = effectiveAt !== undefined && inWindow(feed.policy, effectiveAt) && available(draft, effectiveAt);
+      if (overdue) reason = 'Overdue; awaiting delivery checks. The original assigned time is retained, not silently rescheduled.';
       if (!at) reason = 'No slot in the next 30 days fits the publishing window, daily limits, spacing and package dependencies. Adjust the publishing window or resolve earlier queued items, then refresh. This draft remains queued.';
-      else {
+      else if (canReserve) {
         const reservation = bookings.find(b => b.draftId === draft.id);
-        if (reservation) reservation.at = at;
-        else bookings.push({ draftId: draft.id, destination: draft.destination, account: String(draft.content.account), at });
+        if (reservation) reservation.at = effectiveAt;
+        else bookings.push({ draftId: draft.id, destination: draft.destination, account: String(draft.content.account), at: effectiveAt });
         if (draft.destination === 'blog' && hook) bookings.push({
-          draftId: hook.id, destination: 'linkedin', account: String(hook.content.account), at: new Date(at.getTime() + LEAD),
+          draftId: hook.id, destination: 'linkedin', account: String(hook.content.account), at: new Date(effectiveAt.getTime() + LEAD),
         });
       }
     }
