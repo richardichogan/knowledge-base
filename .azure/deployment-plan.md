@@ -2,6 +2,57 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-30, manual-blog workforce pilot):**
+- User explicitly authorised shared DB changes and production deployment after
+  the proposed per-assignment limits of 60 calls, 1,000,000 reserved tokens and
+  30 minutes. Enable only the existing manual-blog team; publishing stays manual.
+- Existing application-only AZCLI targets: Alliance Tenant Reporting
+  (c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28), rg-knowledge-hub-prod, UK South,
+  kh-prod-api-vnet and kh-prod-web. No provisioning, RBAC, policy, identity,
+  provider, dependency or secret changes. Managed identity is absent; the
+  existing registry credential mechanism is retained. Infrastructure/template,
+  what-if and azd-provision checks are not applicable.
+- All validation checks pass:
+  - [x] Remote main and HEAD both d0c0a037; merge already current. Existing
+    packed-refs lock warning was not removed or bypassed with destructive Git.
+  - [x] Both application TypeScript checks, lint non-regression and builds passed.
+    Backend lint 546/623; frontend 22/41. Frontend entry index-CFHviBeO.js.
+  - [x] Full isolated backend suite ran once: 851/883 initially passed.
+    Corrected new fixture SELECT row counts, missing worker pools, duplicate
+    event kind and Podcast transaction mocks; preserved budget errors rather
+    than reporting them as generic cancellation. All 102 directly affected
+    workforce/model-control/Podcast chat cases then passed. No full rerun.
+  - [x] Full isolated frontend suite passed: 340 cases including bundled cases.
+  - [x] Docker packaging includes all migrations, lockfile installs and
+    TypeScript compilation. Existing ACR performs the container build.
+  - [x] Azure CLI authentication, ACA health/image and SWA target reads passed.
+    Current image v275; release image v276. Azure MCP failed initialization
+    with a corrupt application bundle; authenticated CLI is used instead.
+  - [x] Shared database preflight: through migration122, no queued/running
+    specialist jobs. Owner is the existing production allowed Entra object ID.
+  - [x] Staged diff whitespace check passed; unrelated hook cache excluded.
+- Fit report: (1) fixed scoped roles and PostgreSQL queue reuse the architecture;
+  (2) existing ACA/SWA/shared-data hosting and two-slot worker are preserved;
+  (3) no new dependencies/resources; only explicit bounded assignment usage;
+  (4) typed owner/source/artifact contracts and publishing gates remain enforced;
+  (5) no secrets committed, scope and lease fences retained; operational race
+  proof is not inferred from fixtures; (6) safest release is manual-blog only,
+  with later workforce migrations deferred and no automatic publication.
+- Evidence: session files/workforce-release-{backend,frontend,affected-final,
+  web-build}.log. Apply only migrations123-126 with explicit setup; install the
+  production owner's bounded profile, drain old revision, then enable the pilot.
+- Release completed: application commit 47aa2691a101feab899696d06bce5c4b87ce7545
+  pushed to branch and main. ACR run ca8p built/pushed v276. Old revision0000272
+  drained/deactivated; additive migrations123-126 and immutable owner profile
+  8751ee28-2df0-4f44-a1cb-0382f29758fb applied. Backend revision0000273 is
+  Healthy/RunningAtMaxScale, latest-ready and receives 100% traffic with
+  ATHENA_WORKFORCE_MANUAL_BLOG=true. Startup logs confirm migrations complete,
+  warmed DB and production worker running, without configuration errors.
+- SWA deployed successfully; https://athena.themicrosoftcloudblog.com/ serves
+  index-CFHviBeO.js with HTTP200, and the entry asset is accessible. Read-only
+  persisted setup check returns ready with the approved profile/limits.
+  No blog was automatically commissioned, model-evaluated or published.
+
 **Release scope and Section 7: Validation Proof (2026-10-30, compact presentation topic labels):**
 - User requested deployment of presentation-only Topic 1, Topic 2, etc.
   Full saved titles and script-editor content remain unchanged.

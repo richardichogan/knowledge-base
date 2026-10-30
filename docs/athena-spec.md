@@ -612,11 +612,20 @@ accepted review or weaken the publishing gate.
 
 `ATHENA_WORKFORCE_MANUAL_BLOG` defaults to disabled. Only an explicit enablement
 registers the concrete executor, and that flag cannot supply a missing
-owner-approved numeric budget. No numeric profile is seeded/enabled and no
-migration or live pilot has been performed by these changes. The adapter/API
+owner-approved numeric budget. No numeric profile is seeded by the migrations.
+The adapter/API
 code is not proof of SQL race correctness, editorial quality, full existing-UI
 integration or accepted operational pilot evidence. Those remain rollout gates,
 and subsequent feature migrations remain gated on accepted blog-pilot evidence.
+
+On 30 October 2026, Richard explicitly authorised the shared database changes
+and production deployment. Migrations 123-126 were applied, an enabled profile
+was configured for the existing production owner (60 calls including research
+and retries, 1,000,000 reserved tokens and 30 minutes per assignment), and the
+manual-blog executor was enabled in backend v276. The frontend keeps the
+existing Start drafting, Background work and editor/Recheck surfaces. Publishing
+remains manual. This is the deployed manual-blog pilot, not completion of the
+later workforce migrations or a claim that live editorial acceptance has passed.
 
 #### Manual-blog local pilot setup
 
