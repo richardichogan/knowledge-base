@@ -38,6 +38,17 @@
 - Evidence: session files/prompter-release-{web-tests,affected,desktop-tests,
   elgato-tests,web-build,installer}.log. Exclude unrelated hook cache and generated
   installers from Git; publish installer/update metadata through GitHub Releases.
+- Release completed: application commit a669513ff4fb7f56c72632e210d1683e2ce1e0df
+  pushed to branch and main. SWA deployment succeeded; the production custom
+  domain serves index-D79B1H7d.js and its entry asset with HTTP200.
+- Desktop v0.1.9 is published as the latest GitHub release, tagged at the same
+  application commit. The builder's concurrent release-creation race left a
+  partial release; completed it by uploading the already-packaged installer and
+  latest.yml with gh, without rebuilding again. Installer, blockmap and updater
+  metadata are uploaded. Remote installer SHA256 matches the packaged file;
+  downloaded latest.yml matches the local updater metadata exactly.
+- Unchanged backend revision0000273 remains Healthy/RunningAtMaxScale. No
+  database changes, backend restart or automatic blog generation occurred.
 
 **Release scope and Section 7: Validation Proof (2026-10-30, manual-blog workforce pilot):**
 - User explicitly authorised shared DB changes and production deployment after
