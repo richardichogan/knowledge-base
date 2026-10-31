@@ -154,8 +154,11 @@ export function PassageTagManager({ editor, noteId, save, onError, githubPublish
       if (markedText(editor.document).get(tagId)?.trim() !== draft.passageText) {
         throw new Error('The passage changed while Athena was working. Retry with the updated text.');
       }
-      requireApiData(await api.savePassageFollowup(noteId, tagId, draft));
+      const created = requireApiData(await api.savePassageFollowup(noteId, tagId, draft));
       await refresh();
+      if (created.assistanceStatus === 'failed' && alive.current) {
+        setError('Follow-up task created, but Athena could not queue its help proposal. Open the task and choose Help me to retry.');
+      }
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : 'Could not create the Follow-up task.';
       if (alive.current) setError(`${message} The tag is retained; retry below.`);

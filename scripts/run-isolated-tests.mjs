@@ -94,6 +94,7 @@ const tests = frontend ? [
   'scripts/focused-context.test.ts',
   'scripts/tool-catalog.test.ts',
   'scripts/project-context.test.ts',
+  'scripts/project-work-types.test.ts',
   'scripts/content-sync.test.ts',
   'scripts/chat-session-store.test.ts',
   'scripts/chat-references.test.ts',

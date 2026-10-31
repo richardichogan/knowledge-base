@@ -55,6 +55,9 @@ import type { CanvasFull } from '../services/canvasService.js';
 import { findDiagramContext, readDiagramPage } from '../services/diagramContext.js';
 import { createSpark } from '../services/sparkService.js';
 import { loadCurrentProjectContext } from './projectContext.js';
+import { getProjectCockpit, listRegister } from '../projects/cockpit.js';
+import { getPacket, listPackets } from '../projects/reviewPackets.js';
+import { getProjectChanges } from '../projects/workContext.js';
 import { EXCLUSION_GATED_TOOLS, EXCLUSIONS_UNAVAILABLE_RESULT, executeReadKnowledgeRecord } from '../services/knowledge/tool.js';
 import { executeTraverseRelationships } from './knowledge/traversalLoader.js';
 import { isKnowledgeOrchestrationEnabled, searchContentPreview } from './knowledge/budgets.js';
@@ -66,6 +69,7 @@ import { searchKnowledgeGraph as searchGraph } from './graphInference.js';
 import { readPublicPage, readingExcerpt } from '../utils/articleReading.js';
 import { REVIEW_DECISIONS_DEFINITION, REVIEW_DECISIONS_TOOL, executeReviewDecisions } from './semanticDecisionReview.js';
 import { searchPastChats, readPastChat, PAST_CHAT_SEARCH_DEFAULT_LIMIT, PAST_CHAT_SEARCH_MAX_LIMIT, PAST_CHAT_READ_DEFAULT_MESSAGES } from './chatSessionStore.js';
+import { prepareAutomaticTaskAssistance } from '../work/taskAssistanceQueue.js';
 /** Cap on how much note text (including image vision analysis) we hand to the model per result. */
 const NOTE_CONTENT_MAX_CHARS = 6000;
 const DIAGRAM_SEARCH_PREVIEW_CHARS = 1000;
@@ -159,10 +163,16 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
       type: 'function',
       function: {
         name: 'get_project_details',
-        description: 'Reads the current saved Projects record: goal, user role, ownership, state, dates, importance, expected outputs, references and repositories. Use this for any named project before relying on older chat history or memories. Defaults to the conversation project only when projectId is omitted.',
+        description: 'Reads the current saved Projects record: work type, description, goal, role, ownership, state, dates, importance, deliverables, references and repositories. includeWork retrieves bounded commitments, blockers, evidence links, the first register page and review packet summaries; packetId reads the full saved packet. Use saved-content retrieval for full linked notes/outputs. Defaults to the conversation project when projectId is omitted.',
         parameters: {
           type: 'object',
-          properties: { projectId: { type: 'string', description: 'Saved project ID from the projects catalog. May be omitted when this chat has an assigned project.' } },
+          properties: {
+            projectId: { type: 'string', description: 'Saved project ID from the projects catalog. May be omitted when this chat has an assigned project.' },
+            includeWork: { type: 'boolean' },
+            changesSince: { type: 'string', description: 'ISO timestamp for changed records. Defaults to the last 24 hours; specify the visible period when comparing it with the page.' },
+            registerOffset: { type: 'integer', minimum: 0, description: 'Register page offset; pages contain at most 25 items.' },
+            packetId: { type: 'string', description: 'Saved packet ID from the review packet summaries.' },
+          },
         },
       },
     },
@@ -975,9 +985,32 @@ export async function executeToolCall(
       const id = contextualArgs['projectId'];
       if (typeof id !== 'string' || id.trim() === '') return { error: 'Provide a saved project ID from the projects catalog.' };
       const project = await loadCurrentProjectContext(db, id.trim());
-      return project === null
-        ? { error: `Project "${id}" was not found.` }
-        : { project, note: 'Current saved Projects record, read now. Takes precedence over older chat history and memories.' };
+      if (project === null) return { error: `Project "${id}" was not found.` };
+      const offset = args['registerOffset'] ?? 0;
+      if (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0) {
+        console.warn('[ChatTools] Invalid project register offset');
+        return { error: 'registerOffset must be a non-negative integer.' };
+      }
+      const packetId = args['packetId'];
+      if (packetId !== undefined && (typeof packetId !== 'string' || packetId.trim() === '')) {
+        console.warn('[ChatTools] Invalid project packet ID');
+        return { error: 'packetId must be a saved review packet ID.' };
+      }
+      const work = args['includeWork'] === true ? {
+        cockpit: await getProjectCockpit(db, project.id),
+        changes: await getProjectChanges(db, project.id, args['changesSince']),
+        register: await listRegister(db, project.id, { limit: 25, offset }),
+        packets: await listPackets(db, project.id),
+      } : undefined;
+      const packet = typeof packetId === 'string' ? await getPacket(db, project.id, packetId) : undefined;
+      return {
+        project,
+        ...(work === undefined ? {} : { work }),
+        ...(packet === undefined ? {} : { packet }),
+        note: work === undefined && packet === undefined
+          ? 'Current saved Projects record, read now. Takes precedence over older chat history and memories.'
+          : 'Current saved project information, read now. Work/evidence lists are bounded, not full linked-document reads. Takes precedence over older chat history and memories.',
+      };
     }
     // With a canvas open, searches are usually for picking items to put on it — short extracts are enough.
     case 'search_knowledge_base': return searchKnowledgeBase(db, args, turn.mapCanvas !== undefined ? CANVAS_SEARCH_CONTENT_CHARS : undefined, turn);
@@ -1035,8 +1068,8 @@ export async function executeToolCall(
       return { updated: done, schedule: describeSchedule(await getSchedule(db)) };
     }
     case 'search_library':        return searchLibrary(db, args, turn.mapCanvas !== undefined ? CANVAS_SEARCH_CONTENT_CHARS : LIBRARY_RESULT_CONTENT_CHARS);
-    case 'create_task':           return createTask(db, args, turn.sessionId);
-    case 'update_task':           return updateTask(db, args, turn.sessionId);
+    case 'create_task':           return createTask(db, args, turn.sessionId, turn.userId);
+    case 'update_task':           return updateTask(db, args, turn.sessionId, turn.userId);
     case 'create_note_draft':     return createNoteDraft(db, contextualArgs);
     case 'create_spark':          return createSparkFromChat(db, args);
     case 'remember':              return rememberInstruction(db, args, turn.sessionId);
@@ -1681,7 +1714,12 @@ function summariseTask(task: Task): Record<string, unknown> {
   };
 }
 
-async function createTask(db: Pool, args: Record<string, unknown>, sessionId: string | undefined): Promise<unknown> {
+async function createTask(
+  db: Pool,
+  args: Record<string, unknown>,
+  sessionId: string | undefined,
+  userId: string | undefined,
+): Promise<unknown> {
   const title = typeof args['title'] === 'string' ? args['title'].trim() : '';
   if (title === '') return { error: 'title is required' };
 
@@ -1756,7 +1794,13 @@ async function createTask(db: Pool, args: Record<string, unknown>, sessionId: st
   queueAutoTag(db, 'task', task.id);
   const tags = Array.isArray(args['tags']) ? await setTaskTags(db, task.id, args['tags']) : [];
   const linkedChat = args['linkThisChat'] === true && sessionId !== undefined ? await linkChat(db, task.id, sessionId) : false;
-  return { success: true, task: { ...summariseTask(task), tags }, ...(linkedChat && { linkedChat: true }) };
+  const assistance = await prepareAutomaticTaskAssistance(db, task.id, userId, sessionId
+    ? { kind: 'chat', conversationId: sessionId } : { kind: 'app' });
+  return {
+    success: true, task: { ...summariseTask(task), tags },
+    assistance,
+    ...(linkedChat && { linkedChat: true }),
+  };
 }
 
 // Common English filler words to strip when tokenizing a matchTitle for fuzzy
@@ -1851,7 +1895,7 @@ async function resolveTask(
   return { error: 'Provide either taskId or matchTitle' };
 }
 
-async function updateTask(db: Pool, args: Record<string, unknown>, sessionId: string | undefined): Promise<unknown> {
+async function updateTask(db: Pool, args: Record<string, unknown>, sessionId: string | undefined, userId: string | undefined): Promise<unknown> {
   const resolved = await resolveTask(db, args['taskId'], args['matchTitle']);
   if ('error' in resolved) return resolved;
   if ('notFound' in resolved) {
@@ -1925,7 +1969,8 @@ async function updateTask(db: Pool, args: Record<string, unknown>, sessionId: st
   fields.push('updated_at = NOW()');
   params.push(resolved.id);
   const result = await db.query<Record<string, unknown>>(
-    `UPDATE tasks SET ${fields.join(', ')} WHERE id = $${params.length} RETURNING *`,
+    `WITH previous AS MATERIALIZED (SELECT id,status FROM tasks WHERE id=$${params.length} AND NOT archived FOR UPDATE)
+     UPDATE tasks t SET ${fields.join(', ')} FROM previous p WHERE t.id=p.id RETURNING t.*,p.status AS previous_status`,
     params,
   );
   const row = result.rows[0];
@@ -1934,9 +1979,13 @@ async function updateTask(db: Pool, args: Record<string, unknown>, sessionId: st
   const task = rowToTask(row);
   const tags = wantsTags ? await setTaskTags(db, task.id, args['tags'] as unknown[]) : (await taskTagNames(db, [task.id])).get(task.id) ?? [];
   const linkedChat = wantsLink ? await linkChat(db, task.id, sessionId) : false;
+  const assistance = row['previous_status'] === 'inbox' && task.status !== 'inbox'
+    ? await prepareAutomaticTaskAssistance(db, task.id, userId, sessionId
+      ? { kind: 'chat', conversationId: sessionId } : { kind: 'app' }) : undefined;
   return {
     success: true,
     task: { ...summariseTask(task), tags },
+    ...(assistance ? { assistance } : {}),
     ...(specTitle !== null && { specAdded: specTitle }),
     ...(linkedChat && { linkedChat: true }),
   };

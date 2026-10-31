@@ -917,7 +917,11 @@ export const TasksPage: React.FC<{
   const savePending = useRef(false);
   const createMutation = useMutation({
     mutationFn: async (input: Partial<Task> & { title: string }) => requireApiData(await api.createTask(input)),
-    onSuccess:  () => { void queryClient.invalidateQueries({ queryKey: ['tasks'] }); setModalOpen(false); },
+    onSuccess: task => {
+      void queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      setModalOpen(false);
+      if (task.assistanceStatus === 'failed') setSaveError('Task created, but Athena could not queue its help proposal. Open the task and choose Help me to retry.');
+    },
     onError: (error) => { setSaveError(describeApiError(error)); },
     onSettled: () => { savePending.current = false; },
   });
@@ -941,9 +945,11 @@ export const TasksPage: React.FC<{
   const updateMutation = useMutation({
     mutationFn: async ({ id, ...input }: Partial<Task> & { id: string }) =>
       requireApiData(await api.updateTask(id, input)),
-    onSuccess: () => {
+    onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      setSaveError(null);
+      void queryClient.invalidateQueries({ queryKey: ['task-assistance', saved.id] });
+      setSaveError(saved.assistanceStatus === 'failed'
+        ? 'Task saved, but Athena could not queue its help proposal. Open the task and choose Help me to retry.' : null);
       setModalOpen(false);
       setEditTask(null);
     },
@@ -969,6 +975,8 @@ export const TasksPage: React.FC<{
       return { previous, queryKey };
     },
     onSuccess: (saved) => {
+      if (saved.assistanceStatus === 'failed') setSaveError('Task saved, but Athena could not queue its help proposal. Open the task and choose Help me to retry.');
+      void queryClient.invalidateQueries({ queryKey: ['task-assistance', saved.id] });
       queryClient.setQueriesData<ApiSuccess<PaginatedList<Task>>>({ queryKey: ['tasks'] }, (current) => {
         if (current === undefined || !current.success) return current;
         return {
@@ -1036,7 +1044,7 @@ export const TasksPage: React.FC<{
       {!selectedTaskId && <>
       {isPending && <InlineLoading description="Loading…" />}
       {isError && <DataNotice title="Tasks are unavailable" error={loadError} onRetry={() => { void refetch(); }} />}
-      {saveError !== null && !modalOpen && <DataNotice title="Task change was not saved" error={saveError} />}
+      {saveError !== null && !modalOpen && <DataNotice title="Task update needs attention" error={saveError} />}
       {view === 'board' && useCasesError !== null && (
         <DataNotice title="Use cases are unavailable" error={useCasesError} onRetry={() => { void refetchUseCases(); }} />
       )}

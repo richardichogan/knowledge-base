@@ -1,5 +1,9 @@
 # Planned features (not yet implemented)
 
+For the 31 October 2026 outcome-focused recommendations and the agreed first
+task-help implementation slice, see [Athena outcome roadmap](athena-outcome-roadmap.md).
+The historical briefs below do not supersede current repository instructions.
+
 Source: the October 2026 UX review and competitor research (Linear, Raycast, Notion, Obsidian, Capacities, Tana, Readwise Reader, Feedly, NotebookLM, Perplexity and others). Items below record the original recommendations; implementation updates identify development work awaiting review. Each is written so a new session can start without prior context.
 
 **Implementation update (18 October 2026, awaiting owner review):** wiki links,

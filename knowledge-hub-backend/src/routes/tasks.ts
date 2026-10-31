@@ -16,6 +16,7 @@ import type { PoolClient } from 'pg';
 import { normaliseTaskStatus, type TaskStatus } from '../services/taskStatus.js';
 import { reviewPlan } from '../services/planReview.js';
 import { atRiskTasks, getCheckin, isLaterDueDate, saveCheckin, workDay } from '../services/planNudges.js';
+import { prepareAutomaticTaskAssistance } from '../work/taskAssistanceQueue.js';
 
 const ISO_DATE_LENGTH = 10;
 const MAX_SETTLED = 50;
@@ -202,7 +203,11 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
           task.externalUrl = url;
         } catch (e) { console.error('[tasks] GitHub issue push failed:', e); }
       }
-      const body: ApiSuccess<Task> = { success: true, data: task };
+      const assistance = await prepareAutomaticTaskAssistance(getDb(), task.id,
+        'userId' in req && typeof req.userId === 'string' ? req.userId : undefined, { kind: 'app' });
+      const body: ApiSuccess<Task & { assistanceStatus: typeof assistance.status }> = {
+        success: true, data: { ...task, assistanceStatus: assistance.status },
+      };
       res.status(HTTP_STATUS.CREATED).json(body);
       void syncTaskToTimeline(getDb(), task);
       queueAutoTag(getDb(), 'task', task.id);
@@ -334,7 +339,12 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       await db.query('COMMIT');
       client.release();
       client = undefined;
-      const body: ApiSuccess<Task> = { success: true, data: task };
+      const assistance = previousStatus === 'inbox' && task.status !== 'inbox'
+        ? await prepareAutomaticTaskAssistance(getDb(), task.id,
+          'userId' in req && typeof req.userId === 'string' ? req.userId : undefined, { kind: 'app' }) : undefined;
+      const body: ApiSuccess<Task & { assistanceStatus?: 'queued' | 'failed' | 'skipped' }> = {
+        success: true, data: { ...task, ...(assistance ? { assistanceStatus: assistance.status } : {}) },
+      };
       res.status(HTTP_STATUS.OK).json(body);
       void syncTaskToTimeline(getDb(), task);
       for (const spawned of spawnedTasks) void syncTaskToTimeline(getDb(), spawned);

@@ -48,6 +48,7 @@ import type {
   CreateUseCaseInput, DraftSpecResult, HandoffInput, HandoffResult, UseCase, UseCaseDetail, UseCasePatch, UseCaseSourceRef,
 } from '../types/useCases';
 import type { PodcastPrepStatus } from '../types/podcastPrep';
+import { requestCompletionNotifications } from '../chat/completionNotification';
 import type { PodcastEpisode, ScriptCard } from '../types/podcastEpisodes';
 import type { WorkContent, WorkContentPatch } from '../types/workContent';
 import type { LearningOverview, LearningQuestionView, LearningSession, LearningMessage, LearningTopicHistory } from '../types/learning';
@@ -410,7 +411,7 @@ export type ProjectColour =
   | 'red' | 'magenta' | 'purple' | 'indigo' | 'warm-gray' | 'gray';
 export type ProjectCategory = 'work' | 'personal' | 'side-hustle';
 export type ProjectPriority = 'low' | 'medium' | 'high';
-export type ProjectType = 'standard' | 'formal-client';
+export type ProjectType = 'project' | 'bau' | 'aspiration' | 'exploration' | 'side-project';
 export type ProjectLifecycleState = 'active' | 'paused' | 'completed' | 'archived';
 export type ProjectImportance = 'critical' | 'high' | 'normal' | 'low';
 
@@ -614,6 +615,7 @@ export interface DiscoverItem {
   title: string;
   url: string | null;
   description: string | null;
+  publisherSummaryOrigin?: 'feed' | 'seo';
   publishedAt: string;
   indexedAt: string;
   sourceTitle: string;
@@ -980,7 +982,9 @@ export class KnowledgeHubApi {
 
   async savePassageFollowup(noteId: string, tagId: string, task?: { title: string; body: string; projectId: string; passageText: string }): Promise<ApiResponse<{
     taskId: string | null; state: 'pending' | 'created';
+    assistanceStatus?: 'queued' | 'failed' | 'skipped';
   }>> {
+    if (task) requestCompletionNotifications();
     return (await this.client.post(`/api/notes/${encodeURIComponent(noteId)}/passage-followups/${encodeURIComponent(tagId)}`, task ?? {})).data;
   }
 
@@ -1644,12 +1648,14 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  async createTask(input: CreateTaskInput): Promise<ApiResponse<PlanTask>> {
-    const r = await this.client.post<ApiResponse<PlanTask>>('/api/tasks', input);
+  async createTask(input: CreateTaskInput): Promise<ApiResponse<PlanTask & { assistanceStatus?: 'queued' | 'failed' | 'skipped' }>> {
+    requestCompletionNotifications();
+    const r = await this.client.post<ApiResponse<PlanTask & { assistanceStatus?: 'queued' | 'failed' | 'skipped' }>>('/api/tasks', input);
     return r.data;
   }
 
   async updateTask(id: string, input: Record<string, unknown>): Promise<ApiResponse<PlanTask>> {
+    if (input.status !== undefined && input.status !== 'inbox' && input.status !== 'completed') requestCompletionNotifications();
     const r = await this.client.patch<ApiResponse<PlanTask>>(`/api/tasks/${id}`, input);
     return r.data.success && r.data.data ? { ...r.data, data: normaliseTask(r.data.data) } : r.data;
   }
@@ -2060,6 +2066,12 @@ export class KnowledgeHubApi {
       { params: { state, source, page, pageSize, title, sort, format } },
     );
     return r.data;
+  }
+
+  async getDiscoverPublisherSummary(id: string): Promise<ApiResponse<{ text: string | null; origin: 'feed' | 'seo' }>> {
+    return (await this.client.get<ApiResponse<{ text: string | null; origin: 'feed' | 'seo' }>>(
+      `/api/discover/${encodeURIComponent(id)}/publisher-summary`, { timeout: CHAT_TIMEOUT_MS },
+    )).data;
   }
 
   async getDiscoverSources(state?: string): Promise<ApiResponse<Array<{ title: string; count: number }>>> {

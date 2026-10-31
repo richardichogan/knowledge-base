@@ -196,30 +196,42 @@ const PAGE_TIMEOUT_MS = 10_000;
 const PAGE_READ_BYTES = 300_000;
 
 function metaContent(html: string, key: string): string {
-  const re = new RegExp(`<meta[^>]+(?:name|property)=["']${key}["'][^>]*>`, 'i');
-  const tag = re.exec(html)?.[0] ?? '';
-  return /content=["']([^"']*)["']/i.exec(tag)?.[1] ?? '';
+  for (const match of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const attributes = new Map([...match[0].matchAll(/([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g)]
+      .map(([, name, doubleQuoted, singleQuoted, unquoted]) => [(name ?? '').toLowerCase(), doubleQuoted ?? singleQuoted ?? unquoted ?? '']));
+    if ((attributes.get('name') ?? attributes.get('property') ?? '').toLowerCase() === key) return attributes.get('content') ?? '';
+  }
+  return '';
 }
 
 /** For feeds that publish titles only: the page's own summary line (og:description / meta description). */
-export async function fetchPageDescription(url: string): Promise<string> {
+export async function fetchPageDescription(url: string, throwOnError = false): Promise<string> {
   try {
     const response = await fetchPublic(url, { headers: { 'User-Agent': USER_AGENT, Accept: 'text/html' }, timeoutMs: PAGE_TIMEOUT_MS });
-    if (!response.ok || response.body === null) return '';
+    if (!response.ok || response.body === null) throw new Error(`Page description returned HTTP ${response.status}`);
     const reader = response.body.getReader();
     let html = '';
     const decoder = new TextDecoder();
-    while (html.length < PAGE_READ_BYTES) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      html += decoder.decode(value, { stream: true });
-      if (/<\/head>/i.test(html)) break;
+    let bytes = 0;
+    try {
+      while (bytes < PAGE_READ_BYTES) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const remaining = PAGE_READ_BYTES - bytes;
+        html += decoder.decode(value.subarray(0, remaining), { stream: true });
+        bytes += value.byteLength;
+        if (/<\/head>/i.test(html)) break;
+      }
+      html += decoder.decode();
+    } finally {
+      await reader.cancel();
     }
-    void reader.cancel().catch(() => undefined);
     const description = metaContent(html, 'og:description') || metaContent(html, 'description') || metaContent(html, 'twitter:description');
     return toPlainSummary(description);
   } catch (error) {
     rethrowAssignmentControl(error);
+    console.warn('[Discovery] Publisher page summary could not be retrieved:', error instanceof Error ? error.message : error);
+    if (throwOnError) throw error;
     return '';
   }
 }

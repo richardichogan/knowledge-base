@@ -209,8 +209,8 @@ CREATE TABLE IF NOT EXISTS projects (
                    CHECK (category IN ('work','personal','side-hustle')),
   priority         TEXT NOT NULL DEFAULT 'medium'
                    CHECK (priority IN ('low','medium','high')),
-  project_type     TEXT NOT NULL DEFAULT 'standard'
-                   CHECK (project_type IN ('standard','formal-client')),
+  project_type     TEXT NOT NULL DEFAULT 'project'
+                   CHECK (project_type IN ('project','bau','aspiration','exploration','side-project')),
   description      TEXT NOT NULL DEFAULT '',
   goal             TEXT NOT NULL DEFAULT '',
   role             TEXT NOT NULL DEFAULT '',

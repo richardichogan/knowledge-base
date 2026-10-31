@@ -23,6 +23,7 @@ export function TaskDetail({ taskId }: { taskId: string }): React.ReactElement {
   const [direction, setDirection] = useState('');
   const [copyStatus, setCopyStatus] = useState('');
   const [copyError, setCopyError] = useState<unknown>(null);
+  const [automaticHelpError, setAutomaticHelpError] = useState<Error | null>(null);
   const detail = useQuery({
     queryKey: ['task-assistance', taskId],
     queryFn: async () => requireApiData(await api.getTaskAssistance(taskId)),
@@ -42,7 +43,12 @@ export function TaskDetail({ taskId }: { taskId: string }): React.ReactElement {
   });
   const edit = useMutation({
     mutationFn: async (input: Partial<PlanTask> & { title: string }) => requireApiData(await api.updateTask(taskId, input)),
-    onSuccess: async () => { setEditing(false); await refresh(); },
+    onSuccess: async saved => {
+      setAutomaticHelpError(saved.assistanceStatus === 'failed'
+        ? new Error('Task saved, but Athena could not queue its help proposal. Choose Help me to retry.') : null);
+      setEditing(false);
+      await refresh();
+    },
   });
   const copy = useMutation({
     mutationFn: async (id: string) => {
@@ -87,8 +93,8 @@ export function TaskDetail({ taskId }: { taskId: string }): React.ReactElement {
     {task.waitingOn && <p>Waiting on: {task.waitingOn}</p>}
     {task.externalUrl && <a className="dc-explore__source-link" href={task.externalUrl} target="_blank" rel="noreferrer">Original task source <Launch size={16} /></a>}
     <section className="kh-task-detail__assistance" aria-labelledby={`task-assistance-${task.id}`}>
-      <h3 id={`task-assistance-${task.id}`}>Athena assistance</h3>
-      <p>Assess what Athena can advance, then approve the proposed work. Your task stays open; sending and changes to original diagrams remain yours.</p>
+      <h3 id={`task-assistance-${task.id}`}>How Athena could help</h3>
+      <p>Athena prepares a proposal for new non-recurring tasks and notifies you when it is ready. Inbox tasks wait until you accept them. Recurring tasks use Help me on request. Research, drafting and changes do not start until you approve them here.</p>
       <label className="kh-task-detail__field">Direction or clarification <span>(optional)</span>
         <textarea value={direction} maxLength={3000} disabled={busy} rows={3}
           onChange={event => { setDirection(event.target.value); }}
@@ -96,7 +102,9 @@ export function TaskDetail({ taskId }: { taskId: string }): React.ReactElement {
       </label>
       <button type="button" className="dc-explore__primary" disabled={busy || task.status === 'completed'}
         onClick={() => { assess.mutate(); }}>{assess.isPending ? 'Assessing what Athena can do...' : latest ? 'Reassess with this direction' : 'Help me'}</button>
+      {active && !latest && <p role="status">Athena is preparing a help proposal. You will be notified when it is ready.</p>}
       {assess.error && <DataNotice title="Assistance assessment failed" error={assess.error} />}
+      {automaticHelpError && <DataNotice title="Task saved; help proposal needs attention" error={automaticHelpError} />}
       {detail.isError && <DataNotice title="Assistance status could not refresh" error={detail.error} onRetry={() => { void detail.refetch(); }} />}
       {latest && <div className="kh-task-detail__proposal" aria-live="polite">
         <h4>{latest.proposal.kind === 'research' ? 'Iris · Research proposal' : latest.proposal.kind === 'email' ? 'Email draft proposal' : 'Outside current capabilities'}</h4>

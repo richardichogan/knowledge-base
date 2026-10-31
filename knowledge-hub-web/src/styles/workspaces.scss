@@ -855,11 +855,17 @@ dialog.kh-workspace-panel--overlay {
 
 @container (max-width: 479px) {
   .dc-project-fits > div { grid-template-columns: minmax(0, 1fr); }
+  .proj-context-item { grid-template-columns: minmax(0, 1fr); }
+}
+
+@container (max-width: 599px) {
+  .proj-card-details__body { grid-template-columns: minmax(0, 1fr); }
 }
 
 @container (min-width: 700px) {
   .dc-explore-inline .dc-explore__panel .dc-explore__title,
   .kh-task-detail .kh-task-detail__header h2,
+  .proj-detail .proj-card-name,
   .kh-review-workspace__detail .today-brief__item h3 { font-size: 2.5rem; line-height: 1.2; }
 }
 

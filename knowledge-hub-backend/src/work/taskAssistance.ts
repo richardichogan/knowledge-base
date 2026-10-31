@@ -134,8 +134,11 @@ export async function taskAssistanceDetail(db: Pool, taskId: string, ownerId: st
     'SELECT * FROM task_assistance WHERE task_id=$1 AND owner_id=$2 ORDER BY created_at DESC LIMIT $3',
     [taskId, ownerId, MAX_PROPOSALS])).rows;
   const jobIds = (await db.query<{ id: string }>(`SELECT j.id FROM agent_jobs j
-    JOIN task_assistance a ON a.id::text=j.input->>'proposalId'
-    WHERE a.task_id=$1 AND a.owner_id=$2 AND j.subject_type='task' AND j.subject_id=$1
+    WHERE j.subject_type='task' AND j.subject_id=$1 AND (
+      EXISTS (SELECT 1 FROM task_assistance a WHERE a.id::text=j.input->>'proposalId'
+        AND a.task_id=$1 AND a.owner_id=$2)
+      OR (j.specialist='task-assistance-assessor' AND j.input->>'ownerId'=$2)
+    )
     ORDER BY j.created_at DESC LIMIT $3`, [taskId, ownerId, MAX_PROPOSALS])).rows;
   const jobs = await Promise.all(jobIds.map(job => getAgentJob(db, job.id, ownerId)));
   return { task, proposals: proposals.map(row => ({ id: row.id, proposal: row.proposal, approved: row.approved_at !== null,

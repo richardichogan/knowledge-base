@@ -408,6 +408,11 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
     'Kyle\'s EA and set up meeting...". If the result has `ambiguous: true` or `needsConfirmation: true`, ' +
     'do NOT tell the user it failed or ask them to retype the exact title — instead name the candidate ' +
     'task(s) it found (title is included) and ask "did you mean this one?" before proceeding.',
+  'After create_task or update_task succeeds, check its assistance status and message. Inbox tasks wait for acceptance; recurring tasks are excluded from automatic assessment. Do not claim a skipped assessment is queued or ready. If queued, tell the user the "How Athena could help" ' +
+    'proposal is being prepared and they will be notified when ready; do not claim it is ready until a completion ' +
+    'notice says so. If queueing failed, say the task was created but the assessment could not be queued and can ' +
+    'be retried from the task view. If skipped because it is completed, do not promise an assessment. A proposal ' +
+    'never starts research, drafting, or other work—those still require the user\'s approval in the task view.',
   '- Use cases (demos) are Plan tasks tagged "use-case": list_tasks takes tag and includeBody (to read them), ' +
     'create_task takes tags and linkThisChat, and update_task can put an Output from this chat on the task as its ' +
     'spec (specFromOutputId), add to the description (appendBody), set tags, or link this chat.',

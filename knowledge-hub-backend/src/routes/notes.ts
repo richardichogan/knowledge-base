@@ -35,6 +35,7 @@ import { noteLinksRouter } from './noteLinks.js';
 import { linkNamedReferences } from '../services/noteLinks.js';
 import { invalidateDefinitions } from '../ai/definitions.js';
 import { getFoundryClient } from '../ai/foundryClient.js';
+import { prepareAutomaticTaskAssistance } from '../work/taskAssistanceQueue.js';
 
 const router = Router();
 // Any note write can add, edit or remove a definition Athena relies on.
@@ -158,8 +159,13 @@ router.post('/:id/passage-followups/:tagId', (req, res, next) => {
           [taskId, noteId, extractNoteTitle(row.content), `/think?noteId=${encodeURIComponent(noteId)}&passageId=${encodeURIComponent(tagId)}`]);
       }
       await client.query('COMMIT');
+      client.release();
+      client = undefined;
+      const assistance = task ? await prepareAutomaticTaskAssistance(getDb(), task.id,
+        'userId' in req && typeof req.userId === 'string' ? req.userId : undefined, { kind: 'app' }) : undefined;
       if (task) { await syncTaskToTimeline(getDb(), task); queueAutoTag(getDb(), 'task', task.id); }
-      res.json({ success: true, data: { taskId, state: task ? 'created' : followup.state } });
+      res.json({ success: true, data: { taskId, state: task ? 'created' : followup.state,
+        ...(assistance ? { assistanceStatus: assistance.status } : {}) } });
     } catch (error) {
       if (client) await client.query('ROLLBACK');
       next(error);

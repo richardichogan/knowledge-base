@@ -270,7 +270,7 @@ of inventing a brief.
 | Area | Role |
 |---|---|
 | **Today** (`/`) | What needs attention now: overdue, blocked or due tasks; failed connections; open Athena decisions; continue-working items; recent changes; and suggestions worth exploring (Discover picks with a reason, growing Spark themes). Also shows the Thursday podcast prep. |
-| **Discover** (`/discover`) | A ranked feed of articles from Microsoft and industry sources, weighted by relevance, freshness, authority and project fit, with calls for papers (CFPs), saved views and interest weights. **Sources** manages RSS/Atom feeds and **YouTube** channels, and imports single videos with a public-caption attempt; missing captions leave description-only evidence and separately attributed related background links. **Watchlists** monitor named competitors against a question and versioned baseline. **Parking lot** keeps items for a future newsletter or podcast. Items can be saved, turned into Sparks or use cases, or turned into quick LinkedIn, Bluesky and blog posts. |
+| **Discover** (`/discover`) | A ranked feed of articles from Microsoft and industry sources, weighted by relevance, freshness, authority and project fit, with calls for papers (CFPs), saved views and interest weights. Only the selected article's main reading pane shows a short publisher summary separately from Athena's assessment; the left article list remains compact. Missing summaries load asynchronously for the selected article from public-page SEO descriptions (Open Graph, meta description, then Twitter), with four concurrent reads, bounded page reads and cached results; unavailable or failed reads are checked again after 24 hours. Summaries are plain text, not AI-generated TL;DRs or evidence of a full article read. Athena receives the summary and provenance in context and can retrieve saved content through existing article tools. **Sources** manages RSS/Atom feeds and **YouTube** channels, and imports single videos with a public-caption attempt; missing captions leave description-only evidence and separately attributed related background links rather than being labelled publisher article summaries. **Watchlists** monitor named competitors against a question and versioned baseline. **Parking lot** keeps items for a future newsletter or podcast. Items can be saved, turned into Sparks or use cases, or turned into quick LinkedIn, Bluesky and blog posts. |
 | **Plan** (`/plan`) | Tasks in Board and Focus views, with saved views, Athena check-ins and at-risk prompts. Status moves update immediately and reconcile only the saved task in place, preserving other task order and origin links without refetching the whole list. Completing recurring tasks still refreshes to discover the next occurrence. Failed moves restore the task and show an error. Open use cases appear in the Board's Backlog or In Progress columns without creating duplicate task records. |
 | **Think** (`/think`) | Notes (BlockNote editor with history, recovery, tags, `@` mentions of people, projects and documents, and GitHub publishing), **Sparks** (capture, connect into themes, mature, ship) and **canvases** (diagrams with drilldowns and links to notes, exportable to draw.io and Mural). |
 | **Build** (`/build`) | Specs are split into dependency-ordered tasks and dispatched to GitHub cloud coding agents (Copilot or Claude) as issues. Their PRs are tracked and merged. |
@@ -282,6 +282,8 @@ of inventing a brief.
 | **People** (`/people`) | Contacts with email aliases, organisation, role and topics. Import contact reports from Markdown; mention people with `@` in notes and chat. |
 | **Projects** (`/projects`) | Project goal, role, dates, expected outputs, and the project **cockpit**, which holds the register of questions, risks and issues, and review packets. |
 | **Share** | Manual, review-before-send emails through SMTP2GO (Mural links, draw.io attachments, GitHub note links), Mural export, GitHub note publishing and Bluesky/LinkedIn personal-profile posting from Discover articles. Automatic publishing is permitted only through an explicitly enabled Jobs workflow with automatic delivery selected. |
+
+The selected article's main reading pane shows **Why Athena picked it** immediately beneath the publisher summary, using the saved relevance explanation rather than generating another assessment. Neither section appears in the left article list. Unassessed items say so explicitly; existing controls are unchanged.
 | **Management** | Tag Manager, repo-to-tag and repo-to-project mappings, Knowledge health (AI usage, sync runs, index freshness), practice-exam score history, and voice transcription and speech. |
 
 Old routes (`/tasks`, `/calendar`, `/notes`, `/documents`, `/timeline`, `/search`, `/ai`, `/blog-post`) redirect to the areas above.
@@ -600,8 +602,28 @@ connection headers retain their own control styling rather than inheriting
 generic task-button borders. Activity entries share the panel's text edge;
 editing, assistance, activity and connections stay in their established locations.
 
-**Help me** assesses whether Athena can advance part of the task. This is an
-intent assessment, not a keyword trigger or an automatic job on task creation.
+When a new non-recurring task is created outside Inbox, a background assessment
+automatically prepares a **How Athena could help** proposal and notifies the
+user when it is ready. Inbox tasks wait until the user accepts them into
+Backlog, In progress or Waiting, whether through the app or Athena. This covers
+daily-report imports, meeting-preparation imports and Spark tasks without doing
+work on unaccepted Inbox items. Passage follow-up tasks are assessed when created.
+Recurring tasks, including recurring children, are excluded from automatic
+assessment; **Help me** remains available on request. Completed and archived
+tasks are excluded. Existing tasks are not backfilled or assessed on ordinary edits.
+Returning a task to Inbox and accepting it again does not repeat an earlier
+assessment attempt or replace an existing proposal. Failed jobs require an
+explicit retry/reassessment. Duplicate handoffs are guarded within the existing
+specialist engine's subject lock, including finished attempts.
+This is an intent assessment, not a keyword trigger.
+The proposal is saved to the task and remains unapproved; creating it does not
+start research, drafting, or other task work. If queueing fails, the task stays
+created and the failure is surfaced so the assessment can be retried.
+Acceptance and passage follow-up creation report the same partial-success
+condition if the task is saved but its assessment cannot be queued.
+
+**Help me** remains available to assess existing tasks or reassess with new
+direction. This is an intent assessment, not a keyword trigger.
 Review, investigate, look at, think about, validate and compare may indicate
 research; missing information is not a reason to create an unrelated email.
 The saved proposal explains the work, expected result, missing information,
@@ -1000,6 +1022,39 @@ Notes, tasks, recorded decisions, risks/issues and canonical source activity
 are bounded and evidence-linked. Source activity uses its update/publication
 time, not indexing time; the result is current changed records, not an audit
 diff or a claim that all integrations are current.
+
+Projects uses the same resizable list/detail/Athena workspace as Today and
+Discover. Lifecycle, group and search filters narrow the compact project list;
+selecting a row opens its full saved properties and repository/reference links
+in the main pane. `projectId` links select the project even when it is outside
+the current filters. New projects become the selection. Editing and deletion
+remain the existing header actions and dialogs; this layout does not
+change project fields or introduce outcome scoring. The embedded Athena panel
+receives the selected project's stable identity and actual saved properties,
+and refreshes project/cockpit data after Athena finishes.
+The detail body places Description, then Goal and Deliverables in the left 70%,
+with Role, Ownership and Timeline together in a single compact card in the right 30%.
+Narrow detail panes stack the columns. Deliverables is the display label for the
+existing expected-outputs field in the detail view and editor; saved content and
+API contracts are unchanged. The project work sections are expanded beneath the main details: changes,
+waiting work, open commitments, questions/risks/issues and review packets.
+Supporting evidence remains collapsible. The separate Cockpit button is removed
+from Projects, and the duplicate outcome summary is omitted in this embedded
+view. Existing register editors, packet review/approval and evidence links remain
+unchanged; compact project previews elsewhere retain their existing presentation.
+`get_project_details` supports bounded work/register/packet retrieval via
+`includeWork`, changed-record periods via `changesSince` (default: last 24 hours),
+register pagination via `registerOffset`, and full packet retrieval
+via `packetId`. Evidence links do not imply that linked documents have been read.
+
+Work types are Project (`project`), Ongoing responsibility (BAU) (`bau`),
+Aspiration (`aspiration`), Exploration (`exploration`) and Side project
+(`side-project`). Both legacy Standard and Formal client records migrate to
+Project; individual records are not automatically inferred or reclassified.
+These types describe the nature of work, not client arrangements. Athena can
+read and create/update the type through the existing project tools. The existing
+category, ICA, lifecycle and scheduling fields are unchanged. BAU and aspirations
+do not imply required end dates, invented milestones or completion scores.
 
 Today lists upcoming indexed calendar entries; Activity calendar cards offer the
 same manual meeting-preparation action. The owner selects a project explicitly.
