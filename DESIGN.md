@@ -171,6 +171,11 @@ utility buttons and technical metadata, not as the default reading face.
 | Item / panel title | 18px (`--kh-heading-item`, `--kh-panel-title`) | Semibold |
 | Section inside a panel | 15px (`--kh-section-title`) | Semibold |
 
+Expanded reading/detail titles in Discover and Today (including the shared
+Plan task detail) use 32px, increasing to 40px in detail panes at least 700px
+wide, with semibold weight and 1.25/1.2 line height. This shared reading-title
+treatment is user-approved; it does not change the 24px workspace page header.
+
 Keep headings, descriptions and prose flush-left on one shared text edge.
 Do not justify prose or add a first-line indent. Preserve actual bullet markers,
 hanging alignment and nested indentation; prose lists use `--kh-list-indent:

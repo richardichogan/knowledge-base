@@ -7,6 +7,7 @@ import { parseWriting, writeNoteInTransaction } from '../services/noteVersionSer
 import { textToBlocks } from './markdownToNoteBlocks.js';
 import { ConflictError, ValidationError } from '../types/errors.js';
 import { scheduleNoteIndexing } from '../routes/notes.js';
+import { linkNamedReferences } from '../services/noteLinks.js';
 import { scheduleGitHubPublish } from '../services/noteGitHubService.js';
 import type { Note } from '../types/index.js';
 
@@ -131,7 +132,7 @@ export async function executeDesignTool(db: Pool, name: string, owner: string, a
         notes.push(result.note); if (result.publish) publish.push(write.id);
       } else {
         await client.query('INSERT INTO notes(id,content,project_id) VALUES($1,$2,$3)',
-          [write.id, JSON.stringify({ title: write.title, contentType, contentJson: JSON.stringify(blocks) }), design.projectId]);
+          [write.id, await linkNamedReferences(client, JSON.stringify({ title: write.title, contentType, contentJson: JSON.stringify(blocks) }), write.id), design.projectId]);
         const result = await writeNoteInTransaction(client, write.id, { expectedRevision: 0 });
         notes.push(result.note);
       }

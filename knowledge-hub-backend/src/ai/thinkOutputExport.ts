@@ -35,6 +35,11 @@ export function combineOutputsForThink(
     : outputs;
   const sections = ordered.map((output) => {
     let content = output.content;
+    if (output.title.toLowerCase() === 'youtube show notes') {
+      content = content.replace(/^```(?:text)?\s*\n([\s\S]*?)\n```\s*$/i, '$1');
+      content = content.replace(/([\\`*_[\]{}<>#!|.+-])/g, '\\$1').replace(/\r?\n(?=[^\r\n])/g, '  \n');
+      return `## ${output.title.replace(/[\r\n]+/g, ' ')}\n\n${content}`;
+    }
     if (output.title.toLowerCase() === 'spotify show notes') content = spotifyShowNotesSource(content);
     if (output.format !== 'markdown' || output.title.toLowerCase() === 'spotify show notes') {
       content = content.replace(/^```(?:html|text)?\s*\n([\s\S]*?)\n```\s*$/i, '$1');

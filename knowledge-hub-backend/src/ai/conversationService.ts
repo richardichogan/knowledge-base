@@ -84,6 +84,10 @@ export interface TurnHooks {
   /** The text streamed so far was a preamble to tool calls — clear it. */
   onReset?: () => void;
   onActivity?: (line: string) => void;
+  /** Background workers can enforce approved external-query boundaries. */
+  validateToolCall?: (name: string, args: Record<string, unknown>) => void;
+  /** Evidence actually supplied to the model, after exclusions and context admission. */
+  onToolResult?: (name: string, result: unknown) => void;
   /** Background turns use an inactivity deadline while a checkpointed source read is making progress. */
   onReadingProgress?: (() => void) | undefined;
   signal?: AbortSignal;
@@ -96,6 +100,8 @@ export interface TurnHooks {
   allowedWriteTools?: readonly string[];
   /** Phase-specific workers can separate research capabilities from delivery. */
   allowedTools?: readonly string[];
+  /** Bounded workers can expose approved research schemas without a separate loading round. */
+  initialTools?: readonly string[];
   maxToolRounds?: number;
   /** Filled in with what the reply drew on (the "Used:" line). */
   contextUsed?: ContextUsed;
@@ -310,6 +316,7 @@ Only operate on the script when the request concerns it; unrelated questions rem
     .filter((t) => t.function.name !== 'propose_note_edit' || noteOpen)
     .filter((t) => t.function.name !== 'propose_map_changes' || mapOutlineResult !== null);
   const catalog = new ToolCatalog(permittedTools);
+  if (hooks.initialTools?.length) catalog.load([...hooks.initialTools]);
   if (hooks.allowedTools?.includes('save_output')) catalog.load(['save_output']);
   const supportsScope = (name: string, scope = retrievalScope, projectId = strictProjectId): boolean => {
     const filtered = scope !== undefined && Object.keys(scope.filter).length > 0;
@@ -577,9 +584,12 @@ Only operate on the script when the request concerns it; unrelated questions rem
               toolArguments = JSON.stringify(args);
             }
           }
-          const execute = async (argumentsJson: string): Promise<unknown> => filterExcluded(
-            await executeToolCall(db, call.function.name, argumentsJson, activeProjectId ?? undefined, { sessionId, userMessage, ...toolContext, workforceRequestId, readOnly: hooks.readOnlyTools === true, retrievalScope, retrievalAudit, excludedIds: excluded, exclusionsFailed, strictProjectId, signal: hooks.signal, mapAliases: mapOutlineResult?.aliases, mapCanvas: openMap ?? undefined }),
-            excluded);
+          const execute = async (argumentsJson: string): Promise<unknown> => {
+            hooks.validateToolCall?.(call.function.name, parseToolArgs(argumentsJson));
+            return filterExcluded(
+              await executeToolCall(db, call.function.name, argumentsJson, activeProjectId ?? undefined, { sessionId, userMessage, ...toolContext, workforceRequestId, retrievalScope, retrievalAudit, excludedIds: excluded, exclusionsFailed, strictProjectId, signal: hooks.signal, mapAliases: mapOutlineResult?.aliases, mapCanvas: openMap ?? undefined, readOnly: hooks.readOnlyTools === true }),
+              excluded);
+          };
           const args = parseToolArgs(toolArguments);
           const wholeRead = wholeReadRequested && sessionId !== undefined;
           const run = async (): Promise<unknown> => {
@@ -698,6 +708,7 @@ Only operate on the script when the request concerns it; unrelated questions rem
       }
       if (call.function.name === 'read_knowledge_record') updatePendingRead(pendingReads, parseToolArgs(call.function.arguments), result);
       // Only register evidence actually sent to the model, not a discarded oversized payload.
+      hooks.onToolResult?.(call.function.name, result);
       if (used !== undefined) recordToolSources(used, call.function.name, result);
       if (ledger !== undefined) {
         recordToolEvidence(ledger, call.function.name, result, parseToolArgs(call.function.arguments));

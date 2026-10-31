@@ -124,7 +124,7 @@ export function LinkSuggestionBar({ editor, noteId, disabled }: {
   if (disabled || (!suggestions.length && !error)) return null;
   return <div className="note-link-suggest" role="region" aria-label="Unlinked mentions">
     {error && <span role="alert">{error} <button type="button" onClick={() => { setRetry(value => value + 1); }}>Retry</button></span>}
-    {suggestions.length > 0 && <span className="note-link-suggest__label">Unlinked mentions</span>}
+    {suggestions.length > 0 && <span className="note-link-suggest__label">{suggestions.some(s => s.target.requiresClarification) ? 'Clarify link targets' : 'Unlinked mentions'}</span>}
     {suggestions.map(({ target, matches }) => <span key={targetKey(target)} className="note-link-suggest__item">
       <span><Link to={target.href} title={`Preview ${ENTITY_LINK_LABELS[target.type]}: ${target.title} (${target.href})`}
         onClick={event => {

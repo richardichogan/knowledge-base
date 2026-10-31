@@ -37,6 +37,7 @@ import type {
 } from '../types';
 import { getApiToken } from './auth';
 import type { AgentHandOffResult, AgentJob, AssignmentNotice, AssignmentSummary } from '../types/agentJobs';
+import type { TaskAssistanceDetail, TaskAssistanceProposal, TaskAssistanceStarted } from '../types/taskAssistance';
 import { requireApiData } from './apiError';
 import type { DecisionLinkCandidate, DecisionLinkInput, DecisionSemantics } from '../types/semanticDecision';
 import { normaliseTask } from '../types/task';
@@ -2741,6 +2742,18 @@ export class KnowledgeHubApi {
   }
   async handOffToSpecialist(specialist: string, subjectId: string, input: Record<string, unknown> = {}, confirmed = false): Promise<ApiResponse<AgentHandOffResult>> {
     return (await this.client.post<ApiResponse<AgentHandOffResult>>('/api/agent-jobs', { specialist, subjectId, input, confirmed })).data;
+  }
+  async getTaskAssistance(id: string): Promise<ApiResponse<TaskAssistanceDetail>> {
+    return (await this.client.get<ApiResponse<TaskAssistanceDetail>>(`/api/task-assistance/${encodeURIComponent(id)}`)).data;
+  }
+  async assessTaskAssistance(id: string, direction: string): Promise<ApiResponse<TaskAssistanceProposal>> {
+    return (await this.client.post<ApiResponse<TaskAssistanceProposal>>(`/api/task-assistance/${encodeURIComponent(id)}/assess`, { direction }, { timeout: CHAT_TIMEOUT_MS })).data;
+  }
+  async approveTaskAssistance(id: string, proposalId: string): Promise<ApiResponse<TaskAssistanceStarted>> {
+    return (await this.client.post<ApiResponse<TaskAssistanceStarted>>(`/api/task-assistance/${encodeURIComponent(id)}/approve`, { proposalId })).data;
+  }
+  async copyTaskAssistanceEmail(id: string, proposalId: string): Promise<ApiResponse<{ text: string }>> {
+    return (await this.client.get<ApiResponse<{ text: string }>>(`/api/task-assistance/${encodeURIComponent(id)}/email/${encodeURIComponent(proposalId)}`)).data;
   }
   async getAgentJob(id: string): Promise<ApiResponse<AgentJob>> {
     return (await this.client.get<ApiResponse<AgentJob>>(`/api/agent-jobs/${encodeURIComponent(id)}`)).data;

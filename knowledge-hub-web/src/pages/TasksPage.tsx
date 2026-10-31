@@ -24,11 +24,13 @@ import { EntityChip, IdentityChip, identitiesFor, useIdentity } from '../identit
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 import { EntityLinks, useEntityRelationships } from '../components/connections/EntityLinks';
 import type { PlanTask as Task, TaskStatus, TaskPriority } from '../types/task';
-import { FOCUS_GROUPS, focusDate, groupForFocus, isRecentlyCompleted, originHref, originLabel, taskAthenaPrompt, taskHealth, RECENT_COMPLETED_DAYS, type FocusGroupId } from '../features/plan/taskInsights';
+import { FOCUS_GROUPS, focusDate, groupForFocus, isRecentlyCompleted, originHref, originLabel, taskHealth, RECENT_COMPLETED_DAYS, type FocusGroupId } from '../features/plan/taskInsights';
 import { dateOnlyToLocal, localDateKey } from '../utils/dateOnly';
 import { requireApiData, requireApiSuccess, describeApiError } from '../services/apiError';
 import { DataNotice } from '../components/DataNotice';
 import type { ApiSuccess, PaginatedList } from '../types/apiResponse';
+import { TaskDetail } from '../features/plan/TaskDetail';
+import { ReviewWorkspace, ReviewItem } from '../components/ReviewWorkspace';
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -148,8 +150,9 @@ const TaskCard: React.FC<{
   onMove: (id: string, status: TaskStatus) => void;
   onDelete: (id: string) => void;
   onEdit: (task: Task) => void;
+  onSelect: (task: Task) => void;
   onAskAthena?: ((task: Task) => void) | undefined;
-}> = ({ task, busy, projects, onMove, onDelete, onEdit, onAskAthena }) => {
+}> = ({ task, busy, projects, onMove, onDelete, onEdit, onSelect, onAskAthena }) => {
   const [dragging, setDragging] = useState(false);
   const identity = useIdentity();
   const resolvedTags = identitiesFor(identity, task.taxonomyTagIds ?? [], task.projectId);
@@ -171,10 +174,11 @@ const TaskCard: React.FC<{
         setDragging(true);
       }}
       onDragEnd={() => { setDragging(false); }}
-      onClick={() => { if (!busy) onEdit(task); }}
+      onClick={() => { if (!busy) onSelect(task); }}
     >
     <div className="kb-card__header">
-      <span className="kb-card__title">{task.title}</span>
+      <button type="button" className="kb-card__title kb-card__select" disabled={busy}
+        onClick={event => { event.stopPropagation(); onSelect(task); }}>{task.title}</button>
       <CardMenu
         task={task}
         busy={busy}
@@ -273,8 +277,9 @@ const InboxTray: React.FC<{
   projects: ProjectRecord[];
   onAccept: (task: Task) => void;
   onEdit: (task: Task) => void;
+  onSelect: (task: Task) => void;
   onDismiss: (task: Task) => void;
-}> = ({ tasks, busyIds, projects, onAccept, onEdit, onDismiss }) => {
+}> = ({ tasks, busyIds, projects, onAccept, onEdit, onSelect, onDismiss }) => {
   const [collapsed, setCollapsed] = useState(false);
   if (tasks.length === 0) return null;
   return (
@@ -295,7 +300,7 @@ const InboxTray: React.FC<{
             const originTo = origin ? originHref(origin) : null;
             return (
               <li key={task.id} className={`kb-inbox-card kh-priority--${task.priority}`} aria-busy={busy}>
-                <button type="button" className="kb-inbox-card__title" disabled={busy} onClick={() => { onEdit(task); }}>{task.title}</button>
+                <button type="button" className="kb-inbox-card__title" disabled={busy} onClick={() => { onSelect(task); }}>{task.title}</button>
                 {task.body !== '' && <p className="kb-inbox-card__body">{task.body}</p>}
                 <p className="kb-inbox-card__meta">
                   <span>{getProjectName(task.projectId, projects)}</span>
@@ -417,7 +422,7 @@ const FocusView: React.FC<{
 
 interface TaskNote { id: string; body: string; createdAt: string; }
 
-const TaskActivitySection: React.FC<{ taskId: string }> = ({ taskId }) => {
+export const TaskActivitySection: React.FC<{ taskId: string }> = ({ taskId }) => {
   const qc = useQueryClient();
   const [tab, setTab] = useState<'activity' | 'linked'>('activity');
   const [draft, setDraft] = useState('');
@@ -711,7 +716,7 @@ const PodcastImportModal: React.FC<{
 
 // ── Create / Edit modal ───────────────────────────────────────────────────────
 
-const TaskModal: React.FC<{
+export const TaskModal: React.FC<{
   open: boolean;
   initial: Task | null;
   defaultStatus: TaskStatus;
@@ -868,11 +873,12 @@ export const TasksPage: React.FC<{
   filterTag: string;
   view?: TasksView;
   onAskAthena?: (prompt: string) => void;
-}> = ({ importOpen, onImportClose, filterProject, filterTag, view = 'board', onAskAthena }) => {
+}> = ({ importOpen, onImportClose, filterProject, filterTag, view = 'board' }) => {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [modalOpen,      setModalOpen]      = useState(false);
   const [editTask,      setEditTask]      = useState<Task | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [addStatus,     setAddStatus]     = useState<TaskStatus>('backlog');
   const [showOlderDone, setShowOlderDone] = useState(false);
   const { projects } = useProjects();
@@ -887,19 +893,22 @@ export const TasksPage: React.FC<{
   });
 
   const tasks: Task[] = data?.success === true ? data.data.items : [];
+  const selectedDetail = useQuery({
+    queryKey: ['task-assistance', selectedTaskId],
+    queryFn: async () => {
+      if (selectedTaskId === null) throw new Error('Select a task before loading its details.');
+      return requireApiData(await api.getTaskAssistance(selectedTaskId));
+    },
+    enabled: false,
+  });
   const scopedTasks = filterTag ? tasks.filter((t) => t.taxonomyTagIds?.includes(filterTag)) : tasks;
   const inboxTasks = scopedTasks.filter((t) => t.status === 'inbox');
 
-  // Deep-link support: a chat reply's "View task" link points at
-  // /plan?taskId=<id> — open that task's edit modal directly once it's
-  // loaded, then strip the param so back/refresh doesn't reopen it.
+  // View-task links open the shared details; editing remains an explicit action.
   useEffect(() => {
     const linkedId = searchParams.get('taskId');
     if (linkedId === null) return;
-    const found = tasks.find((t) => t.id === linkedId);
-    if (found === undefined) return;
-    setEditTask(found);
-    setModalOpen(true);
+    setSelectedTaskId(linkedId);
     searchParams.delete('taskId');
     setSearchParams(searchParams, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -997,9 +1006,8 @@ export const TasksPage: React.FC<{
 
   const moveTask = (id: string, status: TaskStatus): void => { if (beginTaskAction(id)) moveTaskMutation.mutate({ id, status }); };
   const openEditor = (task: Task): void => { setEditTask(task); setModalOpen(true); };
-  const askAthenaAbout = onAskAthena
-    ? (task: Task): void => { onAskAthena(taskAthenaPrompt(task, getProjectName(task.projectId, projects))); }
-    : undefined;
+  const selectTask = (task: Task): void => { setSelectedTaskId(task.id); };
+  const askAthenaAbout = selectTask;
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => requireApiData(await api.deleteTask(id)),
@@ -1008,9 +1016,24 @@ export const TasksPage: React.FC<{
     onSettled: (_data, _error, id) => { finishTaskAction(id); },
   });
 
+  const selectedTask = tasks.find(task => task.id === selectedTaskId) ?? selectedDetail.data?.task;
   return (
     <div className="kb-page">
+      {selectedTaskId && <ReviewWorkspace storageKey="plan-task" label="Plan tasks"
+        context={{ type: 'task', id: selectedTaskId, title: selectedTask?.title ?? 'Task',
+          ...(selectedTask?.projectId ? { projectId: selectedTask.projectId } : {}),
+          detail: `${JSON.stringify(selectedTask)}\nHelp me assesses capability before an explicit approval. Do not execute assistance from a casual discussion or complete this task automatically.` }}
+        list={<section className="today-brief" aria-labelledby="plan-task-list-heading">
+          <div className="today-brief__section-heading">
+            <h2 id="plan-task-list-heading">Tasks</h2>
+            <button type="button" className="today-brief__quiet" onClick={() => { setSelectedTaskId(null); }}>Back to {view === 'board' ? 'Board' : 'Focus'}</button>
+          </div>
+          {scopedTasks.map(task => <ReviewItem key={task.id} title={task.title} meta={`${getProjectName(task.projectId, projects)} · ${task.status}`}
+            description={task.body} selected={selectedTaskId === task.id} onSelect={() => { selectTask(task); }} />)}
+        </section>}
+        detail={<TaskDetail key={selectedTaskId} taskId={selectedTaskId} />} />}
 
+      {!selectedTaskId && <>
       {isPending && <InlineLoading description="Loading…" />}
       {isError && <DataNotice title="Tasks are unavailable" error={loadError} onRetry={() => { void refetch(); }} />}
       {saveError !== null && !modalOpen && <DataNotice title="Task change was not saved" error={saveError} />}
@@ -1027,6 +1050,7 @@ export const TasksPage: React.FC<{
         projects={projects}
         onAccept={(task) => { moveTask(task.id, 'backlog'); }}
         onEdit={openEditor}
+        onSelect={selectTask}
         onDismiss={(task) => { if (beginTaskAction(task.id)) dismissMutation.mutate(task.id); }}
       />
 
@@ -1036,7 +1060,7 @@ export const TasksPage: React.FC<{
           busyIds={busyTaskIds}
           projects={projects}
           onComplete={(task) => { moveTask(task.id, 'completed'); }}
-          onEdit={openEditor}
+          onEdit={selectTask}
           onAskAthena={askAthenaAbout}
         />
       )}
@@ -1084,6 +1108,7 @@ export const TasksPage: React.FC<{
                     onMove={moveTask}
                     onDelete={(id) => { if (beginTaskAction(id)) deleteMutation.mutate(id); }}
                     onEdit={openEditor}
+                    onSelect={selectTask}
                     onAskAthena={askAthenaAbout}
                   />
                 ))}
@@ -1109,6 +1134,7 @@ export const TasksPage: React.FC<{
           );
         })}
       </div>}
+      </>}
 
       <PodcastImportModal
         open={importOpen}
@@ -1116,7 +1142,7 @@ export const TasksPage: React.FC<{
         onTasksCreated={() => void queryClient.invalidateQueries({ queryKey: ['tasks'] })}
       />
 
-      <TaskModal
+      {modalOpen && <TaskModal
         open={modalOpen}
         initial={editTask}
         defaultStatus={addStatus}
@@ -1134,7 +1160,7 @@ export const TasksPage: React.FC<{
           }
         }}
         saving={createMutation.isPending || updateMutation.isPending}
-      />
+      />}
     </div>
   );
 };

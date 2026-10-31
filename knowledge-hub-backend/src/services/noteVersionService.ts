@@ -132,6 +132,11 @@ export async function writeNoteInTransaction(client: PoolClient, id: string, inp
       content = JSON.stringify({ ...(object(wrapper) ? wrapper : {}), ...before,
         contentJson: JSON.stringify([...(JSON.parse(before.contentJson) as unknown[]), ...input.appendBlocks]) });
     }
+    const previousWrapper: unknown = row.content.trim().startsWith('{') ? JSON.parse(row.content) as unknown : null;
+    if (object(previousWrapper) && previousWrapper['automaticNamedLinks'] === true) {
+      const nextWrapper: unknown = content.trim().startsWith('{') ? JSON.parse(content) as unknown : null;
+      if (object(nextWrapper)) content = JSON.stringify({ ...nextWrapper, automaticNamedLinks: true });
+    }
     const after = parseWriting(content);
     if (!input.passageTagsSupported) {
       const currentTags = notePassageTags(row.content);

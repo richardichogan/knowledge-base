@@ -4,7 +4,7 @@ import { mock, test } from 'node:test';
 import express from 'express';
 import { PGlite } from '@electric-sql/pglite';
 import { getDb } from '../src/db/db.js';
-import { findLinkTargets, noteBacklinks, resolveNoteLinks, suggestLinkTargets, isDistinctiveLinkTitle } from '../src/services/noteLinks.js';
+import { applyNamedReferences, linkNamedReferences, findLinkTargets, noteBacklinks, resolveNoteLinks, suggestLinkTargets, isDistinctiveLinkTitle } from '../src/services/noteLinks.js';
 import { noteLinksRouter } from '../src/routes/noteLinks.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
 import { noteMarkdown } from '../src/services/noteMarkdown.js';
@@ -14,6 +14,50 @@ const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')
 const mention = (n: number) => ({ type: 'noteMention', props: { noteId: id(n) } });
 const writing = (title: string, content: unknown[]) => JSON.stringify({
   title, contentType: 'note', contentJson: JSON.stringify(content),
+});
+
+test('creation pass links all unique named references while preserving styles, code, nested writing and existing links', async () => {
+  const target = { type: 'note' as const, id: id(1), title: 'Imagine architecture', href: `/think?noteId=${id(1)}` };
+  const protectedLink = { type: 'link', href: target.href, content: [{ type: 'text', text: target.title, styles: {} }] };
+  const blocks = [{ type: 'paragraph', content: [
+    { type: 'text', text: 'Read Imagine ', styles: { bold: true } },
+    { type: 'text', text: 'architecture today.', styles: { italic: true } },
+    protectedLink,
+    { type: 'text', text: 'Imagine architecture', styles: { code: true } },
+  ], children: [{ type: 'paragraph', content: [{ type: 'text', text: '[[Imagine architecture]]', styles: {} }] }] }];
+  const converted = applyNamedReferences(blocks, [target]);
+  assert.deepEqual(converted, [{ type: 'paragraph', content: [
+    { type: 'text', text: 'Read ', styles: { bold: true } }, mention(1),
+    { type: 'text', text: ' today.', styles: { italic: true } }, protectedLink,
+    { type: 'text', text: 'Imagine architecture', styles: { code: true } },
+  ], children: [{ type: 'paragraph', content: [mention(1)] }] }]);
+  assert.deepEqual(applyNamedReferences(converted, [target]), converted, 'repeat passes do not duplicate links');
+  assert.deepEqual(applyNamedReferences([{ type: 'codeBlock', content: [{ type: 'text', text: target.title }] }], [target]),
+    [{ type: 'codeBlock', content: [{ type: 'text', text: target.title }] }]);
+  const pool = getDb();
+  const rows = Array.from({ length: 12 }, (_, index) => ({ type: 'note', id: id(index + 10), title: `Architecture reference ${index}`, url: null, title_count: 1 }));
+  const query = mock.method(pool, 'query', async () => ({ rows }));
+  try {
+    const result = JSON.parse(await linkNamedReferences(pool, writing('New note', [{ type: 'paragraph',
+      content: [{ type: 'text', text: rows.map(row => row.title).join('; '), styles: {} }] }]), id(90))) as { automaticNamedLinks: boolean; contentJson: string };
+    assert.equal(result.automaticNamedLinks, true);
+    assert.equal((result.contentJson.match(/noteMention/g) ?? []).length, 12, 'creation pass is not limited to eight suggestions');
+  } finally { query.mock.restore(); }
+});
+
+test('automatically linked notes surface only ambiguous destinations for clarification', async () => {
+  const pool = getDb();
+  const query = mock.method(pool, 'query', async (sql: string) => ({ rows: sql.startsWith('SELECT content')
+    ? [{ content: JSON.stringify({ automaticNamedLinks: true, contentJson: '[]' }) }]
+    : [
+      { type: 'note', id: id(1), title: 'Imagine architecture', url: null, title_count: 1 },
+      { type: 'note', id: id(2), title: 'Release checklist', url: null, title_count: 2 },
+      { type: 'task', id: id(3), title: 'Release checklist', url: null, title_count: 2 },
+    ] }));
+  try {
+    const result = await suggestLinkTargets(pool, 'Imagine architecture and Release checklist', id(99));
+    assert.deepEqual(result.map(item => [item.id, item.requiresClarification]), [[id(2), true], [id(3), true]]);
+  } finally { query.mock.restore(); }
 });
 
 test('proactive links suppress generic and ambiguous titles without disabling manual linking', async () => {

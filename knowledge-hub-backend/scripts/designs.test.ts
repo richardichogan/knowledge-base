@@ -311,7 +311,12 @@ test('reference notes stay independent while document roles consistently drive g
 test('real parent conversion, source identity, persisted feedback, atomic acceptance and byte-identical coherent handoff', async () => {
   const local = new PGlite();
   await local.exec(`
-    CREATE TABLE projects(id TEXT PRIMARY KEY);
+    CREATE TABLE projects(id TEXT PRIMARY KEY,name TEXT,lifecycle_state TEXT DEFAULT 'active',updated_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE TABLE sparks(id UUID PRIMARY KEY,body TEXT,created_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE TABLE tasks(id UUID PRIMARY KEY,title TEXT,archived BOOLEAN DEFAULT false,updated_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE TABLE people(id UUID PRIMARY KEY,name TEXT,updated_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE TABLE companies(id UUID PRIMARY KEY,name TEXT,updated_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE TABLE content_items(id UUID PRIMARY KEY,title TEXT,url TEXT,source TEXT,published_at TIMESTAMPTZ,indexed_at TIMESTAMPTZ);
     CREATE TABLE notes(id UUID PRIMARY KEY DEFAULT gen_random_uuid(),content TEXT NOT NULL,status TEXT DEFAULT 'active',
       project_id TEXT,created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW(),
       tags TEXT[] DEFAULT '{}',linked_items UUID[] DEFAULT '{}');

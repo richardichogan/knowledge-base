@@ -1,10 +1,10 @@
 import type { Pool } from 'pg';
-import { NotFoundError } from '../types/errors.js';
+import { NotFoundError, ValidationError } from '../types/errors.js';
 import { parseNoteContent } from '../utils/noteContent.js';
 
 export const LINK_TYPES = ['note', 'spark', 'diagram', 'project', 'task', 'usecase', 'article', 'person', 'company'] as const;
 export type LinkType = typeof LINK_TYPES[number];
-export interface LinkTarget { type: LinkType; id: string; title: string; href: string }
+export interface LinkTarget { type: LinkType; id: string; title: string; href: string; requiresClarification?: boolean }
 type TargetRow = { type: LinkType; id: string; title: string; url: string | null };
 const BACKLINK_PAGE_SIZE = 20;
 
@@ -64,6 +64,8 @@ const MAX_AUTOMATIC_LINKS = 8;
 const MIN_DISTINCTIVE_TITLE_LENGTH = 5;
 
 export async function suggestLinkTargets(db: Pool, writing: string, exclude?: string): Promise<LinkTarget[]> {
+  const note = exclude ? (await db.query<{ content: string }>('SELECT content FROM notes WHERE id::text=$1', [exclude])).rows[0] : undefined;
+  const automatic = note ? hasAutomaticNamedLinks(note.content) : false;
   const { rows } = await db.query<TargetRow & { title_count: string | number }>(
     `WITH targets AS (${TARGETS})
      SELECT type,id,title,url,COUNT(*) OVER (PARTITION BY lower(trim(title))) AS title_count FROM targets
@@ -72,10 +74,91 @@ export async function suggestLinkTargets(db: Pool, writing: string, exclude?: st
      ORDER BY length(title) DESC, type, id LIMIT 100`, [writing, exclude ?? null]);
   return rows.filter(row => {
     const title = row.title.trim();
-    if (!isDistinctiveLinkTitle(title) || Number(row.title_count) !== 1) return false;
+    if (!isDistinctiveLinkTitle(title) || (automatic ? Number(row.title_count) <= 1 : Number(row.title_count) !== 1)) return false;
     const escaped = row.title.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     return new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, 'iu').test(writing);
-  }).slice(0, MAX_AUTOMATIC_LINKS).map(row => ({ type: row.type, id: row.id, title: row.title.trim(), href: linkHref(row.type, row.id, row.url) }));
+  }).slice(0, MAX_AUTOMATIC_LINKS).map(row => ({ type: row.type, id: row.id, title: row.title.trim(), href: linkHref(row.type, row.id, row.url),
+    ...(automatic ? { requiresClarification: true } : {}) }));
+}
+
+function hasAutomaticNamedLinks(content: string): boolean {
+  if (!content.trim().startsWith('{')) return false;
+  const value: unknown = JSON.parse(content);
+  return Boolean(value && typeof value === 'object' && 'automaticNamedLinks' in value && value.automaticNamedLinks === true);
+}
+
+/** Only plain inline writing is linked: existing links, code and embedded assets remain intact. */
+export function applyNamedReferences(value: unknown, targets: LinkTarget[]): unknown {
+  if (Array.isArray(value)) {
+    const output: unknown[] = [];
+    let run: Record<string, unknown>[] = [];
+    const flush = (): void => {
+      if (!run.length) return;
+      const text = run.map(span => String(span['text'])).join('');
+      const matches: { start: number; end: number; target: LinkTarget }[] = [];
+      for (const target of [...targets].sort((a, b) => b.title.length - a.title.length)) {
+        const escaped = target.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        for (const match of text.matchAll(new RegExp(`\\[\\[${escaped}\\]\\]|(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, 'giu'))) {
+          const start = match.index;
+          const end = start + match[0].length;
+          if (!matches.some(other => start < other.end && end > other.start)) matches.push({ start, end, target });
+        }
+      }
+      matches.sort((a, b) => a.start - b.start);
+      const copy = (from: number, to: number): void => {
+        let offset = 0;
+        for (const span of run) {
+          const writing = String(span['text']);
+          const start = Math.max(0, from - offset);
+          const end = Math.min(writing.length, to - offset);
+          if (end > start) output.push({ ...span, text: writing.slice(start, end) });
+          offset += writing.length;
+        }
+      };
+      let cursor = 0;
+      for (const match of matches) {
+        copy(cursor, match.start);
+        output.push(match.target.type === 'note'
+          ? { type: 'noteMention', props: { noteId: match.target.id } }
+          : { type: 'entityMention', props: { entityType: match.target.type, entityId: match.target.id } });
+        cursor = match.end;
+      }
+      copy(cursor, text.length);
+      run = [];
+    };
+    for (const item of value as unknown[]) {
+      if (item && typeof item === 'object' && 'type' in item && item.type === 'text' && 'text' in item && typeof item.text === 'string'
+        && !('styles' in item && item.styles && typeof item.styles === 'object' && 'code' in item.styles && item.styles.code === true)) {
+        run.push(item as Record<string, unknown>);
+      } else { flush(); output.push(applyNamedReferences(item, targets)); }
+    }
+    flush();
+    return output;
+  }
+  if (!value || typeof value !== 'object') return value;
+  const item = value as Record<string, unknown>;
+  if (['codeBlock', 'link', 'noteMention', 'entityMention'].includes(String(item['type']))) return value;
+  return Object.fromEntries(Object.entries(item).map(([key, child]) =>
+    [key, ['content', 'children', 'rows', 'cells'].includes(key) ? applyNamedReferences(child, targets) : child]));
+}
+
+export async function linkNamedReferences(db: Pick<Pool, 'query'>, content: string, exclude?: string): Promise<string> {
+  const { parseWriting } = await import('./noteVersionService.js');
+  const writingContent = parseWriting(content);
+  const outer: unknown = content.trim().startsWith('{') ? JSON.parse(content) as unknown : null;
+  const wrapped = outer && typeof outer === 'object' && !Array.isArray(outer) ? outer as Record<string, unknown> : null;
+  const blocks: unknown = JSON.parse(writingContent.contentJson) as unknown;
+  if (!Array.isArray(blocks)) throw new ValidationError('Named-reference linking requires valid note blocks.');
+  const writing = plainMentionText(blocks).join('\n');
+  const { rows } = await db.query<TargetRow & { title_count: string | number }>(
+    `WITH targets AS (${TARGETS})
+     SELECT type,id,title,url,COUNT(*) OVER (PARTITION BY lower(trim(title))) AS title_count FROM targets
+     WHERE length(trim(title)) >= 2 AND strpos(lower($1), lower(trim(title))) > 0
+       AND NOT (type='note' AND id=COALESCE($2,''))`, [writing, exclude ?? null]);
+  const targets = rows.filter(row => Number(row.title_count) === 1 && isDistinctiveLinkTitle(row.title))
+    .map(row => ({ type: row.type, id: row.id, title: row.title.trim(), href: linkHref(row.type, row.id, row.url) }));
+  return JSON.stringify({ ...writingContent, ...(wrapped ?? {}), automaticNamedLinks: true,
+    contentJson: JSON.stringify(applyNamedReferences(blocks, targets)) });
 }
 
 const GENERIC_LINK_TITLES = new Set([

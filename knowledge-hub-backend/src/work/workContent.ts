@@ -5,6 +5,7 @@ import { textToBlocks } from '../ai/markdownToNoteBlocks.js';
 import { parseNoteContent, type Block } from '../utils/noteContent.js';
 import { renderNoteAsText } from '../services/noteTextService.js';
 import { noteMarkdown } from '../services/noteMarkdown.js';
+import { linkNamedReferences } from '../services/noteLinks.js';
 import { writeNoteInTransaction } from '../services/noteVersionService.js';
 import { scheduleNoteIndexing } from '../routes/notes.js';
 import { scheduleGitHubPublish } from '../services/noteGitHubService.js';
@@ -245,7 +246,7 @@ export async function createWorkContent(db: Pool, type: WorkContentType, input: 
     await client.query('BEGIN');
     await validateLinks(client, parsed, task.project_id);
     await client.query('INSERT INTO notes(id,content,project_id) VALUES($1,$2,$3)', [id,
-      JSON.stringify({ title, contentType: type, contentJson: JSON.stringify(textToBlocks(body)) }), task.project_id]);
+      await linkNamedReferences(client, JSON.stringify({ title, contentType: type, contentJson: JSON.stringify(textToBlocks(body)) }), id), task.project_id]);
     await ensureSide(client, id, type);
     const table = type === 'deliverable-brief' ? 'deliverable_briefs' : 'email_drafts';
     const columns: Record<string, string> = { taskId: 'task_id', briefId: 'brief_id', targetFolder: 'target_folder', fileName: 'file_name', sources: 'source_refs', to: 'recipients_to', cc: 'recipients_cc', subject: 'subject' };

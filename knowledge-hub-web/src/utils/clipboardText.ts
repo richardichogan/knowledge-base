@@ -19,15 +19,19 @@ function structuredText(value: unknown): string {
   return ['content', 'children', 'blocks'].map(key => structuredText(item[key])).filter(Boolean).join('\n');
 }
 
+export function clipboardHtmlText(html: string): string {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('script,style').forEach(node => { node.remove(); });
+  doc.querySelectorAll('br').forEach(node => { node.replaceWith('\n'); });
+  doc.querySelectorAll('p,div,li,h1,h2,h3,h4,h5,h6,tr').forEach(node => { node.append('\n'); });
+  return doc.body.textContent?.replace(/\n{3,}/g, '\n\n').trim() ?? '';
+}
+
 export function readableClipboardText(plain: string, html: string): string {
   let readable = plain;
   const markup = html || (/^\s*<(?:!doctype\s+html|html|body|p|div|ul|ol|h[1-6]|table|blockquote|pre)(?:\s|>)/i.test(plain) ? plain : '');
   if (markup) {
-    const doc = new DOMParser().parseFromString(markup, 'text/html');
-    doc.querySelectorAll('script,style').forEach(node => { node.remove(); });
-    doc.querySelectorAll('br').forEach(node => { node.replaceWith('\n'); });
-    doc.querySelectorAll('p,div,li,h1,h2,h3,h4,h5,h6,tr').forEach(node => { node.append('\n'); });
-    const text = doc.body.textContent?.replace(/\n{3,}/g, '\n\n').trim();
+    const text = clipboardHtmlText(markup);
     if (text) readable = text;
   }
   const trimmed = readable.trim();

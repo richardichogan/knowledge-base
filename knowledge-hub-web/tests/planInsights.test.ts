@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { normaliseTask, type PlanTask } from '../src/types/task';
-import { groupForFocus, isRecentlyCompleted, originHref, originLabel, planContextDetail, taskHealth } from '../src/features/plan/taskInsights';
+import { groupForFocus, isRecentlyCompleted, originHref, originLabel, planContextDetail, taskAthenaPrompt, taskHealth } from '../src/features/plan/taskInsights';
 
 const NOW = new Date('2026-10-13T12:00:00Z');
 const daysAgo = (n: number): string => new Date(NOW.getTime() - n * 86_400_000).toISOString();
@@ -20,6 +20,14 @@ test('Plan health flags only open tasks untouched for two weeks; waiting statuse
   assert.deepEqual(taskHealth(task({ updatedAt: daysAgo(15) }), NOW)?.label, 'Idle 2 wk');
   assert.deepEqual(taskHealth(task({ status: 'waiting', updatedAt: daysAgo(150) }), NOW)?.label, 'Waiting 5 mo');
   assert.equal(taskHealth(task({ status: 'waiting', updatedAt: daysAgo(20) }), NOW)?.kind, 'waiting');
+});
+test('Task discussion preserves the approval-first assistance boundary and exact task identity', () => {
+  const prompt = taskAthenaPrompt(task({ title: 'Investigate First Mate GitHub repository' }), 'Athena');
+  assert.match(prompt, /Task ID: t1/);
+  assert.match(prompt, /not an email request/);
+  assert.match(prompt, /Do not start jobs/);
+  assert.match(prompt, /approve a saved assistance proposal/);
+  assert.doesNotMatch(prompt, /suggest a realistic due date/);
 });
 
 test('Plan keeps only this week\'s completed tasks visible by default', () => {

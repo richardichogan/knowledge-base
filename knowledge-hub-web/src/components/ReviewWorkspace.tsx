@@ -39,7 +39,7 @@ export function ReviewWorkspace({ storageKey, label, list, detail, context, athe
   const handleBusyChange = useCallback((next: boolean): void => {
     setBusy(next);
     if (wasBusy.current && !next) {
-      const keys = storageKey === 'today' ? ['today', 'tasks', 'notes-list', 'podcast-prep', 'upcoming-meetings']
+      const keys = storageKey === 'today' || storageKey === 'plan-task' ? ['today', 'tasks', 'task-assistance', 'notes-list', 'podcast-prep', 'upcoming-meetings']
         : storageKey === 'discover-publishing' ? ['publishing']
           : ['discover', 'cfps', 'watchlists', 'watchlist-runs', 'watchlist-companies'];
       for (const key of keys) void queryClient.invalidateQueries({ queryKey: [key] });

@@ -1,6 +1,6 @@
 export const ENTITY_LINK_TYPES = ['note', 'spark', 'diagram', 'project', 'task', 'usecase', 'article', 'person', 'company'] as const;
 export type EntityLinkType = typeof ENTITY_LINK_TYPES[number];
-export interface EntityLinkTarget { type: EntityLinkType; id: string; title: string; href: string }
+export interface EntityLinkTarget { type: EntityLinkType; id: string; title: string; href: string; requiresClarification?: boolean }
 export const ENTITY_LINK_LABELS: Record<EntityLinkType, string> = {
   note: 'Note', spark: 'Spark', diagram: 'Diagram', project: 'Project', task: 'Task', usecase: 'Use case', article: 'Article',
   person: 'Person',

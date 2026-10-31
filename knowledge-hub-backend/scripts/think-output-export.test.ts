@@ -25,10 +25,15 @@ test('exports the full package in podcast order without truncation', () => {
   assert.ok(exported.bodyMarkdown.indexOf('## Social campaign') < exported.bodyMarkdown.indexOf('## Bluesky daily posts'));
   const blocks = textToBlocks(exported.bodyMarkdown);
   const code = blocks.filter((block) => block.type === 'codeBlock');
-  assert.equal(code.length, 2);
-  assert.equal(code[0]?.content[0]?.type === 'text' ? code[0].content[0].text : undefined, youtube);
-  assert.equal(code[1]?.content[0]?.type === 'text' ? code[1].content[0].text : undefined, spotify);
-  assert.equal(code[1]?.props?.language, 'html');
+  assert.equal(code.length, 1);
+  assert.equal(code[0]?.content[0]?.type === 'text' ? code[0].content[0].text : undefined, spotify);
+  assert.equal(code[0]?.props?.language, 'html');
+  const youtubeStart = blocks.findIndex(block => block.type === 'heading' && block.content.some(part => part.type === 'text' && part.text === 'YouTube show notes'));
+  const spotifyStart = blocks.findIndex(block => block.type === 'heading' && block.content.some(part => part.type === 'text' && part.text === 'Spotify show notes'));
+  const youtubeBlocks = blocks.slice(youtubeStart + 1, spotifyStart);
+  assert.ok(youtubeBlocks.every(block => block.type === 'paragraph'));
+  assert.equal(youtubeBlocks.map(block => block.type === 'paragraph'
+    ? block.content.map(part => part.type === 'text' ? part.text : '').join('') : '').join('\n\n'), youtube);
   assert.ok(blocks.some((block) => block.type === 'paragraph' && block.content.some((part) => part.type === 'text' && part.text.trim() === 'Full content. '.repeat(3_000).trim())));
 });
 

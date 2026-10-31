@@ -2,6 +2,49 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-31, task research and reading details):**
+- User explicitly requested merge, push and release now. This release is web/backend
+  only; Mac teleprompter and Desktop work are deferred and excluded.
+- Existing application-only AZCLI targets: kh-prod-api-vnet and kh-prod-web,
+  rg-knowledge-hub-prod, Alliance Tenant Reporting. Live image v278; next v279.
+- All validation checks pass:
+  - [x] Fetched origin and merged origin/main; already current at 90757c6.
+    Live main SHA agrees; shared packed-refs maintenance lock remains untouched.
+  - [x] Both application TypeScript checks and production builds passed.
+    Final backend build includes the corrected YouTube blank-line conversion.
+    Frontend entry is /assets/index-B71RocxE.js.
+  - [x] Lint non-regression passed: backend 546/623, frontend 22/41.
+    Final changed export source also passes scoped ESLint. Script fixtures are
+    outside the typed ESLint project and are verified by their release tests.
+  - [x] Backend release coverage: initial workforce run passed 53 cases before
+    interruption; only its seven unexecuted cases were subsequently run and passed.
+    Remaining full run passed 847/848; the missing named-link tables in the Design
+    fixture were added, and all Design, note-link and task-assistance cases passed.
+    The additional YouTube export check exposed trailing Markdown hard-break
+    spaces on a paragraph boundary; the narrow fix passes all seven export cases.
+    No completed full suite was rerun.
+  - [x] Full isolated frontend release coverage passed 343 cases, zero failures.
+  - [x] Azure CLI authentication and existing ACA image/SWA target reads passed.
+    Azure MCP initialization failed with application-bundle corruption; use the
+    authenticated CLI. Existing Docker packaging includes tracked migration129
+    and lockfile installs. Migration129 is already applied to shared data.
+  - [x] Read-only rendered comparison confirmed the Today 40px title, saved-colour
+    project/topic pills and Discover-style context boxes. DOM copy dispatch
+    confirmed visible plain text without Markdown escapes; OS clipboard and
+    the exact Spotify upload were not exercised.
+  - [x] Diff whitespace checks pass. No dependency, infrastructure, identity,
+    RBAC, registry authentication, policy or secret changes; template/what-if
+    and provisioning checks are not applicable to this application-only release.
+- Fit: (1) existing Think editor, Plan/Today detail and specialist queue are reused;
+  (2) ACA/SWA/shared-production-data hosting is preserved; (3) no new packages or
+  resources, and research uses existing bounded jobs; (4) typed approvals, revision
+  fences and original-artefact protection remain; (5) credentials stay process-only
+  and research approval does not bypass ownership or tool scope; (6) safest scope
+  is these approved changes only, without automatic commissioning or publication.
+- Evidence: session files/research-release-{backend,backend-remaining,affected,
+  workforce-remaining,frontend,web-build}.log. Exclude unrelated hook cache.
+  Local automatic delivery remains disabled; Desktop is not tested or released.
+
 **Release execution (2026-10-31, Athena-only work and UI):**
 - Application commit 29c0535e167b0f03c89f85d69c26d7a8eb54ca80 pushed to
   main and richardichogan-local-development; both live remote refs verified.

@@ -12,6 +12,7 @@ import { PageHeader } from '../components/PageHeader';
 import { useUseCases } from '../hooks/useUseCases';
 import { stalledNudge } from '../features/useCases/useCaseView';
 import { UpcomingMeetings } from '../components/today/UpcomingMeetings';
+import { TaskDetail } from '../features/plan/TaskDetail';
 
 type SectionQueries = Array<{ name: string; query: {
   isPending: boolean; isError: boolean; error: unknown; refetch: () => Promise<unknown>;
@@ -154,7 +155,8 @@ export const HomePage: React.FC = () => {
       {brief.projects.isError && <p className="today-brief__error" role="alert">Project names are unavailable. <button type="button" onClick={() => { void brief.projects.refetch(); }}>Retry projects</button></p>}
       <ReviewWorkspace storageKey="today" label="Today" context={selectedContext}
         detail={selected ? <><h2 className="kh-review-detail-heading">{selectedSection}</h2>
-          <WorkItem key={selected.id} item={selected} ask={item => { ask('Help me work out the next step for this item.', item); }} /></>
+          {selected.taskId ? <TaskDetail key={selected.taskId} taskId={selected.taskId} />
+            : <WorkItem key={selected.id} item={selected} ask={item => { ask('Help me work out the next step for this item.', item); }} />}</>
           : selection === 'today-meetings' ? <UpcomingMeetings projects={brief.projects.data ?? []} />
             : <PodcastPrepCard />}
         list={<>

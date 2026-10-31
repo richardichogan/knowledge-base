@@ -15,6 +15,7 @@ import { shareEmailRouter } from './routes/shareEmail.js';
 import { aiRouter } from './routes/ai.js';
 import { chatPanelRouter } from './routes/chatPanel.js';
 import { tasksRouter } from './routes/tasks.js';
+import { taskAssistanceRouter } from './routes/taskAssistance.js';
 import { captureRouter } from './routes/capture.js';
 import { notesRouter } from './routes/notes.js';
 import { imagesRouter } from './routes/images.js';
@@ -156,6 +157,7 @@ export function createApp(readiness: () => RuntimePhase = () => 'starting'): exp
   app.use('/api/ai', chatPanelRouter);
   app.use('/api/voice', voiceRouter);
   app.use('/api/tasks', tasksRouter);
+  app.use('/api/task-assistance', taskAssistanceRouter);
   app.use('/api/nav', navAttentionRouter);
   app.use('/api/capture', captureRouter);
   app.use('/api/notes/:noteId/tags', noteTagsRouter);

@@ -147,6 +147,7 @@ export function buildTodayModel(data: TodayInputs, now: Date, since: string): To
         type: 'Task', ...project(task.projectId), reason: 'Recently changed in Plan.',
         tone: 'normal', date: task.updatedAt, href: `/plan?taskId=${encodeURIComponent(task.id)}`,
         action: 'Review task', score: 20, source: 'Plan',
+        taskId: task.id,
       });
     }
     if (task.archived || task.status === 'completed') continue;

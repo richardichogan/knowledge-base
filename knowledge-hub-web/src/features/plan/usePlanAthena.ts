@@ -13,7 +13,7 @@ import { localDateKey } from '../../utils/dateOnly';
 import { planContextDetail } from './taskInsights';
 
 export function usePlanAthena(filterProject: string, filterTag: string): (prompt: string) => void {
-  const { setAthenaContext, openAthena } = useAthenaContext();
+  const { setAthenaContext, openAthena, pageContext: currentContext } = useAthenaContext();
   const { projects } = useProjects();
   const { data } = useQuery({
     queryKey: ['tasks', filterProject],
@@ -25,7 +25,10 @@ export function usePlanAthena(filterProject: string, filterTag: string): (prompt
     const projectName = (id: string): string => projects.find((p) => p.id === id)?.name ?? id;
     return { type: 'task', title: 'Plan', id: 'plan', detail: planContextDetail(tasks, projectName, localDateKey(new Date())) };
   }, [data, filterTag, projects]);
-  useEffect(() => { setAthenaContext(pageContext); }, [pageContext, setAthenaContext]);
+  useEffect(() => {
+    if (currentContext?.type === 'task' && currentContext.id !== 'plan') return;
+    setAthenaContext(pageContext);
+  }, [pageContext, currentContext, setAthenaContext]);
   useEffect(() => () => { setAthenaContext(null); }, [setAthenaContext]);
   return useCallback((prompt: string) => { openAthena(prompt, pageContext); }, [openAthena, pageContext]);
 }

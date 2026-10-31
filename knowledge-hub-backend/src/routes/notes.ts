@@ -32,6 +32,7 @@ import { GitHubClient } from '../integrations/github/githubClient.js';
 import { ConflictError } from '../types/errors.js';
 import { positiveInteger } from '../utils/queryValidation.js';
 import { noteLinksRouter } from './noteLinks.js';
+import { linkNamedReferences } from '../services/noteLinks.js';
 import { invalidateDefinitions } from '../ai/definitions.js';
 import { getFoundryClient } from '../ai/foundryClient.js';
 
@@ -663,6 +664,7 @@ export async function createNoteRecord(
   db: ReturnType<typeof getDb>,
   input: Partial<CreateNoteInput>,
   stableId?: string,
+  automaticReferences = true,
 ): Promise<Note> {
   if (typeof input.content !== 'string' || input.content.trim() === '') {
     throw new ValidationError('content is required', { content: 'must be a non-empty string' });
@@ -672,6 +674,9 @@ export async function createNoteRecord(
     typeof input.projectId === 'string' && input.projectId.trim() !== ''
       ? input.projectId.trim()
       : null;
+  const content = automaticReferences
+    ? await linkNamedReferences(db, input.content.trim(), stableId)
+    : input.content.trim();
 
   const result = await db.query<{
     id: string;
@@ -690,7 +695,7 @@ export async function createNoteRecord(
       : `INSERT INTO notes (content, tags, project_id)
      VALUES ($1, $2, $3)
      RETURNING id, content, created_at, updated_at, tags, linked_items, status, project_id`,
-    stableId ? [input.content.trim(), input.tags ?? [], projectId, stableId] : [input.content.trim(), input.tags ?? [], projectId],
+    stableId ? [content, input.tags ?? [], projectId, stableId] : [content, input.tags ?? [], projectId],
   );
 
   const row = result.rows[0];
@@ -734,7 +739,7 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
       const db = getDb();
-      const note = await createNoteRecord(db, req.body as Partial<CreateNoteInput>);
+      const note = await createNoteRecord(db, req.body as Partial<CreateNoteInput>, undefined, false);
       const body: ApiSuccess<Note> = { success: true, data: note };
       res.status(HTTP_STATUS.CREATED).json(body);
     } catch (err) {

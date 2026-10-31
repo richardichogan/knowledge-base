@@ -5735,6 +5735,7 @@ body.kh-pane-resizing {
 .proj-link-error { color: var(--cds-support-error); padding: 0.75rem 1rem; font-size: var(--kh-text-body); }
 
 // Editor scroll & inner
+.notes-clipboard-host { display: contents; }
 .notes-editor-scroll {
   flex: 1;
   overflow-y: auto;
@@ -5751,6 +5752,16 @@ body.kh-pane-resizing {
   .bn-editor {
     background: var(--cds-background);
     color: var(--cds-text-primary);
+    font-family: inherit;
+    font-size: var(--kh-text-body);
+    line-height: 1.6;
+
+    :is([data-content-type="paragraph"], [data-content-type="bulletListItem"],
+      [data-content-type="numberedListItem"], [data-content-type="checkListItem"], [data-content-type="quote"]) {
+      font-size: var(--kh-text-body);
+      line-height: 1.6;
+      &:is(:not([data-text-color]), [data-text-color="default"]) { color: var(--cds-text-secondary); }
+    }
 
     a:not(.note-mention) {
       color: var(--kh-link-prose);
@@ -5770,13 +5781,13 @@ body.kh-pane-resizing {
       line-height: 1.25;
     }
     [data-content-type="heading"][data-level="1"] { --level: 1.75rem; }
-    [data-content-type="heading"][data-level="2"] { --level: 1.375rem; }
-    [data-content-type="heading"][data-level="3"] { --level: 1.125rem; }
+    [data-content-type="heading"][data-level="2"] { --level: var(--kh-heading-section); }
+    [data-content-type="heading"][data-level="3"] { --level: var(--kh-section-title); }
 
     // Give in-body headings room to separate sections, but never the title
     // block — a top margin there would push the whole note down.
     > [data-node-type="blockGroup"] > [data-node-type="blockOuter"]:not(:first-child) {
-      [data-content-type="heading"] { margin-top: 1.5em; }
+      [data-content-type="heading"] { margin-top: 24px; }
     }
 
     // Document title — the very first block, when it's a heading. It must be
@@ -5832,8 +5843,8 @@ body.kh-pane-resizing {
 
   // Body text
   .bn-editor p {
-    font-size: 0.9375rem;
-    line-height: 1.75;
+    font-size: var(--kh-text-body);
+    line-height: 1.6;
     color: var(--cds-text-secondary);
   }
 
@@ -5848,7 +5859,7 @@ body.kh-pane-resizing {
   align-items: center;
   gap: 0;
   padding: 0.5rem 1.5rem;
-  border-top: 1px solid var(--cds-border-subtle-00);
+  border-top: 1px solid var(--cds-border-subtle-01);
   flex-shrink: 0;
   font-size: var(--kh-text-meta);
   color: var(--cds-text-secondary);
@@ -5874,6 +5885,8 @@ body.kh-pane-resizing {
   &:hover     { background: var(--cds-layer-hover-01); color: var(--cds-text-primary); }
   &:active    { background: var(--cds-layer-active-01); }
   &--active, &--active:hover { background: var(--kh-accent-bg); color: var(--kh-accent); }
+  &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: -2px; }
+  &:disabled { opacity: 0.4; cursor: not-allowed; background: transparent; color: var(--cds-text-disabled); }
 }
 
 .notes-tb-sep {

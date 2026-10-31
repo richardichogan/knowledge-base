@@ -411,6 +411,14 @@ Ask Athena resolves named endpoints through the existing read-only entity-sugges
 Notes use the same custom element in a 300px-high responsive compact panel, with the note pinned at the centre and a two-hop neighbourhood. Only the compact note graph has a transparent canvas without a dot grid; its label backing and project centres match the surrounding panel. The full-page Atlas retains its G100 background and grid. Compact labels use regular-weight text without thick outlines and prioritise the root, hover and selection, with at most four non-overlapping, width-limited titles and space reserved for the zoom controls. Full names remain available on hover and in the keyboard-accessible connected-record list. Nodes and relationships are not removed to reduce label density. Dense hubs use inertia proportional to summed spring stiffness to prevent unstable forces sending the graph off-screen. Unchanged data refreshes preserve force positions, camera and entry timing instead of restarting the graph; changed graph data and explicit Reflow still rebuild it. Reduced motion pre-settles the layout, stops ambient animation and renders camera/path changes immediately. Hidden/offscreen instances stop both frame and timer loops; panels first opened from a hidden state get a fresh initial fit.
 Linked-note previews in the Link tab render read-only BlockNote content directly, not in an iframe. Their editor and container backgrounds are transparent so the writing shares the panel surface, without a separate black rectangle or an added graph.
 Think keeps its existing toolbar and pane layout. Note rows use a restrained accent selection, quieter dividers and wrapping metadata; linked-note previews use a compact heading scale, comfortable body leading and a separated backlinks section.
+Selected note text copies directly from the selected document fragment, not
+through Markdown conversion. Literal Spotify HTML retains its tags and URLs
+without added backslash line breaks; rich/native clipboard payloads remain intact.
+The reading/action pane shares Discover's 14px reading text, 1.6 line height,
+clear semibold section hierarchy and 24px section rhythm. Existing document
+measure, editor gutters, authored list markers, saved text colours, action
+locations and properties remain intact. The formatting toolbar uses a subtle
+divider and explicit focus and disabled states.
 
 The overview reserves space for different entity types before filling its 500-record limit with recent activity. Results are capped at 2,500 edges and visibly labelled when truncated. Search and filters operate on the loaded subset, not the entire knowledge base. Starting from a record loads one or two connection hops, retaining older context regardless of the overview's date filter. The note graph shows the loaded two-hop recorded neighbourhood without a second client-side node cap, labels truncated results and opens the full explorer.
 
@@ -502,7 +510,7 @@ historical results, not a promise that withdrawn questions remain current.
 Athena develops content in Think and tracks commitments in Plan. This workflow
 does not use Copilot Cowork, a plugin or an external handoff. IBM M365 Graph is
 unavailable. There is no Graph write permission, email send action or new Plan
-control.
+control in that deliverable-brief workflow.
 
 - **Deliverable brief** is a Work content type in Think, using the existing
   editor and properties panel. Its template covers outcome/definition of done,
@@ -543,6 +551,105 @@ brief, and the normal Think editor displayed the saved changes. Email copy
 worked; the task remained in backlog and no message was sent. Both packages
 passed TypeScript checks. File-sync detection and Sent/Waiting confirmations
 were not exercised against real commitments. No production deployment occurred.
+
+### Named links on Athena-created notes
+
+Athena addresses the user directly as **you/your** in conversation and personal
+findings, recommendations and decision lists, rather than describing them in
+the third person. Drafts written in the user's voice use **I/my** (or **we/our**
+for an actual shared-team viewpoint). Exact quotations, public host credits and
+third-party attribution retain their original wording. This applies to future
+writing and does not rewrite existing notes.
+
+New notes created by Athena and its agents receive a named-reference linking
+pass before persistence, including research, exports, podcast notes, work
+content and generated Design documents. Unique, distinctive names become
+native note/entity mentions, so existing backlink and graph indexing applies.
+All matching occurrences are linked, including nested writing and names split
+across styled spans. Existing links, code, media and surrounding styles remain
+unchanged. Older notes are not edited and semantic-only relationships are not
+inferred. Manually created notes retain their existing suggestion workflow.
+
+Duplicate names are not guessed. In an automatically linked note the existing
+link-suggestion bar surfaces those destinations as **Clarify link targets**,
+with previews and the existing linking controls. Clear references require no
+approval click. Link-pass failures prevent creation rather than silently
+saving an apparently complete, unlinked note.
+
+Copying or cutting selected note writing supplies visible text, including
+resolved backlink titles, in the clipboard's plain-text payload. Rich-text HTML
+and native BlockNote references remain available for formatted/internal pastes.
+Code text is preserved literally rather than interpreted as structured data.
+YouTube show notes are ordinary text with preserved line breaks, not code blocks.
+Existing YouTube sections are displayed the same way when opened; Spotify's
+literal HTML stays in its code block. Copying does not add fences or remove URL
+slashes.
+
+### Approval-first task assistance
+
+Today and Plan remain separate entry points. Selecting a task uses the same
+task-detail component, existing task editor, activity and connections, with
+Athena available alongside. Plan retains Board and Focus when no task is selected.
+The selected-task list reuses Today's review rows, section heading and quiet
+navigation control styling; it does not introduce a separate Plan list style.
+Today details and the shared Plan task detail match Discover's expanded
+32/40px reading titles, saved-colour project/topic chips, source-link treatment,
+bordered context blocks, 24px section rhythm, quieter metadata and compact
+bordered/accent actions. Activity tabs and
+connection headers retain their own control styling rather than inheriting
+generic task-button borders. Activity entries share the panel's text edge;
+editing, assistance, activity and connections stay in their established locations.
+
+**Help me** assesses whether Athena can advance part of the task. This is an
+intent assessment, not a keyword trigger or an automatic job on task creation.
+Review, investigate, look at, think about, validate and compare may indicate
+research; missing information is not a reason to create an unrelated email.
+The saved proposal explains the work, expected result, missing information,
+public search queries and decisions you retain. Research questions do not block
+approval or execution: Iris investigates them and flags unresolved ambiguity
+in the findings without choosing for you or changing original artefacts.
+Email prerequisites still require clarification and reassessment. New direction
+requires a new assessment; unsupported tasks are explained without a job.
+
+**Approve and start** commissions a durable specialist job against the saved,
+owner-bound proposal and task snapshot. Iris reads actual sources and returns
+source-backed Think findings using the proposal UUID as its database chat-session
+identity. Failed jobs are retried explicitly, not automatically after a code fix.
+Findings include fit/gaps and proposed changes. Repository work
+locates and verifies the repository, then compares it with relevant Athena
+architecture or project artefacts. Project work prioritises existing notes,
+specifications and saved diagram structure, with general component knowledge
+and official documentation as supporting evidence. Unverified identity, source
+failures and partial reading must be reported, not concealed as compatibility.
+
+External search is restricted to the exact queries displayed in the approved
+proposal. Private project/client material is not part of public search queries.
+Research tools are read-only; execution has bounded tool rounds and a five-minute
+deadline. Approved public research requires available Tavily search schemas,
+a successful approved web search and an actual public-source read; internal
+reads alone or a guessed repository URL returning 404 cannot satisfy that work.
+No-source research cannot be saved as completed findings. Saved results
+are linked to the task and recorded in its activity; the existing specialist
+notification path reports completion or failure. Lease and task-snapshot checks
+prevent stale attempts from applying their results; retries reuse saved results.
+
+Email assistance creates a copyable draft in a linked Think note, with a
+**Copy email draft** action on the task. It does not send mail or mark it Sent.
+Research does not overwrite existing diagrams or turn findings into approved
+architecture. Neither route changes task status, deadlines or waiting state.
+Ready for review means the assistant finished its preparatory work, not that
+Richard completed the task. Casual Athena discussion does not approve execution.
+
+Implementation fit: existing specialist jobs, source readers, notifications,
+Think notes and task links are reused; ACA/SWA hosting and local delivery
+assumptions remain unchanged. No new dependencies or infrastructure are needed;
+model work is approval-triggered and bounded. Proposal contracts are validated,
+owner-bound and fenced by task snapshots and worker leases. Existing encrypted
+connection credentials are reused without writing secrets; public searches
+require the displayed approved queries. The safer scope is this assisted,
+draft-only workflow, not automatic task dispatch or completion. Existing design
+hook warnings in unchanged stylesheet rules are outside this change; the new
+task styles use the guide's existing tokens and typography.
 
 ## 4. Core objects
 

@@ -8,7 +8,7 @@ import { currentAgentAttempt, lockAgentAttempt } from '../agents/attempt.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { getDesign } from './designStore.js';
 import { lockSources, sourceSnapshot } from './designArtifacts.js';
-import { LINK_TYPES, linkHref, type LinkType } from '../services/noteLinks.js';
+import { LINK_TYPES, linkHref, linkNamedReferences, type LinkType } from '../services/noteLinks.js';
 import { parseWriting, writeNoteInTransaction } from '../services/noteVersionService.js';
 import { textToBlocks } from '../ai/markdownToNoteBlocks.js';
 import { getFoundryClient } from '../ai/foundryClient.js';
@@ -277,7 +277,8 @@ async function writeDesignSpecInner(db: Pool, designId: string, replace: boolean
       notes.push(result.note); if (result.publish) publish.push(spec.id);
     } else {
       await client.query('INSERT INTO notes(id,content,project_id) VALUES($1,$2,$3)',
-        [noteId, JSON.stringify({ title, contentType: 'spec', contentJson: JSON.stringify(blocks) }), design.projectId]);
+        [noteId, await linkNamedReferences(client,
+          JSON.stringify({ title, contentType: 'spec', contentJson: JSON.stringify(blocks) }), noteId), design.projectId]);
       notes.push((await writeNoteInTransaction(client, noteId, { expectedRevision: 0 })).note);
       await client.query(`INSERT INTO design_assets(design_id,source_type,source_id,role,excluded) VALUES($1,'note',$2,'spec',false)
         ON CONFLICT(design_id,source_type,source_id) DO UPDATE SET role=EXCLUDED.role,excluded=false`, [design.id, noteId]);
