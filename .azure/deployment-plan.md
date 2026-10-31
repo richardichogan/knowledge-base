@@ -2,6 +2,61 @@
 
 **Status:** Validated
 
+**Release execution (2026-10-31, Projects workspace):**
+- Application commit 3df2876cefebe4a02a1fdc17d97ea051efbf55c9 pushed to main
+  and richardichogan-local-development; both live remote refs verified.
+- ACR run ca8t built kh-prod-api:v280. Revision kh-prod-api-vnet--0000277 is
+  Healthy / RunningAtMaxScale; latestReadyRevision matches the new revision
+  and latest-revision traffic is 100%. Startup explicitly confirms migration130
+  applied, Migration complete and the production specialist worker started.
+- Frontend deployed to kh-prod-web. https://athena.themicrosoftcloudblog.com/
+  serves the matching /assets/index-cIunC1uX.js; HTML and entry asset return 200.
+- Local backend restarted with the updated code, shared production data,
+  local-mac.lan worker isolation and scheduled delivery disabled.
+- A real idempotent project-type save through the normal local API client succeeded:
+  Reckitt remains Project, with description, goal and deliverables preserved.
+  The previous standard/formal-client validation error is no longer returned.
+- Final affected project-context/work-context/migration checks passed 9/9.
+- No individual work types were inferred, and no task, email, publication or
+  Desktop release was manually commissioned by this deployment.
+- Evidence: session files/projects-release-{acr,swa,startup,affected}.log.
+
+**Release scope and Section 7: Validation Proof (2026-10-31, Projects workspace):**
+- User approved deploying the inline project work view and five work types with
+  their shared-database migration. Includes the pending automatic task-help
+  coverage and publisher-summary/relevance-explanation changes from this session.
+- Existing application-only AZCLI targets: kh-prod-api-vnet and kh-prod-web,
+  rg-knowledge-hub-prod, Alliance Tenant Reporting. Current image v279; next v280.
+  No Desktop, Cowork, new resources, dependency, identity, policy or secret changes.
+- All validation checks pass:
+  - [x] `git fetch origin` and `git merge origin/main`: already current at ca58134.
+  - [x] Both `npx tsc --noEmit` checks and production builds passed.
+    Final backend build includes changed-record retrieval through project tools.
+  - [x] Lint non-regression passed: backend 545/623, frontend 22/41.
+  - [x] Full credential-isolated backend release suite: 858 passed, zero failures.
+    Includes migration130 preservation/default/type-validation and re-run coverage.
+  - [x] Full isolated frontend release coverage: 320 passed, zero failures.
+  - [x] Azure CLI 2.79.0 authentication and existing ACA image/identity/FQDN and SWA
+    target reads passed. Docker packaging includes tracked migrations and lockfile
+    installs. ACR performs the exact-main container build; no provisioning needed.
+  - [x] Local desktop inspection confirms expanded work sections, retained register
+    and packet actions, collapsed supporting evidence and no duplicate outcome
+    summary. Earlier project read roundtrip returned the exact saved description.
+  - [x] Diff whitespace checks pass. No infrastructure/RBAC/template changes:
+    Bicep, what-if, policy and role-provisioning checks are not applicable.
+- Fit: existing project/editor/domain services and ReviewWorkspace are reused;
+  ACA/SWA/shared-production-data hosting is unchanged; no new packages or model
+  jobs; work-type contracts and bounded retrieval remain typed; credentials remain
+  process-only. The safest scope preserves legacy data through explicit migration,
+  does not infer individual classifications, and retains existing review approvals.
+- Migration130 must accompany the updated backend; the previous backend rejects
+  new work types. Restart the local backend after release and verify real saving
+  against shared production data. Keep local automatic delivery disabled.
+- Existing light-diagram palette and unrelated compact/modal CSS findings are
+  pre-existing/outside this release; no design-system waivers or changes were made.
+- Evidence: session files/projects-release-{backend,frontend,web-build}.log.
+  Exclude unrelated .impeccable/hook.cache.json from the release.
+
 **Release execution (2026-10-31, task research and reading details):**
 - Application commit 3ae849c3e39625e43ae77cb413f2da06c895da9d pushed to
   main and richardichogan-link-think-chat-projects; both live remote refs verified.
