@@ -2,6 +2,20 @@
 
 **Status:** Validated
 
+**Release execution (2026-10-31, task research and reading details):**
+- Application commit 3ae849c3e39625e43ae77cb413f2da06c895da9d pushed to
+  main and richardichogan-link-think-chat-projects; both live remote refs verified.
+- ACR run ca8s built kh-prod-api:v279 from that exact main commit.
+  Revision kh-prod-api-vnet--0000276 is Healthy / RunningAtMaxScale,
+  latestReadyRevision agrees, and latest-revision traffic is 100%.
+  Startup confirms Migration complete and the production specialist worker started.
+- Frontend deployed to kh-prod-web. Custom-domain HTML at
+  https://athena.themicrosoftcloudblog.com/ references the built
+  /assets/index-B71RocxE.js; both HTML and entry asset return HTTP 200.
+- Mac teleprompter and Desktop work remain deferred; no Desktop release was made.
+  No research job, email or publication was manually commissioned by deployment.
+- Evidence: session files/research-release-{acr,swa,startup}.log.
+
 **Release scope and Section 7: Validation Proof (2026-10-31, task research and reading details):**
 - User explicitly requested merge, push and release now. This release is web/backend
   only; Mac teleprompter and Desktop work are deferred and excluded.
