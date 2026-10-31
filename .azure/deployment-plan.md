@@ -2,6 +2,22 @@
 
 **Status:** Validated
 
+**Release execution (2026-10-31, Athena-only work and UI):**
+- Application commit 29c0535e167b0f03c89f85d69c26d7a8eb54ca80 pushed to
+  main and richardichogan-local-development; both live remote refs verified.
+- ACR run ca8r built kh-prod-api:v278 from that exact application commit.
+  Revision kh-prod-api-vnet--0000275 is Healthy / RunningAtMaxScale,
+  latestReadyRevision agrees and latest-revision traffic is 100%.
+  Startup confirms Migration complete, pool ready and production worker started.
+- Frontend deployed to kh-prod-web. Custom-domain HTML at
+  https://athena.themicrosoftcloudblog.com/ matches built
+  /assets/index-CBSiBaja.js; the served entry asset is accessible.
+- Desktop v0.1.11 is the latest published release at the application commit,
+  with installer, blockmap and latest.yml uploaded. Asset names match metadata.
+- Deferred proposal saved in docs/cowork-deferred-proposal.md.
+  No Cowork connector, handoff control or plugin was enabled.
+  No email was sent or marked Sent, and no task status was changed for release.
+
 **Release scope and Section 7: Validation Proof (2026-10-31, Athena-only work and UI):**
 - User explicitly requested documentation of the deferred Cowork proposal, deploy,
   merge and push. Cowork remains disabled and excluded from implementation.
