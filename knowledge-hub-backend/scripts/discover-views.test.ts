@@ -117,7 +117,7 @@ test('learned source factor rewards kept sources, penalises archived and down-vo
     const rows = (await db.query<{ id: number; f: string }>(`SELECT id, ${learnedSourceSql('ci')} AS f FROM content_items ci ORDER BY id`)).rows;
     const f = (id: number): number => Number(rows.find(r => r.id === id)?.f);
     assert.equal(f(1), 1.13, 'Good: 3 positive, 0 negative');
-    assert.equal(f(3), 0.87, 'Bad: 0 positive, 3 negative');
+    assert.equal(f(3), 0.9, 'Bad: 0 positive, 2 negative; thumbs down counts once');
     assert.equal(f(6), 1, 'History older than 180 days is ignored');
     assert.equal(f(7), 1, 'No source title stays neutral');
     assert.ok(interestSql('ci').factor.includes(learnedSourceSql('ci')), 'Learned factor feeds the ranking');

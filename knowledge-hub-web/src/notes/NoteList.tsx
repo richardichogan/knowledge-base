@@ -26,6 +26,7 @@ const SORT_LABELS: Record<NoteSortKey, string> = {
 };
 
 interface NoteListProps {
+  showTools?: boolean;
   notes: ThinkListItem[];
   selectedId: string | null;
   onSelect: (id: string) => void;
@@ -60,6 +61,7 @@ function formatDateTime(iso: string): string {
 }
 
 export const NoteList: React.FC<NoteListProps> = ({
+  showTools = true,
   notes,
   selectedId,
   onSelect,
@@ -81,7 +83,8 @@ export const NoteList: React.FC<NoteListProps> = ({
   definitionsLoadingMore = false,
   onLoadMoreDefinitions,
 }) => {
-  const [filter, setFilter] = usePersistedText('kh-think-search');
+  const [storedFilter, setFilter] = usePersistedText('kh-think-search');
+  const filter = showTools ? storedFilter : '';
   const [density, setDensity] = usePersistedChoice('kh-think-density', ['compact', 'comfortable'] as const, 'compact');
   const [passageFilter, setPassageFilter] = useState('');
   useEffect(() => {
@@ -235,7 +238,7 @@ export const NoteList: React.FC<NoteListProps> = ({
 
   return (
     <>
-      <div className="notes-list-search notes-list-tools">
+      {showTools && <div className="notes-list-search notes-list-tools">
         <button type="button" className="notes-list-tools__icon" aria-label="Compact note spacing"
           title="Toggle compact spacing. List shortcuts: J/K move, O open."
           aria-pressed={density === 'compact'} onClick={() => { setDensity(density === 'compact' ? 'comfortable' : 'compact'); }}>
@@ -297,7 +300,7 @@ export const NoteList: React.FC<NoteListProps> = ({
         >
           <View size={16} aria-hidden="true" />
         </button>
-      </div>
+      </div>}
 
       <div className={`notes-list kh-triage--${density}`} aria-label="Notes. J and K move; O opens the focused note."
         onKeyDown={event => {

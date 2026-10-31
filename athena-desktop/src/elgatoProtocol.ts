@@ -20,7 +20,10 @@ export interface PresentationState {
   opacity: number;
   error: string | null;
 }
-export const PRESENTATION_STYLES = ['bold', 'italic', 'underline', 'strike', 'code'] as const;
+export const PRESENTATION_STYLES = [
+  'bold', 'italic', 'underline', 'strike', 'code',
+  'colour-teal', 'colour-yellow', 'colour-pink', 'cue-pause', 'cue-beat',
+] as const;
 export type PresentationStyle = typeof PRESENTATION_STYLES[number];
 export interface PresentationRun { text: string; styles: PresentationStyle[] }
 export interface PresentationScript { noteId: string; title: string; text: string; runs?: PresentationRun[] }

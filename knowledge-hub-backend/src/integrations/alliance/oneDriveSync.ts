@@ -23,6 +23,7 @@ import { extractDocumentText, extractPdfWithVisuals, PDF_MAX_VISUAL_PAGES } from
 import { analyzeImageWithVision } from '../../services/visionAnalyzer.js';
 import { allianceGraphGet, allianceDownload, getAllianceStatus, isAllianceConfigured } from './allianceGraph.js';
 import type { ContentItem } from '../../types/contentItem.js';
+import { reconcileDeliverables } from '../../work/workContent.js';
 
 const SOURCE = 'onedrive-document';
 const SYNC_STATE_KEY = 'onedrive-documents';
@@ -183,7 +184,13 @@ export async function syncOneDriveDocuments(db: Pool): Promise<{ indexed: number
     if (!TEXT_TYPES.has(ext) && IMAGE_TYPES[ext] === undefined) continue;
     if ((item.size ?? 0) > MAX_FILE_BYTES) { warnings.push(`${relPath}: too large, skipped`); continue; }
     const known = existing.get(item.id);
-    if (known !== undefined && known !== null && known === (item.cTag ?? null)) continue; // unchanged and extracted OK
+    if (known !== undefined && known !== null && known === (item.cTag ?? null)) {
+      // A move/rename can preserve cTag; keep the matching path and original link current.
+      await db.query(`UPDATE content_items SET metadata=metadata || $3::jsonb,url=$4,project_context=$5
+        WHERE source=$1 AND source_id=$2`, [SOURCE, item.id,
+        JSON.stringify({ path: relPath, filename: item.name }), item.webUrl ?? '', resolveProject(topFolder)]);
+      continue;
+    }
 
     try {
       const buffer = await allianceDownload(db, item.id);
@@ -223,6 +230,12 @@ export async function syncOneDriveDocuments(db: Pool): Promise<{ indexed: number
     `DELETE FROM content_items WHERE source = $1 AND NOT (source_id = ANY($2::text[]))`,
     [SOURCE, seen],
   );
+  try {
+    await reconcileDeliverables(db, root);
+  } catch (error) {
+    errors++;
+    console.error('[onedrive] Deliverable linking failed:', error);
+  }
 
   await upsertSyncState(db, SYNC_STATE_KEY, {
     lastSyncAt: new Date(),

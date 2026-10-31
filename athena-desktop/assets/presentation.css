@@ -8,6 +8,16 @@ body { font-family: "IBM Plex Sans", "Segoe UI", sans-serif; cursor: none; }
 .script-strike { text-decoration-line: line-through; }
 .script-underline.script-strike { text-decoration-line: underline line-through; }
 .script-code { font-family: "IBM Plex Mono", Consolas, monospace; }
+.script-colour-teal { color: #3ddbd9; }
+.script-colour-yellow { color: #f1c21b; }
+.script-colour-pink { color: #ff7eb6; }
+.script-cue-pause, .script-cue-beat {
+  display: inline-block; font-size: 0.5em; font-weight: 600; letter-spacing: 0.08em;
+  vertical-align: middle; color: #3ddbd9; border: 1px dashed currentColor;
+  border-radius: 2px; padding: 0.1em 0.4em; margin-inline: 0.2em;
+}
+.script-passage { opacity: 0.4; }
+.script-passage--current { opacity: 1; }
 #guide { position: fixed; top: 35%; left: 2%; width: 2%; height: 2px; background: #3ddbd9; }
 body.mirror #viewport { transform: scaleX(-1); }
 body.flip #viewport { transform: scaleY(-1); }

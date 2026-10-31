@@ -4,6 +4,8 @@ import { api } from '../../services/api';
 import { requireApiData } from '../../services/apiError';
 import { AppDialog } from '../AppDialog';
 import { DataNotice } from '../DataNotice';
+import { ReviewWorkspace, ReviewItem } from '../ReviewWorkspace';
+import { useAthenaContext } from '../../context/AthenaContext';
 import { groupProjectsByParent } from '../ProjectOptions';
 import type { Watchlist, WatchlistInput, WatchRelationship, WatchRun, WatchRunStatus, WatchCompanyKnowledge, WatchProfileSource } from '../../types/watchlists';
 import '../../styles/discoverWatchlists.scss';
@@ -621,8 +623,9 @@ const CompanyHistory: React.FC<{ watchlistId: string; companyName: string }> = (
   </section>;
 };
 
-const WatchlistDetail: React.FC<{ watchlist: Watchlist; onEdit: () => void }> = ({ watchlist, onEdit }) => {
+const WatchlistDetail: React.FC<{ watchlist: Watchlist; onEdit: () => void; broadcastContext?: boolean }> = ({ watchlist, onEdit, broadcastContext = true }) => {
   const client = useQueryClient();
+  const { setAthenaContext } = useAthenaContext();
   const runPending = useRef(false);
   const [historyPage, setHistoryPage] = useState(1);
   const [selectedName, setSelectedName] = useState<string | null>(null);
@@ -651,6 +654,18 @@ const WatchlistDetail: React.FC<{ watchlist: Watchlist; onEdit: () => void }> = 
   const selected = companies.find(c => c.name === selectedName) ?? companies.find(c => c.findings.length) ?? companies[0];
   const history = historyPage === 1 ? recent : older;
   const earlier = (history.data ?? []).filter(r => r.status !== 'running' && (historyPage > 1 || r.id !== briefing?.id));
+  const contextDetail = JSON.stringify({ watchlist, latest, briefing, running, selectedCompany: selected,
+    savedCompany: knowledge.data?.find(company => company.name === selected?.name), baselineVersions: baselines.data,
+    historyPage, history: history.data, retrievalErrors: {
+      runs: recent.isError, companies: knowledge.isError, baselines: baselines.isError, history: history.isError,
+    } });
+  const contextSelectedName = selected?.name;
+  useEffect(() => {
+    if (!broadcastContext) return;
+    setAthenaContext({ type: 'watchlist', title: watchlist.config.name, id: watchlist.id,
+      ...(contextSelectedName ? { selectedId: contextSelectedName } : {}),
+      detail: `Actual saved watchlist content currently in view:\n${contextDetail}\nUse get_discover_watchlist_records for other dates and full bounded historical retrieval. Retrieval errors mean that content has not been read.` });
+  }, [broadcastContext, contextDetail, watchlist.config.name, watchlist.id, contextSelectedName, setAthenaContext]);
   useEffect(() => {
     if (!focusTarget) return;
     const target = document.getElementById(focusTarget);
@@ -734,7 +749,7 @@ const WatchlistDetail: React.FC<{ watchlist: Watchlist; onEdit: () => void }> = 
   </section>;
 };
 
-export const DiscoverWatchlists: React.FC = () => {
+export const DiscoverWatchlists: React.FC<{ athenaEnabled?: boolean }> = ({ athenaEnabled = true }) => {
   const client = useQueryClient();
   const [selected, setSelected] = useState<string | null>(null);
   const [editing, setEditing] = useState<Watchlist | null | undefined>(undefined);
@@ -787,7 +802,11 @@ export const DiscoverWatchlists: React.FC = () => {
   const lists = useQuery({ queryKey: ['watchlists'], queryFn: async () => requireApiData(await api.getWatchlists()) });
   const draftValidation = draft ? watchlistValidation(watchlistInput(draft)) : null;
   const active = lists.data?.find(w => w.id === selected) ?? lists.data?.[0];
-  return <section className="dw" aria-label="Discover Watchlists">
+  return <ReviewWorkspace storageKey="discover" label="Watchlists" athenaEnabled={athenaEnabled}
+    context={active ? { type: 'watchlist', title: active.config.name, id: active.id,
+      detail: `Selected watchlist configuration and latest run state:\n${JSON.stringify(active)}\nUse get_discover_watchlist_records with watchlistId=${active.id} for dated findings, baseline versions and evidence. Configuration is not a complete reading of the saved findings.` }
+      : { type: 'discover', title: 'Watchlists', detail: 'No saved watchlist selected.' }}
+    list={<section className="dw" aria-label="Discover Watchlists">
     <header className="dw-row"><div><h2>Watchlists</h2><p className="dw-hint">Follow your competitors and see what has changed.</p></div>
       <button type="button" className="dw-button dw-button--primary" disabled={saveDraft.isPending} onClick={() => { setSavedName(null); setEditing(null); }}>{draft ? 'Resume draft' : 'New watchlist'}</button></header>
     {savedName && <p className="dw-hint" role="status">Watchlist "{savedName}" saved.</p>}
@@ -813,10 +832,11 @@ export const DiscoverWatchlists: React.FC = () => {
     {lists.isError && <DataNotice title="Watchlists unavailable" error={lists.error} onRetry={() => { void lists.refetch(); }} />}
     {lists.isLoading && <p className="dw-hint" role="status">Loading watchlists…</p>}
     {lists.data?.length === 0 && <p className="dw-empty">{draft ? 'No saved watchlists yet. Continue the draft above to finish saving it.' : 'No saved watchlists yet. Add competitors, a monitoring question and comparison criteria to create one.'}</p>}
-    {lists.data && lists.data.length > 0 && <label className="dw-field dw-selector">Watchlist<select value={active?.id ?? ''} onChange={e => setSelected(e.target.value)}>
-      {lists.data.map(w => <option value={w.id} key={w.id}>{w.config.name}{w.config.paused ? ' (paused)' : ''}{w.lastRun ? ` · ${STATUS[w.lastRun.status]}` : ''}</option>)}
-    </select></label>}
-    {active && <WatchlistDetail key={active.id} watchlist={active} onEdit={() => setEditing(active)} />}
+    {lists.data?.map(watchlist => <ReviewItem key={watchlist.id} title={watchlist.config.name} selected={active?.id === watchlist.id}
+      meta={`${watchlist.config.paused ? 'Paused' : watchlist.config.cadence === 'daily' ? 'Daily' : 'Weekly'}${watchlist.lastRun ? ` · ${STATUS[watchlist.lastRun.status]}` : ''}`}
+      description={watchlist.config.question} onSelect={() => { setSelected(watchlist.id); }} />)}
     {editing !== undefined && <WatchlistForm existing={editing} onSaved={watchlist => { setSelected(watchlist.id); setSavedName(watchlist.config.name); }} onClose={() => setEditing(undefined)} />}
-  </section>;
+  </section>}
+    detail={active ? <section className="dw"><WatchlistDetail key={active.id} watchlist={active} broadcastContext={athenaEnabled} onEdit={() => setEditing(active)} /></section>
+      : <p className="dw-empty">Select a saved watchlist to review its findings, evidence and history.</p>} />;
 };

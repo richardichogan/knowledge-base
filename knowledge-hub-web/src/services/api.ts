@@ -48,6 +48,7 @@ import type {
 } from '../types/useCases';
 import type { PodcastPrepStatus } from '../types/podcastPrep';
 import type { PodcastEpisode, ScriptCard } from '../types/podcastEpisodes';
+import type { WorkContent, WorkContentPatch } from '../types/workContent';
 import type { LearningOverview, LearningQuestionView, LearningSession, LearningMessage, LearningTopicHistory } from '../types/learning';
 import type { DiscoverFormat, DiscoverParking, ParkingSelection } from '../types/discover';
 import type { WatchlistInput, Watchlist, WatchRun, WatchBaselineVersion, InterestWeight, WatchCompanyKnowledge } from '../types/watchlists';
@@ -2370,6 +2371,22 @@ export class KnowledgeHubApi {
   }
   async getPodcastEpisode(id: string): Promise<ApiResponse<PodcastEpisode>> {
     return (await this.client.get<ApiResponse<PodcastEpisode>>(`/api/podcast-episodes/${encodeURIComponent(id)}`)).data;
+  }
+
+  async getWorkContent(id: string): Promise<ApiResponse<WorkContent>> {
+    return (await this.client.get<ApiResponse<WorkContent>>(`/api/work-content/${encodeURIComponent(id)}`)).data;
+  }
+  async saveWorkContent(id: string, patch: WorkContentPatch, revision: number, noteRevision: number): Promise<ApiResponse<WorkContent>> {
+    return (await this.client.put<ApiResponse<WorkContent>>(`/api/work-content/${encodeURIComponent(id)}`, { ...patch, revision, noteRevision })).data;
+  }
+  async copyEmailDraft(id: string): Promise<ApiResponse<{ text: string }>> {
+    return (await this.client.get<ApiResponse<{ text: string }>>(`/api/work-content/${encodeURIComponent(id)}/email-copy`)).data;
+  }
+  async markEmailSent(id: string, revision: number, noteRevision: number): Promise<ApiResponse<WorkContent>> {
+    return (await this.client.post<ApiResponse<WorkContent>>(`/api/work-content/${encodeURIComponent(id)}/sent`, { revision, noteRevision, confirmed: true })).data;
+  }
+  async confirmEmailWaiting(id: string, revision: number, taskUpdatedAt: string | null): Promise<ApiResponse<WorkContent>> {
+    return (await this.client.post<ApiResponse<WorkContent>>(`/api/work-content/${encodeURIComponent(id)}/waiting`, { revision, taskUpdatedAt, confirmed: true })).data;
   }
   async ensurePodcastPrepDocument(id: string): Promise<ApiResponse<PodcastEpisode>> {
     return (await this.client.post<ApiResponse<PodcastEpisode>>(`/api/podcast-episodes/${encodeURIComponent(id)}/prep/document`)).data;

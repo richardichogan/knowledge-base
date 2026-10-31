@@ -150,6 +150,18 @@ function computeSelectedText(editor: BlockNoteEditor<any, any, any>): string {
 let activeNoteId: string | null = null;
 let designChatBridge: { owner: string; prepare: () => Promise<(changed: boolean) => Promise<void>> } | null = null;
 let podcastChatBridge: { owner: string; prepare: () => Promise<(changed: boolean) => Promise<void>> } | null = null;
+let workChatBridge: { owner: string; prepare: () => Promise<(changed: boolean) => Promise<void>> } | null = null;
+
+export function setWorkChatBridge(owner: string, prepare: () => Promise<(changed: boolean) => Promise<void>>): () => void {
+  const bridge = { owner, prepare };
+  workChatBridge = bridge;
+  return () => { if (workChatBridge === bridge) workChatBridge = null; };
+}
+
+export async function prepareWorkChat(owner: string): Promise<(changed: boolean) => Promise<void>> {
+  if (workChatBridge?.owner !== owner) throw new Error('Reopen the work item in Think before asking Athena to edit it.');
+  return workChatBridge.prepare();
+}
 
 export function setPodcastChatBridge(owner: string, prepare: () => Promise<(changed: boolean) => Promise<void>>): () => void {
   const bridge = { owner, prepare };

@@ -2,6 +2,7 @@ import type { NoteEditProposal } from './noteEdits.js';
 import { randomUUID } from 'node:crypto';
 import { DESIGN_CHAT_TOOLS, type DesignTurnState } from './designTools.js';
 import { PODCAST_CHAT_TOOLS, type PodcastTurnState } from './podcastTools.js';
+import { WORK_WRITE_TOOLS, type WorkTurnState } from './workContentTools.js';
 import { getDesign } from '../designs/designStore.js';
 import { buildStandingInstructionsBlock } from './athenaMemory.js';
 import type { Pool } from 'pg';
@@ -123,7 +124,7 @@ const NO_OUTPUTS_PANEL_NOTE = [
 const NOTE_EDIT_MAX_TOKENS = 14_000;
 
 /** Tools that change something; left out when a turn must only read. */
-const WRITE_TOOLS = new Set(['update_podcast_script', 'save_design_documents', 'set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'propose_local_file_write', 'remember', 'forget_memory', 'save_output', 'manage_scheduled_jobs', 'manage_publishing_feeds', 'hand_off_to_specialist', 'import_meeting_list', DEMO_SPECIFICATION_WRITE_TOOL, ...ASSET_WRITE_TOOLS]);
+const WRITE_TOOLS = new Set([...WORK_WRITE_TOOLS, 'update_podcast_script', 'save_design_documents', 'set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'propose_local_file_write', 'remember', 'forget_memory', 'save_output', 'manage_scheduled_jobs', 'manage_publishing_feeds', 'hand_off_to_specialist', 'import_meeting_list', DEMO_SPECIFICATION_WRITE_TOOL, ...ASSET_WRITE_TOOLS]);
 
 function isStopped(hooks: TurnHooks): boolean {
   return hooks.signal?.aborted === true;
@@ -156,6 +157,7 @@ export async function handleConversationTurn(
     noteId?: string | undefined; designOwner?: string | undefined; designState?: DesignTurnState;
     podcastOwner?: string | undefined; podcastState?: PodcastTurnState;
     noteEdits?: NoteEditProposal[]; mapChanges?: MapChangeProposal[];
+    workState?: WorkTurnState | undefined;
     localFolders?: LocalFolder[]; localFileWrites?: LocalFileWriteProposal[];
   } = {},
   /** Live turn hooks (background turns): streamed text, activity lines, Stop, a longer time budget. */
@@ -316,7 +318,7 @@ Only operate on the script when the request concerns it; unrelated questions rem
     if (name === 'search_knowledge_base' || name === 'read_knowledge_record') return true;
     if (name === 'fetch_web_page') return filtered && projectId === null;
     // Other readers do not enforce content filters. Structured queries and Design reads enforce project IDs only.
-    return !filtered && (STRUCTURED_TOOL_NAMES.has(name) || name === 'read_design_package' || name === 'read_podcast_script');
+    return !filtered && (STRUCTURED_TOOL_NAMES.has(name) || name === 'read_design_package' || name === 'read_podcast_script' || name === 'read_work_content');
   };
   if (design) catalog.load(['read_design_package']);
   if (toolContext.podcastOwner) catalog.load(['read_podcast_script']);

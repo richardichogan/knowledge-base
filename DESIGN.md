@@ -192,6 +192,11 @@ Use 4/8/12/16/24px spacing as the working rhythm. Controls are normally **36px**
 high, or **32px** in compact contexts. Header navigation has at least **44px**
 targets; tool-menu rows have at least **48px** height.
 
+Main workspace page headers use **24px titles**, **24px top and side gutters**,
+a **64px header height**, 8px bottom padding and the same Carbon bottom divider. Subtitles sit
+beneath the title; existing actions remain at the right. The shared PageHeader
+owns this geometry, rather than individual destinations.
+
 Owning panels apply their horizontal gutter once. Nested metadata, sections and
 previews must not add successive horizontal insets. Bordered fields and
 independent cards have their own internal inset, shared by heading and body.
@@ -447,6 +452,21 @@ Keep existing footer actions. After sending, replace the editor with one success
 dialog, retaining post/admin links. Done, Escape and the close button dismiss the
 whole publishing flow and reveal the underlying screen; do not stack another
 success alert or leave a completion dialog underneath.
+
+### Task-linked briefs and email drafts
+
+Deliverable brief and Email draft are Work content types within the existing
+Think shell, not separate workspaces or Plan actions. Preserve the note editor,
+action bar and properties panel. Brief headings are authored note content;
+target folder/file and produced-file status belong in the properties panel.
+Email To, Cc and Subject are compact, labelled fields immediately above the
+body; Draft/Sent, sent date and copying/confirmation actions stay in properties.
+
+Use the existing teal brief and blue email content-type badges. Fields use
+Carbon layers, borders, text and focus tokens. Keep confirmations inline,
+buttons compact and source/status text flush-left. Clearly distinguish
+loading, retained draft/conflict, waiting for sync and ready for review.
+Neither copied text nor a detected file implies sending or task completion.
 
 ## Do's and Don'ts
 

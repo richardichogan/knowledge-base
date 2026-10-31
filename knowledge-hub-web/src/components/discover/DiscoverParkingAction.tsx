@@ -8,10 +8,14 @@ import { hasParkingDestination, parkingLabel } from '../../features/discover/par
 import { DataNotice } from '../DataNotice';
 import '../../styles/discoverParking.scss';
 
-export function DiscoverParkingAction({ item }: { item: DiscoverItem }): React.ReactElement {
+export function DiscoverParkingAction({ item, renderRecommendations }: {
+  item: DiscoverItem;
+  renderRecommendations?: (openFor: (destination: keyof ParkingSelection) => void, busy: boolean) => React.ReactNode;
+}): React.ReactElement {
   const panelId = useId();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<ParkingSelection | null>(null);
+  const [requestedDestination, setRequestedDestination] = useState<keyof ParkingSelection | null>(null);
   const [message, setMessage] = useState('');
   const pending = useRef(false);
   const client = useQueryClient();
@@ -23,7 +27,10 @@ export function DiscoverParkingAction({ item }: { item: DiscoverItem }): React.R
     enabled: open,
   });
   const saved = query.data;
-  const selection = draft ?? saved ?? { newsletter: false, podcast: false };
+  const selection = draft ?? {
+    ...(saved ?? { newsletter: false, podcast: false }),
+    ...(requestedDestination ? { [requestedDestination]: true } : {}),
+  };
   const mutation = useMutation({
     mutationFn: async (value: ParkingSelection | null) => value === null
       ? requireApiData(await api.removeDiscoverParking(item.id))
@@ -33,6 +40,7 @@ export function DiscoverParkingAction({ item }: { item: DiscoverItem }): React.R
       void client.invalidateQueries({ queryKey: ['discover'] });
       setMessage(record ? `Parked for ${parkingLabel(record).toLowerCase()}.` : 'Removed from the parking lot. Article unchanged.');
       setDraft(null);
+      setRequestedDestination(null);
       setOpen(false);
     },
     onSettled: () => { pending.current = false; },
@@ -42,11 +50,20 @@ export function DiscoverParkingAction({ item }: { item: DiscoverItem }): React.R
     pending.current = true;
     mutation.mutate(value);
   };
+  const openFor = (destination: keyof ParkingSelection): void => {
+    if (mutation.isPending || query.isFetching) return;
+    if (draft || open) setDraft({ ...selection, [destination]: true });
+    setRequestedDestination(destination);
+    setOpen(true);
+    setMessage('');
+    mutation.reset();
+  };
   return <div className="dc-parking" onClick={event => { event.stopPropagation(); }} onKeyDown={event => { event.stopPropagation(); }}>
+    {renderRecommendations?.(openFor, mutation.isPending || query.isFetching)}
     <div className="dc-parking__heading">
       {saved && <span className="dc-parking__label">{parkingLabel(saved)}</span>}
       <button type="button" className="dc-parking__button" aria-expanded={open} aria-controls={panelId}
-        disabled={mutation.isPending} onClick={() => { setOpen(value => !value); setDraft(null); setMessage(''); mutation.reset(); }}>
+        disabled={mutation.isPending} onClick={() => { setOpen(value => !value); setDraft(null); setRequestedDestination(null); setMessage(''); mutation.reset(); }}>
         <Bookmark size={14} /> {saved ? 'Edit parking' : 'Park for later'}
       </button>
     </div>

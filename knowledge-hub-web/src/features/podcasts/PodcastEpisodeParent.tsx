@@ -9,6 +9,7 @@ import { athenaLinkText } from '../../notes/linkLabels';
 import { deferredView } from '../../utils/deferredView';
 import { setPodcastChatBridge } from '../../utils/activeBlockNoteEditor';
 import { parseScriptBullets, SCRIPT_BULLET as BULLET, scriptSentenceLines } from './scriptFormatting';
+import { SCRIPT_COLOURS, type ScriptColour, type ScriptCue } from './scriptAnnotations';
 import { useAthenaContext } from '../../context/AthenaContext';
 import { confirmDialog } from '../../services/appDialogs';
 import { rememberAgentJob, useAgentJobs } from '../../services/agentJobStore';
@@ -320,14 +321,51 @@ interface ScriptPassage { text: string; start: number; end: number; original: st
 type PassageAction = 'Rewrite' | 'Rephrase' | 'Add specific content';
 type AskPassage = (passage: ScriptPassage, action: PassageAction, instruction: string) => Promise<void>;
 
-const PassageTextarea: React.FC<React.ComponentProps<typeof AutoTextarea> & { onAsk: AskPassage }> = ({ onAsk, ...props }) => {
+const PassageTextarea: React.FC<React.ComponentProps<typeof AutoTextarea> & {
+  onAsk: AskPassage; onEditText: (text: string, caret: number) => void;
+}> = ({ onAsk, onEditText, ...props }) => {
   const [selection, setSelection] = useState<ScriptPassage | null>(null);
   const [adding, setAdding] = useState(false);
   const [instruction, setInstruction] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const ownInput = useRef<HTMLTextAreaElement | null>(null);
+  const input = props.inputRef ?? ownInput;
+  const restoreCaret = useRef<number | null>(null);
   const value = typeof props.value === 'string' ? props.value : '';
   const selected = selection && scriptSentenceLines(selection.original) === scriptSentenceLines(value) ? selection : null;
+  useLayoutEffect(() => {
+    if (restoreCaret.current === null || !input.current) return;
+    input.current.focus();
+    input.current.setSelectionRange(restoreCaret.current, restoreCaret.current);
+    restoreCaret.current = null;
+  }, [value, input]);
+  const annotate = (kind: ScriptCue | ScriptColour | 'plain'): void => {
+    const el = input.current;
+    if (!el || props.disabled || pending) return;
+    const cue = kind === 'pause' || kind === 'beat';
+    if (!cue && !selected) return;
+    if (!cue && /(?:^|\n)[ \t]*• /.test(selected!.text)) {
+      setError('Colour words within one bullet at a time; leave the bullet markers outside the selection.');
+      return;
+    }
+    let start = cue ? el.selectionEnd : selected!.start;
+    if (cue) {
+      const lineStart = value.lastIndexOf('\n', start - 1) + 1;
+      if (value.startsWith(BULLET, lineStart)) start = Math.max(start, lineStart + BULLET.length);
+    }
+    const end = cue ? start : selected!.end;
+    const inserted = cue ? ` [${kind}] ` : `[colour=${kind}]${value.slice(start, end)}[/colour]`;
+    const next = value.slice(0, start) + inserted + value.slice(end);
+    if (props.maxLength !== undefined && next.length > props.maxLength) {
+      setError(`This annotation would exceed the ${props.maxLength}-character field limit.`);
+      return;
+    }
+    const caret = start + inserted.length;
+    restoreCaret.current = caret;
+    setSelection(null); setError(null);
+    onEditText(next, caret);
+  };
   const ask = async (action: PassageAction): Promise<void> => {
     if (!selected || pending || props.disabled) return;
     setPending(true); setError(null);
@@ -337,15 +375,28 @@ const PassageTextarea: React.FC<React.ComponentProps<typeof AutoTextarea> & { on
   };
   return <div className="kh-episode-passage" aria-busy={pending}
     onKeyDown={event => { if (event.key === 'Escape') { setSelection(null); setAdding(false); } }}>
-    <AutoTextarea {...props} onSelect={event => {
+    <AutoTextarea {...props} inputRef={input} onSelect={event => {
       props.onSelect?.(event);
       const el = event.currentTarget;
       const text = el.value.slice(el.selectionStart, el.selectionEnd);
       setSelection(text.trim() ? { text, start: el.selectionStart, end: el.selectionEnd, original: el.value } : null);
       setAdding(false); setError(null);
     }} />
-    {selected && <div className="kh-episode-passage__actions" role="group" aria-label="Ask Athena about selected text">
+    <div className="kh-episode-passage__cues" role="group" aria-label="Insert a visual delivery cue">
+      <span className="kh-episode-passage__label">Add a cue</span>
+      {(['pause', 'beat'] as const).map(cue => <button key={cue} type="button" className="kh-btn-ghost"
+        disabled={props.disabled || pending} title={`Insert ${cue} at the cursor. Visual reminder only; scrolling continues.`}
+        onMouseDown={event => { event.preventDefault(); }} onClick={() => { annotate(cue); }}>{cue === 'pause' ? 'Pause' : 'Beat'}</button>)}
+      <span className="kh-episode-passage__hint">Visual only; not spoken.</span>
+    </div>
+    {selected && <div className="kh-episode-passage__actions" role="group" aria-label="Selected script text">
       <span className="kh-episode-passage__label">Selected text</span>
+      {SCRIPT_COLOURS.map(colour => <button key={colour} type="button"
+        className={`kh-btn-ghost kh-episode-passage__colour kh-episode-passage__colour--${colour}`}
+        disabled={props.disabled || pending} aria-label={`Colour selected text ${colour}`}
+        onMouseDown={event => { event.preventDefault(); }} onClick={() => { annotate(colour); }}>{colour}</button>)}
+      <button type="button" className="kh-btn-ghost" disabled={props.disabled || pending}
+        onMouseDown={event => { event.preventDefault(); }} onClick={() => { annotate('plain'); }}>Clear colour</button>
       {(['Rewrite', 'Rephrase'] as const).map(action => <button key={action} type="button" className="kh-btn-ghost"
         disabled={props.disabled || pending} onMouseDown={event => { event.preventDefault(); }}
         onClick={() => { void ask(action); }}>{action}</button>)}
@@ -404,6 +455,7 @@ const BulletsField: React.FC<{ bullets: string[]; disabled: boolean; label: stri
   const fieldId = useId();
   return <div className="kh-uc-field"><label htmlFor={fieldId} className="kh-uc-field__label">{label}</label>
     <PassageTextarea id={fieldId} inputRef={input} value={value} disabled={disabled} onAsk={onAsk}
+      onEditText={edit}
       placeholder={`${BULLET}Add a bullet point`} onKeyDown={keyDown}
       onChange={event => { edit(event.target.value, event.target.selectionStart); }} />
     <span className="kh-episode-passage__hint">Enter starts a bullet; Shift+Enter adds a line within it.</span>
@@ -490,6 +542,7 @@ const ScriptEditor: React.FC<{
       + (instruction ? `\nRequested addition: ${instruction}` : '')
       + '\nRead the current script first. Locate this exact passage; if it is ambiguous or has changed, ask rather than guessing.'
       + '\nKeep all other text, cards and fields unchanged. Preserve conversational British English and the enterprise angle.'
+      + '\nPreserve inline colour annotations and [pause]/[beat] visual cues, unless the requested edit changes them.'
       + '\nLeave a blank line between every sentence (two newline characters). Keep continuation sentences in the same bullet array item.'
       + '\nSave the requested change directly with update_podcast_script; do not generate a new script or a separate note.';
     openAthena(request, { ...(pageContext?.podcastEpisodeId === episode.noteId ? pageContext : {}),
@@ -507,11 +560,15 @@ const ScriptEditor: React.FC<{
         title={!onPresent ? 'Open Athena Desktop to present on the Elgato display' : undefined}
         onClick={() => { void (async () => { if (await save()) onPresent?.(); })(); }}>Present</button>
     </div>
+    <div className="kh-episode-script__body">
+    <p className="kh-episode-passage__hint">Select words to add teal, yellow or pink emphasis. Pause and Beat insert visual reminders at the cursor.
+      Colour tags remain editable here; the prompter renders them without showing the tags.</p>
     {error && <p role="alert" className="kh-uc-error">{error}</p>}
     <p className={HIDDEN} aria-live="polite">{announcement}</p>
     <div className="kh-uc-field kh-episode-intro"><label htmlFor={introId} className="kh-uc-field__label">Intro</label>
       <PassageTextarea id={introId} value={intro} maxLength={4000} disabled={locked} placeholder="How you open the episode"
         onAsk={askPassage('intro')}
+        onEditText={text => { setIntro(text); touch(); }}
         onChange={event => { setIntro(event.target.value); touch(); }} /></div>
     {!cards.length ? <div className="kh-design-diagram-empty"><h3>No topic cards yet</h3>
       <p>Draft the script from the Prep document, or add cards yourself. Each card is a short synopsis with a few bullet points.</p></div>
@@ -526,8 +583,9 @@ const ScriptEditor: React.FC<{
         onDrop={event => { event.preventDefault(); if (dragging !== null) move(dragging, index); setDragging(null); }}>
         <div className="kh-episode-card__head">
           <label className="kh-uc-field kh-episode-card__title"><span className={HIDDEN}>Card {index + 1} title</span>
-            <input className="kh-uc-input kh-uc-input--title" value={card.title} maxLength={200} disabled={locked} placeholder="Card title"
-              onChange={event => { update(index, { title: event.target.value }); }} /></label>
+            <AutoTextarea className="kh-episode-card__title-input" value={card.title} maxLength={200} disabled={locked} placeholder="Card title"
+              onKeyDown={event => { if (event.key === 'Enter') event.preventDefault(); }}
+              onChange={event => { update(index, { title: event.target.value.replace(/[\r\n]+/g, ' ') }); }} /></label>
           <div className="kh-episode-card__tools">
             <button type="button" className="kh-btn-ghost" aria-label={`Move card ${index + 1} up`} disabled={locked || index === 0} onClick={() => { move(index, index - 1); }}>↑</button>
             <button type="button" className="kh-btn-ghost" aria-label={`Move card ${index + 1} down`} disabled={locked || index === cards.length - 1} onClick={() => { move(index, index + 1); }}>↓</button>
@@ -538,10 +596,12 @@ const ScriptEditor: React.FC<{
         </div>
         <div className="kh-uc-field"><label htmlFor={`${synopsisId}-${card.id}`} className="kh-uc-field__label">Synopsis</label>
           <PassageTextarea id={`${synopsisId}-${card.id}`} value={card.synopsis} maxLength={6000} disabled={locked} onAsk={askPassage('synopsis', card.id)}
+            onEditText={text => { update(index, { synopsis: text }); }}
             onChange={event => { update(index, { synopsis: event.target.value }); }} /></div>
         <BulletsField label="Bullet points" bullets={card.bullets} disabled={locked} onAsk={askPassage('bullets', card.id)}
           onChange={bullets => { update(index, { bullets }); }} />
       </li>)}</ol>}
+    </div>
   </section>;
 };
 

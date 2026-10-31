@@ -121,10 +121,8 @@
   min-width: 0;
   small { color: var(--cds-text-secondary); font-size: 12px; line-height: 1.4; font-weight: 400; }
 }
-.kh-content.kh-content--shell { display: flex; flex-direction: column; overflow: hidden; }
+.kh-content.kh-content--shell { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
 .kh-shell__page { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: none; }
-.kh-tools-location { flex-shrink: 0; padding: 12px 3rem 0; margin: 0; font-size: 12px; color: var(--cds-text-secondary); line-height: 1.5; }
-.kh-content--tools .kh-shell__page > :is(.page-root, .docs-page, .memory-page) { padding-top: 16px; }
 .kh-content--shell .kh-shell__page > .graph-page { height: 100%; }
 @media (max-width: 1100px) {
   .kh-header.cds--header { gap: 8px; padding: 0 8px; }

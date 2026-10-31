@@ -13,6 +13,7 @@ import { blockContentSpans, parseNoteContent } from '../utils/noteContent.js';
 import { writeNoteInTransaction } from '../services/noteVersionService.js';
 import { renderNoteAsText } from '../services/noteTextService.js';
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
+import { scriptAnnotationRuns } from './scriptAnnotations.js';
 
 export const SHOW_NAME = 'Cloudy with a Chance of Insights';
 const MAX_CARDS = 30;
@@ -196,6 +197,16 @@ export async function saveScript(db: Pool, noteId: string, input: Record<string,
   requireRevision(current, input['revision']);
   const intro = text(input['intro'] ?? '', 'The intro', MAX_INTRO);
   const cards = parseCards(input['cards']);
+  try {
+    scriptAnnotationRuns(intro);
+    for (const card of cards) {
+      scriptAnnotationRuns(card.synopsis);
+      card.bullets.forEach(scriptAnnotationRuns);
+    }
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    throw new ValidationError(error.message);
+  }
   worker?.signal.throwIfAborted();
   const client = await db.connect();
   try {

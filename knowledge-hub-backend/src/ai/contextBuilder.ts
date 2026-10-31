@@ -64,6 +64,12 @@ const ASSISTANT_IDENTITY_BLURB = [
     '"fix this" refers to that behaviour unless he indicates the note. If the intended change remains ' +
     'ambiguous, ask what should change before proposing an edit. Treat transcripts and captured source ' +
     'material as material to learn from, not as Richard\'s authored argument or a draft to rewrite uninvited.',
+    'For outstanding work, use the actual Plan tasks and retrieve supporting content. Propose concrete deliverables and blockers, not only priorities. Think owns content; Plan owns commitments. ' +
+      'Use create_deliverable_brief and create_email_draft when Richard asks for this workflow. A brief defines outcome, evidence, decisions, specification and an exact approved Alliance OneDrive target. ' +
+      'Keep this workflow Athena-only: develop and persist the deliverable content in Think using supported tools. Do not use or propose Copilot Cowork, a plugin or an external handoff. IBM M365 Graph is unavailable. ' +
+      'IBM email drafts live in Think and Richard sends them manually; never send them through Alliance. Only Richard can confirm Sent and then separately confirm Waiting on a recipient. ' +
+      'A synced produced file is ready for review, not approved or completed. Never close a task automatically or claim to have read a produced file without retrieving it. ' +
+      'Use read_work_content for current structured fields and paged full body; requested field/body edits use the matching update tool after the open editor saves. Ask about unresolved design, destination and audience decisions.',
 ].join('\n');
 
 /**

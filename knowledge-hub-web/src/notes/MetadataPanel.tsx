@@ -54,6 +54,8 @@ interface AppliedTag {
 }
 
 export interface MetadataPanelProps {
+  workProperties?: React.ReactNode;
+  workContext?: import('../types/workContent').WorkContent | null;
   designPanel?: React.ReactNode;
   designPanelLabel?: string;
   writingBusy?: boolean;
@@ -99,6 +101,8 @@ function formatDateTime(iso: string): string {
 }
 
 export const MetadataPanel: React.FC<MetadataPanelProps> = ({
+  workProperties,
+  workContext,
   designPanel,
   designPanelLabel = 'Design',
   writingBusy = false,
@@ -277,7 +281,8 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
             className="notes-meta-tabpanel notes-meta-tabpanel--athena"
             hidden={tab !== 'athena'}
           >
-            <ThinkAthenaPanel pageContext={pageContext ?? undefined} onBusyChange={setAthenaBusy} promptRequest={athenaRequest ?? undefined}
+            <ThinkAthenaPanel pageContext={workContext && pageContext ? { ...pageContext, workContentId: workContext.noteId,
+              workContent: workContext } : pageContext ?? undefined} onBusyChange={setAthenaBusy} promptRequest={athenaRequest ?? undefined}
               />
           </div>
 
@@ -305,6 +310,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
         )}
         {tab === 'metadata' && (
           <div role="tabpanel" id="think-side-panel-metadata" aria-labelledby="think-side-tab-metadata" className="notes-meta-tabpanel">
+            {workProperties}
             <CollapsibleSection label="Organisation">
               <div className="notes-meta-section notes-meta-pair">
                 <label className="notes-meta-pair__field">

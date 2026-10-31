@@ -163,8 +163,7 @@ export const AppShell: React.FC = () => {
           onAction={selectAction} onClose={closeMenu} triggerRef={narrow ? mobileRef : toolsRef} initialFocus={initialFocus} />}
       </Header>
       <div className="kh-shell">
-        <div className={`kh-content kh-content--shell${tool ? ' kh-content--tools' : ''}`}>
-          {tool && <p className="kh-tools-location">Tools / {tool.label}</p>}
+        <div className="kh-content kh-content--shell">
           <DayCheckinBanner />
           <PodcastPrepNotification />
           <div className="kh-shell__page" id="kh-main-content" tabIndex={-1}><Outlet /></div>

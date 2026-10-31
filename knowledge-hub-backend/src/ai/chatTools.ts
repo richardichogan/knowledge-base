@@ -20,6 +20,7 @@ import { JOB_TOOL, executeJobTool } from './jobTools.js';
 import { PUBLISHING_TOOL, executePublishingTool } from './publishingTools.js';
 import { executeDesignTool, type DesignTurnState } from './designTools.js';
 import { executePodcastTool, type PodcastTurnState } from './podcastTools.js';
+import { WORK_CONTENT_TOOLS, WORK_TOOL_NAMES, executeWorkTool, type WorkTurnState } from './workContentTools.js';
 import type { NoteEditProposal } from './noteEdits.js';
 import { createMemory, listMemories, deleteMemory } from './athenaMemory.js';
 import type { Pool } from 'pg';
@@ -72,6 +73,7 @@ const DIAGRAM_SEARCH_PREVIEW_CHARS = 1000;
 const TASK_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 const NOTE_CONTENT_TYPES = [
   'blog', 'podcast', 'podcast-show-notes', 'newsletter', 'project', 'note', 'script', 'architecture', 'meeting', 'research', 'spec', 'use-case',
+  'deliverable-brief', 'email-draft',
 ] as const;
 const DEFAULT_ATHENA_NOTE_PROJECT_ID = 'ibm-thought-leadership';
 
@@ -79,6 +81,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
   const learnTools = await getLearnMcpTools();
   const tavilyTools = await getTavilyMcpTools();
   return [
+    ...WORK_CONTENT_TOOLS,
     JOB_TOOL,
     PUBLISHING_TOOL,
     {
@@ -815,6 +818,7 @@ export async function executeToolCall(
     userMessage?: string | undefined;
     sessionId?: string | undefined; noteId?: string | undefined; designOwner?: string | undefined; designState?: DesignTurnState; noteEdits?: NoteEditProposal[];
     podcastOwner?: string | undefined; podcastState?: PodcastTurnState;
+    workState?: WorkTurnState | undefined;
     allowStructuralNoteEdits?: boolean | undefined;
     retrievalScope?: RetrievalScope | undefined; retrievalAudit?: RetrievalAudit | undefined;
     excludedIds?: ReadonlySet<string>;
@@ -844,6 +848,14 @@ export async function executeToolCall(
   if (name === 'manage_scheduled_jobs') return executeJobTool(db, args, turn.sessionId);
   if (name === 'manage_publishing_feeds') return executePublishingTool(db, args, turn.sessionId);
   if (AGENT_TOOL_NAMES.has(name)) return executeAgentTool(db, name, args, turn);
+  if (WORK_TOOL_NAMES.has(name)) {
+    if (turn.retrievalScope && Object.keys(turn.retrievalScope.filter).length > 0) return { error: 'Work content tools do not support this enforced collection filter.', code: 'scope_mismatch' };
+    try { return await executeWorkTool(db, name, args, turn); }
+    catch (error) {
+      console.error('[Work content chat] Operation failed:', error);
+      return { error: error instanceof Error ? error.message : 'The work-content operation failed. No completion is confirmed.' };
+    }
+  }
 
   if (turn.exclusionsFailed === true && EXCLUSION_GATED_TOOLS.has(name)) return EXCLUSIONS_UNAVAILABLE_RESULT;
   if (name === 'read_podcast_script' || name === 'update_podcast_script') {

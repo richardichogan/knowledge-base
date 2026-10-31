@@ -14,7 +14,8 @@ import { BlockNoteViewWrapper } from './BlockNoteViewWrapper';
 import { GitHubModal, GitHubConflictModal } from './GitHubModal';
 import { ShareEmailModal } from '../components/ShareEmailModal';
 import type { ShareEmailContent } from '../types/shareEmail';
-import { setActiveBlockNoteEditor, getActiveBlockNoteEditor, setNoteActionBridge } from '../utils/activeBlockNoteEditor';
+import { setActiveBlockNoteEditor, getActiveBlockNoteEditor, setNoteActionBridge, setWorkChatBridge } from '../utils/activeBlockNoteEditor';
+import { EmailDraftFields, useWorkContent, WorkContentProperties } from './WorkContent';
 import { TrashCan, ChevronDown, DocumentExport, DocumentImport, Idea, Renew, Image as ImageIcon, LogoGithub, Diagram, Code, Copy, Launch, PresentationFile, TextBold, TextItalic, ListChecked, ListBulleted, ListNumbered, Quotes } from '@carbon/icons-react';
 import { SendToBuildDialog } from '../features/build/buildShared';
 import { pushToGitHub } from './githubSync';
@@ -30,6 +31,7 @@ import {
   BLOCKNOTE_G100_THEME,
   UNTITLED_DOCUMENT,
   USE_CASE_TEMPLATE_HEADINGS,
+  DELIVERABLE_BRIEF_HEADINGS,
 } from './constants';
 import type { ContentType } from './constants';
 import type { NoteDocument, GitHubPublication } from './types';
@@ -256,6 +258,12 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   const projectIdRef = useRef(doc.projectId ?? '');
   const githubPathRef = useRef<string | undefined>(doc.githubPath);
   const onSavedRef = useRef<(updated: NoteDocument) => void>(onSaved);
+  const workEnabled = contentType === 'deliverable-brief' || contentType === 'email-draft';
+  const workSaveNote = useRef<() => Promise<boolean>>(async () => false);
+  const work = useWorkContent(doc.id, workEnabled, () => workSaveNote.current());
+  const reloadWork = work.reload;
+  const workMetadataSave = useRef(work.saveMetadata);
+  workMetadataSave.current = work.saveMetadata;
 
   useEffect(() => { contentTypeRef.current = contentType; }, [contentType]);
   useEffect(() => { projectIdRef.current = projectId; }, [projectId]);
@@ -527,7 +535,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
       if (!await saveInFlightRef.current) return false;
     }
     if (historyBusyRef.current || conflictRef.current) return false;
-    if (!isDirtyRef.current) return true;
+    if (!isDirtyRef.current) return workMetadataSave.current(savedDocRef.current.revision ?? 0);
     let sessionEnded = false;
     try { sessionEnded = draftEpoch !== null && noteDraftIdentity.epoch() !== draftEpoch; }
     catch (error) { console.error('[Think recovery] Recovery session could not be checked; server saving will still be attempted.', error); }
@@ -582,8 +590,51 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
       persistDraft();
       setNotification({ kind: 'error', msg: failure });
     }
+    if (ok && !await workMetadataSave.current(savedDocRef.current.revision ?? 0)) {
+      setNotification({ kind: 'error', msg: 'Body saved, but work properties could not be saved. Your properties draft is retained; review the Metadata panel.' });
+      return false;
+    }
     return ok;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  workSaveNote.current = doSave;
+
+  useEffect(() => {
+    if (!workEnabled) return;
+    return setWorkChatBridge(doc.id, async () => {
+      if (!await doSave()) throw new Error('Save the note and its properties before asking Athena to change it.');
+      if (historyBusyRef.current || conflictRef.current) throw new Error('Resolve the note conflict before continuing.');
+      historyBusyRef.current = true;
+      setHistoryBusy(true);
+      editorRef.current.isEditable = false;
+      return async (changed: boolean): Promise<void> => {
+        try {
+          if (changed && mountedRef.current && getActiveBlockNoteEditor() === editorRef.current) {
+            const result = await api.getNote(doc.id);
+            if (!result.success) throw new Error(result.error.message);
+            const accepted = fromApiNote(result.data);
+            suppressChangesRef.current = true;
+            try {
+              const blocks = JSON.parse(accepted.contentJson) as PartialBlock[];
+              editorRef.current.replaceBlocks(editorRef.current.document, blocks.length ? blocks : [{ type: 'paragraph', content: '' }]);
+              savedDocRef.current = accepted;
+              restoredBodyRef.current = JSON.stringify(editorRef.current.document);
+              isDirtyRef.current = false;
+              onSavedRef.current(accepted);
+              await reloadWork();
+            } finally { suppressChangesRef.current = false; }
+          }
+        } catch (error) {
+          console.error('[Think work content] Athena refresh failed:', error);
+          if (mountedRef.current) setNotification({ kind: 'error', msg: 'Athena finished, but the saved content could not be refreshed. Reopen the note before editing.' });
+          throw error;
+        } finally {
+          historyBusyRef.current = false;
+          editorRef.current.isEditable = true;
+          if (mountedRef.current) setHistoryBusy(false);
+        }
+      };
+    });
+  }, [doc.id, doSave, workEnabled, reloadWork]);
 
   useEffect(() => { onSaveReady?.(doSave); return () => { onSaveReady?.(null); }; }, [doSave, onSaveReady]);
 
@@ -1033,6 +1084,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   const appliedTags = flatTags.filter((t) => taxonomyTagIds.includes(t.id));
   const identity = useIdentity();
   const metadata: MetadataPanelProps = {
+    workContext: work.data,
+    ...(workEnabled ? { workProperties: <WorkContentProperties work={work} disabled={historyBusy || externalBusy} /> } : {}),
     designPanel,
     ...(designPanelLabel !== undefined && { designPanelLabel }),
     onSaveBeforeCampaign: doSave,
@@ -1041,6 +1094,18 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
     onContentTypeChange: value => {
       setContentType(value); contentTypeRef.current = value; isDirtyRef.current = true;
       if (value === 'use-case') applyUseCaseTemplate();
+      if (value === 'deliverable-brief') {
+        const blocks = editorRef.current.document;
+        if (extractPlainText(blocks).trim() === '') {
+          editorRef.current.replaceBlocks(blocks, [
+            { type: 'heading', props: { level: 1 }, content: savedDocRef.current.title },
+            ...DELIVERABLE_BRIEF_HEADINGS.flatMap(heading => [
+              { type: 'heading' as const, props: { level: 2 }, content: heading },
+              { type: 'paragraph' as const, content: '' },
+            ]),
+          ]);
+        }
+      }
       persistDraft(); void doSave();
     },
     projectId, projects, onProjectChange: value => {
@@ -1326,11 +1391,12 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
                 </DocumentReview>
           </div>}
           {!showingHtml && bodyContent}
+          {!showingHtml && contentType === 'email-draft' && <EmailDraftFields work={work} disabled={historyBusy || externalBusy || work.busy || work.recoveryConflict} />}
           <div className="notes-editor-inner" hidden={showingHtml || bodyContent !== undefined}>
             <BlockNoteViewWrapper
               editor={editor}
               theme={BLOCKNOTE_G100_THEME}
-              editable={!historyBusy && !externalBusy}
+              editable={!historyBusy && !externalBusy && !(contentType === 'email-draft' && work.data?.status === 'sent')}
             >
               <PassageTagManager editor={editor} noteId={doc.id} save={doSave} onError={passageError}
                 githubPublished={publication !== null} />

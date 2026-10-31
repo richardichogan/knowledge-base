@@ -6,6 +6,10 @@ import { desktopErrorMessage, getDesktop, type DesktopCommand, type DesktopComma
 import type { PresentationDisplay } from '../../../../athena-desktop/src/elgatoProtocol';
 import { presentationScript } from './presentationScript';
 import { authSession } from '../../services/authSession';
+import { api } from '../../services/api';
+import { requireApiData } from '../../services/apiError';
+import { episodeScriptText } from '../../types/podcastEpisodes';
+import { annotatedPresentation } from '../podcasts/scriptAnnotations';
 import './presenter.scss';
 
 export function Presenter(): React.JSX.Element {
@@ -27,10 +31,23 @@ export function Presenter(): React.JSX.Element {
     initialPageParam: 1, getNextPageParam: nextNotesPage, enabled: desktop !== undefined,
   });
   const note = useQuery({ queryKey: ['presentation-note', noteId], queryFn: () => fetchNote(noteId), enabled: !!noteId && !!desktop });
+  const episode = useQuery({
+    queryKey: ['presentation-episode', noteId],
+    queryFn: async () => requireApiData(await api.getPodcastEpisode(noteId)),
+    enabled: !!desktop && note.data?.contentType === 'podcast-episode',
+  });
   const { script, scriptError } = useMemo(() => {
-    try { return { script: note.data ? presentationScript(note.data.contentJson) : null, scriptError: null }; }
+    try {
+      if (note.data?.contentType === 'podcast-episode') {
+        return { script: episode.data ? { ...annotatedPresentation(episodeScriptText(episode.data.scriptIntro, episode.data.scriptCards)), warnings: [] } : null,
+          scriptError: episode.error?.message ?? null };
+      }
+      return { script: note.data ? presentationScript(note.data.contentJson) : null, scriptError: null };
+    }
     catch (err) { return { script: null, scriptError: err instanceof Error ? err.message : 'Could not read this script.' }; }
-  }, [note.data]);
+  }, [note.data, episode.data, episode.error]);
+  const annotationUnsupported = !!script?.runs.some(run => run.styles.some(style => style.startsWith('colour-') || style.startsWith('cue-')))
+    && !desktop?.scriptAnnotations;
 
   async function action(fn: () => Promise<unknown>, message?: string): Promise<void> {
     if (busyRef.current) return;
@@ -77,7 +94,7 @@ export function Presenter(): React.JSX.Element {
   const rows = notes.data?.pages.flatMap(page => page.items) ?? [];
   const selected = note.data;
   const currentListed = rows.some(item => item.id === noteId);
-  const canStart = !expired && !!selected && !!script?.text && !!displayId && !note.isFetching;
+  const canStart = !expired && !!selected && !!script?.text && !!displayId && !note.isFetching && !episode.isFetching && !annotationUnsupported;
   const play = (): void => {
     if (!desktop || !canStart || !selected || !script) return;
     void action(async () => {
@@ -113,7 +130,7 @@ export function Presenter(): React.JSX.Element {
         {notes.error && <p className="kh-presenter__error" role="alert">{notes.error.message} <button onClick={() => { void notes.refetch(); }}>Retry</button></p>}
         {notes.hasNextPage && <button disabled={notes.isFetchingNextPage} onClick={() => { void notes.fetchNextPage(); }}>Load more notes</button>}
         {notes.isFetchNextPageError && <p className="kh-presenter__error" role="alert">Could not load more notes. Retry Load more notes.</p>}
-        {note.isFetching && <p role="status">Loading script...</p>}
+        {(note.isFetching || episode.isFetching) && <p role="status">Loading script...</p>}
         {(note.error || scriptError) && <p className="kh-presenter__error" role="alert">{note.error?.message ?? scriptError}</p>}
         {script?.warnings.map(warning => <p key={warning}>{warning}</p>)}
         <h3>{selected?.title ?? 'No note selected'}</h3>
@@ -121,6 +138,7 @@ export function Presenter(): React.JSX.Element {
           <span key={index} className={run.styles.map(style => `kh-presenter__text--${style}`).join(' ')}>{run.text}</span>)
           : 'Choose a saved note with text to see its script here.'}</p>
         <p>The output uses a saved snapshot. Edits will not change a live presentation.</p>
+        {annotationUnsupported && <p className="kh-presenter__error" role="alert">Update Athena Desktop to present script colours and visual delivery cues.</p>}
       </section>
       <aside className="kh-presenter__controls" aria-label="Presenter controls">
         <section>
@@ -133,7 +151,7 @@ export function Presenter(): React.JSX.Element {
             <button disabled={busy} onClick={() => { void action(refreshDisplays); }}>Refresh displays</button>
             <button disabled={!displayId || busy} onClick={() => { void action(() => desktop.identify(Number(displayId))); }}>Identify</button>
           </div>
-          <button className="kh-presenter__primary" disabled={expired || !selected || !script?.text || !displayId || busy || note.isFetching} onClick={() => {
+          <button className="kh-presenter__primary" disabled={!canStart || busy} onClick={() => {
             if (!selected || !script) return;
             void action(() => desktop.start({ noteId: selected.id, title: selected.title, text: script.text, runs: script.runs, displayId: Number(displayId) }), 'Script opened, paused and ready.');
           }}>Open script on display</button>
@@ -141,6 +159,10 @@ export function Presenter(): React.JSX.Element {
             if (connected) await desktop.command({ id: crypto.randomUUID(), command: 'pause', issuedAt: Date.now() });
             const refreshed = await note.refetch();
             if (refreshed.error) throw refreshed.error;
+            if (refreshed.data?.contentType === 'podcast-episode') {
+              const nextEpisode = await episode.refetch();
+              if (nextEpisode.error) throw nextEpisode.error;
+            }
           }, 'Preview reloaded. Open script on display to replace the paused output.'); }}>Reload saved script</button>
         </section>
         <section>
@@ -175,7 +197,8 @@ export function Presenter(): React.JSX.Element {
               onKeyUp={e => saveOpacity(Number(e.currentTarget.value))}
               onBlur={e => saveOpacity(Number(e.currentTarget.value))} />
           </label>}
-          <p>Manual scrolling only. No presentation microphone is used.</p>
+          <p>The passage at the reading guide is highlighted; surrounding text is dimmed. Pause and Beat are visual reminders only.
+            No presentation microphone is used.</p>
         </section>
         <section>
           <h2>Stream Deck</h2>

@@ -8,6 +8,7 @@ import type { CommandRequest, DesktopCommandState, PresentationDisplay, Presenta
 export type { DesktopCommand, CommandRequest, DesktopCommandState } from '../../../athena-desktop/src/elgatoProtocol';
 
 export interface DesktopPresentation {
+  scriptAnnotations?: boolean;
   open(noteId?: string): Promise<void>;
   displays(): Promise<(PresentationDisplay & { preferred?: boolean })[]>;
   identify(id: number): Promise<void>;

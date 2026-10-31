@@ -53,7 +53,7 @@ test('every content type sits in exactly one group and keeps its stored id', () 
   const grouped = CONTENT_TYPE_GROUPS.flatMap((group) => group.options.map((option) => option.id));
   assert.equal(grouped.length, CONTENT_TYPE_OPTIONS.length);
   assert.deepEqual([...grouped].sort(), [
-    'architecture', 'blog', 'definition', 'design', 'meeting', 'newsletter', 'note', 'podcast', 'podcast-episode', 'podcast-show-notes',
+    'architecture', 'blog', 'definition', 'deliverable-brief', 'design', 'email-draft', 'meeting', 'newsletter', 'note', 'podcast', 'podcast-episode', 'podcast-show-notes',
     'project', 'research', 'script', 'spec', 'use-case',
   ]);
 });

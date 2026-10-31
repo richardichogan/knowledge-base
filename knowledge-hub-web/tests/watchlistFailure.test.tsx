@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 import { DiscoverWatchlists } from '../src/components/discover/DiscoverWatchlists';
 import type { Watchlist, WatchRun, WatchCompanyKnowledge } from '../src/types/watchlists';
 
@@ -29,7 +30,7 @@ function render(runs: WatchRun[], knowledge: WatchCompanyKnowledge[] = []): stri
   client.setQueryData(['watchlist-companies', watchlist.id, watchlist.revision, runs.find(run => run.status !== 'running')?.id], knowledge);
   client.setQueryData(['watchlists', watchlist.id, 'baselines', 1], []);
   try {
-    return renderToStaticMarkup(<QueryClientProvider client={client}><DiscoverWatchlists /></QueryClientProvider>);
+    return renderToStaticMarkup(<MemoryRouter><QueryClientProvider client={client}><DiscoverWatchlists /></QueryClientProvider></MemoryRouter>);
   } finally { client.clear(); }
 }
 

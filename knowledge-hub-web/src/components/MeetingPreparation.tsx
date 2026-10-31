@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api, type Project, type CockpitLink, type CockpitSection } from '../services/api';
@@ -16,13 +16,20 @@ const EvidenceLinks: React.FC<{ title: string; section: CockpitSection<CockpitLi
   </>}
 </section>;
 
-export const MeetingPreparation: React.FC<{ eventId: string; projects: readonly Project[]; initialProjectId?: string | undefined }> = ({ eventId, projects, initialProjectId }) => {
+export const MeetingPreparation: React.FC<{ eventId: string; projects: readonly Project[]; initialProjectId?: string | undefined; broadcastContext?: boolean }> = ({ eventId, projects, initialProjectId, broadcastContext = false }) => {
   const [open, setOpen] = useState(false);
   const [projectId, setProjectId] = useState(initialProjectId ?? '');
-  const { openAthena } = useAthenaContext();
+  const { openAthena, setAthenaContext } = useAthenaContext();
   const preparation = useQuery({ queryKey: ['meeting-preparation', eventId, projectId],
     queryFn: async () => requireApiData(await api.prepareMeeting(eventId, projectId || undefined)), enabled: open, retry: false });
   const data = preparation.data;
+  useEffect(() => {
+    if (!broadcastContext || !open) return;
+    setAthenaContext({ type: 'calendar event', title: data?.meeting.title ?? 'Meeting preparation', id: eventId,
+      ...(projectId ? { projectId } : {}),
+      detail: preparation.isError ? 'Meeting preparation could not be retrieved. Do not claim to have read it.'
+        : `Current retrieved meeting invitation and project evidence:\n${JSON.stringify(data ?? null)}\n${data ? 'This is a saved evidence snapshot, not a generated recommendation.' : 'Meeting evidence is still loading.'}` });
+  }, [broadcastContext, open, data, eventId, projectId, preparation.isError, setAthenaContext]);
   return <div className="kh-meeting-preparation">
     <button type="button" className="kh-btn-ghost" aria-expanded={open} onClick={() => { setOpen(value => !value); }}>{open ? 'Close preparation' : 'Prepare meeting'}</button>
     {open && <section className="kh-work-context" aria-label="Meeting preparation">

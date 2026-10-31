@@ -13,6 +13,7 @@ if (process.isMainFrame && athenaOrigin !== '' && window.location.origin === ath
   contextBridge.exposeInMainWorld('athenaDesktop', {
     version: versionArg?.slice('--athena-version='.length) ?? '',
     presentation: {
+      scriptAnnotations: true,
       open: (noteId?: string) => ipcRenderer.invoke('presentation:open', noteId),
       displays: () => ipcRenderer.invoke('presentation:displays'),
       identify: (id: number) => ipcRenderer.invoke('presentation:identify', id),

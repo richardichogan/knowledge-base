@@ -193,6 +193,32 @@ saves pending changes before a chat turn, locks script editing during the turn a
 saved episode data afterwards. Generic parent-note edits and disconnected drafts are not
 substitutes for a script edit. Full regeneration remains background specialist work.
 
+The Script editor uses the compact Athena typography without background cards, with a
+fixed action row above the independently scrolling script body, never floating
+over its text. Card titles grow to show their full text;
+the existing move/delete controls wrap within the card header when space is limited.
+Intro, synopsis and bullet fields retain inline editing and visible focus states without
+nested raised-grey input panels. The Think shell and Athena/properties panel are unchanged.
+
+Selected words in intro, synopsis and individual bullet fields can receive teal,
+yellow or pink emphasis, or have colour cleared. Compact Pause and Beat controls
+insert visual delivery reminders at the cursor without changing scrolling.
+Annotations are stored in the existing text fields as `[colour=teal]text[/colour]`
+(also yellow/pink; `plain` clears emphasis), `[pause]` and `[beat]`. The same
+dependency-free parser is used by the frontend and backend: normal script saves
+reject unbalanced colour spans, and Athena reads/preserves annotations through
+its existing typed script tools and revision checks. Spoken-duration estimates
+exclude colour tags and visual cues. No schema migration or separate document is needed.
+
+Athena Desktop 0.1.11 renders the saved annotated script as safe text runs, not HTML.
+The passage at the existing reading guide is bright while surrounding passages
+are dimmed; positioning follows manual scrolling, text size and vertical mirroring.
+Colour tags are not displayed; Pause and Beat appear as non-spoken visual markers.
+The Presenter view retrieves episode scripts rather than substituting the parent
+Prep document. Older desktop versions explicitly reject annotated presentation
+with an update message rather than dropping the formatting. The desktop update
+must be released separately; web changes alone do not update its output renderer.
+
 The Script editor leaves a full blank line between every intro, synopsis and bullet sentence
 (two newline characters, like separate short paragraphs). Continuation sentences remain under the same bullet marker; Enter starts
 a new bullet and Shift+Enter adds a line within it. Normal script saves retain this formatting
@@ -471,6 +497,53 @@ These are AI-assisted evidence checks, not a guarantee of factual correctness. T
 states that limit; it does not label a model's confidence as proof. Past scores are
 historical results, not a promise that withdrawn questions remain current.
 
+### Athena-only task deliverables
+
+Athena develops content in Think and tracks commitments in Plan. This workflow
+does not use Copilot Cowork, a plugin or an external handoff. IBM M365 Graph is
+unavailable. There is no Graph write permission, email send action or new Plan
+control.
+
+- **Deliverable brief** is a Work content type in Think, using the existing
+  editor and properties panel. Its template covers outcome/definition of done,
+  sources/evidence, decisions only Richard can make, deliverable specification
+  and target OneDrive path. The properties panel holds the linked task, exact
+  folder/file name and produced-file state. Athena develops the brief in Think;
+  there is no handoff-prompt action.
+- **Email draft** is one task-linked Think note per email. Compact To, Cc and
+  Subject fields sit above the existing body editor. Status, sent date,
+  linked task/brief and Copy email remain in the properties panel. Richard
+  copies and sends through IBM himself. Sent requires explicit confirmation;
+  setting the task to Waiting on the recipient requires a separate confirmation.
+  Replies are known only when Richard supplies them. Sent writing/recipient
+  fields are protected; a follow-up uses a new draft.
+- Athena initiates this workflow through `create_deliverable_brief` and
+  `create_email_draft`. `read_work_content` reads current structured metadata
+  and pages the body. Requested edits use `update_deliverable_brief` or
+  `update_email_draft`, after the open editor saves pending body and field
+  edits. Writes check both note and properties revisions; original-body
+  protection and normal indexing are preserved.
+- Existing OneDrive sync matches that exact path case-insensitively, including
+  already-indexed files and moves/renames with an unchanged cTag. It links the
+  document to the brief and task and records activity. **Ready for review is
+  not approved or completed**; task status never changes on file detection.
+  Refresh status fetches saved state; it does not start a sync or production job.
+- Work fields use side tables `deliverable_briefs` and `email_drafts`; authored
+  bodies stay in normal note blocks. Pending properties drafts are retained
+  locally per signed-in identity and cleared with note drafts on sign-out.
+  Conflicts do not overwrite retained drafts.
+
+No connector or plugin is part of this workflow. Office files saved separately
+in Alliance OneDrive can still be linked by the existing read-only sync; file
+tracking does not imply Athena generated or approved the file.
+
+Local verification on 31 October 2026 used the real Investigate First Mate task:
+Athena created a brief and an unsent source-request draft, read and edited the
+brief, and the normal Think editor displayed the saved changes. Email copy
+worked; the task remained in backlog and no message was sent. Both packages
+passed TypeScript checks. File-sync detection and Sent/Waiting confirmations
+were not exercised against real commitments. No production deployment occurred.
+
 ## 4. Core objects
 
 - **Project:** the scope most other objects belong to. It carries the context Athena reloads on every turn.
@@ -525,6 +598,27 @@ The existing Design properties panel offers a manual **Check consistency** actio
 
 ### Connected-work usability
 
+All main workspace screens share the same PageHeader geometry: 24px title,
+24px top/side gutters, a compact 64px header with 8px bottom padding, one Carbon bottom divider and a
+16px gap below it. Title, subtitle and existing right-hand actions retain their
+roles without page-specific typography or offsets.
+Plan controls stay on one row; on narrower desktops their action labels become
+accessible icon controls, retaining tooltips and the existing actions.
+The redundant Tools breadcrumb row is removed so tool destinations use the
+same title and divider position as the primary destinations.
+The Notes list's label/refresh/collapse/search/sort/group/preview block is
+temporarily omitted. Cmd/Ctrl+K remains the global search entry point. Stored
+list search is ignored while the controls are omitted, not deleted; the controls
+and preferences remain recoverable by restoring the NoteList showTools prop.
+
+Think's Notes view uses the same quiet list treatment as Discover: unboxed
+panes, open rows and selected-row tint. Compact unselected titles use at most
+two lines; the selected title wraps fully with semibold emphasis. The existing
+labelled content-type flag remains beneath the title. Date/project grouping, preview and density
+preferences remain intact. Its header and controls use compact spacing without
+moving actions, editors, content-type tabs, properties or Athena. Sparks and
+Canvas styling is unchanged.
+
 Primary navigation resumes the last visited deep link within each area on the
 current browser; explicit links still open their requested item. Think retains
 the selected note in its URL, remembers its search and existing sort settings,
@@ -533,6 +627,59 @@ Discover remembers its page and existing view, and both lists have independent
 compact-spacing preferences. With focus in the list, J/K move and O opens;
 Discover also supports S to save and A to archive non-blog/non-published articles.
 Shortcuts do not run inside form controls, editors or modal dialogs.
+
+Today and every Discover list use a Carbon three-column review workspace:
+a wider, information-rich list, the selected item's structured details and
+an embedded Athena panel. The columns share one bounded workspace height and
+scroll independently. List and Athena widths are drag- and keyboard-resizable
+and remembered per layout profile. Athena starts collapsed to a labelled rail;
+opening it uses workspace space, not a full-window drawer. The first available
+item is selected automatically, and a selection is retained while it remains
+in the current list. Existing workflows, editors and approval boundaries remain
+in place; selecting an item never generates an assessment or approves an action.
+Today keeps its existing work groups and selectable meeting/podcast preparation.
+Discover retains article views, CFPs, mailbox filters and Watchlist evidence and
+history. Article selection opens the details directly, without an Explore
+button. Thumbs down is the single dismissal control for For you and Shelved:
+it archives the article and counts as one negative source-ranking point,
+matching an ordinary manual archive, rather than the former two points.
+There is no separate Not interested button. Thumbs up still counts as two
+positive points; saved/blog items retain their Archive action.
+Article controls, including feedback votes, Save, state changes and creation
+actions, remain available in the reading pane's compact article toolbar. Left cards use a
+pointer cursor without separate open-link or information buttons. The saved
+assessment and original-source link remain in the reading pane. The reading header has
+a prominent 32px title (40px in a wide reading pane), a saved Athena treatment
+or existing relevance band, and the saved assessment above a compact feedback/Save toolbar,
+with secondary creation actions in More, and clearly grouped source, publication date, workflow status,
+topics, relevance assessment and project fit, using saved fields only.
+Today and Discover use open list rows and an unboxed reading surface rather
+than nested background panels. Only column separators, quiet row rules and
+the selected-row tint define the workspace. The briefing is compact and
+unboxed. Selecting a different item resets the reading pane to its title
+without resetting the independent list scroll.
+The shared header keeps its count under the title; view tabs and keyboard
+hints share a row when space permits. The full-width briefing sits above the
+columns without a repeated Standouts heading in the list.
+Format actions use compact 32px single-line buttons, with fit beside the label,
+wrapping as whole controls instead of large equal-sized grid boxes.
+Compact article rows retain
+source/date, full titles, topics and a saved treatment/relevance label; the
+justification is shown in the selected article's reading pane.
+Recommended formats are actionable immediately after the assessment and
+toolbar, followed by structured project-fit rows and supporting metadata.
+Quick/full blog actions preselect the corresponding length in the existing
+dialog without starting a job; social opens the existing preparation dialog.
+Newsletter/podcast actions open the same parking editor with that destination
+selected, retaining other choices and requiring the normal explicit save.
+Project-fit evidence does not imply an attachment or expose an unsupported
+Attach operation. Wide-screen lists default
+to 560px and can be resized up to 760px, preserving saved user widths.
+Publishing retains its existing dialog, draft editors, scheduling,
+delivery history and audit views with the same embedded review composition.
+Athena receives stable item IDs, the active view and actual structured saved
+content and job state. Summaries and failed retrievals are identified as such,
+with existing bounded tools used for full source or historical content.
 
 The existing shell includes a collapsible background-work history, backed by
 durable specialist jobs and their live updates. Running work remains visible

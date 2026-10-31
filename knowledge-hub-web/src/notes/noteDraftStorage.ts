@@ -6,6 +6,7 @@ export interface NoteDraft {
   writing: { title: string; contentType: ContentType; contentJson: string };
 }
 export const NOTE_DRAFT_PREFIX = 'kh-note-draft-v1:';
+export const WORK_DRAFT_PREFIX = 'kh-work-draft:';
 const MAX_DRAFT_CHARACTERS = 2_000_000;
 const MAX_LISTED_DRAFTS = 100;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -86,7 +87,7 @@ export function clearAllNoteDrafts(storage: Storage): void {
   const keys: string[] = [];
   for (let index = 0; index < storage.length; index++) {
     const key = storage.key(index);
-    if (key?.startsWith(NOTE_DRAFT_PREFIX)) keys.push(key);
+    if (key?.startsWith(NOTE_DRAFT_PREFIX) || key?.startsWith(WORK_DRAFT_PREFIX)) keys.push(key);
   }
   for (const key of keys) storage.removeItem(key);
 }

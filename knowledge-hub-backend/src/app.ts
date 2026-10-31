@@ -46,6 +46,7 @@ import { buildRouter } from './routes/build.js';
 import { useCasesRouter } from './routes/useCases.js';
 import { designsRouter } from './routes/designs.js';
 import { podcastEpisodesRouter } from './routes/podcastEpisodes.js';
+import { workContentRouter } from './routes/workContent.js';
 import { learningRouter } from './routes/learning.js';
 import { agentJobsRouter } from './routes/agentJobs.js';
 import { DIAGRAM_LIMITS } from './services/diagramValidation.js';
@@ -186,6 +187,7 @@ export function createApp(readiness: () => RuntimePhase = () => 'starting'): exp
   app.use('/api/use-cases', useCasesRouter);
   app.use('/api/designs', designsRouter);
   app.use('/api/podcast-episodes', podcastEpisodesRouter);
+  app.use('/api/work-content', workContentRouter);
   app.use('/api/learning', learningRouter);
   app.use('/api/agent-jobs', agentJobsRouter);
   app.use('/api/today', todayRouter);

@@ -13,9 +13,10 @@ import { requireApiData } from '../../services/apiError';
 export interface DiscoverVoteProps {
   itemId: string;
   vote: DiscoverFeedbackVote;
+  disabled?: boolean;
 }
 
-export const DiscoverVote: React.FC<DiscoverVoteProps> = ({ itemId, vote }) => {
+export const DiscoverVote: React.FC<DiscoverVoteProps> = ({ itemId, vote, disabled = false }) => {
   const queryClient = useQueryClient();
   const [current, setCurrent] = useState<DiscoverFeedbackVote>(vote);
   const mutation = useMutation({
@@ -36,14 +37,19 @@ export const DiscoverVote: React.FC<DiscoverVoteProps> = ({ itemId, vote }) => {
     <span className="dc-vote" role="group" aria-label="Teach Athena">
       <button type="button" className={`dc-vote__btn${current === 'up' ? ' dc-vote__btn--up' : ''}`}
         aria-pressed={current === 'up'} title="More like this — ranks this source higher"
-        onClick={cast('up')} disabled={mutation.isPending}>
+        aria-label="More like this — ranks this source higher"
+        onClick={cast('up')} disabled={disabled || mutation.isPending}>
         <ThumbsUp size={14} />
       </button>
       <button type="button" className={`dc-vote__btn${current === 'down' ? ' dc-vote__btn--down' : ''}`}
-        aria-pressed={current === 'down'} title="Less like this — ranks this source lower and archives it"
-        onClick={cast('down')} disabled={mutation.isPending}>
+        aria-pressed={current === 'down'} title="Less like this — gently lowers source ranking and dismisses For you or Shelved articles"
+        aria-label="Less like this — gently lowers source ranking and dismisses For you or Shelved articles"
+        onClick={cast('down')} disabled={disabled || mutation.isPending}>
         <ThumbsDown size={14} />
       </button>
+      {mutation.isError && <span className="dc-vote__error" role="alert">
+        Vote was not saved. {mutation.error instanceof Error ? mutation.error.message : 'Try again.'}
+      </span>}
     </span>
   );
 };

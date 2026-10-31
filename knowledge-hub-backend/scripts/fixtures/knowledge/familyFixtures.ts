@@ -5,7 +5,7 @@ import type { CorpusRecord, Provenance } from './corpus.js';
 export const FAMILY_KINDS = [
   'project', 'note', 'library-document', 'discover-article', 'youtube', 'connected-activity', 'task', 'person', 'spark', 'canvas',
   'graph', 'watchlist', 'chat', 'output-decision', 'memory', 'use-case', 'build', 'governance', 'podcast-content', 'cfp-practice',
-  'knowledge-health',
+  'knowledge-health', 'work-content',
 ] as const;
 
 /** Mirrors every member of the ContentSource union in src/types/contentItem.ts. */

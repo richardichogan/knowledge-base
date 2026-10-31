@@ -53,6 +53,13 @@
   &__text--strike { text-decoration-line: line-through; }
   &__text--underline.kh-presenter__text--strike { text-decoration-line: underline line-through; }
   &__text--code { font-family: 'IBM Plex Mono', monospace; }
+  &__text--colour-teal { color: var(--kh-accent); }
+  &__text--colour-yellow { color: var(--cds-support-warning); }
+  &__text--colour-pink { color: #ff7eb6; }
+  &__text--cue-pause, &__text--cue-beat {
+    display: inline-block; font-size: var(--kh-text-meta); color: var(--kh-accent);
+    border: 1px dashed currentColor; border-radius: var(--kh-radius-sm); padding: 2px 6px; margin-inline: 4px;
+  }
   &__controls section { border-top: 1px solid var(--cds-border-subtle, #393939); padding-block: 24px; }
   &__controls section:first-child { padding-top: 0; border-top: 0; }
   &__row { display: flex; flex-wrap: wrap; gap: 8px; }

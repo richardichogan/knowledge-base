@@ -141,6 +141,10 @@ export async function writeNoteInTransaction(client: PoolClient, id: string, inp
       }
     }
     const changed = writingFingerprint(before) !== writingFingerprint(after);
+    if (changed && before.contentType === 'email-draft') {
+      const email = await client.query<{ status: string }>('SELECT status FROM email_drafts WHERE note_id=$1', [id]);
+      if (email.rows[0]?.status === 'sent') throw new ConflictError('This email is recorded as Sent. Create a new draft for a follow-up; the sent writing is unchanged.', 'WORK_EMAIL_SENT');
+    }
     const time = await client.query<{ now: Date }>('SELECT clock_timestamp() AS now');
     const due = changed && automaticCheckpointDue(row.last_history_at, time.rows[0]!.now);
     if (reason === 'before_restore' && changed) {

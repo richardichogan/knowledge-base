@@ -10,6 +10,8 @@ export const UNTITLED_DOCUMENT = 'Untitled';
 // ── Content type options ──────────────────────────────────────────────────────
 
 export type ContentType =
+  | 'deliverable-brief'
+  | 'email-draft'
   | 'design'
   | 'blog'
   | 'podcast'
@@ -36,6 +38,8 @@ export interface ContentTypeOption {
 
 /** Stored ids never change — other features key off them. Only labels and grouping are presentational. */
 export const CONTENT_TYPE_OPTIONS: ContentTypeOption[] = [
+  { id: 'deliverable-brief', label: 'Deliverable brief', group: 'Work' },
+  { id: 'email-draft', label: 'Email draft', group: 'Work' },
   { id: 'design',               label: 'Design',             group: 'Work' },
   { id: 'meeting',              label: 'Meeting notes',      group: 'Work' },
   { id: 'project',              label: 'Project note',       group: 'Work' },
@@ -62,6 +66,8 @@ export const CONTENT_TYPE_GROUPS: { label: ContentTypeGroup; options: ContentTyp
 // ── Tag type per content type ─────────────────────────────────────────────────
 
 export const CONTENT_TYPE_TAG: Record<ContentType, 'green' | 'teal' | 'purple' | 'blue' | 'gray' | 'red' | 'cyan' | 'magenta' | 'orange'> = {
+  'deliverable-brief': 'teal',
+  'email-draft': 'blue',
   design:              'teal',
   blog:                'green',
   podcast:             'teal',
@@ -104,6 +110,11 @@ export const USE_CASE_TEMPLATE_HEADINGS: string[] = [
   'Commercial shape',
   'Open questions & risks',
   'Related assets',
+];
+
+export const DELIVERABLE_BRIEF_HEADINGS = [
+  'Outcome & definition of done', 'Sources & evidence', 'Decisions only Richard can make',
+  'Deliverable specification (format, audience, structure, template)', 'Target OneDrive path',
 ];
 
 // ── BlockNote g100 theme override ─────────────────────────────────────────────

@@ -51,7 +51,16 @@ test('presentation formatting accepts only bounded text and supported styles wit
 });
 test('formatted output uses literal text nodes and style classes, and clears marks for a plain script', async () => {
   let update: (value: unknown) => void = () => {};
-  type Span = { textContent: string; classList: { add: (value: string) => void }; classes: string[] };
+  type Span = { textContent: string; classList: { add: (value: string) => void; remove: (value: string) => void };
+    classes: string[]; children: Span[]; offsetTop: number; appendChild: (child: Span) => void };
+  const node = (value = ''): Span => {
+    const classes: string[] = [];
+    const children: Span[] = [];
+    return { get textContent() { return value + children.map(child => child.textContent).join(''); },
+      set textContent(text: string) { value = text; }, classes, children, offsetTop: 0,
+      classList: { add: name => { classes.push(name); }, remove: name => { const i = classes.indexOf(name); if (i >= 0) classes.splice(i, 1); } },
+      appendChild: child => { children.push(child); } };
+  };
   let children: Span[] = [];
   let text = '';
   const script = {
@@ -67,15 +76,16 @@ test('formatted output uses literal text nodes and style classes, and clears mar
       body: { classList: { toggle: () => {} } },
       createElement: (tag: string): Span => {
         assert.equal(tag, 'span');
-        const classes: string[] = [];
-        return { textContent: '', classes, classList: { add: value => { classes.push(value); } } };
+        return node();
       },
+      createTextNode: node,
       createDocumentFragment: () => {
         const fragment = { children: [] as Span[], appendChild: (span: Span) => { fragment.children.push(span); } };
         return fragment;
       },
     },
     requestAnimationFrame: () => {},
+    ResizeObserver: class { observe() {} },
   });
   runInContext(await readFile(join(__dirname, '../../assets/presentation.js'), 'utf8'), context);
   const state = { ...initialPresentation(), sessionId: 'formatted', displayId: 1 };
@@ -84,13 +94,13 @@ test('formatted output uses literal text nodes and style classes, and clears mar
     { text: literal, styles: ['bold', 'italic'] }, { text: '\n- Item', styles: [] },
   ], sequence: 1, reset: true });
   assert.equal(children.map(span => span.textContent).join(''), literal + '\n- Item');
-  assert.deepEqual(children[0]?.classes, ['script-bold', 'script-italic']);
+  assert.deepEqual(children[0]?.children[0]?.classes, ['script-bold', 'script-italic']);
   const formatted = children;
   update({ state, sequence: 2 });
   assert.equal(children, formatted);
   update({ state, text: 'Plain replacement', sequence: 3, reset: true });
-  assert.equal(children.length, 0);
-  assert.equal(text, 'Plain replacement');
+  assert.equal(children.map(span => span.textContent).join(''), 'Plain replacement');
+  assert.deepEqual(children[0]?.children[0]?.classes, []);
 });
 test('output acknowledges commands, maintains fractional pace, pauses immediately and resets', async () => {
   let update: (value: unknown) => void = () => {};
@@ -102,14 +112,23 @@ test('output acknowledges commands, maintains fractional pace, pauses immediatel
     set scrollTop(value: number) { top = Math.max(0, Math.min(1000, Math.round(value))); },
   };
   const reports: { progress: number; ack?: number }[] = [];
-  const script = { style: {}, textContent: '' };
+  const script = { style: {}, textContent: '', replaceChildren(fragment: { text: string }) { this.textContent = fragment.text; } };
   const context = createContext({
     window: { athenaOutput: {
       onUpdate: (fn: typeof update) => { update = fn; },
       report: (value: typeof reports[number]) => reports.push(value),
     } },
-    document: { getElementById: (id: string) => id === 'viewport' ? viewport : script, body: { classList: { toggle: () => {} } } },
+    document: { getElementById: (id: string) => id === 'viewport' ? viewport : script, body: { classList: { toggle: () => {} } },
+      createElement: () => ({ textContent: '', offsetTop: 0, classList: { add: () => {}, remove: () => {} },
+        appendChild(child: { textContent: string }) { this.textContent += child.textContent; } }),
+      createTextNode: (textContent: string) => ({ textContent }),
+      createDocumentFragment: () => {
+        const children: { textContent: string }[] = [];
+        return { get text() { return children.map(child => child.textContent).join(''); },
+          appendChild(child: { textContent: string }) { children.push(child); } };
+      } },
     requestAnimationFrame: (fn: typeof tick) => { tick = fn; },
+    ResizeObserver: class { observe() {} },
   });
   runInContext(await readFile(join(__dirname, '../../assets/presentation.js'), 'utf8'), context);
   const state = { ...initialPresentation(), sessionId: 'one', displayId: 1, status: 'playing' };

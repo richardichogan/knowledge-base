@@ -4,6 +4,7 @@
 
 import type { ContentItem } from './contentItem.js';
 import type { MemoryItem } from '../ai/memoryRetriever.js';
+import type { WorkContent } from '../work/workContent.js';
 
 // Model slots, named for the job rather than a model (the deployment behind each is set in the
 // environment): 'standard' = everyday chat and writing, 'light' = small background calls (titles,
@@ -29,6 +30,8 @@ export type AthenaPersona = 'general' | 'brainstorming' | 'copilot_coach' | 'blo
  * the auto-RAG search query stays limited to what the user actually typed.
  */
 export interface ChatPageContext {
+  workContentId?: string;
+  workContent?: WorkContent;
   podcastEpisodeId?: string;
   podcastTab?: string;
   /** Original document/canvas currently active inside a Design conversation. */

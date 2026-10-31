@@ -25,14 +25,15 @@ export async function saveInterestWeight(db: Pool, value: unknown): Promise<Inte
 /**
  * Per-source factor learned from what Richard already does with articles:
  * saved/blog/published (and 👍) count for a source, archived (and 👎) against;
- * explicit votes count double. Smoothed so one choice moves it only slightly,
+ * thumbs up counts double; thumbs down counts once, like an ordinary dismissal.
+ * Smoothed so one choice moves it only slightly,
  * bounded to 0.7–1.3, neutral (1) with no history. One uncorrelated lookup per query.
  */
 export function learnedSourceSql(alias: string): string {
   return `COALESCE(((SELECT jsonb_object_agg(a.src, round((0.7 + 0.6 * (a.pos + 2) / (a.pos + a.neg + 4))::numeric, 2)) FROM (
     SELECT f.metadata->>'sourceTitle' AS src,
       SUM(CASE WHEN f.metadata->>'feedbackVote'='up' THEN 2 WHEN f.workflow_state IN ('saved','blog','published') THEN 1 ELSE 0 END) AS pos,
-      SUM(CASE WHEN f.metadata->>'feedbackVote'='down' THEN 2 WHEN f.workflow_state='archived' AND f.metadata->>'autoArchived' IS NULL THEN 1 ELSE 0 END) AS neg
+      SUM(CASE WHEN f.metadata->>'feedbackVote'='down' THEN 1 WHEN f.workflow_state='archived' AND f.metadata->>'autoArchived' IS NULL THEN 1 ELSE 0 END) AS neg
     FROM content_items f
     WHERE f.source='discovered-article' AND f.published_at>NOW()-INTERVAL '180 days'
       AND COALESCE(f.metadata->>'sourceTitle','')<>''

@@ -2,6 +2,42 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-10-31, Athena-only work and UI):**
+- User explicitly requested documentation of the deferred Cowork proposal, deploy,
+  merge and push. Cowork remains disabled and excluded from implementation.
+- Existing application-only AZCLI targets remain kh-prod-api-vnet and kh-prod-web,
+  rg-knowledge-hub-prod, Alliance Tenant Reporting. Current image v277; next v278.
+  Desktop 0.1.11 packages the already-requested script colour/cue/position support.
+- Validation completed:
+  - [x] Fetched origin and merged origin/main; already current at 74c09a7.
+  - [x] Both `npx tsc --noEmit` checks and backend/frontend production builds pass.
+  - [x] Lint non-regression passes: backend 546/623, frontend 22/41.
+  - [x] Full isolated backend release run: 883/886 initially passed. Updated
+    directly related thumbs-down expectation and work-content coverage fixtures;
+    all 21 affected cases then passed, including WORK-01/WORK-02.
+  - [x] Full frontend run: five stale fixture failures (new content type list
+    and Router context for Watchlists). All nine directly affected cases pass.
+    Other full-run frontend cases passed; no full rerun.
+  - [x] Desktop suite: 12 passed, one Windows-only case skipped on macOS.
+    Elgato suite: 7 passed after updating its DOM/ResizeObserver fixture for
+    passage-position rendering. NSIS installer 0.1.11 packaged successfully.
+  - [x] Azure CLI authentication and existing ACA image/FQDN and SWA reads pass.
+    Docker packaging includes migration128 and lockfile installs.
+  - [x] Migration128 applied alone to shared production data. Local Athena
+    created/read/edited a real task brief and created an unsent email draft;
+    saved edits appeared in Think, email copy worked, task remained backlog.
+    Sent/Waiting and actual produced-file sync were not exercised.
+  - [x] Diff whitespace checks pass. No dependency, identity, RBAC, policy,
+    registry authentication or infrastructure changes. Bicep/what-if/provision
+    are not applicable to this application-only update.
+- Fit: existing Think/Plan/editor/domain services and ACA/SWA hosting preserved;
+  no new services or packages; typed revisions and original-content protection
+  retained; no secrets or Cowork connector. Safest scope is Athena-only with
+  manual email sending, guarded status confirmations and read-only file tracking.
+- Evidence: session files/athena-only-release-*.log. Hook cache and generated
+  installer files are excluded from Git. Production automatic delivery settings
+  remain unchanged; no manual send or publication is part of release.
+
 **Release execution (2026-10-30, Podcast documents and publishing safeguards):**
 - Application commit ebe708ea38d12eeca7a179efd120847ff1b62bac pushed to
   main and richardichogan-link-think-chat-projects; both remote refs verified.

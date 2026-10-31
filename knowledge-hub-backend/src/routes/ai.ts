@@ -22,6 +22,7 @@ import { isTrackingDecisions, updateDecisionsFromExchange } from '../ai/chatDeci
 import { startTurnJob, subscribeTurnJob, cancelTurnJob, getSessionTurnJob, type TurnEvent } from '../ai/turnJobs.js';
 import { memoriesCreatedSince } from '../ai/athenaMemory.js';
 import type { NoteEditProposal } from '../ai/noteEdits.js';
+import type { WorkTurnState } from '../ai/workContentTools.js';
 import type { MapChangeProposal } from '../ai/mapEdits.js';
 import { parseLocalFolders, type LocalFileWriteProposal } from '../ai/localFiles.js';
 import { uploadBlobAsText } from '../integrations/cms/blobClient.js';
@@ -65,6 +66,7 @@ router.get('/mention-targets', (req: Request, res: Response, next: NextFunction)
  */
 /** The reply payload for one chat turn (POST /chat response data and a background turn's result). */
 export interface ChatTurnResult {
+  workChanged?: { noteIds: string[] };
   podcastChanged?: { noteId: string };
   designChanged?: { parentNoteId: string; noteIds: string[] };
   reply: string;
@@ -198,6 +200,12 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   let podcastOwner: string | undefined;
   const podcastState: PodcastTurnState = { readCardIds: new Set(), changed: false };
   const designState: DesignTurnState = { changedNoteIds: [] };
+  const workState: WorkTurnState = { reads: new Map(), changedNoteIds: [] };
+  const workCandidate = pageContext?.workContentId ?? (pageContext?.type === 'note' ? pageContext.id : undefined);
+  if (!openNoteId && typeof workCandidate === 'string' && /^[0-9a-f-]{36}$/i.test(workCandidate)) {
+    const candidate = (await db.query<{ type: string }>("SELECT note_list_metadata(content)->>'contentType' AS type FROM notes WHERE id=$1 AND status='active'", [workCandidate])).rows[0];
+    if (candidate?.type === 'deliverable-brief' || candidate?.type === 'email-draft') openNoteId = workCandidate;
+  }
   const podcastCandidate = pageContext?.podcastEpisodeId ?? (pageContext?.type === 'note' ? pageContext.id : undefined);
   if (!openNoteId && typeof podcastCandidate === 'string' && /^[0-9a-f-]{36}$/i.test(podcastCandidate)) {
     const owner = (await db.query<{ type: string }>("SELECT note_list_metadata(content)->>'contentType' AS type FROM notes WHERE id=$1 AND status='active'", [podcastCandidate])).rows[0];
@@ -233,7 +241,7 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   const modelReply = await handleConversationTurn(
     db, modelHistory, message, effectiveModel, persona, effectiveSessionId, alreadyHeld ? undefined : pageContext,
     (toolName) => { toolsUsed.add(toolName); },
-    { userId, noteId: openNoteId, designOwner, designState, podcastOwner, podcastState, noteEdits, mapChanges, localFolders, localFileWrites },
+    { userId, noteId: openNoteId, designOwner, designState, podcastOwner, podcastState, workState, noteEdits, mapChanges, localFolders, localFileWrites },
     { ...hooks, contextUsed, onAudit: (row) => { audit.row = row; } },
   );
   hooks.signal?.throwIfAborted();
@@ -321,6 +329,7 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
       localFileWrites,
       ...(designOwner && designState.changedNoteIds.length > 0 ? { designChanged: { parentNoteId: designOwner, noteIds: [...new Set(designState.changedNoteIds)] } } : {}),
       ...(podcastOwner && podcastState.changed ? { podcastChanged: { noteId: podcastOwner } } : {}),
+      ...(workState.changedNoteIds.length ? { workChanged: { noteIds: [...new Set(workState.changedNoteIds)] } } : {}),
   };
 }
 

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useGraphData } from '../hooks/useGraphData';
 import { DataNotice } from '../components/DataNotice';
+import { PageHeader } from '../components/PageHeader';
 import { AtlasForceMap } from '../components/graph/AtlasForceMap';
 import { GraphRelationships } from '../components/graph/GraphRelationships';
 import { AtlasAsk } from '../components/graph/AtlasAsk';
@@ -69,8 +70,7 @@ export const GraphPage: React.FC = () => {
   }
   function toggle(type: string): void { setHidden(current => current.includes(type) ? current.filter(t => t !== type) : [...current, type]); setPath([]); }
   return <main className="atlas atlas--handoff" aria-label="Knowledge atlas">
-    <header className="atlas__header">
-      <div className="atlas__title"><h1>Knowledge atlas</h1><p>Projects, people and the ideas between them</p></div>
+    <PageHeader title="Knowledge atlas" subtitle="Projects, people and the ideas between them" actions={
       <div className="atlas__summary">
         <span title={`${data?.stats.truncated ? 'Partial graph: explore a record to load its neighbourhood.' : 'Loaded graph; not exhaustive coverage.'} Activity uses latest saved updates, not a historical event log.`}>
           {visibleNodes.length === nodes.length ? nodes.length : `${visibleNodes.length} of ${nodes.length}`} entities · {visibleEdges.length} connections · {atlas.nodes.filter(n => n.hub).length} projects{data?.stats.truncated ? ' · partial graph' : ''}</span>
@@ -84,7 +84,7 @@ export const GraphPage: React.FC = () => {
           title={inspectorOpen ? 'Hide the Athena panel' : 'Ask Athena and see details'} onClick={() => { setInspectorOpen(!inspectorOpen); }}>
           {inspectorOpen ? <SidePanelClose size={16} /> : <SidePanelOpen size={16} />}<span>Athena</span></button>
       </div>
-    </header>
+    } />
     <div className="atlas__toolbar">
       <div className="atlas__search"><label className="atlas__sr" htmlFor="atlas-search">Find in loaded graph</label>
         <input id="atlas-search" placeholder="Find a project, person or idea..." value={query} onChange={e => { setQuery(e.target.value); }} />

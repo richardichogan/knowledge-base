@@ -13,6 +13,8 @@
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 
 export interface AthenaPageContext {
+  workContentId?: string;
+  workContent?: import('../types/workContent').WorkContent;
   podcastEpisodeId?: string;
   podcastTab?: string;
   /** e.g. "content-item", "task", "note", "spark", "document" */

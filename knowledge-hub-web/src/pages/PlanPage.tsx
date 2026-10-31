@@ -105,16 +105,18 @@ export const PlanPage: React.FC = () => {
               {view === 'board' && <button
                 type="button"
                 className="kb-import-btn"
+                aria-label="Import tasks"
                 onClick={() => setImportOpen(true)}
                 title="Import tasks from a markdown file"
               >
-                <Upload size={16} /> Import tasks
+                <Upload size={16} /> <span className="plan-action-label">Import tasks</span>
               </button>}
             </>
           )}
           {view !== 'use-cases' && <button type="button" className="kb-import-btn" onClick={() => setReviewOpen(true)}
+            aria-label="Weekly review"
             title="Athena reviews your open tasks and suggests what to reschedule, close or split">
-            <TaskView size={16} /> Weekly review
+            <TaskView size={16} /> <span className="plan-action-label">Weekly review</span>
           </button>}
           <SavedViews variant="menu" current={{ ...preferences, kind: 'plan' }} onApply={next => {
             if (next.kind === 'plan') updatePreferences({ view: next.view, project: next.project, tag: next.tag });
@@ -125,10 +127,12 @@ export const PlanPage: React.FC = () => {
                 key={key}
                 className={`plan-view-btn${view === key ? ' plan-view-btn--active' : ''}`}
                 aria-pressed={view === key}
+                aria-label={label}
+                title={label}
                 onClick={() => { updatePreferences({ view: key }); }}
               >
                 <Icon size={16} />
-                {label}
+                <span className="plan-action-label">{label}</span>
               </button>
             ))}
           </div>

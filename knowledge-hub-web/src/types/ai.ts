@@ -10,6 +10,8 @@ export type AiModel = 'standard' | 'light' | 'reasoning';
 export type AthenaPersona = 'general' | 'brainstorming' | 'copilot_coach' | 'blog_post' | 'demo_designer' | 'podcast_prep' | 'web_designer' | 'podcast_show_notes';
 
 export interface ChatPageContext {
+  workContentId?: string;
+  workContent?: import('./workContent').WorkContent;
   podcastEpisodeId?: string;
   podcastTab?: string;
   /** e.g. "content-item", "task", "note", "spark", "document" */
@@ -255,6 +257,7 @@ export interface WriteActionProposal {
 }
 
 export interface ChatResponse {
+  workChanged?: { noteIds: string[] };
   podcastChanged?: { noteId: string };
   designChanged?: { parentNoteId: string; noteIds: string[] };
   reply: string;

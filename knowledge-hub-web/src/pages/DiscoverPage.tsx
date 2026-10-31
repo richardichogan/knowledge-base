@@ -18,17 +18,16 @@ import { api } from '../services/api';
 import { requireApiData, requireApiSuccess } from '../services/apiError';
 import { DataNotice } from '../components/DataNotice';
 import { PageHeader } from '../components/PageHeader';
+import { ReviewWorkspace, ReviewItem } from '../components/ReviewWorkspace';
 import type { DiscoverItem, DiscoverWorkflowState, CfpItem, CfpWorkflowState } from '../services/api';
 import { DiscoverExplore } from '../components/discover/DiscoverExplore';
-import { DiscoverVote } from '../components/discover/DiscoverVote';
 import { DiscoverWatchlists } from '../components/discover/DiscoverWatchlists';
 import { DiscoverInterests } from '../components/discover/DiscoverInterests';
 import { DiscoverPublishing } from '../components/discover/DiscoverPublishing';
-import { buildBriefing, readSinceLastLooked } from '../features/discover/discoverInsights';
+import { BAND_LABEL, buildBriefing, readSinceLastLooked, relevanceBand } from '../features/discover/discoverInsights';
 import { DiscoverSources } from '../components/discover/DiscoverSources';
 import { useFlatTags } from '../hooks/useTaxonomy';
 import { IdentityChip, ctxTags, identitiesFor, useIdentity } from '../identity';
-import { useAthenaContext } from '../context/AthenaContext';
 import { BlogPublishModal } from '../components/discover/BlogPublishModal';
 import { LinkedInDraftModal } from '../components/discover/LinkedInDraftModal';
 import { EmailInbox } from '../components/discover/EmailInbox';
@@ -260,6 +259,7 @@ const PublishedUrlEditor: React.FC<{ item: DiscoverItem }> = ({ item }) => {
 interface CardProps {
   selected?: boolean;
   onSelect?: (id: string, selected: boolean) => void;
+  active?: boolean;
   item: DiscoverItem;
   onStateChange: (id: string, state: DiscoverWorkflowState) => void;
   isUpdating: boolean;
@@ -272,21 +272,24 @@ interface CardProps {
  * why it was picked, and save / dismiss / explore. Production actions live
  * in the Explore panel.
  */
-const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, onActivate, onExplore, selected, onSelect }) => {
+const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, onActivate, onExplore, selected, onSelect, active }) => {
   const state = item.workflowState;
-  const isPublished = state === 'published';
   const identity = useIdentity();
   const taxonomyTags = identitiesFor(identity, item.taxonomyTagIds ?? []);
   const ctx = ctxTags(taxonomyTags);
+  const band = relevanceBand(item);
+  const verdict = item.platform?.trim() || (band ? BAND_LABEL[band] : null);
   const stop = (e: React.SyntheticEvent): void => { e.stopPropagation(); };
 
   return (
     <div
-      className={`dc-card${isUpdating ? ' dc-card--updating' : ''}`}
+      className={`dc-card${isUpdating ? ' dc-card--updating' : ''}${active ? ' dc-card--active' : ''}`}
       role="article"
       aria-label={item.title}
+      aria-current={active ? 'true' : undefined}
       tabIndex={0}
       onClick={() => { onActivate?.(item); }}
+      onFocus={(event) => { if (event.target === event.currentTarget) onActivate?.(item); }}
       onKeyDown={(e) => {
         const key = listShortcut(e);
         if (e.target === e.currentTarget && !isUpdating && ['s', 'a', 'o'].includes(key ?? '')) {
@@ -321,7 +324,6 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
           <span>Select</span>
         </label>}
         <span className="dc-card-source">{item.sourceTitle}</span>
-        <span className="dc-card-dot">·</span>
         <span className="dc-card-date">{formatDate(item.publishedAt)}</span>
         {item.parking && <span className="dc-card-parked">
           Parked: {[item.parking.newsletter ? 'Newsletter' : '', item.parking.podcast ? 'Podcast' : ''].filter(Boolean).join(' + ')}
@@ -329,16 +331,8 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
       </div>
       <div className="dc-card-title-row">
         <h3 className="dc-card-title">{item.title}</h3>
-        {item.url !== null && (
-          <a href={item.url} target="_blank" rel="noreferrer" className="dc-card-ext-link" title="Open article" onClick={stop}>
-            <Launch size={16} />
-          </a>
-        )}
       </div>
 
-      {item.relevanceExplanation !== null && (
-        <p className="dc-card-synopsis">{item.relevanceExplanation}</p>
-      )}
       {item.parking && item.description && <p className="dc-parking-excerpt">{item.description}</p>}
       {(item.alreadyCovered ?? 0) > 0 && item.coveredBy !== null && item.coveredBy !== undefined && (
         <p className="dc-card-covered" title="Athena found one of your own pieces on this">
@@ -350,50 +344,13 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
           Shelved {formatDate(item.shelvedAt)} — {item.shelvedReason === 'low' ? 'scored low' : 'unactioned too long'}; still searchable by Athena
         </p>
       )}
-      {isPublished && <PublishedUrlEditor item={item} />}
       <div className="dc-card-footer" onClick={stop} onKeyDown={stop}>
         {taxonomyTags.length > 0 && (
           <div className="dc-card-tags kh-chip-row">
             {taxonomyTags.map((t) => <IdentityChip key={t.tagId} identity={t} />)}
           </div>
         )}
-        <div className="dc-card-actions">
-          <DiscoverVote itemId={item.id} vote={item.feedbackVote ?? null} />
-          {(state === 'to-review' || state === 'shelved') && (
-            <>
-              <button type="button" className="dc-action dc-action--save" onClick={() => { onStateChange(item.id, 'saved'); }} disabled={isUpdating}>
-                <Bookmark size={14} /> Save
-              </button>
-              <button type="button" className="dc-action dc-action--archive" onClick={() => { onStateChange(item.id, 'archived'); }} disabled={isUpdating}>
-                <Archive size={14} /> Not interested
-              </button>
-            </>
-          )}
-          {(state === 'saved' || state === 'blog') && (
-            <>
-              <button type="button" className="dc-action dc-action--restore" onClick={() => { onStateChange(item.id, state === 'blog' ? 'saved' : 'to-review'); }} disabled={isUpdating}>
-                <Renew size={14} /> {state === 'blog' ? 'Back to Saved' : 'Unsave'}
-              </button>
-              <button type="button" className="dc-action dc-action--archive" onClick={() => { onStateChange(item.id, 'archived'); }} disabled={isUpdating}>
-                <Archive size={14} /> Archive
-              </button>
-            </>
-          )}
-          {(state === 'archived' || state === 'shelved') && (
-            <button type="button" className="dc-action dc-action--restore" onClick={() => { onStateChange(item.id, 'to-review'); }} disabled={isUpdating}
-              title={state === 'shelved' ? 'Put it back in For you for another week' : undefined}>
-              <ArrowRight size={14} /> Restore
-            </button>
-          )}
-          {isPublished && (
-            <button type="button" className="dc-action dc-action--restore" onClick={() => { onStateChange(item.id, 'to-review'); }} disabled={isUpdating}>
-              <Renew size={14} /> Unpublish
-            </button>
-          )}
-          <button type="button" className="dc-action dc-action--explore" onClick={() => { onExplore(item); }}>
-            Explore <ArrowRight size={14} />
-          </button>
-        </div>
+        {verdict && <span className="dc-card-verdict">{verdict}</span>}
       </div>
     </div>
   );
@@ -430,13 +387,11 @@ export const DiscoverPage: React.FC = () => {
   useEffect(() => { setSelectedIds(new Set()); setBatchMessage(''); }, [activeTab, page]);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
-  const [blogItem, setBlogItem] = useState<{ id: string; title: string } | null>(null);
+  const [blogItem, setBlogItem] = useState<{ id: string; title: string; length?: 'short' | 'long' } | null>(null);
   const [linkedInItem, setLinkedInItem] = useState<{ id: string; title: string } | null>(null);
-  const [exploreItem, setExploreItem] = useState<DiscoverItem | null>(null);
   const [since] = useState(() => readSinceLastLooked());
   const flatTags = useFlatTags();
   const queryClient = useQueryClient();
-  const { setAthenaContext } = useAthenaContext();
 
   const PAGE_SIZE = 25;
 
@@ -563,8 +518,10 @@ export const DiscoverPage: React.FC = () => {
   const items = useMemo<DiscoverItem[]>(() =>
     feedQuery.data?.success ? feedQuery.data.data.items.slice(0, PAGE_SIZE) : [], [feedQuery.data]);
   const listedItems = useMemo(() => items.filter((i) => !attentionIds.has(i.id)), [items, attentionIds]);
-  const exploreLive = exploreItem === null ? null
-    : (items.find((i) => i.id === exploreItem.id) ?? [...(briefing?.standouts ?? []), ...(briefing?.alsoRelevant ?? [])].find((i) => i.id === exploreItem.id) ?? exploreItem);
+  const availableItems = [...(showBriefing ? [...briefing.standouts, ...briefing.alsoRelevant] : []), ...listedItems];
+  const exploreLive = availableItems.find(item => item.id === activeItemId) ?? availableItems[0];
+  const cfps = cfpQuery.data?.success ? cfpQuery.data.data : [];
+  const activeCfp = cfps.find(item => item.id === activeItemId) ?? cfps[0];
   const total: number =
     feedQuery.data?.success ? feedQuery.data.data.total : 0;
   useEffect(() => {
@@ -577,39 +534,20 @@ export const DiscoverPage: React.FC = () => {
   const activeQuery = isCfps ? cfpQuery : isInbox ? emailQuery : feedQuery;
   const changeError = isCfps ? cfpMutation.error : workflowMutation.error;
 
-  useEffect(() => {
-    const activeItem = items.find((item) => item.id === activeItemId)
-      ?? [...(briefing?.standouts ?? []), ...(briefing?.alsoRelevant ?? [])].find((item) => item.id === activeItemId) ?? null;
-    if (activeItem === null) {
-      setAthenaContext(null);
-      return;
-    }
-    setAthenaContext({
-      type: 'discover item',
-      title: activeItem.title,
-      detail: [
-        activeItem.sourceTitle,
-        activeItem.relevanceExplanation ?? '',
-        activeItem.url ?? '',
-      ].filter(Boolean).join(' | '),
-    });
-    return () => { setAthenaContext(null); };
-  }, [activeItemId, items, briefing, setAthenaContext]);
-
   const openExplore = useCallback((item: DiscoverItem) => {
     setActiveItemId(item.id);
-    setExploreItem(item);
   }, []);
-  const closeExplore = useCallback(() => { setExploreItem(null); }, []);
+  const closeExplore = useCallback(() => undefined, []);
   const renderCard = (item: DiscoverItem) => (
     <DiscoverCard key={item.id} item={item} onStateChange={handleStateChange}
       selected={selectedIds.has(item.id)} onSelect={selectItem}
+      active={exploreLive?.id === item.id}
       isUpdating={batchBusy || updatingIds.has(item.id)} onActivate={(nextItem) => { setActiveItemId(nextItem.id); }}
       onExplore={openExplore} />
   );
 
   return (
-    <div className="page-root" role="main" onKeyDown={event => {
+    <div className="page-root kh-review-page" role="main" onKeyDown={event => {
       const key = listShortcut(event);
       if (key === 'j' || key === 'k') { event.preventDefault(); moveListFocus(event.currentTarget, '.dc-card[role="article"]', key === 'k'); }
     }}>
@@ -651,7 +589,7 @@ export const DiscoverPage: React.FC = () => {
           </select>
         </div>
         {!isInbox && !isCfps && !isWatchlists && <div className="kh-triage-tools">
-          <span>J/K move · O open · S save · A archive. Save/archive do not apply to published or blog items.</span>
+          <span title="Save/archive shortcuts do not apply to published or blog items.">J/K move · O open · S save · A archive</span>
           {selectedIds.size > 0 && <>
             <span>{selectedIds.size} selected</span>
             <button type="button" className="kh-btn-accent" disabled={batchBusy} onClick={() => { void changeSelection('saved'); }}>Save selected</button>
@@ -666,42 +604,51 @@ export const DiscoverPage: React.FC = () => {
       </div>
 
       {/* CFPs feed */}
-      {isWatchlists && <DiscoverWatchlists />}
+      {isWatchlists && <DiscoverWatchlists athenaEnabled={!publishingOpen} />}
       {isCfps && (
-        <div className="dc-feed dc-feed--discover">
+        <ReviewWorkspace storageKey="discover" label="Speaking opportunities" athenaEnabled={!publishingOpen}
+          context={activeCfp ? { type: 'cfp', title: activeCfp.conferenceName, id: activeCfp.id,
+            detail: `Discover view: CFPs. Saved opportunity:\n${JSON.stringify(activeCfp)}` } : { type: 'discover', title: 'CFPs', detail: 'No speaking opportunity selected.' }}
+          list={<div className="dc-feed dc-feed--discover">
           {cfpQuery.isLoading && <div className="dc-loading"><InlineLoading description="Loading CFPs…" /></div>}
           {!cfpQuery.isLoading && !cfpQuery.isError && (cfpQuery.data?.success ? cfpQuery.data.data : []).length === 0 && (
             <div className="dc-empty"><p>No CFPs to review.</p></div>
           )}
-          {(cfpQuery.data?.success ? cfpQuery.data.data : []).map((cfp) => (
-            <CfpCard
-              key={cfp.id}
-              item={cfp}
-              onStateChange={handleCfpStateChange}
-              isUpdating={updatingIds.has(cfp.id)}
-            />
+          {cfps.map((cfp) => (
+            <ReviewItem key={cfp.id} title={cfp.conferenceName} selected={activeCfp?.id === cfp.id}
+              meta={`${cfp.isVirtual ? 'Virtual' : cfp.location ?? 'Location TBC'} · ${deadlineInfo(cfp.cfpDeadline).label}`}
+              description={cfp.relevanceReason ?? undefined} onSelect={() => { setActiveItemId(cfp.id); }} />
           ))}
-        </div>
+        </div>}
+          detail={activeCfp ? <CfpCard item={activeCfp} onStateChange={handleCfpStateChange} isUpdating={updatingIds.has(activeCfp.id)} />
+            : <p className="dc-empty">Select a speaking opportunity to review its details.</p>} />
       )}
 
+      {!isInbox && !isCfps && !isWatchlists && <>
+        {showBriefing && <div className="dc-review-briefing" aria-labelledby="dc-briefing-title">
+          <h2 id="dc-briefing-title">{briefing.standouts.length} stand{briefing.standouts.length === 1 ? 's' : ''} out {briefing.fallback ? 'from your current articles' : 'since you last looked'}.</h2>
+          <p>{briefing.assessed === 0 ? 'Nothing new since your last visit.' : `${briefing.assessed} new items assessed · ${briefing.relevantCount} relevant to your interests.`}
+            {' '}Since {since.toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}.
+          </p>
+          {(briefing.busiest.length > 0 || briefing.quiet.length > 0) && <details>
+            <summary>Source and topic activity</summary>
+            {briefing.busiest.length > 0 && <p>Most active: {briefing.busiest.map(t => `${t.name} (${t.count})`).join(', ')}.</p>}
+            {briefing.assessed > 0 && briefing.quiet.length > 0 && <p>Nothing new from {briefing.quiet.slice(0, 4).join(', ')}{briefing.quiet.length > 4 ? ` or ${briefing.quiet.length - 4} other sources` : ''}.</p>}
+          </details>}
+        </div>}
+        <ReviewWorkspace storageKey="discover" label="Discovery" athenaEnabled={!publishingOpen}
+        context={exploreLive ? { type: 'discover item', title: exploreLive.title, id: exploreLive.id,
+          detail: `Discover view: ${activeTabDef?.label ?? 'Discover'}.${showBriefing ? ` Current briefing: ${JSON.stringify({ assessed: briefing.assessed, relevantCount: briefing.relevantCount, standoutIds: briefing.standouts.map(item => item.id), busiest: briefing.busiest, quiet: briefing.quiet, fallback: briefing.fallback })}.` : ''} Selected saved article and assessment (not necessarily full source text):\n${JSON.stringify(exploreLive)}\nUse saved-content retrieval for the full source. Respect contentBasis and evidence limitations.` }
+          : { type: 'discover', title: activeTabDef?.label ?? 'Discover', detail: 'No article selected in this view.' }}
+        detail={exploreLive ? <DiscoverExplore key={exploreLive.id} embedded item={exploreLive}
+          tagNames={(exploreLive.taxonomyTagIds ?? []).map(id => flatTags.find(tag => tag.id === id)?.name).filter((name): name is string => name !== undefined)}
+          isUpdating={updatingIds.has(exploreLive.id)} onClose={closeExplore} onStateChange={handleStateChange}
+          onLinkedIn={setLinkedInItem} onBlog={(item, length) => { setBlogItem({ id: item.id, title: item.title, ...(length ? { length } : {}) }); }}
+          publishedUrlEditor={exploreLive.workflowState === 'published' ? <PublishedUrlEditor key={exploreLive.id} item={exploreLive} /> : undefined}
+          /> : <p className="dc-empty">Select an article to review its detail.</p>}
+        list={<>
       {showBriefing && (
-        <section className="dc-briefing" aria-labelledby="dc-briefing-title">
-          <div className="dc-briefing__summary">
-            <h2 id="dc-briefing-title" className="dc-briefing__eyebrow">Since you last looked</h2>
-            <p className="dc-briefing__headline">
-              {briefing.assessed === 0
-                ? 'Nothing new since your last visit.'
-                : <><strong>{briefing.assessed}</strong> new item{briefing.assessed === 1 ? '' : 's'} assessed · <strong>{briefing.relevantCount}</strong> relevant to your interests · <strong>{briefing.standouts.length}</strong> stand{briefing.standouts.length === 1 ? 's' : ''} out</>}
-            </p>
-            <p className="dc-briefing__detail">
-              {briefing.busiest.length > 0
-                ? <>Most active: {briefing.busiest.map((t, i) => <React.Fragment key={t.name}>{i > 0 && ', '}<strong>{t.name}</strong> ({t.count})</React.Fragment>)}.</>
-                : briefing.assessed > 0 ? 'No topic stood out.' : `${briefing.relevantCount.toString()} earlier item${briefing.relevantCount === 1 ? ' is' : 's are'} still relevant to your interests; ${briefing.standouts.length.toString()} stand${briefing.standouts.length === 1 ? 's' : ''} out.`}
-              {briefing.assessed > 0 && briefing.quiet.length > 0 && <> Nothing new from {briefing.quiet.slice(0, 4).join(', ')}{briefing.quiet.length > 4 ? ` or ${(briefing.quiet.length - 4).toString()} other sources` : ''}.</>}
-              {' '}Since {since.toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}.
-            </p>
-          </div>
-          <h2 className="dc-section-title">{briefing.fallback ? 'Still standing out' : 'Standouts'}</h2>
+        <section className="dc-briefing" aria-label="Recommended articles">
           {briefing.standouts.length === 0
             ? <p className="dc-briefing__empty">Nothing currently clears the bar. Browse everything below.</p>
             : <div className="dc-feed dc-feed--discover dc-feed--attention">
@@ -741,6 +688,7 @@ export const DiscoverPage: React.FC = () => {
               key={item.id}
               item={item}
               selected={selectedIds.has(item.id)}
+              active={exploreLive?.id === item.id}
               onSelect={selectItem}
               onStateChange={handleStateChange}
               isUpdating={batchBusy || updatingIds.has(item.id)}
@@ -773,33 +721,24 @@ export const DiscoverPage: React.FC = () => {
           )}
         </div>
       )}
+      </>} />
+      </>}
 
       {/* Inbox tab — emails */}
       {isInbox && (
-        <div className="dc-feed dc-feed--discover">
+        <>
           {emailQuery.isLoading && (
             <div className="dc-loading"><InlineLoading description="Loading emails…" /></div>
           )}
           {!emailQuery.isLoading && !emailQuery.isError && (emailQuery.data?.success ? emailQuery.data.data.items : []).length === 0 && (
             <div className="dc-empty"><p>No emails indexed.</p></div>
           )}
-          {(emailQuery.data?.success ? emailQuery.data.data.items : []).length > 0 && (
-            <EmailInbox items={emailQuery.data?.success ? emailQuery.data.data.items : []} onSocials={setLinkedInItem} />
-          )}
-        </div>
-      )}
-      {exploreLive && (
-        <DiscoverExplore
-          item={exploreLive}
-          tagNames={(exploreLive.taxonomyTagIds ?? []).map((id) => flatTags.find((t) => t.id === id)?.name).filter((n): n is string => n !== undefined)}
-          isUpdating={updatingIds.has(exploreLive.id)}
-          onClose={closeExplore}
-          onStateChange={handleStateChange}
-          onLinkedIn={(nextItem) => { setLinkedInItem(nextItem); }}
-          onBlog={(nextItem) => { setBlogItem(nextItem); }}
-        />
+          <EmailInbox items={emailQuery.data?.success ? emailQuery.data.data.items : []} onSocials={setLinkedInItem}
+            athenaEnabled={!publishingOpen} />
+        </>
       )}
       {blogItem && <BlogPublishModal key={blogItem.id} itemId={blogItem.id} title={blogItem.title}
+        {...(blogItem.length ? { initialLength: blogItem.length } : {})}
         onClose={() => { setBlogItem(null); }} />}
       {linkedInItem && <LinkedInDraftModal key={linkedInItem.id} itemId={linkedInItem.id} title={linkedInItem.title}
         onClose={() => { setLinkedInItem(null); }} />}

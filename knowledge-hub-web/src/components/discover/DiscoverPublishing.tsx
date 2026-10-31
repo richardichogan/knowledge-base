@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { AppDialog } from '../AppDialog';
+import { ReviewWorkspace, ReviewItem } from '../ReviewWorkspace';
+import { useAthenaContext } from '../../context/AthenaContext';
 import { BlogPostEditor } from './BlogPostEditor';
 import { api } from '../../services/api';
 import { describeApiError } from '../../services/apiError';
@@ -103,16 +105,25 @@ export function publishingApprovalBlocker(draft: PublishingDraft): string | null
   return null;
 }
 export function TopicReview({ id, act, busy, feeds, readyOnly = false, initialDestination = null }: { id: string; act: Action; busy: boolean; feeds: PublishingFeed[]; readyOnly?: boolean; initialDestination?: PublishingDraft['destination'] | null }): React.ReactElement {
+  const { setAthenaContext } = useAthenaContext();
   const [editing, setEditing] = useState<string | null>(null);
   const [destination, setDestination] = useState<PublishingDraft['destination'] | null>(initialDestination);
   const [reason, setReason] = useState('');
   const detail = useQuery({ queryKey: ['publishing', 'topic', id], queryFn: () => api.publishing<PublishingDetail>(`/topics/${id}`), refetchInterval: editing ? false : 30000 });
   const d = detail.data;
-  if (detail.isError) return <p role="alert" className="kh-publishing__error">{describeApiError(detail.error)}</p>;
-  if (!d) return <p role="status">Loading evidence and drafts…</p>;
-  const visibleDrafts = d.drafts.filter(draft => !readyOnly || isReadyDraft(draft));
+  const visibleDrafts = (d?.drafts ?? []).filter(draft => !readyOnly || isReadyDraft(draft));
   const current = visibleDrafts.find(draft => draft.destination === destination)
     ?? visibleDrafts.find(draft => draft.approval !== 'approved') ?? visibleDrafts[0];
+  const currentId = current?.id;
+  const currentDestination = current?.destination;
+  useEffect(() => {
+    setAthenaContext({ type: 'publishing topic', title: d?.topic.title ?? 'Publishing draft', id,
+      ...(currentId ? { selectedId: currentId } : {}),
+      detail: detail.isError ? 'The selected publishing draft could not be retrieved. Do not claim to have read it.'
+        : `Saved publishing content, evidence, revisions, approval and delivery state:\n${JSON.stringify(d ?? null)}\nSelected destination: ${currentDestination ?? 'none'}.\n${editing ? 'A user editor is open. Saved content may differ from unsaved work. Do not mutate this draft through Athena until the editor is saved or closed.' : 'Use existing publishing tools with version checks and explicit approval boundaries; selecting this item is not approval.'}` });
+  }, [id, d, currentId, currentDestination, editing, detail.isError, setAthenaContext]);
+  if (detail.isError) return <p role="alert" className="kh-publishing__error">{describeApiError(detail.error)}</p>;
+  if (!d) return <p role="status">Loading evidence and drafts…</p>;
   function decide(draft: PublishingDraft, action: string): void { void act(`/drafts/${draft.id}/decision`, 'POST', { version: draft.version, action, reason }); }
   return <div className="kh-publishing__review">
     <h3 className="kh-publishing__review-title">{d.topic.title}</h3>
@@ -333,6 +344,8 @@ export function DiscoverPublishing({ onClose }: { onClose: () => void }): React.
     && t.drafts.some(d => isReadyDraft(d) && d.approval === 'pending')).slice(0, 8);
   const scheduled = schedule.data?.find(post => post.draftId === selected) ?? schedule.data?.[0];
   const expanded = shown.find(topic => topic.id === selected)?.id ?? shown.find(topic => topic.drafts.length > 0)?.id ?? shown[0]?.id;
+  const historyEntry = history.data?.find(entry => entry.id === selected) ?? history.data?.[0];
+  const auditEntry = audit.data?.find(entry => entry.id === selected) ?? audit.data?.[0];
   return <AppDialog title="Publishing" wide settings onClose={onClose}
     actions={<button className="kh-dialog__button" type="button" onClick={onClose}>Close</button>}>
     <div className="kh-publishing" aria-busy={busy}>
@@ -364,33 +377,51 @@ export function DiscoverPublishing({ onClose }: { onClose: () => void }): React.
       {active.isLoading && <p role="status">Loading publishing {tab}…</p>}
       {active.isError && <div className="kh-publishing__error" role="alert"><p>{describeApiError(active.error)}</p><button type="button" onClick={() => { void active.refetch(); }}>Retry loading</button></div>}
       {!active.isLoading && !active.isError && (active.data?.length === 0 || (tab === 'review' && !shown.length)) && <p className="kh-publishing__empty">{tab === 'history' ? 'No delivery attempts yet.' : tab === 'audit' ? 'No publishing events yet.' : tab === 'upcoming' ? 'No posts sent for scheduling yet.' : 'No finished drafts ready for approval. Athena completes writing and editorial checks before showing posts here. Preparation failures are recorded in Audit; unfinished or failed drafts are never offered for scheduling.'}</p>}
-      {tab === 'review' && shown.length > 0 && <div className="kh-publishing__workspace">
-        <PublishingDraftList topics={shown} selected={expanded} onSelect={setSelected} />
-        <article className="kh-publishing__reading" aria-label="Selected draft">
+      {tab === 'review' && <ReviewWorkspace storageKey="discover-publishing" label="Publishing drafts"
+        context={{ type: 'publishing', title: 'Drafts', detail: `Draft preparation state:\n${JSON.stringify(refresh.data ?? null)}\nFeed settings:\n${JSON.stringify(feeds.data ?? null)}` }}
+        list={<PublishingDraftList topics={shown} selected={expanded} onSelect={setSelected} />}
+        detail={<article className="kh-publishing__reading" aria-label="Selected draft">
           {expanded && <TopicReview key={expanded} id={expanded} act={act} busy={busy} feeds={feeds.data ?? []} readyOnly />}
-        </article>
-      </div>}
-      {tab === 'upcoming' && !schedule.isError && scheduled && <div className="kh-publishing__workspace kh-publishing__workspace--schedule">
-        <PublishingSchedule posts={schedule.data ?? []} selected={scheduled.draftId} onSelect={setSelected} />
-        <article className="kh-publishing__reading" aria-label="Scheduled draft">
+          {!expanded && <p className="kh-publishing__empty">No finished draft is selected.</p>}
+        </article>} />}
+      {tab === 'upcoming' && <ReviewWorkspace storageKey="discover-publishing" label="Publishing schedule"
+        context={scheduled ? { type: 'publishing schedule', title: 'Scheduled draft', id: scheduled.draftId,
+          detail: `Selected saved schedule entry and delivery state:\n${JSON.stringify(scheduled)}\nFeed settings:\n${JSON.stringify(feeds.data ?? null)}` }
+          : { type: 'publishing', title: 'Scheduling', detail: schedule.isError ? 'Publishing schedule could not be retrieved.' : 'No post selected.' }}
+        list={<PublishingSchedule posts={schedule.isError ? [] : schedule.data ?? []} selected={scheduled?.draftId} onSelect={setSelected} />}
+        detail={<article className="kh-publishing__reading" aria-label="Scheduled draft">
+          {scheduled && <>
           {!scheduled.scheduledAt && <section className="kh-publishing__blocker" aria-label="Scheduling blocker">
             <h3>Why this cannot be scheduled</h3>
             <p>{scheduled.reason}</p>
           </section>}
           {'noteId' in scheduled ? <ScheduledPodcastPreview post={scheduled} onOpen={onClose} />
             : <TopicReview key={scheduled.draftId} id={scheduled.topicId} initialDestination={scheduled.destination} act={act} busy={busy} feeds={feeds.data ?? []} />}
-        </article>
-      </div>}
-      {tab === 'history' && history.data?.map(delivery => <article className="kh-publishing__history" key={delivery.id}>
+          </>}
+          {!scheduled && <p className="kh-publishing__empty">No scheduled post is selected.</p>}
+        </article>} />}
+      {tab === 'history' && <ReviewWorkspace storageKey="discover-publishing" label="Publishing history"
+        context={{ type: 'publishing delivery', title: 'Delivery history', ...(historyEntry ? { id: historyEntry.id } : {}),
+          detail: `Selected saved delivery receipt and state:\n${JSON.stringify(historyEntry ?? null)}` }}
+        list={<>{history.data?.map(delivery => <ReviewItem key={delivery.id}
+          title={`${names[delivery.destination as keyof typeof names] ?? delivery.destination} · ${delivery.status}`}
+          meta={`${delivery.account} · ${when(delivery.publishedAt ?? delivery.attemptedAt)}`}
+          description={delivery.error ?? undefined} selected={delivery.id === historyEntry?.id} onSelect={() => { setSelected(delivery.id); }} />)}</>}
+        detail={historyEntry ? (() => { const delivery = historyEntry; return <article className="kh-publishing__history" key={delivery.id}>
         <h3>{names[delivery.destination as keyof typeof names] ?? delivery.destination} · {delivery.status}</h3>
         <p className="kh-publishing__meta">{delivery.account} · {when(delivery.publishedAt ?? delivery.attemptedAt)}{delivery.nextAttemptAt && ` · Retry after ${when(delivery.nextAttemptAt)}`}</p>
         {delivery.error && <p className="kh-publishing__notice">{delivery.error}</p>}
         {typeof delivery.receipt?.url === 'string' && /^https:\/\//.test(delivery.receipt.url) && <a target="_blank" rel="noreferrer" href={delivery.receipt.url}>View published post</a>}
         {['unconfirmed', 'sending', 'failed'].includes(delivery.status) && <Reconciliation delivery={delivery} act={act} busy={busy} />}
-      </article>)}
-      {tab === 'audit' && audit.data?.map(entry => <details className="kh-publishing__evidence" key={entry.id}>
-        <summary>{entry.event} · {when(entry.createdAt)} · {entry.actor}</summary><pre>{JSON.stringify(entry.detail, null, 2)}</pre>
-      </details>)}
+      </article>; })() : <p className="kh-publishing__empty">No delivery selected.</p>} />}
+      {tab === 'audit' && <ReviewWorkspace storageKey="discover-publishing" label="Publishing audit"
+        context={{ type: 'publishing audit', title: auditEntry?.event ?? 'Audit', ...(auditEntry ? { id: auditEntry.id } : {}),
+          detail: `Selected saved audit event:\n${JSON.stringify(auditEntry ?? null)}` }}
+        list={<>{audit.data?.map(entry => <ReviewItem key={entry.id} title={entry.event} meta={`${when(entry.createdAt)} · ${entry.actor}`}
+          selected={entry.id === auditEntry?.id} onSelect={() => { setSelected(entry.id); }} />)}</>}
+        detail={auditEntry ? <section className="kh-publishing__evidence"><h3>{auditEntry.event}</h3>
+          <p className="kh-publishing__meta">{when(auditEntry.createdAt)} · {auditEntry.actor}</p>
+          <pre>{JSON.stringify(auditEntry.detail, null, 2)}</pre></section> : <p className="kh-publishing__empty">No audit event selected.</p>} />}
       {tab !== 'upcoming' && <div className="kh-publishing__actions kh-publishing__paging"><button type="button" disabled={offset === 0 || active.isFetching} onClick={() => { setOffset(v => Math.max(0, v - 50)); setSelected(null); }}>Previous page</button>
         <button type="button" disabled={!active.data || active.data.length < 50 || active.isFetching || offset >= 10000} onClick={() => { setOffset(v => v + 50); setSelected(null); }}>Next page</button></div>}
     </div>

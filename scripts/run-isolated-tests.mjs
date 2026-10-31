@@ -63,6 +63,7 @@ const tests = frontend ? [
   '../knowledge-hub-web/tests/decisionSemantics.test.tsx',
   '../knowledge-hub-web/tests/thinkLocation.test.ts',
 ] : [
+  'scripts/work-content.test.ts',
   'scripts/work-context.test.ts',
   'scripts/blog-editorial-quality.test.ts',
   'scripts/model-call-control.test.ts',

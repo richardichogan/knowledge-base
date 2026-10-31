@@ -14,6 +14,7 @@ import { NoteList } from './NoteList';
 import { QuickSparkModal } from '../components/sparks/QuickSparkModal';
 import { fetchNotesPage, fetchNote, createNote, deleteNote, extractNoteBlockText, buildPreview } from './noteStorage';
 import { presentationScript } from '../features/autocue/presentationScript';
+import { annotatedPresentation } from '../features/podcasts/scriptAnnotations';
 import { episodeScriptText } from '../types/podcastEpisodes';
 import type { NoteContentBlock, NoteListPage } from './noteStorage';
 import { athenaLinkText, prepareEntityLinkExport } from './linkLabels';
@@ -321,7 +322,11 @@ export const NotesPage: React.FC = () => {
       if (authSession.isExpired()) throw new Error('Sign in again before presenting.');
       const text = episodeScriptText(episode.scriptIntro, episode.scriptCards);
       if (!text.trim()) throw new Error('Write or draft the script before presenting.');
-      await presentation.present({ noteId: episode.noteId, title: episode.title, text });
+      const annotated = annotatedPresentation(text);
+      if (annotated.runs.some(run => run.styles.length) && !presentation.scriptAnnotations) {
+        throw new Error('Update Athena Desktop to present script colours and delivery cues. Your saved script is unchanged.');
+      }
+      await presentation.present({ noteId: episode.noteId, title: episode.title, ...annotated });
       return;
     }
     if (mode !== 'notes' || !openDoc) { await presentation.open(); return; }
@@ -577,6 +582,7 @@ export const NotesPage: React.FC = () => {
           title: doc.title,
           detail: `Content type: ${doc.contentType}${imageNote}${bodyBlock()}`,
           id: doc.id,
+          ...(['deliverable-brief', 'email-draft'].includes(doc.contentType) ? { workContentId: doc.id } : {}),
           ...(doc.projectId ? { projectId: doc.projectId } : {}),
           ...(descriptions !== undefined && descriptions.length > 0 && { images: descriptions.join('\n\n') }),
         });
@@ -621,7 +627,7 @@ export const NotesPage: React.FC = () => {
   }, [mode, parentOpen, noteId, noteContentJson, noteTitle, noteContentType, noteProjectId, setAthenaContext]);
 
   return (
-    <div className="notes-page" role="main" data-active-pane={mode === 'sparks' ? 'editor' : mobilePane}>
+    <div className="notes-page" role="main" data-view={mode} data-active-pane={mode === 'sparks' ? 'editor' : mobilePane}>
       <PageHeader title="Think" className="notes-header" actions={<>
           {mode !== 'sparks' && mobilePane === 'editor' && <button type="button"
             className="kb-import-btn kh-workspace-back" onClick={() => { setMobilePane('list'); }}>
@@ -723,7 +729,7 @@ export const NotesPage: React.FC = () => {
             >
               <SidePanelOpen size={16} />
             </button>
-            <button
+            {mode !== 'notes' && <button
               type="button"
               className="notes-list-rail__btn"
               title="Search notes"
@@ -734,7 +740,7 @@ export const NotesPage: React.FC = () => {
               }}
             >
               <Search size={16} />
-            </button>
+            </button>}
             <button
               type="button"
               className="notes-list-rail__btn"
@@ -747,11 +753,8 @@ export const NotesPage: React.FC = () => {
           </div>
         ) : (
         <div className="notes-list-panel">
-          <div className="notes-list-panel__head">
+          {mode !== 'notes' && <div className="notes-list-panel__head">
             <span className="notes-list-panel__label">{VIEW_MODES.find((v) => v.key === mode)?.label}</span>
-            {mode === 'notes' && <button type="button" className="notes-refresh"
-              title="Refresh notes" aria-label="Refresh notes" disabled={isFetching}
-              onClick={() => { void refreshNotes(); }}><Renew size={16} /></button>}
             <button
               type="button"
               className="notes-mode-collapse"
@@ -761,10 +764,11 @@ export const NotesPage: React.FC = () => {
             >
               <SidePanelClose size={16} />
             </button>
-          </div>
+          </div>}
 
           {mode === 'notes' && (
             <NoteList
+              showTools={false}
               notes={notes}
               selectedId={selectedDesign ?? selectedEpisode ?? selectedId}
               onSelect={(id) => { setMobilePane('editor'); void handleSelectNote(id); }}

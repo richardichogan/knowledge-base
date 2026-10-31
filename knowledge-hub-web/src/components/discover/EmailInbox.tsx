@@ -2,6 +2,7 @@
 import React, { useMemo, useState } from 'react';
 import { Edit, Launch } from '@carbon/icons-react';
 import type { ContentItemSummary } from '../../types';
+import { ReviewWorkspace, ReviewItem } from '../ReviewWorkspace';
 
 export interface InboxEmail {
   id: string;
@@ -62,9 +63,10 @@ function formatReceived(iso: string, now = new Date()): string {
 interface Props {
   items: ContentItemSummary[];
   onSocials: (item: { id: string; title: string }) => void;
+  athenaEnabled?: boolean;
 }
 
-export const EmailInbox: React.FC<Props> = ({ items, onSocials }) => {
+export const EmailInbox: React.FC<Props> = ({ items, onSocials, athenaEnabled = true }) => {
   const emails = useMemo(() => items.map(toInboxEmail), [items]);
   const mailboxes = useMemo(() => {
     const counts = new Map<string, { count: number; address: string | null }>();
@@ -77,9 +79,16 @@ export const EmailInbox: React.FC<Props> = ({ items, onSocials }) => {
   }, [emails]);
   const [filter, setFilter] = useState<string | null>(null);
   const shown = filter === null ? emails : emails.filter((e) => e.mailbox === filter);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = shown.find(email => email.id === selectedId) ?? shown[0];
+  const selectedItem = items.find(item => item.id === selected?.id);
 
   return (
-    <div className="dc-inbox">
+    <ReviewWorkspace storageKey="discover" label="Inbox" athenaEnabled={athenaEnabled}
+      context={selected && selectedItem ? { type: 'email', title: selected.subject, id: selected.id,
+        detail: `Selected indexed email summary and metadata (retrieve full saved email before claiming to have read its body):\n${JSON.stringify(selectedItem)}` }
+        : { type: 'discover', title: 'Inbox', detail: 'No indexed email selected.' }}
+      list={<div className="dc-inbox">
       {mailboxes.length > 1 && (
         <div className="dc-inbox-filters" role="group" aria-label="Filter by mailbox">
           <button type="button" className="dc-inbox-filter" aria-pressed={filter === null} onClick={() => { setFilter(null); }}>
@@ -95,9 +104,14 @@ export const EmailInbox: React.FC<Props> = ({ items, onSocials }) => {
           ))}
         </div>
       )}
-      <ul className="dc-inbox-list">
-        {shown.map((e) => (
-          <li key={e.id} className={`dc-email${e.isUnread ? ' dc-email--unread' : ''}`} data-mailbox={e.mailbox}>
+      {shown.map(email => <ReviewItem key={email.id} title={email.subject} selected={selected?.id === email.id}
+        meta={`${mailboxName(email.mailbox)} · ${email.sender} · ${formatReceived(email.receivedAt)}${email.isUnread ? ' · Unread' : ''}`}
+        description={items.find(item => item.id === email.id)?.summary}
+        onSelect={() => { setSelectedId(email.id); }} />)}
+      {!shown.length && <p className="dc-empty">No indexed emails in this mailbox.</p>}
+    </div>}
+      detail={selected ? (() => { const e = selected; return (
+          <article className={`dc-email dc-email--detail${e.isUnread ? ' dc-email--unread' : ''}`} data-mailbox={e.mailbox}>
             <div className="dc-email__mailbox" title={e.mailboxAddress ?? undefined}>
               <span className="dc-inbox-dot" aria-hidden="true" />
               <span className="dc-email__mailbox-name">{mailboxName(e.mailbox)}</span>
@@ -107,7 +121,9 @@ export const EmailInbox: React.FC<Props> = ({ items, onSocials }) => {
               <span className="dc-email__sender" title={e.senderAddress ?? undefined}>{e.sender}</span>
               <time className="dc-email__date" dateTime={e.receivedAt}>{formatReceived(e.receivedAt)}</time>
             </div>
-            <div className="dc-email__subject">{e.subject}</div>
+            <h2 className="dc-email__subject">{e.subject}</h2>
+            <section className="dc-explore__section"><h3>Indexed summary</h3>
+              <p>{selectedItem?.summary || 'No summary is available for this email. Open the original in Outlook.'}</p></section>
             <div className="dc-email__actions">
               {e.url !== null && (
                 <a className="dc-action" href={e.url} target="_blank" rel="noreferrer">
@@ -118,9 +134,7 @@ export const EmailInbox: React.FC<Props> = ({ items, onSocials }) => {
                 <Edit size={14} /> Socials
               </button>
             </div>
-          </li>
-        ))}
-      </ul>
-    </div>
+          </article>
+      ); })() : <p className="dc-empty">Select an email to review its details.</p>} />
   );
 };

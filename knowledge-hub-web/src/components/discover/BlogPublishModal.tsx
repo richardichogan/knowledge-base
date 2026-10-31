@@ -94,7 +94,7 @@ export interface BlogPublishSource {
   onSent?: (result: PublishResult) => void;
 }
 
-type Props = { itemId?: string; source?: BlogPublishSource; title: string; onClose: () => void };
+type Props = { itemId?: string; source?: BlogPublishSource; title: string; onClose: () => void; initialLength?: 'short' | 'long' };
 
 async function startBlogJob(subjectId: string, length: 'short' | 'long', requestId: string): Promise<void> {
   if (requireApiData(await api.workforceCapabilities()).manualBlog) {
@@ -123,8 +123,8 @@ const BlogDraftStartedDialog: React.FC<{ title: string; onClose: () => void }> =
     </div>
   </AppDialog>;
 
-export const BlogPublishModal: React.FC<Props> = ({ itemId, source, title, onClose }) => {
-  const [length, setLength] = useState<'short' | 'long' | null>(null);
+export const BlogPublishModal: React.FC<Props> = ({ itemId, source, title, onClose, initialLength }) => {
+  const [length, setLength] = useState<'short' | 'long' | null>(initialLength ?? null);
   const [startRequest] = useState(() => crypto.randomUUID());
   const [starting, setStarting] = useState(false);
   const [started, setStarted] = useState(false);
