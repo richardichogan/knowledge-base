@@ -27,6 +27,7 @@ import { GlobalContextMenuProvider } from './context/GlobalContextMenu';
 import { AthenaContextProvider } from './context/AthenaContext';
 import { HomePage } from './pages/HomePage';
 import { AppDialogHost } from './components/AppDialog';
+import { TaskStatusChangeDialogHost } from './components/TaskStatusChangeDialog';
 import { LocalFolderSync } from './components/library/LocalFoldersPanel';
 import { ChatLinkReceiver } from './components/ChatLinkReceiver';
 import { DesktopCommandReceiver } from './components/DesktopCommandReceiver';
@@ -102,6 +103,7 @@ const App: React.FC = () => {
     <SignInGate>
       <Theme theme="g100" as="div" className="kh-app">
         <AppDialogHost />
+        <TaskStatusChangeDialogHost />
         <LocalFolderSync />
         <AthenaContextProvider>
           <BrowserRouter>

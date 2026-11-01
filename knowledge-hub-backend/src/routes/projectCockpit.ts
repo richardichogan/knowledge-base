@@ -8,6 +8,7 @@ import {
   type RegisterInput,
 } from '../projects/cockpit.js';
 import { getProjectChanges } from '../projects/workContext.js';
+import { generateProgressReview, listProgressReviews, readProgressReview } from '../projects/progressReview.js';
 
 export const projectCockpitRouter = Router();
 
@@ -29,6 +30,15 @@ projectCockpitRouter.get('/:id/cockpit', wrap(async (req, res) => {
 }));
 projectCockpitRouter.get('/:id/changes', wrap(async (req, res) => {
   send(res, await getProjectChanges(getDb(), param(req, 'id'), req.query['since']));
+}));
+projectCockpitRouter.get('/:id/progress-reviews', wrap(async (req, res) => {
+  send(res, await listProgressReviews(getDb(), param(req, 'id'), req.query['offset'] === undefined ? 0 : Number(req.query['offset'])));
+}));
+projectCockpitRouter.get('/:id/progress-reviews/:reviewId', wrap(async (req, res) => {
+  send(res, await readProgressReview(getDb(), param(req, 'id'), param(req, 'reviewId')));
+}));
+projectCockpitRouter.post('/:id/progress-reviews', wrap(async (req, res) => {
+  send(res, await generateProgressReview(getDb(), param(req, 'id'), text(body(req)['requestId']) ?? ''), HTTP_STATUS.CREATED);
 }));
 
 projectCockpitRouter.get('/:id/register', wrap(async (req, res) => {

@@ -527,6 +527,17 @@ control in that deliverable-brief workflow.
   setting the task to Waiting on the recipient requires a separate confirmation.
   Replies are known only when Richard supplies them. Sent writing/recipient
   fields are protected; a follow-up uses a new draft.
+- **Word and PowerPoint downloads** use the final `# Deliverable content`
+  section of a Deliverable brief, not its instructions. Existing properties
+  controls save pending edits and check both revisions before generating the
+  selected binary file. Word retains editable text, lists, links and tables;
+  `##` headings start PowerPoint slides. Formatting is neutral. Embedded
+  images and oversized slide/table content produce actionable errors instead
+  of silently losing content. No Graph access, upload or task closure is involved.
+  `prepare_deliverable_download` lets Athena generate a requested format after
+  a complete current-body read; it returns filename, byte count and the Think
+  link, not a claim of device delivery or acceptance. Local downloads do not
+  set the separate OneDrive produced-file field.
 - Athena initiates this workflow through `create_deliverable_brief` and
   `create_email_draft`. `read_work_content` reads current structured metadata
   and pages the body. Requested edits use `update_deliverable_brief` or
@@ -630,13 +641,23 @@ The saved proposal explains the work, expected result, missing information,
 public search queries and decisions you retain. Research questions do not block
 approval or execution: Iris investigates them and flags unresolved ambiguity
 in the findings without choosing for you or changing original artefacts.
-Email prerequisites still require clarification and reassessment. New direction
-requires a new assessment; unsupported tasks are explained without a job.
+Email questions likewise never block approval or drafting: Athena reads the linked
+evidence, drafts the useful content and labels unknown recipients/context as
+placeholders, retaining unresolved decisions for review without sending anything.
+This applies to existing saved proposals as well as new assessments. When direct
+execution is unavailable, task preparation offers a useful checklist, talking
+points or decision aid without claiming the unavailable action was performed.
+Legacy unsupported proposals can start that preparation too. Completed tasks
+remain eligible for on-demand help; automatic assessment eligibility is unchanged.
+New direction requires a new assessment so you review the actual work and public
+queries being approved. Active-job duplication, ownership, privacy, current-task
+snapshot checks and explicit approval remain protected.
 
 **Approve and start** commissions a durable specialist job against the saved,
 owner-bound proposal and task snapshot. Iris reads actual sources and returns
 source-backed Think findings using the proposal UUID as its database chat-session
 identity. Failed jobs are retried explicitly, not automatically after a code fix.
+
 Findings include fit/gaps and proposed changes. Repository work
 locates and verifies the repository, then compares it with relevant Athena
 architecture or project artefacts. Project work prioritises existing notes,
@@ -672,6 +693,44 @@ require the displayed approved queries. The safer scope is this assisted,
 draft-only workflow, not automatic task dispatch or completion. Existing design
 hook warnings in unchanged stylesheet rules are outside this change; the new
 task styles use the guide's existing tokens and typography.
+
+### Task status-change notes
+
+Every change from one task status to another requires a non-empty quick note
+in the existing Athena modal style. Submit saves the status and a timestamped
+`task_notes` entry together; Cancel leaves the task unchanged. The activity
+entry records both old and new statuses plus the submitted text. A current-status
+check rejects a stale move without saving either part. New task creation, edits
+that do not change status and archiving are not status moves.
+The existing Activity tab shows newest notes first in bordered cards, with the
+timestamp and status transition separated from the note text for visibility.
+The email-drafting specialist is Hermes — Email draft assistant
+(`task-email-drafter`); Iris is the task-research specialist.
+Email-draft activity records Hermes's specialist identity and displays
+“Hermes · Email draft assistant”, rather than attributing execution to Athena.
+Task detail renders saved note references as descriptive clickable Think links,
+not visible GUIDs. Its note composer, assistance controls and connections use
+the Today surface's Athena/Carbon field, button, typography and state treatment,
+without relocating existing sections or actions.
+Activity stores structured attribution: Richard's manual notes and status
+changes, Athena's preparatory results, and system file-sync events. Athena
+proposals submitted by Richard show both proposal and confirmation. Unknown
+historical authors remain “Earlier activity”; action attribution is not proof
+that the overall task was completed. Transitions use sentence-case status
+labels, a Carbon arrow and restrained existing status tokens with card padding
+preserved in the task-detail screen.
+
+Board drag/drop and menu actions, task editing, Today/check-in completion and
+the email Waiting-on confirmation all use the same popup. Plan review completion
+uses one shared note saved separately against every affected task; Athena's
+reasons prefill it for review. Bulk failures disclose which portion was saved,
+and retries do not duplicate already applied moves.
+
+Athena's `update_task` proposes status changes with a reason rather than executing
+them. Its completed chat turn opens the same mandatory popup; only the user's
+Submit persists the move. No status or unrelated fields are written by the
+proposal tool call. `read_task_activity` retrieves actual dated activity and
+status-change notes with paging and existing project/exclusion boundaries.
 
 ## 4. Core objects
 
@@ -1055,6 +1114,34 @@ These types describe the nature of work, not client arrangements. Athena can
 read and create/update the type through the existing project tools. The existing
 category, ICA, lifecycle and scheduling fields are unchanged. BAU and aspirations
 do not imply required end dates, invented milestones or completion scores.
+Project metadata uses quiet sentence-case text, retaining the shared group
+identity chip. The 30% context card stacks labels above values to avoid cramped
+columns. Embedded work sections follow the shared detail heading, body/metadata,
+list-row, divider and control treatment; their editors and actions stay in place.
+
+The main project record includes **Direction and progress** with an on-demand
+**Review progress** action for the last seven days. Reviews adapt to the saved
+work type and retain dated history (latest expanded). Each assessment separates
+meaningful progress, activity without demonstrated outcomes, blockers/uncertainty
+and a suggested next move with **Why Athena picked it**. It never changes tasks,
+goals or deliverables or infers completion percentages.
+
+Review generation reads saved linked notes, chat outputs/decisions, current and
+recent tasks/register items and indexed project changes, within explicit source
+and excerpt limits. Evidence snapshots, review periods, saved direction and access
+limitations remain available with the dated assessment. Saved update times are
+not version diffs, and task completion or packet approval is not owner acceptance.
+Live repository code, external reference destinations, ICA collections, unsaved
+drafts and structured content outside the note body are not claimed as retrieved.
+
+`project_progress_reviews` (migration 131) is append-only via the application
+services; requests carry a stable UUID for safe retry and per-project generation
+is guarded by an advisory lock. Project edits during generation reject the save.
+Athena uses `read_project_progress_reviews` for bounded history/full captured
+reviews and `generate_project_progress_review` for an explicitly requested review
+through the same service as the UI. Read-only and scope/exclusion restrictions
+remain enforced. Review selection and generation state refresh the page context;
+completed Athena turns invalidate review queries.
 
 Today lists upcoming indexed calendar entries; Activity calendar cards offer the
 same manual meeting-preparation action. The owner selects a project explicitly.

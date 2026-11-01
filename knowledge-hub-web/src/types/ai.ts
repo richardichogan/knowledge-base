@@ -257,6 +257,7 @@ export interface WriteActionProposal {
 }
 
 export interface ChatResponse {
+  taskStatusChanges?: Array<{ taskId: string; title: string; from: string; to: string; note: string; waitingOn?: string }>;
   workChanged?: { noteIds: string[] };
   podcastChanged?: { noteId: string };
   designChanged?: { parentNoteId: string; noteIds: string[] };

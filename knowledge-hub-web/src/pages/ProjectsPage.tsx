@@ -72,11 +72,6 @@ const LIFECYCLE_LABEL: Record<ProjectLifecycleState, string> = {
   completed: 'Completed',
   archived: 'Archived',
 };
-const PRIORITY_BADGE: Record<ProjectPriority, { label: string; cls: string }> = {
-  high:   { label: 'High',   cls: 'proj-pri--high' },
-  medium: { label: 'Medium', cls: 'proj-pri--medium' },
-  low:    { label: 'Low',    cls: 'proj-pri--low' },
-};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -605,7 +600,7 @@ export const ProjectsPage: React.FC = () => {
       <ReviewWorkspace storageKey="projects" label="Projects"
         context={selectedProject ? {
           type: 'project', id: selectedProject.id, projectId: selectedProject.id, title: selectedProject.name,
-          detail: `Selected project's current saved properties and references:\n${JSON.stringify(selectedProject)}\nThe main record includes changes, waiting work, open commitments, questions/risks/issues, review packets and supporting evidence. Use get_project_details with includeWork=true for their current bounded content; use packetId to retrieve a full review packet and saved-content retrieval for linked documents. Use update_project to change the work type only when requested. Do not infer progress, require a finish date for BAU/aspirations, or treat repository links as read source content.`,
+          detail: `Selected project's current saved properties and references:\n${JSON.stringify(selectedProject)}\nThe main record includes dated direction/progress reviews, changes, waiting work, open commitments, questions/risks/issues, review packets and supporting evidence. Use read_project_progress_reviews for saved review history and reviewId for the full assessment, captured evidence and rationale. generate_project_progress_review appends a last-seven-days review only when requested; it does not change tasks/goals/deliverables. Use get_project_details with includeWork=true for current bounded work; use packetId to retrieve a full review packet and saved-content retrieval for linked documents. Use update_project to change the work type only when requested. Do not infer progress, require a finish date for BAU/aspirations, or treat repository links as read source content.`,
         } : { type: 'project', title: 'Projects', detail: 'No project selected. Do not infer project details.' }}
         list={<>
           <h2>Projects</h2>
@@ -636,9 +631,7 @@ export const ProjectsPage: React.FC = () => {
             ];
             const source = getSource(project);
             const ProjectIcon = identityIcon(project.icon);
-            const pri = PRIORITY_BADGE[project.priority ?? 'medium'];
             const lifecycle = project.lifecycleState ?? 'active';
-            const importanceClass = `proj-importance--${project.importance ?? 'normal'}`;
             const projectDates = [
               project.startDate ? `Start: ${project.startDate}` : null,
               project.targetEndDate ? `Target end: ${project.targetEndDate}` : null,
@@ -677,18 +670,18 @@ export const ProjectsPage: React.FC = () => {
                       </div>
 
                       {/* Badges / metadata */}
-                      <div className="proj-card-badges">
+                      <div className="proj-detail-meta">
                         {project.groupName && (
                           <IdentityChip identity={{ tagId: project.groupId ?? null, label: project.groupName, kind: 'group', hex: null, icon: null, projectId: null, parentName: null }} />
                         )}
-                        <span className={`proj-pri-badge ${pri.cls}`}>{pri.label} priority</span>
-                        <span className={`proj-lifecycle-badge proj-lifecycle-badge--${lifecycle}`}>{LIFECYCLE_LABEL[lifecycle]}</span>
+                        <span>{LIFECYCLE_LABEL[lifecycle]}</span>
+                        <span>{project.priority ?? 'medium'} priority</span>
                         {project.importance && project.importance !== 'normal' && (
-                          <span className={`proj-importance-badge ${importanceClass}`}>{project.importance}</span>
+                          <span>{project.importance} importance</span>
                         )}
-                        <span className="proj-client-badge">{PROJECT_TYPES.find(type => type.value === project.projectType)?.label}</span>
+                        <span>{PROJECT_TYPES.find(type => type.value === project.projectType)?.label}</span>
                         {project.hasIcaDocumentCollection && (
-                          <span className="proj-ica-badge" title={project.icaDocumentCollectionName || project.icaDocumentCollectionId}>
+                          <span title={project.icaDocumentCollectionName || project.icaDocumentCollectionId}>
                             ICA docs
                           </span>
                         )}

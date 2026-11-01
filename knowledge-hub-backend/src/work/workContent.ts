@@ -238,6 +238,7 @@ export async function createWorkContent(db: Pool, type: WorkContentType, input: 
   let body = input.body === undefined && type === 'deliverable-brief'
     ? BRIEF_HEADINGS.map(heading => `## ${heading}\n\n`).join('\n') : text(input.body ?? '', 'Body', MAX_BODY);
   if (type === 'deliverable-brief' && !body.startsWith(`# ${title}\n`)) body = `# ${title}\n\n${body}`;
+  if (type === 'deliverable-brief' && !/^# Deliverable content[ \t]*$/im.test(body)) body += '\n\n# Deliverable content\n\n';
   const fields = Object.fromEntries(Object.entries(input).filter(([key]) => key !== 'title' && key !== 'body'));
   const parsed = parseFields(type, fields);
   if (type === 'deliverable-brief') Object.assign(parsed, targetPath(input.targetFolder ?? '', input.fileName ?? ''));
@@ -283,8 +284,9 @@ export async function markEmailSent(db: Pool, id: string, input: Record<string, 
     const result = await client.query(`UPDATE email_drafts SET status='sent',sent_at=now(),revision=revision+1
       WHERE note_id=$1 AND revision=$2 AND status='draft' AND recipients_to<>'' AND subject<>''`, [id, input.revision]);
     if (!result.rowCount) throw new ConflictError('Review the current draft, recipient and subject before marking Sent.', 'WORK_CONTENT_CONFLICT');
-    if (current.taskId) await client.query('INSERT INTO task_notes(task_id,body) VALUES($1,$2)',
-      [current.taskId, `Email "${current.subject}" marked Sent by Richard. Waiting-on status requires separate confirmation.`]);
+    if (current.taskId) await client.query('INSERT INTO task_notes(task_id,body,activity) VALUES($1,$2,$3)',
+      [current.taskId, `Email "${current.subject}" marked Sent by Richard. Waiting-on status requires separate confirmation.`,
+        JSON.stringify({ actor: 'richard', action: 'email-sent-confirmed' })]);
     await client.query('COMMIT');
   } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
   return getWorkContent(db, id);
@@ -300,13 +302,15 @@ export async function confirmEmailWaiting(db: Pool, id: string, input: Record<st
     const email = (await client.query<{ task_id: string | null; recipients_to: string; status: string; revision: number }>(
       'SELECT * FROM email_drafts WHERE note_id=$1 FOR UPDATE', [id])).rows[0];
     if (!email || email.status !== 'sent' || email.revision !== input.revision || !email.task_id) throw new ConflictError('The sent draft or linked task changed.', 'WORK_CONTENT_CONFLICT');
+    const previous = (await client.query<{ status: string }>('SELECT status FROM tasks WHERE id=$1 AND NOT archived FOR UPDATE', [email.task_id])).rows[0];
+    if (!previous) throw new ConflictError('The linked task is unavailable.', 'WORK_TASK_CONFLICT');
+    await recordTaskStatusChange(client, email.task_id, previous.status, 'waiting', input);
     const updated = await client.query<Record<string, unknown>>(
       `UPDATE tasks SET status='waiting',waiting_on=$2,updated_at=now() WHERE id=$1 AND NOT archived
        AND status NOT IN ('completed','cancelled') AND updated_at=$3::timestamptz RETURNING *`,
       [email.task_id, email.recipients_to, input.taskUpdatedAt]);
     if (!updated.rows[0]) throw new ConflictError('The task changed since this proposal. Refresh before confirming.', 'WORK_TASK_CONFLICT');
     task = rowToTask(updated.rows[0]);
-    await client.query('INSERT INTO task_notes(task_id,body) VALUES($1,$2)', [email.task_id, `Richard confirmed waiting on ${email.recipients_to} after sending the linked email.`]);
     await client.query('COMMIT');
   } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
   if (task) await syncTaskToTimeline(db, task);
@@ -340,9 +344,11 @@ export async function reconcileDeliverables(db: Pool, root: string): Promise<voi
       await client.query(`INSERT INTO task_links(task_id,target_type,target_id,target_title,target_url) VALUES($1,'document',$2,$3,$4)
         ON CONFLICT(task_id,target_type,target_id) DO UPDATE SET target_title=EXCLUDED.target_title,target_url=EXCLUDED.target_url`,
       [file.task_id, file.id, file.title, file.url]);
-      await client.query('INSERT INTO task_notes(task_id,body) VALUES($1,$2)',
-        [file.task_id, `OneDrive file ${root}/${file.path} linked to deliverable brief ${file.note_id}. Ready for review, not completed.`]);
+      await client.query('INSERT INTO task_notes(task_id,body,activity) VALUES($1,$2,$3)',
+        [file.task_id, `OneDrive file ${root}/${file.path} linked to deliverable brief ${file.note_id}. Ready for review, not completed.`,
+          JSON.stringify({ actor: 'system', action: 'file-linked' })]);
     }
     await client.query('COMMIT');
   } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
 }
+import { recordTaskStatusChange } from './taskStatusChange.js';

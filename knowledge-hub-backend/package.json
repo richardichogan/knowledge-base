@@ -32,6 +32,7 @@
     "compression": "^1.7.4",
     "cors": "^2.8.5",
     "dotenv": "^17.4.1",
+    "docx": "^9.15.0",
     "entities": "^6.0.1",
     "express": "^4.19.2",
     "express-rate-limit": "^7.3.1",
@@ -50,6 +51,7 @@
     "pdf-parse": "^2.4.5",
     "pg": "^8.12.0",
     "pptxjs": "^0.0.0",
+    "pptxgenjs": "^4.0.1",
     "undici": "^6.21.3",
     "winston": "^3.13.1"
   },

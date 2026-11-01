@@ -4,6 +4,7 @@
  */
 
 import axios, { type AxiosInstance } from 'axios';
+import { requestTaskStatusChange, type TaskStatusMove } from './taskStatusChanges';
 import type { Relationship, RelationshipScope } from '../types/entityRelationships';
 import type { Design, DesignAsset, DesignDetail, DesignArtifact, DesignFeedback, DesignCollaboration, DesignProposal, DesignPackage, DesignPublication } from '../types/designs';
 import type {
@@ -1655,9 +1656,56 @@ export class KnowledgeHubApi {
   }
 
   async updateTask(id: string, input: Record<string, unknown>): Promise<ApiResponse<PlanTask>> {
+    if (typeof input.status === 'string' && input.statusChangeNote === undefined) {
+      const current = await this.getTaskStatusSnapshot(id);
+      if (current.status !== input.status) {
+        let saved: ApiResponse<PlanTask> | undefined;
+        await requestTaskStatusChange([{ taskId: id, title: current.title, from: current.status, to: input.status }],
+          async note => {
+            const response = await this.updateTask(id, { ...input, statusChangeNote: note, expectedStatus: current.status });
+            if (!response.success) throw new Error(response.error.message);
+            saved = response;
+          });
+        if (!saved) throw new Error('The status change was not saved.');
+        return saved;
+      }
+    }
     if (input.status !== undefined && input.status !== 'inbox' && input.status !== 'completed') requestCompletionNotifications();
     const r = await this.client.patch<ApiResponse<PlanTask>>(`/api/tasks/${id}`, input);
     return r.data.success && r.data.data ? { ...r.data, data: normaliseTask(r.data.data) } : r.data;
+  }
+
+  async getTaskStatusSnapshot(id: string): Promise<PlanTask> {
+    const response = (await this.client.get<ApiResponse<PlanTask>>(`/api/tasks/${encodeURIComponent(id)}`)).data;
+    if (!response.success) throw new Error(response.error.message);
+    return normaliseTask(response.data);
+  }
+
+  async reviewTaskStatusChanges(changes: Array<{ taskId: string; status: string; reason?: string; waitingOn?: string; expectedStatus?: string }>): Promise<void> {
+    const moves: TaskStatusMove[] = [];
+    for (const change of changes) {
+      const task = await this.getTaskStatusSnapshot(change.taskId);
+      if (change.expectedStatus !== undefined && task.status !== change.expectedStatus) throw new Error('The task status changed since Athena proposed the move. Review the current task.');
+      if (task.status !== change.status) moves.push({ taskId: task.id, title: task.title, from: task.status, to: change.status });
+    }
+    if (!moves.length) return;
+    const applied = new Set<string>();
+    await requestTaskStatusChange(moves, async note => {
+      try {
+        for (const move of moves) {
+          if (applied.has(move.taskId)) continue;
+          const change = changes.find(item => item.taskId === move.taskId);
+          const response = await this.updateTask(move.taskId, { status: move.to, expectedStatus: move.from, statusChangeNote: note,
+            ...(change?.waitingOn !== undefined ? { waitingOn: change.waitingOn } : {}),
+            ...(change?.reason ? { statusProposedBy: 'athena' } : {}) });
+          if (!response.success) throw new Error(response.error.message);
+          applied.add(move.taskId);
+        }
+      } catch (error) {
+        if (!applied.size) throw error;
+        throw new Error(`${applied.size} task(s) saved. Remaining moves were not saved; retry submits only those remaining. ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }, changes.map(change => change.reason ?? '').filter(Boolean).join('\n\n'));
   }
 
   async reviewPlan(today: string): Promise<ApiResponse<PlanReview>> {
@@ -1751,6 +1799,32 @@ export class KnowledgeHubApi {
   async getProjectCockpit(id: string): Promise<ApiResponse<ProjectCockpit>> {
     const r = await this.client.get<ApiResponse<ProjectCockpit>>(`/api/projects/${encodeURIComponent(id)}/cockpit`);
     return r.data;
+  }
+  async downloadDeliverable(id: string, format: 'docx' | 'pptx', revision: number, noteRevision: number): Promise<{ blob: Blob; filename: string }> {
+    const response = await this.client.post<Blob>(`/api/work-content/${encodeURIComponent(id)}/download`,
+      { format, revision, noteRevision }, { responseType: 'blob', timeout: IMAGE_UPLOAD_TIMEOUT_MS }).catch(async (error: unknown) => {
+      if (axios.isAxiosError(error) && error.response?.data instanceof Blob
+        && error.response.data.type.includes('json')) {
+        error.response.data = JSON.parse(await error.response.data.text()) as unknown;
+      }
+      throw error;
+    });
+    const disposition = String(response.headers['content-disposition'] ?? '');
+    const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+    if (!encoded) throw new Error('The generated download did not include a file name.');
+    return { blob: response.data, filename: decodeURIComponent(encoded) };
+  }
+  async getProgressReviews(id: string, offset = 0): Promise<ApiResponse<import('../types/progressReview').ProgressReviewPage>> {
+    return (await this.client.get<ApiResponse<import('../types/progressReview').ProgressReviewPage>>(
+      `/api/projects/${encodeURIComponent(id)}/progress-reviews`, { params: { offset } })).data;
+  }
+  async getProgressReview(id: string, reviewId: string): Promise<ApiResponse<import('../types/progressReview').ProgressReview>> {
+    return (await this.client.get<ApiResponse<import('../types/progressReview').ProgressReview>>(
+      `/api/projects/${encodeURIComponent(id)}/progress-reviews/${encodeURIComponent(reviewId)}`)).data;
+  }
+  async generateProgressReview(id: string, requestId: string): Promise<ApiResponse<import('../types/progressReview').ProgressReview>> {
+    return (await this.client.post<ApiResponse<import('../types/progressReview').ProgressReview>>(
+      `/api/projects/${encodeURIComponent(id)}/progress-reviews`, { requestId }, { timeout: CHAT_TIMEOUT_MS })).data;
   }
   async getProjectChanges(id: string, since: string): Promise<ApiResponse<import('../types/workContext').ProjectChanges>> {
     return (await this.client.get<ApiResponse<import('../types/workContext').ProjectChanges>>(
@@ -2399,7 +2473,22 @@ export class KnowledgeHubApi {
     return (await this.client.post<ApiResponse<WorkContent>>(`/api/work-content/${encodeURIComponent(id)}/sent`, { revision, noteRevision, confirmed: true })).data;
   }
   async confirmEmailWaiting(id: string, revision: number, taskUpdatedAt: string | null): Promise<ApiResponse<WorkContent>> {
-    return (await this.client.post<ApiResponse<WorkContent>>(`/api/work-content/${encodeURIComponent(id)}/waiting`, { revision, taskUpdatedAt, confirmed: true })).data;
+    const work = await this.getWorkContent(id);
+    if (!work.success) throw new Error(work.error.message);
+    if (!work.data.taskId) throw new Error('This draft has no linked task.');
+    const task = await this.getTaskStatusSnapshot(work.data.taskId);
+    const save = async (note?: string): Promise<ApiResponse<WorkContent>> =>
+      (await this.client.post<ApiResponse<WorkContent>>(`/api/work-content/${encodeURIComponent(id)}/waiting`,
+        { revision, taskUpdatedAt, confirmed: true, expectedStatus: task.status, statusChangeNote: note })).data;
+    if (task.status === 'waiting') return save();
+    let result: ApiResponse<WorkContent> | undefined;
+    await requestTaskStatusChange([{ taskId: task.id, title: task.title, from: task.status, to: 'waiting' }], async note => {
+      const saved = await save(note);
+      if (!saved.success) throw new Error(saved.error.message);
+      result = saved;
+    }, `Waiting on ${work.data.to} after sending the linked email.`);
+    if (!result) throw new Error('The waiting-on change was not saved.');
+    return result;
   }
   async ensurePodcastPrepDocument(id: string): Promise<ApiResponse<PodcastEpisode>> {
     return (await this.client.post<ApiResponse<PodcastEpisode>>(`/api/podcast-episodes/${encodeURIComponent(id)}/prep/document`)).data;

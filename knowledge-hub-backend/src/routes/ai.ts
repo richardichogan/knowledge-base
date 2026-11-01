@@ -23,6 +23,7 @@ import { startTurnJob, subscribeTurnJob, cancelTurnJob, getSessionTurnJob, type 
 import { memoriesCreatedSince } from '../ai/athenaMemory.js';
 import type { NoteEditProposal } from '../ai/noteEdits.js';
 import type { WorkTurnState } from '../ai/workContentTools.js';
+import type { TaskStatusProposal } from '../work/taskStatusChange.js';
 import type { MapChangeProposal } from '../ai/mapEdits.js';
 import { parseLocalFolders, type LocalFileWriteProposal } from '../ai/localFiles.js';
 import { uploadBlobAsText } from '../integrations/cms/blobClient.js';
@@ -66,6 +67,7 @@ router.get('/mention-targets', (req: Request, res: Response, next: NextFunction)
  */
 /** The reply payload for one chat turn (POST /chat response data and a background turn's result). */
 export interface ChatTurnResult {
+  taskStatusChanges?: TaskStatusProposal[];
   workChanged?: { noteIds: string[] };
   podcastChanged?: { noteId: string };
   designChanged?: { parentNoteId: string; noteIds: string[] };
@@ -192,6 +194,7 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   const turnStartedAt = new Date();
   const toolsUsed = new Set<string>();
   const noteEdits: NoteEditProposal[] = [];
+  const taskStatusChanges: TaskStatusProposal[] = [];
   const mapChanges: MapChangeProposal[] = [];
   const localFileWrites: LocalFileWriteProposal[] = [];
   const localFolders = parseLocalFolders(requestedLocalFolders);
@@ -241,7 +244,7 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   const modelReply = await handleConversationTurn(
     db, modelHistory, message, effectiveModel, persona, effectiveSessionId, alreadyHeld ? undefined : pageContext,
     (toolName) => { toolsUsed.add(toolName); },
-    { userId, noteId: openNoteId, designOwner, designState, podcastOwner, podcastState, workState, noteEdits, mapChanges, localFolders, localFileWrites },
+    { userId, noteId: openNoteId, designOwner, designState, podcastOwner, podcastState, workState, taskStatusChanges, noteEdits, mapChanges, localFolders, localFileWrites },
     { ...hooks, contextUsed, onAudit: (row) => { audit.row = row; } },
   );
   hooks.signal?.throwIfAborted();
@@ -321,6 +324,7 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
 
   return {
       reply, sessionId: effectiveSessionId, persona, sources, pendingActions: pending, memoriesCreated, outputsChanged, assistantMessageId, contextUsed, nextSteps,
+      ...(taskStatusChanges.length ? { taskStatusChanges } : {}),
       // Proposed edits to the open note, applied client-side on "Apply".
       noteEdits, noteEditsFor: noteEdits.length > 0 ? openNoteId ?? null : null,
       // Proposed changes to the open mind map, applied on "Apply".

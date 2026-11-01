@@ -970,6 +970,21 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       if (result.data.pendingActions.length > 0) {
         setPendingActions((prev) => [...prev, ...result.data.pendingActions]);
       }
+      if (result.data.taskStatusChanges?.length) {
+        void api.reviewTaskStatusChanges(result.data.taskStatusChanges.map(change => ({
+          taskId: change.taskId, status: change.to, reason: change.note, expectedStatus: change.from,
+          ...(change.waitingOn !== undefined ? { waitingOn: change.waitingOn } : {}),
+        }))).then(() => {
+          appendMessage('assistant', 'Task status change saved with your timestamped note.');
+        }).catch((error: unknown) => {
+          console.error('[Athena status proposal]', error);
+          appendMessage('assistant', describeApiError(error));
+        }).finally(() => {
+          void queryClient.invalidateQueries({ queryKey: ['tasks'] });
+          void queryClient.invalidateQueries({ queryKey: ['task-assistance'] });
+          void queryClient.invalidateQueries({ queryKey: ['task-notes'] });
+        });
+      }
       // The AI may have created/updated tasks, notes or Sparks via tool calls this turn —
       // refresh the relevant lists so they show up without a manual reload.
       void queryClient.invalidateQueries({ queryKey: ['tasks'] });

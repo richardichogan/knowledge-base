@@ -21,6 +21,7 @@ import { PUBLISHING_TOOL, executePublishingTool } from './publishingTools.js';
 import { executeDesignTool, type DesignTurnState } from './designTools.js';
 import { executePodcastTool, type PodcastTurnState } from './podcastTools.js';
 import { WORK_CONTENT_TOOLS, WORK_TOOL_NAMES, executeWorkTool, type WorkTurnState } from './workContentTools.js';
+import { STATUS_NOTE_LIMIT, type TaskStatusProposal } from '../work/taskStatusChange.js';
 import type { NoteEditProposal } from './noteEdits.js';
 import { createMemory, listMemories, deleteMemory } from './athenaMemory.js';
 import type { Pool } from 'pg';
@@ -58,6 +59,8 @@ import { loadCurrentProjectContext } from './projectContext.js';
 import { getProjectCockpit, listRegister } from '../projects/cockpit.js';
 import { getPacket, listPackets } from '../projects/reviewPackets.js';
 import { getProjectChanges } from '../projects/workContext.js';
+import { generateProgressReview, listProgressReviews, readProgressReview } from '../projects/progressReview.js';
+import { NotFoundError, ValidationError } from '../types/errors.js';
 import { EXCLUSION_GATED_TOOLS, EXCLUSIONS_UNAVAILABLE_RESULT, executeReadKnowledgeRecord } from '../services/knowledge/tool.js';
 import { executeTraverseRelationships } from './knowledge/traversalLoader.js';
 import { isKnowledgeOrchestrationEnabled, searchContentPreview } from './knowledge/budgets.js';
@@ -156,6 +159,36 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
             query: { type: 'string', description: 'Optional topic words to retrieve matching messages without silently truncating the rest of the chat.' },
           },
           required: ['sessionId'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'read_project_progress_reviews',
+        description: 'Reads dated direction/progress reviews on the saved project record. With reviewId, retrieves its full assessment, rationale, captured evidence excerpts and access limitations. Without it, lists ten dated summaries with pagination. These are saved assessments, not proof of achievement; cite their period and distinguish snapshots from current content.',
+        parameters: {
+          type: 'object',
+          properties: {
+            projectId: { type: 'string', description: 'Saved project ID; defaults to the conversation project.' },
+            reviewId: { type: 'string', description: 'Saved review ID from the history or active project page.' },
+            offset: { type: 'integer', minimum: 0 },
+          },
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'generate_project_progress_review',
+        description: 'Only when the user requests a progress review: reads linked saved evidence for the last seven days, adapts to the project work type and appends a dated assessment on the main project record. Includes the proposed next move and why. Does not change tasks, goals or deliverables. Never run proactively. Reuse requestId for retries; failures are not saved reviews.',
+        parameters: {
+          type: 'object',
+          properties: {
+            projectId: { type: 'string', description: 'Saved project ID; defaults to the conversation project.' },
+            requestId: { type: 'string', description: 'Stable UUID for this request. Reuse it when retrying the same review.' },
+          },
+          required: ['requestId'],
         },
       },
     },
@@ -351,6 +384,18 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
     {
       type: 'function',
       function: {
+        name: 'read_task_activity',
+        description: 'Read an exact task and its timestamped activity/status-change notes. Continue paging until nextOffset is null. These are actual saved reasons for status changes, not inferred progress.',
+        parameters: {
+          type: 'object', additionalProperties: false,
+          properties: { taskId: { type: 'string' }, offset: { type: 'integer', minimum: 0 } },
+          required: ['taskId'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'get_content_pipeline',
         description:
           "Shows his content plan: when the next podcast recording and newsletter are due, today's content pick from article " +
@@ -480,7 +525,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
           'tool does fuzzy keyword matching, not just literal substring matching. If the result has ' +
           '`ambiguous: true` or `needsConfirmation: true`, do not treat the task as updated — show the ' +
           'candidate(s) to the user and ask them to confirm which one they mean before re-calling with the ' +
-          'exact taskId.',
+          'exact taskId. Status changes are proposals only: provide statusChangeNote with the reason; the user must review and submit the mandatory note popup before the task moves.',
         parameters: {
           type: 'object',
           properties: {
@@ -489,6 +534,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
             title: { type: 'string', description: 'New title.' },
             body: { type: 'string', description: 'New body/description.' },
             status: { type: 'string', enum: [...TASK_STATUSES], description: '"waiting" replaces the old blocked / awaiting-feedback states — set waitingOn too.' },
+            statusChangeNote: { type: 'string', description: 'Proposed reason for the status change, prefilled for the user to review and submit. Never claim the task moved before submission.' },
             waitingOn: { type: 'string', description: 'Who or what the task is waiting on (for status "waiting"); empty string clears it.' },
             priority: { type: 'string', enum: [...TASK_PRIORITIES] },
             dueDate: { type: 'string', description: 'ISO date YYYY-MM-DD, or null to clear it.' },
@@ -829,6 +875,7 @@ export async function executeToolCall(
     sessionId?: string | undefined; noteId?: string | undefined; designOwner?: string | undefined; designState?: DesignTurnState; noteEdits?: NoteEditProposal[];
     podcastOwner?: string | undefined; podcastState?: PodcastTurnState;
     workState?: WorkTurnState | undefined;
+    taskStatusChanges?: TaskStatusProposal[];
     allowStructuralNoteEdits?: boolean | undefined;
     retrievalScope?: RetrievalScope | undefined; retrievalAudit?: RetrievalAudit | undefined;
     excludedIds?: ReadonlySet<string>;
@@ -1012,6 +1059,28 @@ export async function executeToolCall(
           : 'Current saved project information, read now. Work/evidence lists are bounded, not full linked-document reads. Takes precedence over older chat history and memories.',
       };
     }
+    case 'read_project_progress_reviews':
+    case 'generate_project_progress_review': {
+      const id = contextualArgs['projectId'];
+      if (typeof id !== 'string' || id.trim() === '') throw new ValidationError('Provide a saved project ID.');
+      if (turn.strictProjectId && turn.strictProjectId !== id.trim()) throw new ValidationError('This review is outside the requested project scope.');
+      if (turn.exclusionsFailed || (turn.excludedIds?.size ?? 0) > 0
+        || turn.retrievalScope && Object.keys(turn.retrievalScope.filter).length > 0) {
+        throw new ValidationError('Full-project progress reviews cannot honour this turn’s evidence exclusions or collection filter. No review content was read or generated.');
+      }
+      if (name === 'generate_project_progress_review') {
+        if (turn.readOnly) throw new ValidationError('This turn is read-only. No review was generated.');
+        if (typeof args['requestId'] !== 'string') throw new ValidationError('A stable requestId UUID is required.');
+        return generateProgressReview(db, id.trim(), args['requestId']);
+      }
+      if (args['reviewId'] !== undefined) {
+        if (typeof args['reviewId'] !== 'string') throw new ValidationError('A saved review ID is required.');
+        return readProgressReview(db, id.trim(), args['reviewId']);
+      }
+      const offset = args['offset'] ?? 0;
+      if (typeof offset !== 'number') throw new ValidationError('offset must be a non-negative integer.');
+      return listProgressReviews(db, id.trim(), offset);
+    }
     // With a canvas open, searches are usually for picking items to put on it — short extracts are enough.
     case 'search_knowledge_base': return searchKnowledgeBase(db, args, turn.mapCanvas !== undefined ? CANVAS_SEARCH_CONTENT_CHARS : undefined, turn);
     case 'search_knowledge_graph': return searchKnowledgeGraph(db, args);
@@ -1044,6 +1113,26 @@ export async function executeToolCall(
         note: 'Discovery previews only; read_diagram processes the complete saved diagram before comparison or review.' };
     }
     case 'list_tasks':            return listTasks(db, contextualArgs);
+    case 'read_task_activity': {
+      const id = args['taskId'];
+      const offset = args['offset'] ?? 0;
+      if (typeof id !== 'string' || typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0) {
+        throw new ValidationError('Provide an exact taskId and non-negative activity offset.');
+      }
+      const row = (await db.query<Record<string, unknown>>('SELECT * FROM tasks WHERE id=$1 AND NOT archived', [id])).rows[0];
+      if (!row) throw new NotFoundError('Task');
+      if (turn.strictProjectId && row['project_id'] !== turn.strictProjectId) throw new ValidationError('This task is outside the requested project.');
+      if (turn.exclusionsFailed || turn.excludedIds?.has(id)) throw new ValidationError('Task activity access is excluded or source exclusions are unavailable.');
+      const alias = (await db.query<{ id: string }>("SELECT id::text FROM content_items WHERE source='task' AND source_id=$1", [id])).rows;
+      if (alias.some(item => turn.excludedIds?.has(item.id))) throw new ValidationError('Task activity is excluded from this conversation.');
+      const pageSize = 10;
+      const notes = (await db.query<{ id: string; body: string; created_at: Date; activity: unknown }>(
+        'SELECT id,body,created_at,activity FROM task_notes WHERE task_id=$1 ORDER BY created_at ASC,id ASC LIMIT $2 OFFSET $3',
+        [id, pageSize + 1, offset])).rows;
+      return { task: summariseTask(rowToTask(row)), notes: notes.slice(0, pageSize).map(note => ({
+        id: note.id, body: note.body, createdAt: note.created_at.toISOString(), activity: note.activity,
+      })), nextOffset: notes.length > pageSize ? offset + pageSize : null };
+    }
     case REVIEW_DECISIONS_TOOL:   return executeReviewDecisions(db, contextualArgs, turn);
     case 'find_files':            return findFiles(db, args);
     case 'screenshot_page':       return screenshotPage(db, args, turn.sessionId);
@@ -1069,7 +1158,7 @@ export async function executeToolCall(
     }
     case 'search_library':        return searchLibrary(db, args, turn.mapCanvas !== undefined ? CANVAS_SEARCH_CONTENT_CHARS : LIBRARY_RESULT_CONTENT_CHARS);
     case 'create_task':           return createTask(db, args, turn.sessionId, turn.userId);
-    case 'update_task':           return updateTask(db, args, turn.sessionId, turn.userId);
+    case 'update_task':           return updateTask(db, args, turn.sessionId, turn.userId, turn.taskStatusChanges);
     case 'create_note_draft':     return createNoteDraft(db, contextualArgs);
     case 'create_spark':          return createSparkFromChat(db, args);
     case 'remember':              return rememberInstruction(db, args, turn.sessionId);
@@ -1895,7 +1984,8 @@ async function resolveTask(
   return { error: 'Provide either taskId or matchTitle' };
 }
 
-async function updateTask(db: Pool, args: Record<string, unknown>, sessionId: string | undefined, userId: string | undefined): Promise<unknown> {
+async function updateTask(db: Pool, args: Record<string, unknown>, sessionId: string | undefined, userId: string | undefined,
+  statusChanges?: TaskStatusProposal[]): Promise<unknown> {
   const resolved = await resolveTask(db, args['taskId'], args['matchTitle']);
   if ('error' in resolved) return resolved;
   if ('notFound' in resolved) {
@@ -1921,16 +2011,30 @@ async function updateTask(db: Pool, args: Record<string, unknown>, sessionId: st
       candidate: resolved.suggested,
     };
   }
-
-
+  const proposedStatus = normaliseTaskStatus(args['status']);
+  if (proposedStatus !== undefined) {
+    const current = (await db.query<{ status: string }>('SELECT status FROM tasks WHERE id=$1 AND NOT archived', [resolved.id])).rows[0];
+    if (!current) throw new NotFoundError('Task');
+    if (current.status !== proposedStatus) {
+      if (!statusChanges) throw new ValidationError('Task status changes require the user-reviewed note popup. No fields were changed.');
+      const reason = typeof args['statusChangeNote'] === 'string' ? args['statusChangeNote'].trim() : '';
+      if (!reason || reason.length > STATUS_NOTE_LIMIT) throw new ValidationError(`Provide a proposed status-change note of up to ${STATUS_NOTE_LIMIT} characters for user review. No fields were changed.`);
+      const existing = statusChanges.find(change => change.taskId === resolved.id);
+      if (existing && existing.to !== proposedStatus) throw new ValidationError('Two different status changes were proposed for this task. Ask the user which move they want.');
+      if (existing) return { proposed: true, taskId: resolved.id, statusChanged: false, instructions: 'This move is already awaiting the user-reviewed popup. No task fields were changed.' };
+      statusChanges.push({ taskId: resolved.id, title: resolved.title, from: current.status, to: proposedStatus, note: reason,
+        ...(typeof args['waitingOn'] === 'string' ? { waitingOn: args['waitingOn'] } : {}) });
+      return { proposed: true, taskId: resolved.id, statusChanged: false,
+        instructions: 'The mandatory status-note popup will show this reason for user review and Submit. No task fields were changed. Do not claim completion or retry to bypass review; other requested field edits need a separate call without a status change.' };
+    }
+  }
   const fields: string[] = [];
   const params: unknown[] = [];
   const add = (col: string, val: unknown): void => { params.push(val); fields.push(`${col} = $${params.length}`); };
 
   if (typeof args['title'] === 'string' && args['title'].trim() !== '') add('title', args['title'].trim());
   if (typeof args['body'] === 'string') add('body', args['body']);
-  const nextStatus = normaliseTaskStatus(args['status']);
-  if (nextStatus !== undefined) add('status', nextStatus);
+  // Status is never written by a chat tool, even when a no-op request races another editor.
   if (typeof args['waitingOn'] === 'string') add('waiting_on', args['waitingOn'].trim() || null);
   if (TASK_PRIORITIES.includes(args['priority'] as typeof TASK_PRIORITIES[number])) add('priority', args['priority']);
   if ('dueDate' in args) add('due_date', args['dueDate'] === null ? null : (typeof args['dueDate'] === 'string' ? args['dueDate'] : null));

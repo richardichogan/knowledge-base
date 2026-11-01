@@ -7,7 +7,7 @@ import { useProjects } from '../../services/useProjects';
 import { useAthenaContext } from '../../context/AthenaContext';
 import { DataNotice } from '../../components/DataNotice';
 import { ConnectionsPanel } from '../../components/connections/ConnectionsPanel';
-import { TaskActivitySection, TaskModal } from '../../pages/TasksPage';
+import { TaskActivitySection, TaskModal, TaskNoteText } from '../../pages/TasksPage';
 import { taskAthenaPrompt } from './taskInsights';
 import type { PlanTask } from '../../types/task';
 import { Launch } from '@carbon/icons-react';
@@ -70,11 +70,14 @@ export function TaskDetail({ taskId }: { taskId: string }): React.ReactElement {
   const latest = detail.data?.proposals[0];
   const active = detail.data?.jobs.some(job => job.status === 'queued' || job.status === 'running') ?? false;
   const busy = assess.isPending || approve.isPending || active;
+  const visibleJobs = detail.data?.jobs.filter(job => !(job.status === 'done' && !job.error && latest?.resultNoteId
+    && job.result?.['noteId'] === latest.resultNoteId)) ?? [];
+  const refreshWithResult = Boolean(latest?.resultNoteId) && visibleJobs.length === 0;
   return <article className="kh-task-detail">
     <header className="kh-task-detail__header">
       <div className="kh-task-detail__meta">
         <EntityChip projectId={task.projectId} fallbackLabel={project} size="md" />
-        <span>{task.status} · {task.priority} priority{task.dueDate ? ` · Due ${task.dueDate}` : ''}</span>
+        <span>{task.status === 'in-progress' ? 'In progress' : task.status.charAt(0).toUpperCase() + task.status.slice(1)} · {task.priority} priority{task.dueDate ? ` · Due ${task.dueDate}` : ''}</span>
       </div>
       <h2>{task.title}</h2>
       {(tags.length > 0 || otherTags.length > 0) && <div className="kh-chip-row kh-task-detail__tags" aria-label="Task topics">
@@ -89,7 +92,7 @@ export function TaskDetail({ taskId }: { taskId: string }): React.ReactElement {
         }); }}>Discuss with Athena</button>
       </div>
     </header>
-    {task.body && <p className="kh-task-detail__body">{task.body}</p>}
+    {task.body && <p className="kh-task-detail__body"><TaskNoteText text={task.body} /></p>}
     {task.waitingOn && <p>Waiting on: {task.waitingOn}</p>}
     {task.externalUrl && <a className="dc-explore__source-link" href={task.externalUrl} target="_blank" rel="noreferrer">Original task source <Launch size={16} /></a>}
     <section className="kh-task-detail__assistance" aria-labelledby={`task-assistance-${task.id}`}>
@@ -100,14 +103,14 @@ export function TaskDetail({ taskId }: { taskId: string }): React.ReactElement {
           onChange={event => { setDirection(event.target.value); }}
           placeholder="What should she look at, compare or prepare?" />
       </label>
-      <button type="button" className="dc-explore__primary" disabled={busy || task.status === 'completed'}
+      <button type="button" className="dc-explore__primary" disabled={busy}
         onClick={() => { assess.mutate(); }}>{assess.isPending ? 'Assessing what Athena can do...' : latest ? 'Reassess with this direction' : 'Help me'}</button>
       {active && !latest && <p role="status">Athena is preparing a help proposal. You will be notified when it is ready.</p>}
       {assess.error && <DataNotice title="Assistance assessment failed" error={assess.error} />}
       {automaticHelpError && <DataNotice title="Task saved; help proposal needs attention" error={automaticHelpError} />}
       {detail.isError && <DataNotice title="Assistance status could not refresh" error={detail.error} onRetry={() => { void detail.refetch(); }} />}
       {latest && <div className="kh-task-detail__proposal" aria-live="polite">
-        <h4>{latest.proposal.kind === 'research' ? 'Iris · Research proposal' : latest.proposal.kind === 'email' ? 'Email draft proposal' : 'Outside current capabilities'}</h4>
+        <h4>{latest.proposal.kind === 'research' ? 'Iris · Research proposal' : latest.proposal.kind === 'email' ? 'Hermes · Email draft proposal' : 'Task preparation proposal'}</h4>
         <p>{latest.proposal.summary}</p>
         <dl className="dc-project-fits kh-task-detail__proposal-facts">
           <div><dt>Proposed work</dt><dd>{latest.proposal.approach}</dd></div>
@@ -115,28 +118,29 @@ export function TaskDetail({ taskId }: { taskId: string }): React.ReactElement {
         </dl>
         {latest.proposal.publicQueries.length > 0 && <><h4>Public searches to approve</h4><p>Only these exact queries can be sent to external search providers.</p>
           <ul>{latest.proposal.publicQueries.map(query => <li key={query}>{query}</li>)}</ul></>}
-        {latest.proposal.questions.length > 0 && <div className="kh-task-detail__review-box"><h4>{latest.proposal.kind === 'research' ? 'Questions to investigate · research can start' : 'Needs clarification'}</h4><ul>{latest.proposal.questions.map(question => <li key={question}>{question}</li>)}</ul></div>}
+        {latest.proposal.questions.length > 0 && <div className="kh-task-detail__review-box"><h4>{latest.proposal.kind === 'research' ? 'Questions to investigate · research can start' : 'Questions for review · help can start'}</h4><ul>{latest.proposal.questions.map(question => <li key={question}>{question}</li>)}</ul></div>}
         {latest.proposal.humanDecisions.length > 0 && <div className="kh-task-detail__review-box"><h4>Decisions that stay with you</h4><ul>{latest.proposal.humanDecisions.map(decision => <li key={decision}>{decision}</li>)}</ul></div>}
         {latest.stale && !latest.resultNoteId && <p role="status">The task changed. Reassess it before starting.</p>}
         {direction.trim() && !latest.resultNoteId && <p role="status">Reassess with your new direction before approving.</p>}
-        {!latest.resultNoteId && latest.proposal.kind !== 'unsupported' && <button type="button" className="dc-explore__primary"
-          disabled={busy || latest.stale || (latest.proposal.kind !== 'research' && latest.proposal.questions.length > 0) || Boolean(direction.trim()) || task.status === 'completed'}
+        {!latest.resultNoteId && <button type="button" className="dc-explore__primary"
+          disabled={busy || latest.stale || Boolean(direction.trim())}
           onClick={() => { approve.mutate(latest.id); }}>{approve.isPending ? 'Starting...' : latest.approved ? 'Retry approved work' : 'Approve and start'}</button>}
         {latest.resultNoteId && <div className="kh-task-detail__actions">
           <Link className="dc-explore__source-link" to={`/think?noteId=${encodeURIComponent(latest.resultNoteId)}`}>Open result in Think</Link>
           {latest.proposal.kind === 'email' && <button type="button" className="dc-explore__action" disabled={copy.isPending} onClick={() => { copy.mutate(latest.id); }}>{copy.isPending ? 'Copying...' : 'Copy email draft'}</button>}
+          {!active && refreshWithResult && <button type="button" className="dc-explore__action" disabled={detail.isFetching} onClick={() => { void detail.refetch(); }}>Refresh assistance status</button>}
         </div>}
       </div>}
       {approve.error && <DataNotice title="Assistance could not start" error={approve.error} />}
       {copyError != null && <DataNotice title="Email draft could not be copied" error={copyError} />}
       {copyStatus && <p role="status">{copyStatus}</p>}
-      {detail.data?.jobs.map(job => <div key={job.id} className="kh-task-detail__job">
+      {visibleJobs.map(job => <div key={job.id} className="kh-task-detail__job">
         <h4>{job.specialistName} · {job.status === 'done' ? 'Ready for your review' : job.status}</h4>
         {job.status !== 'done' && job.progress.at(-1) && <p role="status">{job.progress.at(-1)}</p>}
         {job.error && <p className="kh-task-detail__error" role="alert">{job.error}</p>}
         {typeof job.result?.['noteId'] === 'string' && <Link className="dc-explore__source-link" to={`/think?noteId=${encodeURIComponent(job.result['noteId'])}`}>Open saved result</Link>}
       </div>)}
-      {!active && <button type="button" className="dc-explore__action" disabled={detail.isFetching} onClick={() => { void detail.refetch(); }}>Refresh assistance status</button>}
+      {!active && !refreshWithResult && <button type="button" className="dc-explore__action" disabled={detail.isFetching} onClick={() => { void detail.refetch(); }}>Refresh assistance status</button>}
     </section>
     <TaskActivitySection taskId={task.id} />
     <ConnectionsPanel refId={task.id} refType="task" />

@@ -105,10 +105,23 @@ granularity; acceptable assessment/notification behaviour.
 
 ## 2. Weekly outcome review
 
-**Parked by the owner, 31 October 2026.** Many projects have nebulous outcomes.
-A future discussion should consider direction, learning and momentum rather than
-invented completion metrics or requiring artificial milestones. No implementation
-is authorised for this item.
+**Agreed implementation slice, 1 November 2026:** an on-demand direction and
+progress review of the last seven days, on the main project record. Retain dated
+history with the latest review expanded. Retrieve linked saved project evidence
+automatically; no scheduled jobs or additional navigation.
+
+Adapt the review to the saved work type: Project/Side project considers goals and
+deliverables; BAU considers sustained responsibilities, service health and
+recurring friction; Aspiration considers opportunities and momentum; Exploration
+considers learning, tested assumptions and unanswered questions.
+
+Each saved review includes meaningful progress, activity without a demonstrated
+outcome, blockers/uncertainty and one proposed next move with **why Athena picked
+it**. Findings link to captured evidence and disclose excerpts, missing sources
+and the difference between a saved record update and demonstrated achievement.
+No completion percentages, invented milestones or automatic task/goal changes.
+Athena can read dated reviews and their captured evidence through typed tools,
+and generate a new review when explicitly requested.
 
 Extend existing project outcomes, review packets and Plan review rather than
 introducing another OKR system or dashboard.
@@ -128,26 +141,54 @@ Relevant code:
 - `knowledge-hub-backend/src/services/planNudges.ts`
 
 Success means helping choose valuable work, not merely moving overdue dates.
-Agree review cadence, evidence mapping and presentation before implementation.
+Automatic cadence and execution of suggested actions remain outside this slice.
+
+Local activation verified on 1 November 2026: additive migration 131 applied to
+the shared production database with owner approval; a real Reckitt review was
+generated and persisted through the local UI. Its seven-day period, evidence
+references, rationale and retry identity were verified through Athena's tools,
+and a read-only conversation retrieved it before explaining the recommendation.
+These application changes have not been pushed or deployed.
 
 ## 3. Athena-native document and deck production
 
-Turn an agreed brief, selected sources and approved template into an editable
-Word document or PowerPoint deck, linked to the originating task.
-Keep content development in Think and verify the actual file's required structure
-and usability. A brief or filename is not proof that a deliverable exists.
+**Agreed first slice:** editable Word and PowerPoint downloads, with clean neutral
+formatting, from the existing Think Deliverable brief and linked task. Preserve
+the editor, properties panel and existing brief instructions.
 
-Start with downloadable files. Direct OneDrive delivery requires separately agreed
-write permissions, exact destination, overwrite policy and approval.
+Finished content goes in a final level-one `# Deliverable content` section.
+Word exports that section; level-two `##` headings define PowerPoint slides.
+Downloads save pending editor changes and check both note and work revisions.
+Athena can read the full saved body, develop its content through the supported
+editor tools, and generate a requested format through `prepare_deliverable_download`.
+That tool returns generation evidence and the Think link, not a claim that the
+file was delivered or accepted.
+
+No Microsoft 365 Graph access is required. Direct OneDrive delivery remains
+outside this slice and requires separately agreed write permissions, exact
+destination, overwrite policy and approval. Existing produced-file metadata
+remains distinct from local downloads.
 
 Relevant code:
 
 - `knowledge-hub-backend/src/work/workContent.ts`
+- `knowledge-hub-backend/src/work/officeExport.ts`
 - `knowledge-hub-backend/src/ai/workContentTools.ts`
-- `knowledge-hub-backend/src/integrations/alliance/allianceGraph.ts`
+- `knowledge-hub-web/src/notes/WorkContent.tsx`
 
 Success means reducing manual assembly before the document can be used.
-File format, template, generation tooling and fidelity requirements remain open.
+This first slice supports editable text, lists, hyperlinks and tables. Embedded
+images are explicitly rejected rather than silently dropped; oversized slides
+and tables require splitting in Think. Corporate templates, media-rich decks
+and direct M365 delivery remain future decisions.
+
+Local activation used the user-approved First Mate framing draft, based only on
+the saved brief evidence. Both Office files were retrieved through the running
+frontend proxy and download endpoint. The Word package contains the finished
+section and an editable table; the five-slide PowerPoint retains editable text
+and a table. Athena read the saved section and generated both formats through
+its tool. Native Office visual rendering remains unverified. Application changes
+have not been pushed or deployed.
 
 ## 4. Meeting continuity
 

@@ -64,7 +64,9 @@ const tests = frontend ? [
   '../knowledge-hub-web/tests/thinkLocation.test.ts',
 ] : [
   'scripts/task-assistance.test.ts',
+  'scripts/task-status-change.test.ts',
   'scripts/work-content.test.ts',
+  'scripts/office-export.test.ts',
   'scripts/work-context.test.ts',
   'scripts/blog-editorial-quality.test.ts',
   'scripts/model-call-control.test.ts',
@@ -95,6 +97,7 @@ const tests = frontend ? [
   'scripts/tool-catalog.test.ts',
   'scripts/project-context.test.ts',
   'scripts/project-work-types.test.ts',
+  'scripts/project-progress-review.test.ts',
   'scripts/content-sync.test.ts',
   'scripts/chat-session-store.test.ts',
   'scripts/chat-references.test.ts',

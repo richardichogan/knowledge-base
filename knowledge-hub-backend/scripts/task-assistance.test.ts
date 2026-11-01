@@ -1,17 +1,30 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { assistanceId, assistanceQuestionsBlock, isPublicSearchEvidence, isReadEvidence, parseAssistanceProposal, validateAssistanceSearch } from '../src/work/taskAssistance.js';
+import { readFile } from 'node:fs/promises';
+import { assistanceId, isPublicSearchEvidence, isReadEvidence, parseAssistanceProposal, validateAssistanceSearch } from '../src/work/taskAssistance.js';
 
 const proposal = {
   kind: 'research', summary: 'Compare First Mate with Athena', approach: 'Verify the repository and read architecture evidence.',
   output: 'Linked research note with fit and gaps', questions: [], humanDecisions: ['Review recommendations'],
   publicQueries: ['First Mate GitHub repository AI agent'],
 };
-test('TASK-ASSIST-05: research questions do not block approval or execution; email prerequisites still do', () => {
+test('TASK-ASSIST-05: research and email questions are retained without approval or execution gates', async () => {
   const research = parseAssistanceProposal({ ...proposal, questions: ['Should recommendations also suggest document wording?'] });
-  assert.equal(assistanceQuestionsBlock(research), false);
-  assert.equal(assistanceQuestionsBlock({ ...research, kind: 'email' }), true);
-  assert.equal(assistanceQuestionsBlock({ ...research, kind: 'email', questions: [] }), false);
+  const email = parseAssistanceProposal({ ...research, kind: 'email', questions: ['Who is the recipient?'] });
+  assert.deepEqual(email.questions, ['Who is the recipient?']);
+  const service = await readFile(new URL('../src/work/taskAssistance.ts', import.meta.url), 'utf8');
+  const view = await readFile(new URL('../../knowledge-hub-web/src/features/plan/TaskDetail.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(service, /assistanceQuestionsBlock/);
+  assert.doesNotMatch(view, /disabled=\{[^}]*questions/);
+  assert.match(service, /Questions never block supported assistance/);
+  assert.match(service, /Use explicit placeholders for unknown recipients/);
+  assert.doesNotMatch(service, /task\.status === 'completed'/);
+  assert.doesNotMatch(view, /disabled=\{[^}]*task\.status === 'completed'/);
+  assert.doesNotMatch(view, /latest\.proposal\.kind !== 'unsupported'/);
+});
+test('TASK-ASSIST-06: unavailable direct execution offers support, including legacy proposals', () => {
+  assert.equal(parseAssistanceProposal({ ...proposal, kind: 'support' }).kind, 'support');
+  assert.equal(parseAssistanceProposal({ ...proposal, kind: 'unsupported' }).kind, 'support');
 });
 test('TASK-ASSIST-01: proposals require bounded explicit capability and approval identities', () => {
   assert.deepEqual(parseAssistanceProposal(proposal), proposal);

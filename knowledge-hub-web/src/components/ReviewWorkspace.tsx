@@ -40,7 +40,7 @@ export function ReviewWorkspace({ storageKey, label, list, detail, context, athe
     setBusy(next);
     if (wasBusy.current && !next) {
       const keys = storageKey === 'today' || storageKey === 'plan-task' ? ['today', 'tasks', 'task-assistance', 'notes-list', 'podcast-prep', 'upcoming-meetings']
-        : storageKey === 'projects' ? ['projects', 'project-cockpit', 'project-register', 'review-packets', 'review-packet', 'packet-candidates', 'project-changes']
+        : storageKey === 'projects' ? ['projects', 'project-cockpit', 'project-register', 'review-packets', 'review-packet', 'packet-candidates', 'project-changes', 'project-progress-reviews', 'project-progress-review']
           : storageKey === 'discover-publishing' ? ['publishing']
           : ['discover', 'cfps', 'watchlists', 'watchlist-runs', 'watchlist-companies'];
       for (const key of keys) void queryClient.invalidateQueries({ queryKey: [key] });

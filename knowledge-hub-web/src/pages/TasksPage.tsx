@@ -12,7 +12,7 @@ import {
   InlineLoading, InlineNotification,
   Modal, TextInput, TextArea, Select, SelectItem,
 } from '@carbon/react';
-import { Add, ChatLaunch, Checkmark, Close, Edit, Launch, OverflowMenuVertical, Repeat, Upload } from '@carbon/icons-react';
+import { Add, ArrowRight, ChatLaunch, Checkmark, Close, Edit, Launch, OverflowMenuVertical, Repeat, Upload } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { useProjects, type ProjectRecord } from '../services/useProjects';
 import { ProjectOptions } from '../components/ProjectOptions';
@@ -420,20 +420,60 @@ const FocusView: React.FC<{
 
 // ── Task activity section (log + linked items) ────────────────────────────────
 
-interface TaskNote { id: string; body: string; createdAt: string; }
+interface TaskNote {
+  id: string; body: string; createdAt: string;
+  activity?: { actor?: string; action?: string; from?: string; to?: string; proposedBy?: string; specialistId?: string; specialistName?: string } | null;
+}
+function isTaskNote(value: unknown): value is TaskNote {
+  if (typeof value !== 'object' || value === null
+    || !('id' in value) || typeof value.id !== 'string'
+    || !('body' in value) || typeof value.body !== 'string'
+    || !('createdAt' in value) || typeof value.createdAt !== 'string' || !Number.isFinite(Date.parse(value.createdAt))) return false;
+  if (!('activity' in value) || value.activity == null) return true;
+  return typeof value.activity === 'object' && !Array.isArray(value.activity)
+    && Object.entries(value.activity).every(([key, field]) =>
+      !['actor', 'action', 'from', 'to', 'proposedBy', 'specialistId', 'specialistName'].includes(key) || typeof field === 'string');
+}
+const ACTIVITY_ACTIONS: Record<string, string> = {
+  'status-changed': 'Status changed', 'note-added': 'Note added', 'research-refreshed': 'Research refreshed',
+  'research-prepared': 'Research prepared', 'email-drafted': 'Email draft prepared',
+  'task-prepared': 'Task preparation ready', 'email-sent-confirmed': 'Email sending confirmed', 'file-linked': 'File linked',
+};
+const STATUS_LABELS: Record<string, string> = {
+  inbox: 'Inbox', backlog: 'Backlog', 'in-progress': 'In progress', waiting: 'Waiting', completed: 'Completed',
+};
+
+export function TaskNoteText({ text, noteLabel = 'Open note in Think' }: { text: string; noteLabel?: string }): React.ReactElement {
+  const parts = text.split(/(\/think\?note(?:Id)?=[0-9a-f-]{36}|https?:\/\/[^\s<>]+)/gi);
+  return <>{parts.map((part, index) => {
+    if (/^\/think\?note(?:Id)?=[0-9a-f-]{36}$/i.test(part)) {
+      return <Link key={index} className="kb-task-activity__content-link" to={part}>{noteLabel}</Link>;
+    }
+    if (/^https?:\/\//i.test(part)) {
+      const href = part.replace(/[.,;!?)]+$/, '');
+      return <React.Fragment key={index}><a className="kb-task-activity__content-link" href={href} target="_blank" rel="noreferrer">Open source link</a>{part.slice(href.length)}</React.Fragment>;
+    }
+    return part;
+  })}</>;
+}
 
 export const TaskActivitySection: React.FC<{ taskId: string }> = ({ taskId }) => {
   const qc = useQueryClient();
   const [tab, setTab] = useState<'activity' | 'linked'>('activity');
   const [draft, setDraft] = useState('');
 
-  const { data: notesData } = useQuery({ queryKey: ['task-notes', taskId], queryFn: () => api.getTaskNotes(taskId), staleTime: 0 });
+  const notesQuery = useQuery({ queryKey: ['task-notes', taskId, 'validated-activity'], queryFn: async () => {
+    const data = requireApiData(await api.getTaskNotes(taskId));
+    if (!Array.isArray(data) || !data.every(isTaskNote)) throw new Error('Task activity returned invalid data. Refresh to retry.');
+    return data;
+  }, staleTime: 0 });
   const { data: links = [] } = useEntityRelationships({ type: 'task', id: taskId });
 
-  const notes: TaskNote[] = (notesData as { success: boolean; data?: TaskNote[] } | undefined)?.success ? (notesData as { data: TaskNote[] }).data : [];
+  const notes: TaskNote[] = [...(notesQuery.data ?? [])]
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
 
   const addNote = useMutation({
-    mutationFn: (body: string) => api.addTaskNote(taskId, body),
+    mutationFn: async (body: string) => requireApiData(await api.addTaskNote(taskId, body)),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ['task-notes', taskId] }); setDraft(''); },
   });
 
@@ -463,26 +503,58 @@ export const TaskActivitySection: React.FC<{ taskId: string }> = ({ taskId }) =>
       {/* Activity tab */}
       {tab === 'activity' && (
         <div className="kb-task-activity__panel">
+          {notesQuery.isPending && <p className="kb-task-activity__message" role="status">Loading activity...</p>}
+          {notesQuery.error && <DataNotice title="Activity could not load" error={notesQuery.error} onRetry={() => { void notesQuery.refetch(); }} />}
+          {notesQuery.isSuccess && notes.length === 0 && <p className="kb-task-activity__message">No activity yet. Add a note to record progress.</p>}
           {notes.length > 0 && (
             <div className="kb-task-activity__log">
-              {notes.map((n) => (
+              {notes.map((n) => {
+                const transition = /^Status: ([^\n]+)\n\n/.exec(n.body);
+                const text = transition ? n.body.slice(transition[0].length) : n.body;
+                const legacyStatuses = transition?.[1]?.split(' -> ');
+                const from = n.activity?.from ?? legacyStatuses?.[0];
+                const to = n.activity?.to ?? legacyStatuses?.[1];
+                const actor = n.activity?.proposedBy === 'athena' && n.activity.actor === 'richard'
+                  ? 'Athena proposed · Richard confirmed'
+                  : n.activity?.actor === 'richard' ? 'Richard'
+                    : n.activity?.actor === 'athena'
+                      ? n.activity.specialistId === 'task-email-drafter' ? 'Hermes · Email draft assistant' : 'Athena'
+                      : n.activity?.actor === 'system' ? 'System' : 'Earlier activity';
+                return (
                 <div key={n.id} className="kb-task-activity__entry">
-                  <span className="kb-task-activity__time">
+                  <div className="kb-task-activity__entry-header">
+                    <span className="kb-task-activity__actor">{actor}</span>
+                  <time className="kb-task-activity__time" dateTime={new Date(n.createdAt).toISOString()}>
                     {new Date(n.createdAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                  <p className="kb-task-activity__body">{n.body}</p>
+                  </time>
+                  </div>
+                  {(n.activity?.action || from && to) && <div className="kb-task-activity__action">
+                    <span>{ACTIVITY_ACTIONS[n.activity?.action ?? ''] ?? 'Status changed'}</span>
+                    {from && to && <span className="kb-task-activity__transition" aria-label={`${STATUS_LABELS[from] ?? from} to ${STATUS_LABELS[to] ?? to}`}>
+                      <span className="kb-task-activity__status">{STATUS_LABELS[from] ?? from}</span>
+                      <ArrowRight size={16} aria-hidden="true" />
+                      <span className={`kb-task-activity__status kb-task-activity__status--${Object.hasOwn(STATUS_LABELS, to) ? to : 'backlog'}`}>{STATUS_LABELS[to] ?? to}</span>
+                    </span>}
+                  </div>}
+                  <p className="kb-task-activity__body"><TaskNoteText text={text} noteLabel={n.activity?.action === 'email-drafted' ? 'Open email draft in Think' : 'Open note in Think'} /></p>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
           <div className="kb-task-activity__add">
+            <label className="kb-task-activity__field" htmlFor={`task-note-${taskId}`}>New note
             <textarea
+              id={`task-note-${taskId}`}
               className="kb-task-activity__input"
               placeholder="Add a note…"
               rows={2}
               value={draft}
+              maxLength={3000}
+              disabled={addNote.isPending}
               onChange={(e) => setDraft(e.target.value)}
             />
+            </label>
             <button
               type="button"
               className="kb-task-activity__btn"
@@ -492,6 +564,7 @@ export const TaskActivitySection: React.FC<{ taskId: string }> = ({ taskId }) =>
               {addNote.isPending ? 'Saving…' : 'Add note'}
             </button>
           </div>
+          {addNote.error && <p className="kb-task-activity__error" role="alert">{describeApiError(addNote.error)}</p>}
         </div>
       )}
 
@@ -964,14 +1037,10 @@ export const TasksPage: React.FC<{
   const moveTaskMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: TaskStatus }) =>
       requireApiData(await api.updateTask(id, { status })),
-    onMutate: async ({ id, status }) => {
+    onMutate: async ({ id }) => {
       const queryKey = ['tasks', filterProject] as const;
       await queryClient.cancelQueries({ queryKey });
       const previous = queryClient.getQueryData<ApiSuccess<PaginatedList<Task>>>(queryKey)?.data.items.find((task) => task.id === id);
-      queryClient.setQueryData<ApiSuccess<PaginatedList<Task>>>(queryKey, (current) => {
-        if (current === undefined) return current;
-        return { ...current, data: { ...current.data, items: current.data.items.map((task) => task.id === id ? { ...task, status, updatedAt: new Date().toISOString() } : task) } };
-      });
       return { previous, queryKey };
     },
     onSuccess: (saved) => {
