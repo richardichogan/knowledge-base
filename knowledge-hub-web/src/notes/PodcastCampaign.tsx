@@ -215,7 +215,7 @@ export function PodcastCampaign({ noteId, noteRevision, beforePrepare, recording
       <div className="notes-podcast__posts">{data.plan.posts.map(post => {
         const delivery = data.deliveries.find(item => item.identity === `podcast:${noteId}:${post.id}`);
         const receiptUrl = typeof delivery?.receipt?.url === 'string' && /^https:\/\/[^\s]+$/i.test(delivery.receipt.url) ? delivery.receipt.url : null;
-        return <details key={post.id} className="notes-podcast__post">
+        return <details key={post.id} className="notes-podcast__post" open={Boolean(post.asset)}>
           <summary>
             <span className="notes-podcast__post-title">{destinations[post.destination]}{post.platform ? ` · ${platformNames[post.platform]}` : ''}</span>
             <span className="notes-podcast__post-time">{when(post.scheduledAt)} · {delivery?.status ?? (data.state === 'approved' ? 'Scheduled' : 'Draft')}</span>

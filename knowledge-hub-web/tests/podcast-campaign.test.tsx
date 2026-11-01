@@ -56,3 +56,18 @@ test('approved campaigns retain pause and receipts but cannot be silently regene
   const lockedLinks = render({ ...campaign, state: 'approved' }, true);
   assert.equal((lockedLinks.match(/disabled=""/g) ?? []).length, 3);
 });
+test('every post with artwork opens beside its copy and date regardless of destination', () => {
+  for (const destination of ['bluesky', 'linkedin', 'blog'] as const) {
+    const post = campaign.plan!.posts[0]!;
+    const html = render({ ...campaign, plan: { ...campaign.plan!, posts: [{
+      ...post, destination,
+      asset: { imageId: 'reviewed-image', url: 'https://example.com/image.png', width: 1080, height: 1080,
+        alt: 'Reviewed speaker quote card', sourceHash: 'source', contentHash: 'content' },
+    }, { ...post, id: 'text-only' }] } });
+    assert.match(html, /<details class="notes-podcast__post" open="">/);
+    assert.equal((html.match(/class="notes-podcast__post" open=""/g) ?? []).length, 1);
+    assert.ok(html.includes('Loading artwork...'));
+    assert.ok(html.includes(post.copy));
+    assert.ok(html.includes('5 Jan 2099'));
+  }
+});

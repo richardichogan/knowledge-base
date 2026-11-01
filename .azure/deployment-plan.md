@@ -2,6 +2,20 @@
 
 **Status:** Validated
 
+**Section 7: Campaign image visibility release proof (2026-11-01, 16:20 UTC):**
+- User requested deployment of the approved presentation change: every campaign
+  post with a saved image opens expanded, not just Bluesky. Existing controls,
+  artwork, copy, scheduling, review and approval state remain unchanged.
+- Frontend-only deployment to existing kh-prod-web. Backend v283 remains unchanged.
+  git fetch origin and git merge origin/main passed, already synced at6ed17c1.
+- Both tsc --noEmit checks and frontend lint non-regression passed immediately
+  before release. Frontend production build passed; affected campaign component
+  regression passed4/4, including all three destinations and collapsed text-only posts.
+  Completed full release coverage from this same unchanged backend/frontend baseline
+  is reused; no full-suite rerun, infrastructure, RBAC, dependency or Desktop change.
+- Evidence: campaign-visible-images-build.log and affected component command output.
+  Unrelated .impeccable/hook.cache.json remains excluded.
+
 **Release execution and upload correction proof (2026-11-01, podcast campaigns):**
 - Correction commit00e84b921e7c51071b6b7cadf10b96784fe71932 pushed to both refs;
   v283 revisionkh-prod-api-vnet--0000280 is Healthy / RunningAtMaxScale, latest-ready,

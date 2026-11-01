@@ -182,6 +182,9 @@ Approval is blocked while review is pending, when a finding exists, if review
 fails/is unavailable, or if the reviewed content fingerprint no longer matches.
 Findings and Retry independent review appear in the existing Campaign tab and
 are accessible to Athena. The reviewer never edits, approves or publishes.
+Campaign posts with saved artwork open expanded by default on every destination,
+showing their image preview against the copy and scheduled time. Users can still
+collapse individual posts; text-only posts retain their collapsed presentation.
 PNG assets and source SVGs are persisted in Athena storage; approved image-byte
 hashes prevent changed artwork being sent. LinkedIn and Bluesky receive the
 reviewed image with the post. Bluesky embeds include the actual PNG width and
