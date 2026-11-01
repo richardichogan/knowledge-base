@@ -82,7 +82,7 @@ export async function postToBluesky(copy: string, link: BlueskyLink | null, imag
   const password = env.BLUESKY_APP_PASSWORD;
   if (!identifier || !password) throw new IntegrationError('bluesky', 'Bluesky posting is not configured (BLUESKY_APP_PASSWORD).');
   const text = composeBlueskyText(copy, link?.url ?? null);
-  if (image) validateSocialImage(image);
+  const approvedImage = image ? { ...image, aspectRatio: validateSocialImage(image) } : null;
 
   const agent = new AtpAgent({ service: env.BLUESKY_SERVICE });
   try {
@@ -94,9 +94,9 @@ export async function postToBluesky(copy: string, link: BlueskyLink | null, imag
   const rich = new RichText({ text });
   await rich.detectFacets(agent);
   let embed: AppBskyEmbedExternal.Main | AppBskyEmbedImages.Main | undefined;
-  if (image) {
-    const uploaded = await agent.uploadBlob(image.bytes, { encoding: image.mimeType });
-    embed = { $type: 'app.bsky.embed.images', images: [{ image: uploaded.data.blob, alt: image.alt }] };
+  if (approvedImage) {
+    const uploaded = await agent.uploadBlob(approvedImage.bytes, { encoding: approvedImage.mimeType });
+    embed = { $type: 'app.bsky.embed.images', images: [{ image: uploaded.data.blob, alt: approvedImage.alt, aspectRatio: approvedImage.aspectRatio }] };
   } else if (link) {
     const thumb = await uploadThumbnail(agent, link.url);
     embed = {

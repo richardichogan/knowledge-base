@@ -2,6 +2,32 @@
 
 **Status:** Validated
 
+**Release execution and upload correction proof (2026-11-01, podcast campaigns):**
+- Application86280758d75621b1165c98374f4a7bec1838e56c pushed to main and
+  richardichogan-local-development. ACR ca8v built v282; revision0000279 is
+  Healthy / RunningAtMaxScale, latest-ready and100% latest-revision traffic.
+  Startup confirms Migration complete, database8/8 ready and production worker.
+- Production frontend matches /assets/index-OAfTTBUD.js; HTML and entry return200
+  at https://athena.themicrosoftcloudblog.com/. No Desktop release.
+- Approved Bluesky teaser sent once with native PNG at15:19:33Z, confirmed receipt:
+  https://bsky.app/profile/richardihogan.bsky.social/post/3mzb4baomv22g.
+  LinkedIn failed before publication because the upload host guard was too narrow;
+  no receipt and one definite failed attempt. No manual retry was commissioned.
+- User approved verifying/fixing the LinkedIn upload guard and redeploying,
+  then approved adding Bluesky's actual PNG aspect ratio without changing artwork
+  or replacing the published post. Official LinkedIn Assets API documentation and
+  a real registration-only response confirm HTTPS www.linkedin.com/dms-uploads/
+  and synchronous upload. Signed URLs and credentials were not logged.
+- Backend-only correction advances v282 to v283. Existing frontend remains unchanged.
+  Backend tsc, build and lint non-regression passed. Directly affected LinkedIn,
+  Bluesky and podcast suite:46/47 passed initially; SDK-mock-only fixture corrected
+  and the failed native-aspect-ratio regression passed. No full suite rerun.
+- Actual landscape1200x675 and quote1080x1080 embed payloads retain exact saved PNG
+  bytes and alternative text. Unsafe host/path/protocol/credential/port responses
+  are rejected before upload or post. Synchronous upload finishes before UGC send.
+- Evidence: podcast-release-{acr,startup,worker,swa}.log and
+  podcast-upload-fix-{build,tests,affected}.log. Full campaign remains draft revision8.
+
 **Release scope and Section 7: Validation Proof (2026-11-01, podcast campaigns):**
 - User requested deploy, merge and push. Existing ACA/SWA targets only:
   kh-prod-api-vnet and kh-prod-web, rg-knowledge-hub-prod, Alliance Tenant

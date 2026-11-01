@@ -93,6 +93,7 @@ export async function postToLinkedIn(copy: string, link: LinkedInLink | null, ex
         body: JSON.stringify({ registerUploadRequest: {
           recipes: ['urn:li:digitalmediaRecipe:feedshare-image'], owner: `urn:li:person:${member.id}`,
           serviceRelationships: [{ relationshipType: 'OWNER', identifier: 'urn:li:userGeneratedContent' }],
+          supportedUploadMechanism: ['SYNCHRONOUS_UPLOAD'],
         } }),
       });
       if (!registered.ok) throw new IntegrationError('linkedin', `Image registration failed (HTTP ${registered.status}). No post was sent.`);
@@ -101,7 +102,9 @@ export async function postToLinkedIn(copy: string, link: LinkedInLink | null, ex
       if (typeof upload.uploadUrl !== 'string' || typeof value.asset !== 'string'
         || !/^urn:li:digitalmediaAsset:[\w-]+$/.test(value.asset)) throw new IntegrationError('linkedin', 'LinkedIn returned an invalid image registration. No post was sent.');
       const address = new URL(upload.uploadUrl);
-      if (address.protocol !== 'https:' || address.hostname !== 'api.linkedin.com' || address.username || address.password || address.port) {
+      const trustedHost = address.hostname === 'api.linkedin.com'
+        || (address.hostname === 'www.linkedin.com' && address.pathname.startsWith('/dms-uploads/'));
+      if (address.protocol !== 'https:' || !trustedHost || address.username || address.password || address.port) {
         throw new IntegrationError('linkedin', 'LinkedIn returned an unexpected image-upload destination. No post was sent.');
       }
       const uploaded = await fetch(address.href, {

@@ -184,7 +184,11 @@ Findings and Retry independent review appear in the existing Campaign tab and
 are accessible to Athena. The reviewer never edits, approves or publishes.
 PNG assets and source SVGs are persisted in Athena storage; approved image-byte
 hashes prevent changed artwork being sent. LinkedIn and Bluesky receive the
-reviewed image with the post. Ordinary publishing capacity does not count podcast
+reviewed image with the post. Bluesky embeds include the actual PNG width and
+height so landscape cards retain their intended feed ratio without added bands.
+LinkedIn requests synchronous image processing and accepts its documented HTTPS
+www.linkedin.com/dms-uploads/ destination alongside api.linkedin.com; credentials,
+custom ports, other hosts/paths and redirects remain blocked. Ordinary publishing capacity does not count podcast
 deliveries. The blog image is a downloadable review asset, not an automatic
 replacement of the blog's existing cover. The authenticated source-download
 route exposes each editable SVG alongside its PNG without exposing storage keys.

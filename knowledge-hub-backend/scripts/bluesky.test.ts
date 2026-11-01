@@ -2,7 +2,9 @@ import 'dotenv/config';
 import assert from 'node:assert/strict';
 import { mock, test } from 'node:test';
 import express from 'express';
-import { BLUESKY_POST_LIMIT, blueskyCopyAllowance, composeBlueskyText, graphemeLength } from '../src/integrations/social/bluesky.js';
+import { BLUESKY_POST_LIMIT, blueskyCopyAllowance, composeBlueskyText, graphemeLength, postToBluesky } from '../src/integrations/social/bluesky.js';
+import { AtpAgent, RichText } from '@atproto/api';
+import { renderPodcastArtwork } from '../src/publishing/podcastCampaignAssets.js';
 import { blogLinkForCopyBudget } from '../src/services/blogPublisher.js';
 import { blueskyLength } from '../../knowledge-hub-web/src/components/discover/socialLength.js';
 import { ValidationError } from '../src/types/errors.js';
@@ -13,6 +15,42 @@ import { errorHandler } from '../src/middleware/errorHandler.js';
 import { publishingFixture } from './publishing-fixture.js';
 
 const url = 'https://example.com/news/article';
+
+test('Bluesky embeds actual PNG dimensions without changing reviewed artwork or copy', async () => {
+  const previousIdentifier = env.BLUESKY_IDENTIFIER;
+  env.BLUESKY_IDENTIFIER = 'fixture.bsky.social';
+  const password = mock.getter(env, 'BLUESKY_APP_PASSWORD', () => 'fixture-password-not-real');
+  const login = mock.method(AtpAgent.prototype, 'login', async () => ({}));
+  const facets = mock.method(RichText.prototype, 'detectFacets', async () => {});
+  const network = mock.method(globalThis, 'fetch', async () => { throw new Error('No external requests allowed'); });
+  const blob = { $type: 'blob', ref: { $link: 'fixture' }, mimeType: 'image/png', size: 100 };
+  let expected: ReturnType<typeof renderPodcastArtwork>;
+  const api = new AtpAgent({ service: 'https://fixture.test' });
+  const upload = mock.method(Object.getPrototypeOf(api.com.atproto.repo), 'uploadBlob', async (bytes: Uint8Array) => {
+    assert.deepEqual(bytes, expected.png);
+    return { data: { blob } };
+  });
+  const post = mock.method(AtpAgent.prototype, 'post', async (record) => {
+    assert.equal(record.text, 'Reviewed teaser copy');
+    assert.equal(record.embed.$type, 'app.bsky.embed.images');
+    assert.deepEqual(record.embed.images[0], {
+      image: blob, alt: expected.alt, aspectRatio: { width: expected.width, height: expected.height },
+    });
+    return { uri: 'at://fixture/app.bsky.feed.post/fixture', cid: 'fixture' };
+  });
+  try {
+    for (const kind of ['teaser', 'quote'] as const) {
+      expected = renderPodcastArtwork({ kind, headline: 'Saved headline', quote: kind === 'quote' ? 'Saved quotation.' : null,
+        speaker: kind === 'quote' ? 'Richard' : null, timestamp: null, episodeNumber: 46 });
+      await postToBluesky('Reviewed teaser copy', null, { bytes: expected.png, alt: expected.alt, mimeType: 'image/png' });
+    }
+    assert.equal(post.mock.callCount(), 2);
+    assert.equal(upload.mock.callCount(), 2);
+  } finally {
+    post.mock.restore(); upload.mock.restore(); network.mock.restore(); facets.mock.restore();
+    login.mock.restore(); password.mock.restore(); env.BLUESKY_IDENTIFIER = previousIdentifier;
+  }
+});
 
 test('composes copy, blank line and link like Copy post + link', () => {
   assert.equal(composeBlueskyText('  Big news today.  ', url), `Big news today.\n\n${url}`);
