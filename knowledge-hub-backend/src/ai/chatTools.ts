@@ -915,8 +915,8 @@ export async function executeToolCall(
   }
 
   if (turn.exclusionsFailed === true && EXCLUSION_GATED_TOOLS.has(name)) return EXCLUSIONS_UNAVAILABLE_RESULT;
-  if (name === 'read_podcast_script' || name === 'update_podcast_script') {
-    if (!turn.podcastOwner) return { error: 'Open the Podcast episode in Think before working with its script.' };
+  if (['read_podcast_script', 'update_podcast_script', 'read_podcast_campaign', 'update_podcast_recording_teaser', 'update_podcast_campaign_image'].includes(name)) {
+    if (!turn.podcastOwner) return { error: 'Open the Podcast episode in Think before working with its script or campaign.' };
     if (isOutsideCollectionTool(name, turn.retrievalScope)
       || turn.retrievalScope && Object.keys(turn.retrievalScope.filter).length > 0) {
       return { error: 'Podcast script operations are outside this request’s enforced collection scope.', code: 'scope_mismatch' };

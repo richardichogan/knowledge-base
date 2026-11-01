@@ -4,12 +4,13 @@ import { postToBluesky } from '../integrations/social/bluesky.js';
 import { getLinkedInMember, postToLinkedIn } from '../integrations/social/linkedin.js';
 import { sendToBlog } from '../services/blogPublisher.js';
 import { readPublicPage } from '../utils/articleReading.js';
-import { deliver, destinationAccount, inWindow, PublicationDeferred, type DeliveryContext } from './delivery.js';
-import { deliveryColumns, event, feeds, transaction } from './store.js';
+import { deliver, destinationAccount, PublicationDeferred, type DeliveryContext } from './delivery.js';
+import { deliveryColumns, event, transaction } from './store.js';
 import { PUBLISH_LIMITS, type Delivery } from './contracts.js';
-import { inspectAcceptedBlog, publishBlogWithVerification, verifyBlogForPromotion, type PublishingServices } from './worker.js';
+import { inspectAcceptedBlog, publishBlogWithVerification, type PublishingServices } from './worker.js';
 import { campaignColumns, campaignDeliveries, podcastDeliveryPost } from './podcastCampaignStore.js';
-import { podcastIdentity, type PodcastCampaign, type PodcastPost } from './podcastCampaign.js';
+import { podcastIdentity, podcastReviewFingerprint, type PodcastCampaign, type PodcastPost } from './podcastCampaign.js';
+import { loadPodcastImage } from './podcastCampaignAssets.js';
 
 const services: PublishingServices = { blog: sendToBlog, bluesky: postToBluesky, linkedin: postToLinkedIn, read: readPublicPage, member: getLinkedInMember };
 
@@ -18,18 +19,15 @@ async function authorizePost(c: PoolClient, snapshot: PodcastCampaign, post: Pod
   if (!campaign?.plan || campaign.state !== 'approved' || campaign.revision !== snapshot.revision || !campaign.approvedAt) {
     throw new PublicationDeferred('The campaign changed or was paused before delivery.');
   }
+  if (campaign.plan.reviewRequired && (campaign.plan.review?.status !== 'pass' || !campaign.plan.review.reviewer
+    || campaign.plan.review.findings.length || campaign.plan.review.fingerprint !== podcastReviewFingerprint(campaign.plan))) {
+    throw new PublicationDeferred('The current campaign has not passed independent publication review. No post was sent.');
+  }
   const active = await c.query(`SELECT id FROM notes WHERE id=$1 AND status='active'
-    AND note_list_metadata(content)->>'contentType'='podcast-show-notes' FOR SHARE`, [snapshot.noteId]);
+    AND note_list_metadata(content)->>'contentType'= $2 FOR SHARE`, [snapshot.noteId, campaign.plan.recordingTease ? 'podcast-episode' : 'podcast-show-notes']);
   if (!active.rowCount) throw new PublicationDeferred('The Show Notes were archived or changed to another content type.');
   const approved = campaign.plan.posts.find(item => item.id === post.id);
   if (!approved?.scheduledAt || Date.parse(approved.scheduledAt) > Date.now()) throw new PublicationDeferred('Waiting for the approved publication time.');
-  const history = await campaignDeliveries(c, snapshot.noteId);
-  const ordered = [...campaign.plan.posts].sort((a, b) => Date.parse(a.scheduledAt!) - Date.parse(b.scheduledAt!));
-  const preceding = ordered.slice(0, ordered.findIndex(item => item.id === post.id));
-  if (preceding.some(item => !history.some(delivery => delivery.identity === podcastIdentity(snapshot.noteId, item.id)
-    && delivery.status === 'sent' && (item.destination !== 'blog' || Boolean(delivery.receipt?.verifiedAt))))) {
-    throw new PublicationDeferred('Waiting for an earlier campaign post to be confirmed.');
-  }
 }
 
 export async function publishPodcastPost(db: Pool, campaign: PodcastCampaign, post: PodcastPost, send = services): Promise<void> {
@@ -37,11 +35,9 @@ export async function publishPodcastPost(db: Pool, campaign: PodcastCampaign, po
   const account = campaign.plan.accounts[post.destination];
   const actualAccount = post.destination === 'linkedin' ? (await send.member()).id : destinationAccount(post.destination);
   if (account !== actualAccount) throw new PublicationDeferred('The connected publishing account changed. No post was sent.');
-  const settings = await feeds(db);
-  const policy = settings.find(feed => feed.id === (post.destination === 'bluesky' ? 'bluesky' : 'blog-linkedin'))?.policy;
-  if (!policy || !inWindow(policy, new Date())) throw new PublicationDeferred('Waiting for the account publishing window.');
   const context: DeliveryContext = {
     identity: podcastIdentity(campaign.noteId, post.id), version: campaign.revision,
+    feed: post.destination === 'bluesky' ? 'bluesky' : 'blog-linkedin', independentSchedule: true,
     authorize: client => authorizePost(client, campaign, post),
   };
   if (post.destination === 'blog') {
@@ -49,20 +45,15 @@ export async function publishPodcastPost(db: Pool, campaign: PodcastCampaign, po
     await publishBlogWithVerification(db, account, context, { ...post.blog }, send, true);
     return;
   }
-  const blog = campaign.plan.posts.find(item => item.destination === 'blog');
-  const history = await campaignDeliveries(db, campaign.noteId);
-  const receipt = history.find(delivery => delivery.identity === podcastIdentity(campaign.noteId, blog?.id ?? '') && delivery.status === 'sent')?.receipt;
-  if (!campaign.plan.followUp) {
-    if (!blog?.blog || typeof receipt?.url !== 'string' || !receipt.verifiedAt) throw new PublicationDeferred('Waiting for the launch blog to be publicly verified.');
-    await verifyBlogForPromotion(receipt.url, { ...blog.blog }, send.read);
-  }
+  if (campaign.plan.assetsRequired && !post.asset) throw new PublicationDeferred('The approved review image is missing. No text-only post was sent.');
+  const image = post.asset ? await loadPodcastImage(post.asset) : undefined;
   if (post.destination === 'linkedin') {
-    await deliver(db, 'linkedin', account, context, () => send.linkedin(post.copy, null, account));
+    await deliver(db, 'linkedin', account, context, () => send.linkedin(post.copy, null, account, image));
   } else {
-    if (!post.url) throw new PublicationDeferred('The approved episode listening URL is missing.');
-    await deliver(db, 'bluesky', account, context, () => send.bluesky(post.copy, {
-      url: post.url!, title: campaign.plan!.title, description: '',
-    }));
+    if (!post.url && !campaign.plan.recordingTease) throw new PublicationDeferred('The approved episode listening URL is missing.');
+    await deliver(db, 'bluesky', account, context, () => send.bluesky(post.copy, post.url ? {
+      url: post.url, title: campaign.plan!.title, description: '',
+    } : null, image));
   }
 }
 
@@ -103,22 +94,29 @@ export async function tickPodcastCampaigns(db: Pool, send = services): Promise<v
       WHERE state='approved' AND plan IS NOT NULL ORDER BY approved_at`)).rows;
     for (const campaign of campaigns) {
       const history = await campaignDeliveries(db, campaign.noteId);
-      const post = [...campaign.plan!.posts].sort((a, b) => Date.parse(a.scheduledAt!) - Date.parse(b.scheduledAt!))
-        .find(item => !history.some(delivery => delivery.identity === podcastIdentity(campaign.noteId, item.id) && delivery.status === 'sent'));
-      if (!post?.scheduledAt || Date.parse(post.scheduledAt) > Date.now()) continue;
-      const receipt = history.find(delivery => delivery.identity === podcastIdentity(campaign.noteId, post.id));
-      if (receipt?.status === 'sending' || receipt?.status === 'unconfirmed') continue;
-      if (receipt?.status === 'failed' && (!receipt.nextAttemptAt || Date.parse(receipt.nextAttemptAt) > Date.now())) continue;
-      try {
-        await publishPodcastPost(db, campaign, post, send);
-        await db.query('UPDATE podcast_campaigns SET error=NULL WHERE note_id=$1 AND revision=$2', [campaign.noteId, campaign.revision]);
-        break;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Podcast publication failed.';
-        await db.query('UPDATE podcast_campaigns SET error=$3 WHERE note_id=$1 AND revision=$2 AND error IS DISTINCT FROM $3',
-          [campaign.noteId, campaign.revision, message]);
-        if (!(error instanceof PublicationDeferred)) console.error('[Podcast] Publication needs attention:', error);
+      let failure: string | null = null;
+      for (const post of [...campaign.plan!.posts].sort((a, b) => Date.parse(a.scheduledAt!) - Date.parse(b.scheduledAt!))) {
+        if (!post.scheduledAt || Date.parse(post.scheduledAt) > Date.now()) continue;
+        const receipt = history.find(delivery => delivery.identity === podcastIdentity(campaign.noteId, post.id));
+        if (receipt?.status === 'sent') continue;
+        if (receipt?.status === 'sending' || receipt?.status === 'unconfirmed') {
+          failure ??= receipt.error ?? 'This post needs delivery confirmation before it can be retried.';
+          continue;
+        }
+        if (receipt?.status === 'failed' && (!receipt.nextAttemptAt || Date.parse(receipt.nextAttemptAt) > Date.now())) {
+          failure ??= receipt.error ?? 'This post needs attention before retrying.';
+          continue;
+        }
+        try {
+          await publishPodcastPost(db, campaign, post, send);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Podcast publication failed.';
+          failure ??= message;
+          if (!(error instanceof PublicationDeferred)) console.error('[Podcast] Publication needs attention:', error);
+        }
       }
+      await db.query('UPDATE podcast_campaigns SET error=$3 WHERE note_id=$1 AND revision=$2 AND error IS DISTINCT FROM $3',
+        [campaign.noteId, campaign.revision, failure]);
     }
   } finally {
     try { if (acquired) await lock.query("SELECT pg_advisory_unlock(hashtext('athena-podcast-campaigns'))"); }

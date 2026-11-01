@@ -1,6 +1,8 @@
 import { env } from '../../config/env.js';
 import { HTTP_STATUS } from '../../config/constants.js';
 import { IntegrationError, ValidationError } from '../../types/errors.js';
+import { validateSocialImage, type SocialImage } from './image.js';
+import { object } from '../../jobs/contracts.js';
 
 export const LINKEDIN_POST_LIMIT = 3_000;
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -74,12 +76,44 @@ export async function getLinkedInMember(token = env.LINKEDIN_ACCESS_TOKEN): Prom
 }
 
 /** One publish attempt only: uncertain outcomes must never be retried automatically. */
-export async function postToLinkedIn(copy: string, link: LinkedInLink | null, expectedMemberId: string): Promise<LinkedInPostResult> {
+export async function postToLinkedIn(copy: string, link: LinkedInLink | null, expectedMemberId: string, image?: SocialImage): Promise<LinkedInPostResult> {
   const text = composeLinkedInText(copy, link?.url ?? null);
   const token = env.LINKEDIN_ACCESS_TOKEN;
   const member = await getLinkedInMember(token);
   if (member.id !== expectedMemberId) {
     throw new ValidationError('The connected LinkedIn account changed. Review the account and confirm the post again.');
+  }
+  let imageUrn: string | undefined;
+  if (image) {
+    validateSocialImage(image);
+    try {
+      const registered = await fetch('https://api.linkedin.com/v2/assets?action=registerUpload', {
+        method: 'POST', redirect: 'error', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'X-Restli-Protocol-Version': '2.0.0' },
+        body: JSON.stringify({ registerUploadRequest: {
+          recipes: ['urn:li:digitalmediaRecipe:feedshare-image'], owner: `urn:li:person:${member.id}`,
+          serviceRelationships: [{ relationshipType: 'OWNER', identifier: 'urn:li:userGeneratedContent' }],
+        } }),
+      });
+      if (!registered.ok) throw new IntegrationError('linkedin', `Image registration failed (HTTP ${registered.status}). No post was sent.`);
+      const value = object(object(await registered.json()).value);
+      const upload = object(object(value.uploadMechanism)['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest']);
+      if (typeof upload.uploadUrl !== 'string' || typeof value.asset !== 'string'
+        || !/^urn:li:digitalmediaAsset:[\w-]+$/.test(value.asset)) throw new IntegrationError('linkedin', 'LinkedIn returned an invalid image registration. No post was sent.');
+      const address = new URL(upload.uploadUrl);
+      if (address.protocol !== 'https:' || address.hostname !== 'api.linkedin.com' || address.username || address.password || address.port) {
+        throw new IntegrationError('linkedin', 'LinkedIn returned an unexpected image-upload destination. No post was sent.');
+      }
+      const uploaded = await fetch(address.href, {
+        method: 'PUT', redirect: 'error', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': image.mimeType }, body: new Uint8Array(image.bytes),
+      });
+      if (!uploaded.ok) throw new IntegrationError('linkedin', `Image upload failed (HTTP ${uploaded.status}). No post was sent.`);
+      imageUrn = value.asset;
+    } catch (error) {
+      if (error instanceof IntegrationError || error instanceof ValidationError) throw error;
+      throw new IntegrationError('linkedin', 'The image could not be uploaded. No post was sent.');
+    }
   }
   let response: Response;
   try {
@@ -89,8 +123,9 @@ export async function postToLinkedIn(copy: string, link: LinkedInLink | null, ex
       body: JSON.stringify({
         author: `urn:li:person:${member.id}`, lifecycleState: 'PUBLISHED',
         specificContent: { 'com.linkedin.ugc.ShareContent': {
-          shareCommentary: { text }, shareMediaCategory: link === null ? 'NONE' : 'ARTICLE',
-          ...(link !== null && { media: [{ status: 'READY', originalUrl: link.url, title: { text: link.title.slice(0, CARD_TITLE_CHARS) } }] }),
+          shareCommentary: { text }, shareMediaCategory: imageUrn ? 'IMAGE' : link === null ? 'NONE' : 'ARTICLE',
+          ...(imageUrn && image ? { media: [{ status: 'READY', media: imageUrn, description: { text: image.alt }, title: { text: image.alt.slice(0, CARD_TITLE_CHARS) } }] }
+            : link !== null ? { media: [{ status: 'READY', originalUrl: link.url, title: { text: link.title.slice(0, CARD_TITLE_CHARS) } }] } : {}),
         } },
         visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' },
       }),

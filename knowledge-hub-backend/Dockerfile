@@ -4,6 +4,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 COPY tsconfig.json ./
 COPY src ./src
+COPY src/publishing/assets ./dist/publishing/assets
 RUN npx --no-install tsc --project tsconfig.json
 RUN mkdir -p dist/db/migrations \
   && cp src/db/schema.sql dist/db/schema.sql \

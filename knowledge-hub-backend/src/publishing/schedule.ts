@@ -83,7 +83,7 @@ export function planSchedule(candidates: Candidate[], settings: PublishingFeed[]
   });
   function available(draft: Draft, at: Date): boolean {
     const account = String(draft.content.account);
-    const relevant = history.filter(d => d.destination === draft.destination && d.account === account);
+    const relevant = history.filter(d => d.destination === draft.destination && d.account === account && !d.identity.startsWith('podcast:'));
     if (slotBlock(relevant, draft.destination, at)) return false;
     const reserved = bookings.filter(b => b.draftId !== draft.id && b.destination === draft.destination && b.account === account);
     const spacing = draft.destination === 'bluesky' ? PUBLISH_LIMITS.blueskySpacingHours : PUBLISH_LIMITS.linkedinSpacingHours;

@@ -319,8 +319,9 @@ export class FoundryClient {
     toolChoice: LlmToolChoice = 'auto',
     timeoutMs?: number,
     signal?: AbortSignal,
+    route?: ModelRoute,
   ): Promise<{ content: string | null; toolCalls: LlmToolCall[]; finishReason: string | undefined }> {
-    const data = await this.request(model, messages, tools, maxTokens, toolChoice, timeoutMs, undefined, signal);
+    const data = await this.request(model, messages, tools, maxTokens, toolChoice, timeoutMs, undefined, signal, route);
     const message = data.choices[0]?.message;
 
     if (!message) {

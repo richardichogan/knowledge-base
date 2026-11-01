@@ -2502,13 +2502,16 @@ export class KnowledgeHubApi {
   async listPodcastScriptJobs(subjectId: string): Promise<ApiResponse<AgentJob[]>> {
     return (await this.client.get<ApiResponse<AgentJob[]>>('/api/agent-jobs', { params: { subjectType: 'podcast-episode', subjectId, limit: 10 } })).data;
   }
-  async uploadPodcastTranscript(id: string, file: File, revision: number): Promise<ApiResponse<PodcastEpisode>> {
+  async uploadPodcastTranscript(id: string, file: File, revision: number): Promise<ApiResponse<PodcastEpisode & { teaserPreparationError?: string }>> {
     const formData = new FormData();
     formData.append('revision', String(revision));
     formData.append('file', file);
-    return (await this.client.post<ApiResponse<PodcastEpisode>>(`/api/podcast-episodes/${encodeURIComponent(id)}/transcript`, formData, {
+    return (await this.client.post<ApiResponse<PodcastEpisode & { teaserPreparationError?: string }>>(`/api/podcast-episodes/${encodeURIComponent(id)}/transcript`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' }, timeout: IMAGE_UPLOAD_TIMEOUT_MS,
     })).data;
+  }
+  async preparePodcastRecordingTeaser(id: string, revision: number): Promise<ApiResponse<AgentHandOffResult>> {
+    return (await this.client.post<ApiResponse<AgentHandOffResult>>(`/api/podcast-episodes/${encodeURIComponent(id)}/recording-teaser/prepare`, { revision })).data;
   }
   async startPodcastShowNotes(id: string): Promise<ApiResponse<PodcastEpisode>> {
     return (await this.client.post<ApiResponse<PodcastEpisode>>(`/api/podcast-episodes/${encodeURIComponent(id)}/show-notes/session`)).data;
@@ -2582,6 +2585,11 @@ export class KnowledgeHubApi {
 
   async getImageFile(id: string): Promise<Blob> {
     return (await this.client.get<Blob>(`/api/images/${encodeURIComponent(id)}/file`, { responseType: 'blob' })).data;
+  }
+
+  async getPodcastArtworkSource(noteId: string, postId: string): Promise<Blob> {
+    return (await this.client.get<Blob>(`/api/publishing/podcasts/${encodeURIComponent(noteId)}/posts/${encodeURIComponent(postId)}/image/source`,
+      { responseType: 'blob' })).data;
   }
 
   async updateCanvas(id: string, patch: { title?: string; description?: string; project?: string | null; viewport?: object; brainstormSettings?: BrainstormSettings }): Promise<ApiResponse<CanvasSummaryApi>> {

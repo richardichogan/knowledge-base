@@ -20,6 +20,7 @@
     "knowledge-perf": "node --import tsx/esm scripts/knowledge-perf.ts"
   },
   "dependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@atproto/api": "^0.27.0",
     "@azure/identity": "^4.4.1",
     "@azure/storage-blob": "^12.24.0",

@@ -4,6 +4,7 @@ import { ConflictError, ValidationError } from '../types/errors.js';
 import { handOff } from '../agents/index.js';
 import { requiredText } from '../designs/designStore.js';
 import { ensurePrepDocument, episodeForRecording, getEpisode, saveScript, saveShowNotes, saveTranscript, startShowNotes } from '../podcasts/podcastEpisodeStore.js';
+import { getPodcastCampaign } from '../publishing/podcastCampaignStore.js';
 
 export const podcastEpisodesRouter = Router();
 const MAX_ID_LENGTH = 100;
@@ -36,9 +37,25 @@ podcastEpisodesRouter.post('/:id/script/draft', wrap(async req => {
   return handOff(getDb(), { specialist: 'podcast-script-writer', subjectId: episode.noteId,
     input: { revision: episode.revision }, confirmed: input['confirmed'] === true, requestedBy: 'app' });
 }));
-podcastEpisodesRouter.post('/:id/transcript', wrap(req => {
+podcastEpisodesRouter.post('/:id/transcript', wrap(async req => {
   const fields = (req.body ?? {}) as Record<string, unknown>;
-  return saveTranscript(getDb(), id(req), req.file, fields['revision']);
+  const episode = await saveTranscript(getDb(), id(req), req.file, fields['revision']);
+  try {
+    if (!(await getPodcastCampaign(getDb(), episode.noteId)).plan) {
+      await handOff(getDb(), { specialist: 'podcast-recording-teaser-writer', subjectId: episode.noteId,
+        input: { revision: episode.revision }, requestedBy: 'app' });
+    }
+  } catch (error) {
+    console.error('[Podcast] Transcript saved but recording teaser could not be queued:', error);
+    return { ...episode, teaserPreparationError: `The transcript was saved, but its recording teaser could not be queued. Retry Prepare recording teaser in Campaign. ${error instanceof Error ? error.message : 'Teaser preparation failed.'}` };
+  }
+  return episode;
+}));
+podcastEpisodesRouter.post('/:id/recording-teaser/prepare', wrap(async req => {
+  const episode = await getEpisode(getDb(), id(req));
+  if (body(req).revision !== episode.revision) throw new ConflictError('The episode changed. Reload before preparing its teaser.', 'PODCAST_EPISODE_CONFLICT');
+  return handOff(getDb(), { specialist: 'podcast-recording-teaser-writer', subjectId: episode.noteId,
+    input: { revision: episode.revision }, requestedBy: 'app' });
 }));
 podcastEpisodesRouter.post('/:id/show-notes/session', wrap(req => startShowNotes(getDb(), id(req))));
 podcastEpisodesRouter.post('/:id/show-notes/create', wrap(async req => {

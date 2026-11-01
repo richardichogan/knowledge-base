@@ -724,10 +724,11 @@ test('successful delivery uses actual publication time and returns the stored re
 });
 test('daily caps count only successes, include blog-linked Bluesky and do not catch up in bursts', () => {
   const now = new Date('2026-10-24T18:00Z');
-  const history = [0, 1, 2, 3].map(i => ({ status: 'sent', publishedAt: `2026-10-24T${String(i * 3 + 1).padStart(2, '0')}:00Z` } as Delivery));
+  const history = [0, 1, 2, 3].map(i => ({ identity: `fixture:${i}`, status: 'sent', publishedAt: `2026-10-24T${String(i * 3 + 1).padStart(2, '0')}:00Z` } as Delivery));
   assert.match(slotBlock(history, 'bluesky', now)!, /Daily/);
   assert.match(slotBlock(history.slice(0, 3), 'linkedin', now)!, /Daily/);
   assert.equal(slotBlock(history.map(d => ({ ...d, status: 'failed' })), 'bluesky', now), null);
+  assert.equal(slotBlock(history.map(d => ({ ...d, identity: `podcast:${d.identity}` })), 'bluesky', now), null);
 });
 test('unknown outcomes reserve capacity; only definite transient failures get bounded retries', async () => {
   const f = await publishingFixture();

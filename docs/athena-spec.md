@@ -123,6 +123,74 @@ Transcript has uploaded text, and Show Notes has a saved package.
 Campaign also appears in Progress, with its live preparation, approval, pause,
 attention or all-posts-sent status. Its check means a saved campaign plan exists,
 not that every post has been delivered.
+Campaign scheduling reads the existing posts from saved Show Notes; it does not
+regenerate their copy. Only Bluesky drafts exceeding the 300-grapheme limit
+including the actual listening URL are automatically adapted by the existing
+copy-fitting agent. It receives the actual listening URL and measured remaining
+budget and may rewrite the draft from the original message when mechanical
+reduction would be incoherent; complete sentences and material qualifications
+must survive. The original Show Notes, valid posts, image quotations,
+attribution, listening links and dates stay unchanged. Each adapted draft retains
+its original source copy, is identified in preparation notes, and must pass the
+separate review for meaning/factual fidelity before manual approval.
+Campaign dates stay authored.
+Full-campaign posts sharing a day are staggered 30 minutes apart in saved order,
+starting at the existing 08:00 UK time. This spacing is within the podcast campaign
+only; other bookings, publishing windows and daily caps do not influence it.
+Public-copy extraction omits leading scheduling/channel headings. Internal Athena
+links render as their authored visible text in the launch blog, not authoring-site
+URLs; external links and episode listening URLs are preserved.
+The launch blog uses its saved title as one H1, with agent-selected H2 section
+breaks above existing paragraphs. The application inserts only the headings:
+body wording, paragraph order, links, TL;DR, excerpt, key takeaways, categories,
+tags and slug are preserved. Formatting invalidates the prior independent review.
+Only the recording teaser receives a next available pre-release time (15 minutes
+ahead) when prepared/reviewed later that weekend, without checking other bookings,
+daily caps, spacing or publishing windows. Other scheduled content is never moved,
+deleted or deferred. Due podcast posts deliver independently: a tease need not
+wait for the launch blog, and another post's failure does not stop the rest.
+Human approval, explicit pause/automation-off controls, account/revision checks,
+provider content limits and per-post duplicate/uncertain-send protection remain.
+Publication dates are read directly from saved campaign headings; the application
+adds the configured account time and resolves its timezone, retaining explicit
+source times. Date-only authored headings are valid input. Source selection does
+not ask the model for timestamps or require the user to supply/repair them.
+Only the recording teaser has a flexible date: recording Friday, or Saturday/
+Sunday before the Monday release when the transcript/review is ready later.
+The launch and subsequent authored campaign dates are never shifted by this rule.
+The recording teaser is queued automatically when the transcript is uploaded.
+It uses existing recording-day Show Notes copy when available, otherwise the
+transcript, and includes complete personal LinkedIn and Bluesky copy but no
+episode URLs. It appears in the same Campaign tab for separate approval. An
+existing teaser is never regenerated, and its posts are excluded from the later
+Monday launch, weekday quote posts and fuller posts across the two-week campaign.
+Create campaign generates a PNG and editable SVG for every existing post, with
+the approved Carbon/podcast identity: Richard teal, David blue and Cyrus purple.
+Quotes, presenter names and timestamps are selected from the authored campaign,
+not invented from the transcript. Quote cards are square; launch, teaser and fuller
+post images are landscape. IBM Plex fonts and the supplied podcast mark are
+bundled for identical local/container rendering, with no image-model call per card.
+Each image appears with its post for manual review and approval. No automatic
+campaign/image approval is enabled for the initial episode-review phase.
+Every newly prepared campaign/teaser and every supported copy/artwork mutation
+queues a separate persistent podcast-publication-reviewer job. The reviewer uses
+the existing GPT-6 Astra route, not the GPT-5.4 creator, and receives the actual
+saved PNG bytes, full source, exact posts and structured artwork metadata.
+It checks audience-facing titles, source/copy fidelity, attribution, cadence,
+completeness, text readability/clipping, formats, colours and export defects.
+Approval is blocked while review is pending, when a finding exists, if review
+fails/is unavailable, or if the reviewed content fingerprint no longer matches.
+Findings and Retry independent review appear in the existing Campaign tab and
+are accessible to Athena. The reviewer never edits, approves or publishes.
+PNG assets and source SVGs are persisted in Athena storage; approved image-byte
+hashes prevent changed artwork being sent. LinkedIn and Bluesky receive the
+reviewed image with the post. Ordinary publishing capacity does not count podcast
+deliveries. The blog image is a downloadable review asset, not an automatic
+replacement of the blog's existing cover. The authenticated source-download
+route exposes each editable SVG alongside its PNG without exposing storage keys.
+Athena reads complete paged posts and artwork specifications through
+read_podcast_campaign, edits draft teaser copy through update_podcast_recording_teaser,
+and revises one source-grounded image through update_podcast_campaign_image.
 Prep shows the document loading/error states with Retry, not a conversation
 composer. Script drafting uses the edited Prep as the authoritative brief and
 the original conversation only as supporting history. Saving changes to the

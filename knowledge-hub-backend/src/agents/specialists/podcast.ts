@@ -2,6 +2,53 @@ import { draftScript, getEpisode } from '../../podcasts/podcastEpisodeStore.js';
 import { ValidationError } from '../../types/errors.js';
 import { registerSpecialist } from '../registry.js';
 import { createPodcastShowNotes } from '../../ai/podcastShowNotes.js';
+import { prepareRecordingTeaser } from '../../publishing/podcastRecordingTeaser.js';
+import { getPodcastCampaign } from '../../publishing/podcastCampaignStore.js';
+import { runPodcastCreationReview } from '../../publishing/podcastCampaignReview.js';
+
+registerSpecialist({
+  id: 'podcast-publication-reviewer',
+  name: 'Independent podcast publication reviewer',
+  description: 'Inspects finished PNGs and exact saved posts against episode source using a different model from creation. Saves concrete findings and blocks approval until the current version passes. Never edits copy, artwork or dates, and never publishes.',
+  subjectType: 'podcast-campaign',
+  resolveSubject: async (db, id) => {
+    const campaign = await getPodcastCampaign(db, id);
+    if (!campaign.plan || campaign.state !== 'draft') throw new ValidationError('Independent review needs a saved draft campaign or teaser.');
+    const parent = campaign.plan.recordingTease ? id : (await db.query<{ note_id: string }>('SELECT note_id FROM podcast_episodes WHERE show_notes_note_id=$1', [id])).rows[0]?.note_id;
+    return { id, title: campaign.plan.title, url: parent ? `/think?episode=${encodeURIComponent(parent)}&tab=campaign` : `/think?note=${encodeURIComponent(id)}` };
+  },
+  parseInput: input => {
+    if (typeof input.revision !== 'number' || !Number.isSafeInteger(input.revision) || input.revision < 1) throw new ValidationError('Independent review needs the saved campaign revision.');
+    return { revision: input.revision };
+  },
+  run: async context => {
+    await runPodcastCreationReview(context);
+    return { data: { noteId: context.subjectId, revision: context.input.revision },
+      summary: 'A separate model inspected the finished images and posts. This version passed independent review and still requires your manual approval.' };
+  },
+});
+
+registerSpecialist({
+  id: 'podcast-recording-teaser-writer',
+  name: 'Podcast recording teaser writer',
+  description: 'Prepares the complete personal LinkedIn and Bluesky recording teaser immediately from the uploaded transcript, or uses its existing Show Notes copy. No episode URLs or full campaign generation. Saves a separate draft in Campaign for approval; never overwrites an existing teaser.',
+  subjectType: 'podcast-episode',
+  resolveSubject: async (db, id) => {
+    const episode = await getEpisode(db, id);
+    if (!episode.transcript) throw new ValidationError('Upload the transcript before preparing the teaser.');
+    if ((await getPodcastCampaign(db, id)).plan) throw new ValidationError('The recording teaser already exists. Edit or approve it instead of regenerating it.');
+    return { id, title: episode.title, url: `/think?episode=${encodeURIComponent(id)}&tab=campaign` };
+  },
+  parseInput: input => {
+    if (typeof input.revision !== 'number' || !Number.isSafeInteger(input.revision)) throw new ValidationError('The current episode revision is required.');
+    return { revision: input.revision };
+  },
+  run: async context => {
+    await prepareRecordingTeaser(context);
+    return { data: { noteId: context.subjectId, url: `/think?episode=${encodeURIComponent(context.subjectId)}&tab=campaign` },
+      summary: 'The recording teaser is saved in Campaign. Independent image/post review is queued; manual approval stays blocked until it passes.' };
+  },
+});
 
 registerSpecialist({
   id: 'podcast-script-writer',

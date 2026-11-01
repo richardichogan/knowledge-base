@@ -2,6 +2,36 @@
 
 **Status:** Validated
 
+**Release scope and Section 7: Validation Proof (2026-11-01, podcast campaigns):**
+- User requested deploy, merge and push. Existing ACA/SWA targets only:
+  kh-prod-api-vnet and kh-prod-web, rg-knowledge-hub-prod, Alliance Tenant
+  Reporting. Current image v281; release image v282. No infrastructure or Desktop change.
+- git fetch origin and git merge origin/main completed; already current at e5457ef.
+- Both npx tsc --noEmit checks and production builds passed. Lint non-regression
+  passed: backend545 existing violations / baseline623; frontend22 / baseline41.
+  New numeric constants, import/types and effect dependencies were corrected without
+  changing the approved artwork, copy, dates or UI layout.
+- Full credential-isolated backend release suite:910/911 initially passed.
+  One publishing-cap fixture omitted the required delivery identity; fixed the
+  fixture and its directly affected test passed, including podcast-cap exclusion.
+  Full suite was not rerun. Full isolated frontend coverage:324 passed, zero failures.
+- Existing Azure target/authentication reads passed. Docker packages the new
+  resvg renderer, PNG logo, IBM Plex fonts and license alongside existing migrations.
+  No Bicep, policy, identity, RBAC or secret changes; provisioning is not applicable.
+- Release includes independent GPT-6 Astra review gates, native social images,
+  existing-copy extraction and Bluesky-only adaptation, exact-text blog H2 formatting,
+  and independent podcast schedules with30-minute same-day staggering.
+- Saved full campaign revision8 passed independent review with no findings before
+  release and remains a draft. Already-approved due teasers may be picked up by the
+  new production worker; local automatic delivery remains disabled.
+- Architecture/hosting remain existing Think editors, domain services, specialist
+  jobs and ACA/SWA. resvg is required for native reviewed PNGs; the separate reviewer
+  adds bounded model calls. Typed revisions/fingerprints and approval boundaries
+  remain. Secrets stay outside source; no text-only fallback after image failure.
+  The safest scope preserves these gates and does not approve or manually resend posts.
+- Evidence: session files/podcast-release-{backend-tests,affected,web-tests,
+  backend-build,web-build}.log. Unrelated .impeccable/hook.cache.json is excluded.
+
 **Release execution (2026-11-01, task activity and Office downloads):**
 - Application commit34ac114bdc9e7b05b12905a780186b62a120aa49 pushed to main
   and richardichogan-local-development; both remote refs verified.

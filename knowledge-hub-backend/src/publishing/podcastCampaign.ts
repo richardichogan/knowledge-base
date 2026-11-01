@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { object, text } from '../jobs/contracts.js';
 import { ValidationError } from '../types/errors.js';
 import { composeBlueskyText } from '../integrations/social/bluesky.js';
@@ -6,26 +6,80 @@ import { composeLinkedInText } from '../integrations/social/linkedin.js';
 import { parsePublishBody, type BlogPublishBody } from '../services/blogPublisher.js';
 import { parseNoteContent } from '../utils/noteContent.js';
 import { localClock } from '../jobs/schedule.js';
-import { MS_PER_HOUR } from '../config/constants.js';
-import { PUBLISH_LIMITS, type Delivery, type Destination } from './contracts.js';
+import type { Delivery, Destination } from './contracts.js';
 import type { ScheduledPost } from './schedule.js';
 
 export const EPISODE_PLATFORMS = ['youtube', 'spotify', 'apple'] as const;
 export type EpisodePlatform = typeof EPISODE_PLATFORMS[number];
 export type EpisodeLinks = Record<EpisodePlatform, string>;
 export const EPISODE_LABELS: Record<EpisodePlatform, string> = { youtube: 'YouTube', spotify: 'Spotify', apple: 'Apple Podcasts' };
-export const PODCAST_LIMITS = { posts: 80, source: 100_000, copy: 10_000, selectionTokens: 4000, messages: 30, message: 2000, date: 10, timestamp: 50, label: 250 } as const;
+export const PODCAST_LIMITS = { posts: 80, source: 100_000, copy: 10_000, selectionTokens: 16000, messages: 30, message: 2000, date: 10, timestamp: 50, label: 250 } as const;
 const MONTHS_PER_YEAR = 12;
+const ASSET_TEXT_LIMITS = { headline: 500, quote: 1200, speaker: 100, timestamp: 20 } as const;
 export interface PodcastWindow { from: string; to: string }
 export interface PodcastPost {
   id: string; destination: Destination; label: string; scheduledAt: string | null;
   copy: string; platform: EpisodePlatform | null; url: string | null; blog: BlogPublishBody | null;
   sourceHash?: string;
+  sourceCopy?: string;
+  assetSpec?: PodcastAssetSpec;
+  asset?: PodcastImageAsset;
+}
+export interface PodcastAssetSpec {
+  kind: 'quote' | 'launch' | 'teaser' | 'fuller';
+  headline: string; quote: string | null; speaker: string | null; timestamp: string | null;
+  episodeNumber: number | null;
+}
+export interface PodcastImageAsset {
+  imageId: string; url: string; width: number; height: number; alt: string; sourceHash: string; contentHash: string;
+}
+export function parsePodcastAssetSpec(value: unknown, episodeNumber: number | null): PodcastAssetSpec {
+  const asset = object(value);
+  const headline = text(asset.headline, 'image headline', ASSET_TEXT_LIMITS.headline);
+  if (/^(?:\d+[a-z]?\s+)?(?:post[- ]recording\s+teas(?:e|er)|recording[- ]day|launch[- ]day|quote\s+cards?|social\s+(?:posts?|campaign)|titles\s+and\s+metadata)\b/i.test(headline)
+    || /^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+\d/i.test(headline)) {
+    throw new ValidationError('Artwork needs the audience-facing episode title or topic, not an internal campaign section, date or channel label.');
+  }
+  const kind = asset.kind;
+  if (kind !== 'quote' && kind !== 'launch' && kind !== 'teaser' && kind !== 'fuller') throw new ValidationError('Unknown podcast image type.');
+  const quote = asset.quote === null ? null : text(asset.quote, 'image quote', ASSET_TEXT_LIMITS.quote);
+  const speaker = asset.speaker === null ? null : text(asset.speaker, 'quote speaker', ASSET_TEXT_LIMITS.speaker);
+  const timestamp = asset.timestamp === null ? null : text(asset.timestamp, 'quote timestamp', ASSET_TEXT_LIMITS.timestamp);
+  if (kind === 'quote' && (!quote || !speaker || !/^(?:Richard|David|Cyrus)\b/i.test(speaker))) throw new ValidationError('Select the exact quote and its presenter from Show Notes.');
+  if (timestamp && !/^\d{1,2}:\d{2}(?::\d{2})?$/.test(timestamp)) throw new ValidationError('Use the quote timestamp from the saved source.');
+  return { kind, headline, quote, speaker, timestamp, episodeNumber };
 }
 export interface PodcastPlan {
   title: string; notes: string[]; excluded: string[]; posts: PodcastPost[];
   accounts: Record<Destination, string>; linkedinName: string;
   window?: PodcastWindow | null; followUp?: boolean;
+  recordingTease?: boolean;
+  transcriptUploadedAt?: string | null;
+  assetsRequired?: boolean;
+  reviewRequired?: boolean;
+  review?: PodcastCreationReview;
+}
+export interface PodcastCreationReview {
+  status: 'pending' | 'pass' | 'fail';
+  fingerprint: string; reviewer: string | null; checkedAt: string | null;
+  findings: Array<{ postId: string | null; message: string }>;
+}
+export function podcastReviewFingerprint(plan: PodcastPlan): string {
+  return createHash('sha256').update(JSON.stringify({
+    title: plan.title, recordingTease: !!plan.recordingTease, accounts: plan.accounts,
+    posts: plan.posts.map(post => ({
+      id: post.id, destination: post.destination, copy: post.copy, sourceCopy: post.sourceCopy, url: post.url, blog: post.blog,
+      scheduledAt: plan.recordingTease && post.scheduledAt ? localClock(new Date(post.scheduledAt), 'Europe/London').day : post.scheduledAt,
+      assetSpec: post.assetSpec, asset: post.asset ? {
+        imageId: post.asset.imageId, contentHash: post.asset.contentHash, sourceHash: post.asset.sourceHash,
+        width: post.asset.width, height: post.asset.height, alt: post.asset.alt,
+      } : null,
+    })),
+  })).digest('hex');
+}
+export function requirePodcastCreationReview(plan: PodcastPlan): void {
+  plan.reviewRequired = true;
+  plan.review = { status: 'pending', fingerprint: podcastReviewFingerprint(plan), reviewer: null, checkedAt: null, findings: [] };
 }
 export interface PodcastCampaign {
   noteId: string; revision: number; links: EpisodeLinks; plan: PodcastPlan | null; sourceRevision: number | null;
@@ -116,9 +170,9 @@ export function parsePodcastWindow(value: unknown): PodcastWindow | null {
 }
 
 export function parsePodcastPlan(value: unknown, links: EpisodeLinks, accounts: PodcastPlan['accounts'], linkedinName: string,
-  options: { authored?: boolean; window?: PodcastWindow | null } = {}): PodcastPlan {
+  options: { authored?: boolean; window?: PodcastWindow | null; recordingTease?: boolean; episodeNumber?: number | null } = {}): PodcastPlan {
   const input = object(value);
-  parseEpisodeLinks(links, true);
+  parseEpisodeLinks(links, !options.recordingTease);
   if (!Array.isArray(input.posts) || !input.posts.length || input.posts.length > PODCAST_LIMITS.posts) {
     throw new ValidationError('The campaign must contain between 1 and 80 posts.');
   }
@@ -127,6 +181,7 @@ export function parsePodcastPlan(value: unknown, links: EpisodeLinks, accounts: 
     const item = object(value);
     const destination = item.destination;
     if (destination !== 'blog' && destination !== 'linkedin' && destination !== 'bluesky') throw new ValidationError('Unknown campaign destination.');
+    if (options.recordingTease && destination === 'blog') throw new ValidationError('Recording teasers are social posts, not launch blogs.');
     const scheduledAt = item.scheduledAt === null ? null : text(item.scheduledAt, 'publication time', PODCAST_LIMITS.timestamp);
     if (scheduledAt !== null) {
       const parts = /^(\d{4})-(\d{2})-(\d{2})T(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d{1,3})?)?(?:Z|[+-](?:0\d|1[0-4]):[0-5]\d)$/.exec(scheduledAt);
@@ -153,14 +208,22 @@ export function parsePodcastPlan(value: unknown, links: EpisodeLinks, accounts: 
     } else {
       if (!copy) throw new ValidationError(`${label} has no post copy.`);
       if (/https?:\/\//i.test(copy)) throw new ValidationError(`${label}: keep listening URLs separate from the copy so the approved links are used exactly once.`);
-      if (destination === 'linkedin') copy = options.authored ? `${copy}\n\n${listeningLinks}` : composeLinkedInText(`${copy}\n\n${listeningLinks}`, null);
+      if (destination === 'linkedin') {
+        if (!options.recordingTease) copy = `${copy}\n\n${listeningLinks}`;
+        if (!options.authored) copy = composeLinkedInText(copy, null);
+      }
       else if (!options.authored) composeBlueskyText(copy, null);
     }
-    return { id: randomUUID(), destination, label, scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : null, copy, blog, platform, url };
+    let assetSpec: PodcastAssetSpec | undefined;
+    if (item.asset !== undefined && item.asset !== null) {
+      assetSpec = parsePodcastAssetSpec(item.asset, options.episodeNumber ?? null);
+    }
+    return { id: randomUUID(), destination, label, scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : null, copy, blog, platform, url,
+      ...(assetSpec && { assetSpec }) };
   });
   posts.sort((a, b) => (a.scheduledAt ? Date.parse(a.scheduledAt) : Infinity) - (b.scheduledAt ? Date.parse(b.scheduledAt) : Infinity));
   let blueskyIndex = 0;
-  for (const post of posts) if (post.destination === 'bluesky') {
+  for (const post of posts) if (post.destination === 'bluesky' && !options.recordingTease) {
     post.platform = EPISODE_PLATFORMS[blueskyIndex++ % EPISODE_PLATFORMS.length]!;
     post.url = links[post.platform];
     if (!options.authored) composeBlueskyText(post.copy, post.url);
@@ -172,21 +235,24 @@ export function parsePodcastPlan(value: unknown, links: EpisodeLinks, accounts: 
     if (day < window.from || day > window.to) throw new ValidationError(`${post.label} falls outside the requested campaign window.`);
   }
   return { title: text(input.title, 'campaign title', PODCAST_LIMITS.label), notes: messages(input.notes), excluded: messages(input.excluded), posts, accounts, linkedinName,
-    window, followUp: window !== null && !posts.some(post => post.destination === 'blog') };
+    window, followUp: options.recordingTease || (window !== null && !posts.some(post => post.destination === 'blog')),
+    ...(options.recordingTease && { recordingTease: true }) };
 }
 
-export function podcastPlanIssues(plan: PodcastPlan | null, now = new Date()): string[] {
+export function podcastPlanIssues(plan: PodcastPlan | null, _now = new Date(), includeReview = true): string[] {
   if (!plan) return ['Prepare a campaign from the saved Show Notes first.'];
   const issues: string[] = [];
-  const blogs = plan.posts.filter(post => post.destination === 'blog');
-  if (!plan.followUp && blogs.length !== 1) issues.push('The campaign needs exactly one launch blog.');
-  for (const destination of plan.followUp ? [] : ['linkedin', 'bluesky'] as const) {
-    if (!plan.posts.some(post => post.destination === destination)) issues.push(`The campaign has no ${destination === 'linkedin' ? 'LinkedIn' : 'Bluesky'} posts.`);
+  if (includeReview && plan.reviewRequired) {
+    if (!plan.review || plan.review.status === 'pending') issues.push('Independent image and post review is pending. Approval is blocked until it passes.');
+    else if (plan.review.status === 'fail') issues.push(...(plan.review.findings.length ? plan.review.findings.map(finding => {
+      const post = plan.posts.find(post => post.id === finding.postId);
+      return `${post ? `${post.label}: ` : ''}${finding.message}`;
+    }) : ['Independent publication review failed. Approval remains blocked.']));
+    else if (plan.review.status !== 'pass' || !plan.review.reviewer || plan.review.findings.length
+      || plan.review.fingerprint !== podcastReviewFingerprint(plan)) issues.push('The posts or artwork changed after independent review. Review the current version before approval.');
   }
-  const blogAt = blogs[0]?.scheduledAt ? Date.parse(blogs[0].scheduledAt) : null;
-  const linkedinTimes = plan.posts.filter(post => post.destination === 'linkedin' && post.scheduledAt).map(post => Date.parse(post.scheduledAt!));
-  const firstLinkedin = linkedinTimes.length ? Math.min(...linkedinTimes) : null;
   for (const post of plan.posts) {
+    if (plan.assetsRequired && !post.asset) issues.push(`${post.label}: its review image has not been generated.`);
     try {
       if (post.destination === 'bluesky') composeBlueskyText(post.copy, post.url);
       if (post.destination === 'linkedin') composeLinkedInText(post.copy, null);
@@ -195,24 +261,6 @@ export function podcastPlanIssues(plan: PodcastPlan | null, now = new Date()): s
       issues.push(`${post.label}: ${error.message} The original copy has not been shortened.`);
     }
     if (!post.scheduledAt) { issues.push(`${post.label}: add a publication date and time to the Show Notes.`); continue; }
-    const at = Date.parse(post.scheduledAt);
-    if (at <= now.getTime()) issues.push(`${post.label}: the date is in the past. It will not be sent as a catch-up post on approval.`);
-    if (post.destination !== 'blog' && blogAt !== null && at <= blogAt) issues.push(`${post.label}: schedule it after the launch blog.`);
-    if (!plan.followUp && post.destination === 'bluesky' && firstLinkedin !== null && at <= firstLinkedin) issues.push(`${post.label}: schedule it after the first LinkedIn post.`);
-  }
-  for (const destination of ['linkedin', 'bluesky'] as const) {
-    const posts = plan.posts.filter(post => post.destination === destination && post.scheduledAt).sort((a, b) => Date.parse(a.scheduledAt!) - Date.parse(b.scheduledAt!));
-    const spacing = destination === 'bluesky' ? PUBLISH_LIMITS.blueskySpacingHours : PUBLISH_LIMITS.linkedinSpacingHours;
-    const cap = destination === 'bluesky' ? PUBLISH_LIMITS.blueskyCap : PUBLISH_LIMITS.linkedinCap;
-    const counts = new Map<string, number>();
-    posts.forEach((post, index) => {
-      const date = new Date(post.scheduledAt!);
-      const prior = posts[index - 1];
-      if (prior && date.getTime() - Date.parse(prior.scheduledAt!) < spacing * MS_PER_HOUR) issues.push(`${post.label}: leave at least ${spacing} hours between ${destination} posts.`);
-      const day = localClock(date, 'Europe/London').day;
-      counts.set(day, (counts.get(day) ?? 0) + 1);
-    });
-    for (const [day, count] of counts) if (count > cap) issues.push(`${day}: ${destination} exceeds the daily limit of ${cap}.`);
   }
   return issues;
 }
