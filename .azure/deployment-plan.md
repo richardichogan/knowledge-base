@@ -2,6 +2,48 @@
 
 **Status:** Validated
 
+**Release execution (2026-11-01, task activity and Office downloads):**
+- Application commit34ac114bdc9e7b05b12905a780186b62a120aa49 pushed to main
+  and richardichogan-local-development; both remote refs verified.
+- ACR run ca8u built and pushed kh-prod-api:v281 from main.
+  Revision kh-prod-api-vnet--0000278 is Healthy / RunningAtMaxScale;
+  latestReadyRevision matches and latest-revision traffic is100%.
+- Startup confirms Migration complete, database pool8/8 ready and production
+  specialist worker started. Migrations131/132 were already applied.
+- Frontend deployed to kh-prod-web. https://athena.themicrosoftcloudblog.com/
+  serves the matching /assets/index-C1MbD3Ur.js; HTML and entry asset return200.
+- No Desktop release, manual task move, email send or publication commissioned.
+- Evidence: session files/task-office-release-{acr,swa,startup}.log.
+
+**Release scope and Section 7: Validation Proof (2026-11-01, task activity and Office downloads):**
+- User requested deploy, merge and push. Existing web/backend targets only:
+  kh-prod-api-vnet and kh-prod-web in rg-knowledge-hub-prod, Alliance Tenant
+  Reporting. Image v280 advances to v281. No Desktop or infrastructure changes.
+- Includes pending Projects visual corrections, on-demand seven-day progress
+  reviews, editable Office downloads, nonblocking task preparation, mandatory
+  status notes, Richard/Hermes action attribution and task-detail styling.
+- `git fetch origin` and `git merge origin/main`: current at 5eb4e3a.
+- Both `npx tsc --noEmit` and production builds passed. Lint non-regression:
+  backend 545 existing violations / baseline623; frontend22 / baseline41.
+- Full credential-isolated backend release suite: 892/893 initially passed.
+  The recurring-task fixture omitted newly mandatory status notes; corrected
+  fixture and all seven affected recurrence/status-note checks passed. No full rerun.
+- Full isolated frontend release coverage: 322 passed, zero failures.
+- Azure CLI2.79.0 authenticated target reads passed. Docker copies lockfile and
+  all tracked migrations; ACR builds exact-main backend from the existing target.
+  Migrations131/132 are additive and already applied to shared production data.
+- Actual local task detail renders saved actor attribution, descriptive Think
+  links without visible GUIDs, styled note fields and consolidated result controls.
+  Real Office downloads were generated and retrieved; native Office rendering
+  remains unverified. No task move, email send or publication is part of release.
+- Fit: existing Think/Plan services, specialist queue and ACA/SWA hosting remain;
+  docx/PptxGenJS supply requested editable files without M365 Graph or a new
+  cloud service. Existing approval, revision, ownership and secret handling remain.
+  Safest scope retains these boundaries and excludes automatic external actions.
+- No Bicep/RBAC/policy changes; provisioning/what-if is not applicable.
+  Unrelated .impeccable/hook.cache.json is excluded. Local delivery stays disabled.
+- Evidence: session files/task-office-release-{backend,affected,frontend,web-build}.log.
+
 **Release execution (2026-10-31, Projects workspace):**
 - Application commit 3df2876cefebe4a02a1fdc17d97ea051efbf55c9 pushed to main
   and richardichogan-local-development; both live remote refs verified.
