@@ -2,6 +2,53 @@
 
 **Status:** Validated
 
+**Release execution (2026-11-01, readiness and context tracing):**
+- Application commit f34f9630730ee4ce344d47a45f3268c61e623346 pushed to main
+  and richardichogan-local-development; both remote refs confirmed identical.
+- ACR run ca8x built kh-prod-api:v284 from main. New revision
+  kh-prod-api-vnet--0000281 is Healthy / RunningAtMaxScale and latest-ready,
+  with 100% latest-revision traffic. Startup confirms Migration complete,
+  database pool 8/8 ready and the production specialist worker started.
+- Production frontend deployed to kh-prod-web. Custom-domain HTML and exact
+  built entry /assets/index-DcWb2RZ9.js return 200 at
+  https://athena.themicrosoftcloudblog.com/.
+- No Desktop release, infrastructure changes or manual publishing/replay.
+  The earlier local database read timeout remains captured, not fixed.
+- Evidence: context-release-{acr,swa,startup}.log in the session artifacts.
+
+**Section 7: Readiness, publishing visibility and context tracing release proof (2026-11-01):**
+- User requested deploy, merge and push. Existing application targets only:
+  kh-prod-api-vnet and kh-prod-web, rg-knowledge-hub-prod, Alliance Tenant
+  Reporting. Image v283 advances to v284; no infrastructure or Desktop change.
+- git fetch origin and git merge origin/main completed: already current at
+  93cf737. Release includes the pending combined publishing visibility,
+  Design IMAGINE readiness with exact passage citations, and seven-day
+  content-level chat diagnostics. Migrations 133/134 are additive and already
+  applied to the shared production database with approval.
+- Both tsc --noEmit checks, production builds and lint non-regression passed:
+  backend 545 existing violations / baseline 623; frontend 22 / baseline 41.
+  New lint violations were fixed without changing intended behaviour.
+- Full isolated frontend release coverage passed 329 tests. The full backend
+  parent runner stalled after reporting passing tests; it was stopped, not
+  restarted. Its bounded-concurrency retry also stalled. Direct credential-isolated
+  execution completed all 173 affected backend checks, including Design, tracing,
+  publishing, podcast campaigns, context assembly, catalogue, safety and readonly.
+  Completed prior full baseline is reused for unchanged backend code.
+- The affected Design fixture now loads migration 133 and expects the approved
+  readiness tools. Readonly assertions still forbid source mutations while
+  permitting only separate diagnostic-table writes. Undefined trace outputs
+  persist as JSON null instead of falsely marking capture incomplete.
+- Actual local Design turns persist exact model-visible tool output, source/tab/
+  revision metadata, completed reply linkage and seven-day expiry. Athena used
+  both diagnostic tools to retrieve a saved trace. A real database timeout was
+  captured as failed with its error; tracing does not fix that timeout or reasoning.
+- Docker packages all tracked migrations; lockfiles are present and unchanged.
+  Azure authenticated reads confirm the existing ACA/SWA resources. No Bicep,
+  policy, RBAC, identity, dependency or secret changes; provisioning is not applicable.
+  Local scheduled delivery stays disabled. Exclude .impeccable/hook.cache.json.
+- Evidence: context-release-{backend-tests,web-tests,web-build,direct-affected,
+  final-affected}.log in the session artifact directory.
+
 **Section 7: Campaign image visibility release proof (2026-11-01, 16:20 UTC):**
 - User requested deployment of the approved presentation change: every campaign
   post with a saved image opens expanded, not just Bluesky. Existing controls,
