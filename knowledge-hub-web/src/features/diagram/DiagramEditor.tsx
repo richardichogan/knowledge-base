@@ -489,6 +489,9 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   const athenaContext = useMemo<AthenaPageContext>(() => ({
     type: 'canvas', id: `map:${canvasId}`, title: savedTitle,
     conversationId: parentContext?.conversationId ?? parentContext?.id ?? `map:${canvasId}`,
+    ...(parentContext?.designId ? { designId: parentContext.designId, designTab: parentContext.designTab } : {}),
+    revision: save.current.rev, saveState: saveStatus,
+    selectedIds: { nodes: [...sel.nodes], edges: [...sel.edges] },
     detail: `${parentContext ? `Inside ${parentContext.title} (${parentContext.id}). Parent context: ${parentContext.detail ?? ''}\n` : ''}Editable diagram. Read its saved shapes and connectors, provided separately. ${saveStatus === 'saved' ? 'All editor changes are saved.' : 'Editor changes are not yet saved; do not assume they are in the saved structure.'}`,
     ...(sel.nodes.length === 1 ? { selectedId: sel.nodes[0]! } : sel.edges.length === 1 ? { selectedId: sel.edges[0]! } : {}),
     ...(canvas?.project != null ? { projectId: canvas.project } : parentContext?.projectId != null ? { projectId: parentContext.projectId } : {}),

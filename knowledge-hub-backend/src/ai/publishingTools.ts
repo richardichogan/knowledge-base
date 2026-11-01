@@ -6,13 +6,18 @@ import { text } from '../jobs/contracts.js';
 import { proposeJob } from '../jobs/store.js';
 import { feedId, parsePolicy, uuid, PUBLISH_LIMITS } from '../publishing/contracts.js';
 import { feeds, holdTopic, listTopics, topicDetail } from '../publishing/store.js';
+import { listPublishingContent } from '../publishing/content.js';
+
+const CONTENT_PAGE_SIZE = 5;
+const CONTENT_PAGE_CHARS = 128_000;
 
 export const PUBLISHING_TOOL: LlmToolDefinition = {
   type: 'function', function: {
     name: 'manage_publishing_feeds',
     description: 'Inspect and configure Athena Discover publishing from any chat. Two feeds: bluesky and blog-linkedin. Work with the user on editorial guidance and saved settings. Read first; save produces an exact confirmation card, never silently enables posting. Can hold/reject topics with reasons. One human package approval in the publishing UI approves the exact Blog and LinkedIn versions together; you CANNOT grant approval, reconcile deliveries or send a post. Drafts do not expire automatically. Queues, source evidence, accuracy/voice findings and audit are shared with the UI. Daily caps are ceilings, not targets; audio/podcast preparation is independent.',
     parameters: { type: 'object', properties: {
-      action: { type: 'string', enum: ['list', 'read', 'save', 'hold', 'reject'] },
+      action: { type: 'string', enum: ['list', 'content', 'read', 'save', 'hold', 'reject'] },
+      offset: { type: 'integer', description: 'For content: zero-based offset in the combined saved publishing list. Returns full paged entries, including source, copy, campaign and job identifiers.' },
       id: { type: 'string', description: 'Feed ID bluesky|blog-linkedin for save; topic UUID for read/hold/reject.' },
       revision: { type: 'integer' }, enabled: { type: 'boolean' },
       policy: { type: 'object', description: 'Complete existing policy with requested edits: timezone, startHour, endHour, days:[0 Sunday..6], guidance. Retain unspecified legacy fields; expiryHours is ignored for scheduling and delivery.', additionalProperties: true },
@@ -21,6 +26,21 @@ export const PUBLISHING_TOOL: LlmToolDefinition = {
   },
 };
 export async function executePublishingTool(db: Pool, args: Record<string, unknown>, sessionId?: string): Promise<unknown> {
+  if (args.action === 'content') {
+    const offset = args.offset ?? 0;
+    if (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0) throw new ValidationError('Use a nonnegative publishing content offset.');
+    const all = await listPublishingContent(db);
+    const entries = [];
+    let size = 0;
+    for (const entry of all.slice(offset, offset + CONTENT_PAGE_SIZE)) {
+      const length = JSON.stringify(entry).length;
+      if (size + length > CONTENT_PAGE_CHARS) break;
+      entries.push(entry); size += length;
+    }
+    if (!entries.length && offset < all.length) throw new ValidationError('This entry exceeds the paged content limit. Retrieve the identified campaign or managed job through its existing read tool.');
+    return { entries, total: all.length, nextOffset: offset + entries.length < all.length ? offset + entries.length : null,
+      access: 'These are actual saved entries. Read Discover topics for full editorial copy/evidence, podcast campaigns for current review and artwork, and managed jobs for complete source bodies, approvals and delivery receipts. Displaying a draft never authorises publication.' };
+  }
   if (args.action === 'list') return {
     feeds: await feeds(db), topics: await listTopics(db, 0, true), reviewUrl: '/discover?publishing=1',
     selectionPolicy: `Finished, reviewed drafts only. Microsoft-first, newest relevant evidence first. At most ${PUBLISH_LIMITS.draftShortlist} draft entries total; blog/social packages count as one entry. Scheduled or published topics do not appear in Drafts. Every content sync refreshes and reviews the shortlist without changing scheduled copy. Scheduled entries are separate from the draft limit. Non-Microsoft stories need an exceptional, explicit audience-relevance rationale. Human approval sends each exact version for scheduling, never immediate publication.`,

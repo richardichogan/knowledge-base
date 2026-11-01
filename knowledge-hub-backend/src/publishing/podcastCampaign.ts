@@ -91,6 +91,7 @@ export interface PodcastCampaignDetail extends PodcastCampaign {
 export interface ScheduledPodcastPost extends Omit<ScheduledPost, 'topicId'> {
   noteId: string; label: string; copy: string; blog: PodcastPost['blog'];
   campaignPaused: boolean; deliveryStatus: Delivery['status'] | null;
+  asset?: PodcastImageAsset;
 }
 
 export function parseEpisodeLinks(value: unknown, required = false): EpisodeLinks {

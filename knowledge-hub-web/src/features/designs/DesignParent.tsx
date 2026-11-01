@@ -14,6 +14,7 @@ import type { DesignAsset, DesignDetail, SpecificationType } from '../../types/d
 import { DesignVisual } from './DesignVisual';
 import { DesignHandoff } from './DesignHandoff';
 import { DesignConsistency } from './DesignConsistency';
+import { DesignReadiness } from './DesignReadiness';
 import { rememberAgentJob, useAgentJobFinished, useAgentJobs } from '../../services/agentJobStore';
 import type { AgentJob } from '../../types/agentJobs';
 import { AthenaRibbon } from '../../components/athena/AthenaRibbon';
@@ -41,6 +42,8 @@ export const DesignParent: React.FC<{
   const [error, setError] = useState<string | null>(null);
   const [switching, setSwitching] = useState(false);
   const [visualBusy, setVisualBusy] = useState(false);
+  const [readinessBusy, setReadinessBusy] = useState(false);
+  const readinessBusyChange = useCallback((value: boolean) => { setReadinessBusy(value); }, []);
   const [visualStatus, setVisualStatus] = useState<string | undefined>();
   const visualBusyChange = useCallback((value: boolean, status?: string) => { setVisualBusy(value); setVisualStatus(status); }, []);
   const [chatBusy, setChatBusy] = useState(false);
@@ -63,7 +66,7 @@ export const DesignParent: React.FC<{
   const latestJob = job ?? [...new Map([...(history.data ?? []), ...liveJobs].map(item => [item.id, item])).values()]
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
   const specBusy = job?.specialist === 'spec-writer';
-  const busy = visualBusy || chatBusy || workspaceBusy || !!job;
+  const busy = visualBusy || readinessBusy || chatBusy || workspaceBusy || !!job;
   const assets = design?.assets.filter(asset => asset.role === tab) ?? [];
   const chosen = targetId && assets.some(item => item.sourceId === targetId) ? targetId : design?.selections[tab];
   const asset = chosen ? assets.find(item => item.sourceId === chosen) : assets.length === 1 ? assets[0] : undefined;
@@ -82,13 +85,14 @@ export const DesignParent: React.FC<{
     let cancelled = false;
     const publish = (): void => {
       setAthenaContext({ type: 'note', id: note.id, conversationId: design.parentNoteId,
+        designId: design.id, designTab: tab, ...(note.revision !== undefined ? { revision: note.revision } : {}),
         title: note.title, detail: extractNoteBlockText(blocks as NoteContentBlock[], athenaLinkText),
         ...(note.projectId ? { projectId: note.projectId } : {}) });
     };
     publish();
     void prepareEntityLinkExport(blocks).then(() => { if (!cancelled) publish(); }).catch(() => { /* links stay as ids */ });
     return () => { cancelled = true; };
-  }, [document.data, design, setAthenaContext]);
+  }, [document.data, design, tab, setAthenaContext]);
   useEffect(() => () => { setAthenaContext(null); }, [setAthenaContext]);
   const prepare = useCallback(async (): Promise<void> => {
     if (noteSave.current && !await noteSave.current()) throw new Error('The document could not be saved. Your draft remains available; retry before continuing.');
@@ -101,7 +105,7 @@ export const DesignParent: React.FC<{
   useEffect(() => {
     if (!design) return;
     return setDesignChatBridge(design.parentNoteId, async () => {
-      if (visualBusy || chatBusyRef.current) throw new Error('Finish the current Design operation before sending another request.');
+      if (visualBusy || readinessBusy || chatBusyRef.current) throw new Error('Finish the current Design operation before sending another request.');
       chatBusyRef.current = true;
       setChatBusy(true);
       try { await prepare(); }
@@ -112,6 +116,7 @@ export const DesignParent: React.FC<{
             await Promise.all([
               qc.invalidateQueries({ queryKey: ['design', id] }),
               qc.invalidateQueries({ queryKey: ['design-document'] }),
+              qc.invalidateQueries({ queryKey: ['design-readiness', id] }),
               refresh(),
             ]);
           }
@@ -119,7 +124,7 @@ export const DesignParent: React.FC<{
         finally { chatBusyRef.current = false; setChatBusy(false); }
       };
     });
-  }, [design, id, prepare, qc, refresh, visualBusy]);
+  }, [design, id, prepare, qc, refresh, visualBusy, readinessBusy]);
   const switchTo = async (nextTab: Tab, sourceId: string | null = null): Promise<void> => {
     if (switching || busy || (nextTab === tab && sourceId === targetId)) return;
     setSwitching(true); setError(null);
@@ -203,6 +208,7 @@ export const DesignParent: React.FC<{
   // Every lock says why, so the Design never looks frozen.
   const lockReason = job ? (specBusy && tab === 'use_case' ? null
     : `${job.specialistName} ${job.status === 'running' ? `is working · ${jobSeconds}s${jobStep ? ` · ${jobStep}` : ''}` : 'is waiting to start'}. Editing unlocks when it finishes, and you'll be notified.`)
+    : readinessBusy ? 'Athena is checking readiness or preparing a repair. Editing unlocks when it finishes.'
     : visualBusy ? `${visualStatus ?? 'Athena is working on the Blueprint'}. Editing unlocks when it finishes, and you'll be notified.`
       : chatBusy ? 'Athena is working on this Design in the chat. Editing unlocks when the reply finishes.'
         : workspaceBusy ? 'Opening the note…' : switching ? 'Saving and switching documents…' : null;
@@ -237,6 +243,13 @@ export const DesignParent: React.FC<{
           : 'Uses the selected use case. The existing spec stays intact until the new version is ready.'}</p>
       {error && <p role="alert" className="kh-design-work__error">{error}</p>}
     </section>
+    {tab === 'spec' && design?.specificationType === 'imagine' && <DesignReadiness key={id} id={id}
+      specId={asset?.sourceId} currentSpecId={design.selections.spec ?? (assets.length === 1 ? assets[0]?.sourceId : undefined)}
+      revision={document.data?.revision} designRevision={design.revision} busy={busy || switching}
+      prepare={prepare} onBusyChange={readinessBusyChange} onApplied={async () => {
+        setEditorEpoch(value => value + 1);
+        await Promise.all([qc.invalidateQueries({ queryKey: ['design-document'] }), refresh()]);
+      }} />}
     <DesignConsistency key={id} id={id} busy={busy || switching} prepare={prepare} />
     <section aria-label="Design activity">
       <h3>Activity</h3>
@@ -275,6 +288,7 @@ export const DesignParent: React.FC<{
     qc.setQueryData(['design-document', documentId, editorEpoch], note);
     void qc.invalidateQueries({ queryKey: ['notes-list'] });
     void qc.invalidateQueries({ queryKey: ['design-collaboration', id] });
+    void qc.invalidateQueries({ queryKey: ['design-readiness', id] });
     if (note.id === design?.parentNoteId) {
       void qc.invalidateQueries({ queryKey: ['design', id] });
       if (note.contentType !== 'design') onOpenNote(note.id);
@@ -318,7 +332,8 @@ export const DesignParent: React.FC<{
         onOpenMap={onOpenMap} onSaveReady={registerSave} onBeforeViewChange={prepare} headerContent={chrome} designPanel={designPanel}
         actionContent={<li role="menuitem"><button type="button" className="kb-menu__item" onClick={() => { setHandoff(true); }}>Copilot package...</button></li>}
         bodyContent={asset?.available && asset.sourceType === 'canvas' ? <div className="kh-design-diagram-body">
-          <DiagramEditor canvasId={asset.sourceId} designPanel={designPanel} parentContext={{ type: 'note', id: design.parentNoteId, title: design.title }}
+          <DiagramEditor canvasId={asset.sourceId} designPanel={designPanel} parentContext={{ type: 'note', id: design.parentNoteId, title: design.title,
+            designId: design.id, designTab: tab }}
             onSaveReady={registerDiagramSave} onOpenNote={onOpenNote} onDeleted={() => { void query.refetch(); }} /></div>
           : tab === 'diagram' ? <section className="kh-design-diagram-empty" aria-label="Diagram canvas">
             <h3>{asset ? 'Diagram unavailable' : assets.length ? 'Choose a diagram canvas' : 'No diagram canvas linked'}</h3>

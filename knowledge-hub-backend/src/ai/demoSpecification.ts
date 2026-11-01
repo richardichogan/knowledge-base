@@ -134,6 +134,20 @@ export function demoSpecificationForm(sections?: readonly number[]): unknown {
   };
 }
 
+/** Version-bound locations for assessing saved writing, not just generation responses. */
+export function demoSpecificationRequirements(): {
+  version: string; fields: Array<{ section: number; label: string }>;
+  tables: Array<{ section: number; headers: string[] }>;
+} {
+  return {
+    version: DEMO_SPECIFICATION_VERSION,
+    fields: fields.filter(field => field.cell === undefined).map(field => ({
+      section: Number.parseInt(field.section, 10), label: field.label,
+    })),
+    tables: tables.map(table => ({ section: Number.parseInt(table.section, 10), headers: [...table.headers] })),
+  };
+}
+
 /** The Design worker uses the same complete field contract as the chat tool. */
 export function demoSpecificationResponseSchema(sections?: readonly number[]): LlmJsonSchema {
   const string = { type: 'string', minLength: 1, maxLength: MAX_FIELD_CHARS, pattern: '^[^\\r\\n]*$' };

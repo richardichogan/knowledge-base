@@ -5,6 +5,7 @@ import { publishingFixture } from './publishing-fixture.js';
 import type { Pool } from 'pg';
 import type { Draft, Delivery, Source, Topic } from '../src/publishing/contracts.js';
 import { isMicrosoftRelevant, microsoftRelevanceSql } from '../src/utils/microsoftRelevance.js';
+import type { JobRun } from '../src/jobs/contracts.js';
 
 process.env.DATABASE_URL = 'postgresql://isolated.invalid/publishing';
 process.env.BLOG_POSTS_URL = 'https://blog.fixture.invalid/api/posts';
@@ -16,6 +17,7 @@ const { parsePolicy } = await import('../src/publishing/contracts.js');
 const { verifyBlog, tickPublishing, publishDraft, recoverBlogPublication } = await import('../src/publishing/worker.js');
 const { refreshSchedule, listSchedule, planSchedule } = await import('../src/publishing/schedule.js');
 const { refreshPublishingDrafts, publishingRefreshStatus } = await import('../src/publishing/refresh.js');
+const { jobPublishingPosts } = await import('../src/publishing/content.js');
 const { IntegrationError, AiOutputLimitError } = await import('../src/types/errors.js');
 const prose = 'Administrators can now configure the documented capability through the existing management portal. Check the scope and permissions before enabling it. '.repeat(9);
 const blog = { title: 'A practical administration change', summary: 'Check permissions before enabling the documented capability.', excerpt: 'A practical administration change.',
@@ -39,6 +41,49 @@ async function draft(db: Pool, id: string, destination: Draft['destination'] = '
 const context = (d: Draft) => ({ identity: `draft:${d.id}:v${d.version}`, topicId: d.topicId, draftId: d.id, version: d.version, feed: d.destination === 'bluesky' ? 'bluesky' as const : 'blog-linkedin' as const,
   now: new Date() });
 async function enable(db: Pool): Promise<void> { await db.query(`UPDATE publishing_feeds SET enabled=TRUE,policy=policy || '{"startHour":0,"endHour":24}'::jsonb`); }
+
+test('combined publishing reads pending LinkedIn drafts and source evidence without assigning or approving slots', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db);
+    const evidence = await source(f.db, t.id);
+    const linkedin = await draft(f.db, t.id, 'linkedin', 'blog');
+    const entries = await listSchedule(f.db, true);
+    const entry = entries.find(p => p.draftId === linkedin.id)!;
+    assert.equal(entry.destination, 'linkedin');
+    assert.equal(entry.status, 'Awaiting approval');
+    assert.equal(entry.approved, false);
+    assert.equal(entry.origin, 'Discover');
+    assert.equal(entry.scheduledAt, null);
+    assert.equal(entry.sources?.[0]?.id, evidence.itemId);
+    assert.equal(entry.sources?.[0]?.url, evidence.url);
+    assert.deepEqual(await listSchedule(f.db), []);
+    assert.equal((await f.db.query<{ approval: string }>('SELECT approval FROM publishing_drafts WHERE id=$1', [linkedin.id])).rows[0]!.approval, 'pending');
+  } finally { await f.close(); }
+});
+
+test('weekly digest content excludes published outputs while retaining unpublished copy and sources', () => {
+  const run: JobRun = {
+    id: 'run', jobId: 'weekly', revision: 1, definition: { name: "What's New in Microsoft", kind: 'weekly-microsoft',
+      prompt: '', schedule: { timezone: 'Europe/London', days: [1], times: ['08:00'] }, approval: 'required',
+      deviceId: '', inputFolder: '', outputFolder: '', outputs: ['blog', 'linkedin', 'bluesky'] },
+    scheduledAt: '2026-10-26T08:00:00Z', deadline: '2026-10-26T12:00:00Z', status: 'partial', preview: false,
+    approvedAt: '2026-10-26T08:00:00Z', createdAt: '', updatedAt: '',
+    steps: [{ key: 'blog', status: 'succeeded', startedAt: '' }, { key: 'linkedin', status: 'succeeded', startedAt: '' }, { key: 'bluesky', status: 'failed', startedAt: '', error: 'Copy exceeds limit.' }],
+    artifacts: { blog: { title: 'Saved weekly article', content: '<p>Complete saved body.</p>' },
+      linkedin: 'Complete LinkedIn copy.', bluesky: 'Complete Bluesky copy.',
+      sources: [{ id: 'evidence', title: 'Microsoft announcement', url: 'https://example.com/news' }] },
+  };
+  const entries = jobPublishingPosts(run);
+  assert.equal(entries.length, 1);
+  assert.equal(entries.some(p => p.destination === 'linkedin' || p.destination === 'blog'), false);
+  assert.equal(entries.find(p => p.destination === 'bluesky')!.reason, 'Copy exceeds limit.');
+  assert.equal(entries[0]!.copy, run.artifacts.bluesky);
+  assert.equal(entries[0]!.sources?.[0]?.title, 'Microsoft announcement');
+  assert.equal(entries[0]!.origin, 'Microsoft weekly digest');
+  assert.equal(entries[0]!.approved, true);
+  assert.equal(jobPublishingPosts({ ...run, status: 'awaiting-approval', approvedAt: null })[0]!.approved, false);
+});
 
 test('discard rejects only the pending Blog/LinkedIn package and retains source articles and other drafts', async () => {
   const f = await publishingFixture();

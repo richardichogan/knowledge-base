@@ -32,7 +32,7 @@ function Failure({ error, retry }: { error: unknown; retry?: () => void }): Reac
     {retry && <button type="button" className="notes-podcast__button" onClick={retry}>Retry</button>}
   </div>;
 }
-function CampaignArtwork({ post, noteId }: { post: NonNullable<PodcastCampaignDetail['plan']>['posts'][number]; noteId: string }): React.ReactElement | null {
+export function CampaignArtwork({ post, noteId }: { post: Pick<NonNullable<PodcastCampaignDetail['plan']>['posts'][number], 'id' | 'asset' | 'assetSpec' | 'destination'>; noteId: string }): React.ReactElement | null {
   const asset = post.asset;
   const [source, setSource] = useState<string | null>(null);
   const query = useQuery({ queryKey: ['podcast-image-file', asset?.imageId], enabled: !!asset,

@@ -1,11 +1,12 @@
 import type { Location } from 'react-router-dom';
 
-export type SettingsView = 'memory' | 'sync' | 'repo-projects' | 'jobs' | 'learning';
+export type SettingsView = 'memory' | 'sync' | 'repo-projects' | 'jobs' | 'learning' | 'publishing';
 
 export function settingsView(pathname: string, search = ''): SettingsView | undefined {
   if (pathname === '/learn') return 'learning';
   if (pathname === '/memory') return 'memory';
   if (pathname === '/jobs') return 'jobs';
+  if (pathname === '/publishing') return 'publishing';
   if (pathname === '/settings/repo-mappings') return 'repo-projects';
   if (pathname === '/my-work' && new URLSearchParams(search).get('sync') === '1') return 'sync';
   return undefined;

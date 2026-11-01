@@ -13,11 +13,13 @@ import { registerManualBlogExecutor } from './agents/workforce/dispatcher.js';
 import { createManualBlogExecutor } from './agents/workforce/blogDomain.js';
 import { manualBlogSourceCapabilities } from './agents/workforce/blogSources.js';
 import { assertWorkforceSchemaReady } from './agents/workforce/readiness.js';
+import { startTraceRetention } from './ai/turnTrace.js';
 
 assertSafeDatabase(env.DATABASE_MODE, env.DATABASE_URL, env.NODE_ENV);
 const sharedProductionDatabase = env.NODE_ENV === 'development' && env.DATABASE_MODE === 'production';
 let credentialTimer: ReturnType<typeof setInterval> | undefined;
 let refreshingCredentials = false;
+let stopTraceRetention: (() => void) | undefined;
 const CREDENTIAL_REFRESH_INTERVAL_MS = 15_000;
 const app = createApp(() => runtime.phase);
 const server = app.listen(env.PORT, () => {
@@ -36,6 +38,7 @@ const runtime = createRuntime({
     await getDb().query('SELECT 1');
     if (!sharedProductionDatabase) await recoverInterruptedWork(getDb());
     await warmUpDb();
+    stopTraceRetention = startTraceRetention(getDb());
   },
   startJobs: () => {
     if (env.ATHENA_WORKFORCE_MANUAL_BLOG) registerManualBlogExecutor(createManualBlogExecutor(getDb(), manualBlogSourceCapabilities()));
@@ -51,7 +54,7 @@ const runtime = createRuntime({
     if (env.NODE_ENV === 'production') startSyncScheduler();
     else console.warn('[Scheduler] Non-production mode: scheduled jobs disabled.');
   },
-  stopJobs: () => { clearInterval(credentialTimer); stopSyncScheduler(); stopTurnJobs(); void stopAgentWorker(); },
+  stopJobs: () => { clearInterval(credentialTimer); stopTraceRetention?.(); stopSyncScheduler(); stopTurnJobs(); void stopAgentWorker(); },
   closeServer: () => new Promise<void>((resolve, reject) => {
     server.close((error) => { if (error) reject(error); else resolve(); });
     server.closeIdleConnections();

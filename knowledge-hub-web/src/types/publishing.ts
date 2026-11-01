@@ -1,3 +1,5 @@
+import type { PodcastPost } from './podcastCampaign';
+
 export type FeedId = 'bluesky' | 'blog-linkedin';
 export interface FeedPolicy {
   timezone: string; startHour: number; endHour: number; days: number[]; expiryHours: number; guidance: string;
@@ -6,13 +8,20 @@ export interface PublishingFeed { id: FeedId; enabled: boolean; revision: number
 export interface ScheduledPost {
   draftId: string; topicId: string; title: string; destination: 'bluesky' | 'blog' | 'linkedin'; version: number;
   scheduledAt: string | null; timezone: string; paused: boolean; reason: string;
+  origin?: string; status?: string;
+  approved?: boolean;
+  sources?: Array<{ id: string; title: string; url: string | null }>;
 }
 export interface ScheduledPodcastPost extends Omit<ScheduledPost, 'topicId'> {
   noteId: string; label: string; copy: string;
   blog: { title: string; content: string; summary: string; slug?: string; excerpt: string } | null;
   campaignPaused: boolean; deliveryStatus: 'sending' | 'sent' | 'failed' | 'unconfirmed' | null;
+  asset?: NonNullable<PodcastPost['asset']>;
 }
-export type PublishingScheduleEntry = ScheduledPost | ScheduledPodcastPost;
+export interface PublishingJobPost extends Omit<ScheduledPost, 'topicId'> {
+  jobId: string; runId: string; copy: string; blog: Record<string, unknown> | null;
+}
+export type PublishingScheduleEntry = ScheduledPost | ScheduledPodcastPost | PublishingJobPost;
 export interface PublishingDraft {
   id: string; topicId: string; destination: 'bluesky' | 'blog' | 'linkedin'; variant: 'source' | 'blog';
   version: number; content: Record<string, unknown>; review: string; approval: string; held: boolean;

@@ -3,7 +3,7 @@ import type { Pool } from 'pg';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { object } from '../jobs/contracts.js';
 import { uuid } from '../publishing/contracts.js';
-import { decidePodcastCampaign, getPodcastCampaign, preparePodcastCampaign, savePodcastLinks, saveRecordingTeaserCopy, savePodcastImageSpec, retryPodcastCreationReview } from '../publishing/podcastCampaignStore.js';
+import { decidePodcastCampaign, getPodcastCampaign, preparePodcastCampaign, savePodcastLinks, replacePodcastYoutubeLink, saveRecordingTeaserCopy, savePodcastImageSpec, retryPodcastCreationReview } from '../publishing/podcastCampaignStore.js';
 import { loadPodcastArtworkSource } from '../publishing/podcastCampaignAssets.js';
 import { NotFoundError } from '../types/errors.js';
 
@@ -34,6 +34,10 @@ export function createPodcastCampaignRouter(getDb: () => Pool): Router {
   router.put('/:id/links', route(req => {
     const body = object(req.body);
     return savePodcastLinks(getDb(), uuid(req.params.id), body.revision, body.links, actor(req));
+  }));
+  router.put('/:id/links/youtube', route(req => {
+    const body = object(req.body);
+    return replacePodcastYoutubeLink(getDb(), uuid(req.params.id), body.revision, body.previous, body.replacement, actor(req));
   }));
   router.post('/:id/prepare', route(req => {
     const body = object(req.body);

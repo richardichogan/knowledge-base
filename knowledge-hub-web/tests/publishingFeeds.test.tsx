@@ -4,11 +4,47 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
-import { PublishingFeedControls, PublishingDraftPreview, PublishingDraftList, PublishingSchedule, ScheduledPodcastPreview, TopicReview, publishingApprovalBlocker } from '../src/components/discover/DiscoverPublishing';
-import type { PublishingFeed, PublishingDraft, PublishingTopic, PublishingDetail, ScheduledPodcastPost } from '../src/types/publishing';
+import { PublishingFeedControls, PublishingDraftPreview, PublishingDraftList, PublishingSchedule, ScheduledPodcastPreview, TopicReview, publishingApprovalBlocker, PublishingSources, publishingContentForView, PublishingContentDraftList } from '../src/components/discover/DiscoverPublishing';
+import type { PublishingFeed, PublishingDraft, PublishingTopic, PublishingDetail, ScheduledPodcastPost, PublishingScheduleEntry } from '../src/types/publishing';
 
 const policy = { timezone: 'Europe/London', startHour: 8, endHour: 20, days: [0, 1, 2, 3, 4, 5, 6], expiryHours: 48, guidance: '' };
 const feeds: PublishingFeed[] = [{ id: 'bluesky', revision: 1, enabled: false, policy }, { id: 'blog-linkedin', revision: 1, enabled: false, policy: { ...policy, expiryHours: 168 } }];
+test('drafts and scheduling are separated by saved approval, not proposed dates or status labels', () => {
+  const base = { title: 'Microsoft update', destination: 'linkedin' as const, version: 1,
+    scheduledAt: '2099-01-01T08:00:00Z', timezone: 'Europe/London', paused: false, reason: '', origin: 'Discover' };
+  const posts: PublishingScheduleEntry[] = [
+    { ...base, draftId: 'pending', topicId: 'topic', approved: false, status: 'Awaiting approval' },
+    { ...base, draftId: 'blog', topicId: 'topic', destination: 'blog', approved: false, status: 'Awaiting approval' },
+    { ...base, draftId: 'approved', topicId: 'approved-topic', approved: true, scheduledAt: null, status: 'Needs scheduling' },
+    { ...base, draftId: 'unknown', topicId: 'unknown-topic', status: 'Scheduled' },
+    { ...base, draftId: 'published', topicId: 'published-topic', approved: true, status: 'Published' },
+    { ...base, draftId: 'campaign', noteId: 'note', copy: 'Saved campaign copy', label: 'Follow-up', blog: null,
+      campaignPaused: false, deliveryStatus: null, approved: false, origin: 'Podcast campaign', status: 'Draft · awaiting approval' },
+    { ...base, draftId: 'job', jobId: 'job', runId: 'run', copy: 'Saved digest copy', blog: null,
+      approved: false, origin: 'Microsoft weekly digest', status: 'awaiting-approval' },
+  ];
+  const drafts = publishingContentForView(posts, 'drafts');
+  assert.deepEqual(drafts.map(p => p.draftId), ['pending', 'blog', 'campaign', 'job']);
+  assert.deepEqual(publishingContentForView(posts, 'schedule').map(p => p.draftId), ['approved']);
+  const html = renderToStaticMarkup(<PublishingContentDraftList posts={drafts} selected="pending" onSelect={() => {}} />);
+  assert.equal([...html.matchAll(/class="kh-publishing__draft-row"/g)].length, 3);
+  assert.ok(html.includes('LinkedIn / Blog'));
+  assert.ok(html.includes('Podcast campaign'));
+  assert.ok(html.includes('Microsoft weekly digest'));
+});
+test('combined list exposes pending LinkedIn posts and their real source without claiming scheduling', () => {
+  const post = { draftId: 'linkedin-draft', topicId: 'topic', title: 'Saved LinkedIn article', destination: 'linkedin' as const,
+    version: 2, scheduledAt: null, timezone: 'Europe/London', paused: false, reason: 'Waiting for approval.',
+    origin: 'Discover', status: 'Awaiting approval', sources: [{ id: 'article', title: 'Original announcement', url: 'https://example.com/article' }] };
+  const html = renderToStaticMarkup(<PublishingSchedule posts={[post]} selected={post.draftId} onSelect={() => {}} />);
+  assert.ok(html.includes('LinkedIn'));
+  assert.ok(html.includes('Awaiting approval'));
+  assert.ok(html.includes('Source: Discover'));
+  const source = renderToStaticMarkup(<MemoryRouter><PublishingSources post={post} /></MemoryRouter>);
+  assert.ok(source.includes('Original announcement'));
+  assert.ok(source.includes('https://example.com/article'));
+  assert.ok(!source.includes('Send'));
+});
 test('podcast schedule entries show full copy and link to Campaign without offering another send action', () => {
   const post: ScheduledPodcastPost = {
     draftId: 'podcast:note:post', noteId: 'note', title: 'Episode campaign', label: 'Episode follow-up',

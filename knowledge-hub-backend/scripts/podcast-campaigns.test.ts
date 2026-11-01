@@ -141,6 +141,26 @@ async function fixture() {
   })]);
   return { ...f, noteId };
 }
+test('YouTube replacement refuses stale revisions, mismatched URLs and delivered campaigns without changing approved content', async () => {
+  const f = await fixture();
+  try {
+    await store.savePodcastLinks(f.db, f.noteId, 0, links, 'human');
+    await f.db.query("UPDATE podcast_campaigns SET plan=$2,source_revision=1,state='approved',approved_at=NOW() WHERE note_id=$1", [f.noteId, JSON.stringify(plan())]);
+    const before = await store.getPodcastCampaign(f.db, f.noteId);
+    const replacement = 'https://youtu.be/EZB61c67Zk0';
+    await assert.rejects(store.replacePodcastYoutubeLink(f.db, f.noteId, 0, links.youtube, replacement, 'human'), /changed/);
+    await assert.rejects(store.replacePodcastYoutubeLink(f.db, f.noteId, before.revision, 'https://youtu.be/zyxwvutsrqp', replacement, 'human'), /URL changed/);
+    const post = before.plan!.posts[0]!;
+    await f.db.query(`INSERT INTO publishing_deliveries(identity,destination,account,status,receipt,published_at)
+      VALUES($1,'blog','blog.fixture.invalid','sent','{"url":"https://blog.fixture.invalid/episode"}',NOW())`, [`podcast:${f.noteId}:${post.id}`]);
+    await assert.rejects(store.replacePodcastYoutubeLink(f.db, f.noteId, before.revision, links.youtube, replacement, 'human'), /Publication has started/);
+    const after = await store.getPodcastCampaign(f.db, f.noteId);
+    assert.equal(after.revision, before.revision);
+    assert.equal(after.state, 'approved');
+    assert.deepEqual(after.links, before.links);
+    assert.deepEqual(after.plan, before.plan);
+  } finally { await f.close(); }
+});
 test('episode URLs require the correct platform and episode, and only unambiguous URLs are prefilled', () => {
   assert.deepEqual(contracts.parseEpisodeLinks(links, true), links);
   assert.throws(() => contracts.parseEpisodeLinks({ ...links, apple: 'https://podcasts.apple.com/gb/podcast/test/id12345678' }), /episode/);
@@ -351,6 +371,11 @@ test('Scheduling projects approved campaign posts without creating jobs or alter
     const prepared = plan();
     await f.db.query('UPDATE podcast_campaigns SET plan=$2,source_revision=1 WHERE note_id=$1', [f.noteId, JSON.stringify(prepared)]);
     assert.deepEqual(await store.listPodcastSchedule(f.db), [], 'unapproved drafts must not enter Scheduling');
+    const drafts = await store.listPodcastSchedule(f.db, true);
+    assert.equal(drafts.length, 3, 'combined publishing includes every destination from draft campaigns');
+    assert.ok(drafts.some(post => post.destination === 'linkedin'));
+    assert.ok(drafts.every(post => post.status === 'Draft · awaiting approval' && post.origin === 'Podcast campaign'));
+    assert.deepEqual(drafts[0]!.sources, [{ id: f.noteId, title: 'Show Notes', url: null }]);
     await f.db.query("UPDATE podcast_campaigns SET state='approved',approved_at=NOW() WHERE note_id=$1", [f.noteId]);
     const before = (await f.db.query('SELECT * FROM podcast_campaigns WHERE note_id=$1', [f.noteId])).rows;
     await f.db.query('UPDATE publishing_feeds SET enabled=false');

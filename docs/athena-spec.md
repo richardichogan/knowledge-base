@@ -66,6 +66,14 @@ Reading checkpoints are private to the chat, review objective, source and scope,
 
 Health exposes conversation retrieval signals as well as provider usage: measured scope, prevented cross-collection attempts, inherited scope, possible deferred retries, temporal/default-window use, unread search hits, unverified quotes, budget exhaustion and tool errors. Deferred retries are heuristic review flags, not proven failures. Audit storage contains categories/counts only, never prompts or source text. Legacy rows without scope/environment attribution stay separate and unmeasured. No-retrieval can be correct for conversation, provider success is not task success, and these signals are not an accuracy score. Health's selected dates are UTC and environment/persona/feature filters apply; deployment-attributed turn quality is explicitly unavailable.
 
+### Short-lived chat diagnostics
+
+Every new chat turn separately captures a content-level diagnostic trace: the received page context, resolved target and project, actual provider request bodies (including system messages, history and available tools), model responses, ordered tool requests, execution arguments and model-visible results, saved reply linkage and failures. The UI sends a separate identity-only snapshot on every turn, even when unchanged page content is withheld from the model; it records whether the user dismissed context. This diagnostic snapshot does not itself become model context. Design context identifies the Design, active tab and source revision when available; diagrams additionally identify all selected shapes/connectors and save state. Missing context remains missing, rather than being reconstructed from a title. These records distinguish what the application supplied from what the model inferred; they do not themselves improve reasoning or prove the answer correct.
+
+Traces expire seven days after starting. Reads deny expired traces immediately; startup and hourly cleanup physically delete them, including their event content. Deleting a linked chat or assistant message cascades to its traces. Known runtime connection credentials, sensitive JSON fields, bearer tokens, private keys, signed-URL signatures and credential-bearing URLs are redacted before storage. Redaction deliberately means these are not byte-identical transport recordings, and cannot guarantee detection of an arbitrary unidentified secret embedded in source prose. Trace write failures log an explicit diagnostic failure and mark persisted captures incomplete rather than failing the user's chat; an abrupt process loss can leave a trace marked running.
+
+Authenticated diagnostics use `GET /api/ai/sessions/:sessionId/traces` (20 records per page via `offset`) and `GET /api/ai/sessions/:sessionId/traces/:traceId/events` (one event, 12,000 characters at a time via `sequence` and `offset`). Responses provide continuation offsets/sequences and completion status. Athena has corresponding bounded, read-only `list_chat_turn_traces` and `read_chat_turn_trace` tools. Full prompts cannot safely be field-filtered, so these tools refuse access under enforced project scope or source exclusions, including exclusions on the original chat. Explicit collection scopes continue to use the normal capability gates. Historical trace content is untrusted diagnostic evidence, not current instructions or a current source read. There is no new panel, replay, automatic mutation, knowledge indexing or retrospective backfill.
+
 Workflow health separately records new specialist attempts, direct Design operations and claimed scheduled jobs. Model calls inherit a workflow ID, stage and explicit purpose through async-local context; diagnostic callers must explicitly choose diagnostic purpose, not rely on worker-name guesses. No prompts or document text enter this telemetry. Blog checks distinguish completed operations from review-blocked/ready drafts and successful blog delivery. Elapsed run time and summed model-call time are different measures. Earlier calls/jobs are not retroactively attributed; running records can represent work interrupted by process failure. Workflow cohorts use start time; call aggregates follow the usage date/environment/model filters. Review/delivery counts overlap completed runs and do not prove user acceptance.
 
 Source sync retains up to 20 safe failure categories, targets and corrective actions per source, with an explicit total error count. Raw provider response bodies are not shown in Health. These latest shared-source runs do not follow usage filters; older records retain counts only. Project Markdown ingestion decodes strict UTF-8 or BOM-tagged UTF-16LE/BE and rejects invalid text/NULs rather than discarding bytes. Graph sign-in requests Mail.Read.Shared for the podcast shared mailbox; existing sign-ins retain their granted scopes during refresh, and need renewed consent plus mailbox read permission. Expired ICA consulting keys and GitHub repository access require credential/access correction, not silent source removal.
@@ -381,6 +389,38 @@ links, open the same modal. Athena can design and manage saved jobs from any cha
 the Jobs screen is not a required setup wizard. Chat proposals display the exact
 configuration and require a user confirmation card before they change a schedule
 or enable publishing. Discussing a possible job does not enable one.
+
+**Tools → Publishing** (`/publishing`) opens the existing Publishing dialog
+over the current workspace, preserving its editors, selection and return
+location. Discover no longer has a Publishing menu action; existing
+`/discover?publishing=1` links remain compatible.
+Publishing's **Drafts** view contains unapproved Discover content, grouped
+by topic so Blog / LinkedIn packages remain one entry, plus unapproved podcast
+campaign and recording-teaser posts and publishing job outputs. Preparation,
+review and hold states remain visible without granting approval.
+**Scheduling** contains only approved, unpublished content across those same
+sources. Publishing jobs include the latest 50 outstanding runs, including
+Microsoft weekly digests. Typed approval state, not a proposed date or status
+label, determines which view contains an entry.
+Each entry shows its status, origin, saved copy and source
+references; image-bearing podcast previews show their saved artwork. Published
+outputs are excluded, including completed destinations of partial job runs;
+only their unpublished outputs remain. Proposed campaign dates and job
+trigger dates are not approvals or guaranteed delivery times. Existing topic,
+Think campaign and Jobs editors retain their approval and editing controls.
+This read-only content projection does not change the approved-only schedule,
+reserve slots, approve drafts, retry failures or trigger deliveries. Athena's
+publishing tool can retrieve the same saved content in bounded pages, with
+existing topic, campaign and job tools providing deeper reads and safeguarded
+edits.
+
+For a re-uploaded episode video, the revision-checked YouTube link replacement
+updates the existing campaign in place rather than discarding its plan. It
+preserves copy apart from the replaced URL, artwork, post identities and dates,
+clears approval and queues independent review of the changed fingerprint.
+Published, in-flight or unconfirmed campaigns are locked against this change.
+The authenticated campaign endpoint and Athena's read-before-write tool share
+the same domain service; replacement never approves or delivers posts.
 
 Schedules have an explicit IANA timezone, selected days (workdays, full week or
 weekly days), and one or more local times. Content sync starts with **06:00 and
@@ -858,6 +898,14 @@ A *use case* tracks one idea for one product.
 Blueprint generation and feedback that rewrites an authored Blueprint require the configured dedicated bulk endpoint and key. If either is missing, the request fails explicitly without calling the light/chat model. The full generation and feedback output budgets remain unchanged; legacy lower-budget feedback and other bulk callers retain their existing fallback behaviour.
 
 The existing Design properties panel offers a manual **Check consistency** action. It saves pending editor changes, then reads the selected saved inputs without rewriting documents, resolving decisions or blocking handoff. Coverage explicitly distinguishes missing, ambiguous and unavailable inputs; fewer than two supplied inputs do not trigger a model comparison. Reports are timestamped revision snapshots, not continuously current certification. Contradictions require exact quotations from at least two different sources; diagram evidence must identify a saved node/connector and quote its label or description. Unverifiable model citations reject the report, and source changes during review require a fresh check. Missing architecture/diagrams are not inferred from unrelated records or generated automatically.
+
+For **IMAGINE** Designs only, the existing Spec-tab properties/work panel also provides **Check readiness**. It checks the specification selected for handoff after saving pending edits, retaining the existing editor, controls and properties. Standard and standalone specification notes are unchanged. Mechanical checks use the versioned ten-section IMAGINE template to locate required labelled fields/tables and unresolved placeholders; they do not treat a heading as fixture data. One explicit dedicated-model review assesses concrete actors, starting fixtures, permissions, workforce/dependency/lifecycle contracts, responses, screen states and acceptance traceability. Its budget is 12,000 output tokens and two minutes, with no automatic retry or light-model fallback. The model selects request-local IDs for exact saved text passages rather than generating quotation text; the server retrieves and verifies each original quote, source revision and diagram element. Unknown IDs and generated quotation overrides reject the assessment. All nonempty source text remains supplied, with long passages bounded to 1,600 characters per citation. Incomplete coverage and inaccessible referenced guides are explicit, and source changes reject an in-flight result.
+
+Separate immutable assessment records retain template/rule versions, source snapshots, findings and resolutions. Stable mechanical obligation keys and semantic checklist keys keep finding identity independent of model wording. Unchanged open findings persist; a semantic finding closes only with verified current-source resolution evidence, while complete mechanical reassessment records the current section when an obligation passes. Open and resolved findings are paged separately. Readiness distinguishes not assessed, specification gaps open, partial, stale and checked complete; it never implies implementation, live approval, measured results or G0–G7 acceptance. Unrecorded live approvals/results are separate execution prerequisites. Editing or changing linked selections makes an assessment stale; save remains available throughout.
+
+Each current open finding supports **Prepare repair** with a confirmed user answer/instruction. Synthetic fixtures require an explicit repair-specific authorisation checkbox and labelled provenance. Athena prepares at most five block-level replacements/appends; the user reviews original/proposed writing and uses **Apply/Discard**. No model tool can accept its own preview. Apply uses normal note history, permissions, source locks, revision checks, indexing and editor refresh, preserves unrelated content/media/titles, and makes readiness stale until explicitly rechecked. Native-reference/media blocks cannot be replaced. `read_design_readiness`, `read_design_readiness_repair` and history retrieval give Athena bounded access to actual structured findings/proposed writing; check/prepare/discard tools respect read-only turns, exclusions and enforced project scope. A preview or chat reply never counts as a saved repair or closed finding.
+
+The existing immutable Copilot package includes `specification-readiness.json` and assessment identity/state in its manifest for IMAGINE Designs, without running AI on export. Open, partial, stale or unassessed readiness warns but **does not block handoff**. Package input completeness remains distinct from specification readiness and live acceptance. Existing Standard package behaviour is preserved. The additive readiness migrations do not rewrite existing specification content or assessment-free Designs.
 
 ### Connected-work usability
 

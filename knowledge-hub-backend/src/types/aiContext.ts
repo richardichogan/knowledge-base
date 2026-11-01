@@ -30,6 +30,12 @@ export type AthenaPersona = 'general' | 'brainstorming' | 'copilot_coach' | 'blo
  * the auto-RAG search query stays limited to what the user actually typed.
  */
 export interface ChatPageContext {
+  conversationId?: string;
+  designId?: string;
+  designTab?: 'use_case' | 'spec' | 'architecture' | 'diagram';
+  revision?: number;
+  selectedIds?: { nodes: string[]; edges: string[] };
+  saveState?: string;
   workContentId?: string;
   workContent?: WorkContent;
   podcastEpisodeId?: string;

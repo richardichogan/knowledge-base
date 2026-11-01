@@ -9,6 +9,7 @@ import { api } from '../../services/api';
 import { describeApiError } from '../../services/apiError';
 import { sanitizeHtml } from '../../utils/sanitizeHtml';
 import { confirmDialog } from '../../services/appDialogs';
+import { CampaignArtwork } from '../../notes/PodcastCampaign';
 import type { FeedPolicy, PublishingFeed, PublishingTopic, PublishingDraft, PublishingDetail, PublishingDelivery, PublishingEvent, PublishingScheduleEntry, ScheduledPodcastPost } from '../../types/publishing';
 
 const names = { bluesky: 'Bluesky', 'blog-linkedin': 'Blog / LinkedIn', blog: 'Blog', linkedin: 'LinkedIn' };
@@ -67,7 +68,7 @@ function DraftEditor({ draft, act, busy, onDone }: { draft: PublishingDraft; act
     <div className="kh-publishing__actions"><button type="submit" disabled={busy}>Save new version</button><button type="button" disabled={busy} onClick={onDone}>Cancel edit</button></div>
   </form>;
 }
-export function PublishingDraftPreview({ draft }: { draft: PublishingDraft }): React.ReactElement {
+export function PublishingDraftPreview({ draft }: { draft: Pick<PublishingDraft, 'destination' | 'content'> }): React.ReactElement {
   if (!hasSavedDraftText(draft)) return <p className="kh-publishing__empty">No post text was saved for this record. It is not ready for approval and will not appear in your shortlist.</p>;
   return draft.destination === 'blog' ? <>
     <h4>{String(draft.content.title ?? 'Untitled blog draft')}</h4>
@@ -85,7 +86,7 @@ export function PublishingDraftPreview({ draft }: { draft: PublishingDraft }): R
     </details>
   </> : <p className="kh-publishing__copy">{String(draft.content.copy ?? 'No copy has been saved yet.')}</p>;
 }
-function hasSavedDraftText(draft: PublishingDraft): boolean {
+function hasSavedDraftText(draft: Pick<PublishingDraft, 'destination' | 'content'>): boolean {
   return (draft.destination === 'blog' ? ['title', 'summary', 'content'] : ['copy'])
     .every(field => typeof draft.content[field] === 'string' && Boolean(draft.content[field].trim()));
 }
@@ -248,6 +249,7 @@ export function PublishingDraftList({ topics, selected, onSelect }: {
   </aside>;
 }
 function scheduleStatus(post: PublishingScheduleEntry): string {
+  if (post.status && post.status !== 'Scheduled') return post.status;
   if ('noteId' in post) {
     if (post.deliveryStatus === 'sending') return 'Sending';
     if (post.deliveryStatus === 'unconfirmed') return 'Awaiting confirmation';
@@ -262,8 +264,8 @@ export function ScheduledPodcastPreview({ post, onOpen }: { post: ScheduledPodca
     <h3 className="kh-publishing__review-title">{post.title}</h3>
     <p className="kh-publishing__meta">Podcast campaign · {names[post.destination]} · {scheduleStatus(post)}</p>
     <h4>{post.label}</h4>
-    {post.blog ? <><h4>{post.blog.title}</h4><p>{post.blog.summary}</p>
-      <div className="kh-publishing__prose" dangerouslySetInnerHTML={{ __html: sanitizeHtml(post.blog.content) }} /></>
+    {post.asset && <CampaignArtwork post={{ id: post.draftId.split(':').at(-1)!, destination: post.destination, asset: post.asset }} noteId={post.noteId} />}
+    {post.blog ? <PublishingDraftPreview draft={{ destination: 'blog', content: { ...post.blog } }} />
       : <div className="kh-publishing__copy">{post.copy}</div>}
     <p className="kh-publishing__notice">{post.reason}</p>
     <Link className="kh-publishing__campaign-link" to={`/think?noteId=${encodeURIComponent(post.noteId)}&panel=campaign`} onClick={onOpen}>
@@ -271,15 +273,35 @@ export function ScheduledPodcastPreview({ post, onOpen }: { post: ScheduledPodca
     </Link>
   </section>;
 }
+export function PublishingSources({ post }: { post: PublishingScheduleEntry }): React.ReactElement {
+  return <section className="kh-publishing__sources" aria-label="Publishing source">
+    <h4>Source · {post.origin ?? ('noteId' in post ? 'Podcast campaign' : 'Discover')}</h4>
+    {post.sources?.length ? <ul>{post.sources.map((source, index) => <li key={`${source.id}:${index}`}>
+      {source.url && sourceLink(source.url) ? <a href={sourceLink(source.url)} target="_blank" rel="noreferrer">{source.title}</a>
+        : 'noteId' in post ? <Link to={`/think?noteId=${encodeURIComponent(source.id)}&panel=campaign`}>{source.title}</Link> : source.title}
+    </li>)}</ul> : <p className="kh-publishing__meta">No saved source references are available for this item.</p>}
+  </section>;
+}
+function PublishingJobPreview({ post, onOpen }: { post: Extract<PublishingScheduleEntry, { jobId: string }>; onOpen: () => void }): React.ReactElement {
+  return <section className="kh-publishing__review">
+    <h3>{post.title}</h3>
+    <p className="kh-publishing__meta">{names[post.destination]} · {scheduleStatus(post)}</p>
+    {post.blog ? <PublishingDraftPreview draft={{ destination: 'blog', content: post.blog }} />
+      : post.copy ? <div className="kh-publishing__copy">{post.copy}</div>
+        : <p role="status">This output has not been prepared yet. No generated copy is available.</p>}
+    <p className="kh-publishing__notice">{post.reason}</p>
+    <Link to={`/jobs?jobId=${encodeURIComponent(post.jobId)}&runId=${encodeURIComponent(post.runId)}`} onClick={onOpen}>Open job to review publishing status and approvals</Link>
+  </section>;
+}
 export function PublishingSchedule({ posts, selected, onSelect }: { posts: PublishingScheduleEntry[]; selected: string | undefined; onSelect: (id: string) => void }): React.ReactElement {
   const groups = new Map<string, PublishingScheduleEntry[]>();
   for (const post of posts) {
     const day = post.scheduledAt ? `${new Date(post.scheduledAt).toLocaleDateString('en-GB', {
       timeZone: post.timezone, weekday: 'long', day: 'numeric', month: 'short', year: 'numeric',
-    })} · ${post.timezone}` : 'Needs attention · no slot assigned';
+    })} · ${post.timezone}` : 'Drafts and items without an authorised slot';
     groups.set(day, [...(groups.get(day) ?? []), post]);
   }
-  return <aside className="kh-publishing__agenda" aria-label="Scheduled posts">
+  return <aside className="kh-publishing__agenda" aria-label="Prepared publishing posts">
     {[...groups].map(([day, entries]) => <section className="kh-publishing__schedule-day" key={day}>
       <h3>{day}</h3>
       {entries.map(post => <button type="button" className="kh-publishing__schedule-row" key={post.draftId}
@@ -289,6 +311,7 @@ export function PublishingSchedule({ posts, selected, onSelect }: { posts: Publi
         })} · {post.timezone}</time> : 'Unscheduled'}
           <span>{'noteId' in post ? 'Podcast · ' : ''}{names[post.destination]} · v{post.version}</span></span>
         <strong>{post.title}</strong>
+        {post.origin && <span className="kh-publishing__meta">Source: {post.origin}</span>}
         {'noteId' in post && <span className="kh-publishing__meta">{post.label}</span>}
         <span className={`kh-publishing__schedule-status${post.paused || !post.scheduledAt || ('noteId' in post && post.deliveryStatus) ? ' kh-publishing__schedule-status--waiting' : ''}`}>
           {scheduleStatus(post)}</span>
@@ -296,6 +319,31 @@ export function PublishingSchedule({ posts, selected, onSelect }: { posts: Publi
         {post.paused && !post.scheduledAt && <span className="kh-publishing__meta">Automation is also off.</span>}
       </button>)}
     </section>)}
+  </aside>;
+}
+export function publishingContentForView(posts: PublishingScheduleEntry[], view: 'drafts' | 'schedule'): PublishingScheduleEntry[] {
+  return posts.filter(post => post.status !== 'Rejected' && post.status !== 'Published'
+    && (view === 'schedule' ? post.approved === true : post.approved === false));
+}
+export function PublishingContentDraftList({ posts, selected, onSelect }: {
+  posts: PublishingScheduleEntry[]; selected: string | undefined; onSelect: (id: string) => void;
+}): React.ReactElement {
+  const groups = new Map<string, PublishingScheduleEntry[]>();
+  for (const post of posts) {
+    const key = 'topicId' in post ? post.topicId : post.draftId;
+    groups.set(key, [...(groups.get(key) ?? []), post]);
+  }
+  return <aside className="kh-publishing__draft-list" aria-label="Draft posts">
+    {[...groups.values()].map(entries => {
+      const post = entries[0]!;
+      return <button className="kh-publishing__draft-row" type="button" key={post.draftId}
+        aria-pressed={entries.some(entry => entry.draftId === selected)} onClick={() => onSelect(post.draftId)}>
+        <strong>{post.title}</strong>
+        <span className="kh-publishing__meta">{[...new Set(entries.map(entry => names[entry.destination]))].join(' / ')} · {post.status}</span>
+        <span className="kh-publishing__meta">Source: {post.origin}</span>
+        {'noteId' in post && <span className="kh-publishing__meta">{post.label}</span>}
+      </button>;
+    })}
   </aside>;
 }
 export function DiscoverPublishing({ onClose }: { onClose: () => void }): React.ReactElement {
@@ -307,8 +355,7 @@ export function DiscoverPublishing({ onClose }: { onClose: () => void }): React.
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const feeds = useQuery({ queryKey: ['publishing', 'feeds'], queryFn: () => api.publishing<PublishingFeed[]>('/feeds') });
-  const topics = useQuery({ queryKey: ['publishing', 'topics', offset], queryFn: () => api.publishing<PublishingTopic[]>(`/topics?offset=${offset}`), enabled: tab === 'review', refetchInterval: 30000 });
-  const schedule = useQuery({ queryKey: ['publishing', 'schedule'], queryFn: () => api.publishing<PublishingScheduleEntry[]>('/schedule'), enabled: tab === 'upcoming', refetchInterval: 30000 });
+  const content = useQuery({ queryKey: ['publishing', 'content'], queryFn: () => api.publishing<PublishingScheduleEntry[]>('/content'), enabled: tab === 'review' || tab === 'upcoming', refetchInterval: 30000 });
   const refresh = useQuery({
     queryKey: ['publishing', 'draft-refresh'], queryFn: () => api.publishing<{ running: boolean; message: string; updatedAt: string | null }>('/drafts/refresh'),
     enabled: tab === 'review', refetchInterval: query => query.state.data?.running ? 3000 : false,
@@ -318,10 +365,11 @@ export function DiscoverPublishing({ onClose }: { onClose: () => void }): React.
     if (refresh.data?.running || !refresh.data?.updatedAt || refresh.data.updatedAt === lastRefresh.current) return;
     lastRefresh.current = refresh.data.updatedAt;
     void qc.invalidateQueries({ queryKey: ['publishing', 'topics'] });
+    void qc.invalidateQueries({ queryKey: ['publishing', 'content'] });
   }, [qc, refresh.data]);
   const history = useQuery({ queryKey: ['publishing', 'history', offset], queryFn: () => api.publishing<PublishingDelivery[]>(`/history?offset=${offset}`), enabled: tab === 'history', refetchInterval: 30000 });
   const audit = useQuery({ queryKey: ['publishing', 'audit', offset], queryFn: () => api.publishing<PublishingEvent[]>(`/audit?offset=${offset}`), enabled: tab === 'audit' });
-  const active = tab === 'history' ? history : tab === 'audit' ? audit : tab === 'upcoming' ? schedule : topics;
+  const active = tab === 'history' ? history : tab === 'audit' ? audit : content;
   const act: Action = async (path, method, body) => {
     setBusy(true); setError(''); setMessage('');
     try {
@@ -339,17 +387,16 @@ export function DiscoverPublishing({ onClose }: { onClose: () => void }): React.
     } catch (err) { setError(describeApiError(err)); return false; }
     finally { setBusy(false); }
   };
-  const shown = (topics.data ?? []).filter(t => !t.drafts.some(d => d.approval === 'approved')
-    && !t.deliveries.some(delivery => ['sent', 'sending', 'unconfirmed'].includes(delivery.status))
-    && t.drafts.some(d => isReadyDraft(d) && d.approval === 'pending')).slice(0, 8);
-  const scheduled = schedule.data?.find(post => post.draftId === selected) ?? schedule.data?.[0];
-  const expanded = shown.find(topic => topic.id === selected)?.id ?? shown.find(topic => topic.drafts.length > 0)?.id ?? shown[0]?.id;
+  const drafts = publishingContentForView(content.isError ? [] : content.data ?? [], 'drafts');
+  const schedule = publishingContentForView(content.isError ? [] : content.data ?? [], 'schedule');
+  const scheduled = schedule.find(post => post.draftId === selected) ?? schedule[0];
+  const draft = drafts.find(post => post.draftId === selected) ?? drafts[0];
   const historyEntry = history.data?.find(entry => entry.id === selected) ?? history.data?.[0];
   const auditEntry = audit.data?.find(entry => entry.id === selected) ?? audit.data?.[0];
   return <AppDialog title="Publishing" wide settings onClose={onClose}
     actions={<button className="kh-dialog__button" type="button" onClick={onClose}>Close</button>}>
     <div className="kh-publishing" aria-busy={busy}>
-      <p className="kh-publishing__meta">Microsoft-first, freshest relevant stories first. Up to 8 reviewed draft entries, refreshed after every content sync. Blog packages count as one entry. Scheduled items are separate.</p>
+      <p className="kh-publishing__meta">Drafts contains unapproved Discover, podcast and weekly-digest content, with its preparation and review status. Discover Blog / LinkedIn packages count as one entry. Scheduling contains only approved, unpublished posts.</p>
       <details className="kh-publishing__settings">
       <summary>Automation and schedule{feeds.data ? ` · Bluesky ${feeds.data.find(feed => feed.id === 'bluesky')?.enabled ? 'on' : 'off'} · Blog / LinkedIn ${feeds.data.find(feed => feed.id === 'blog-linkedin')?.enabled ? 'on' : 'off'}` : ''}</summary>
       <div className="kh-publishing__feeds" aria-label="Posting automation">
@@ -371,31 +418,38 @@ export function DiscoverPublishing({ onClose }: { onClose: () => void }): React.
           onClick={() => { void act('/drafts/refresh', 'POST', {}); }}>{refresh.data?.running ? 'Refreshing drafts…' : 'Refresh drafts'}</button>
       </div>}
       {tab === 'upcoming' && <div className="kh-publishing__schedule-toolbar">
-        <p className="kh-publishing__meta">Approved posts and podcast campaigns share this schedule. Off pauses delivery. Refresh replans ordinary drafts; podcast times stay as approved and are managed in Campaign. Blog-linked posts wait for the verified public URL.</p>
-        <button type="button" disabled={busy || schedule.isFetching} onClick={() => { void act('/schedule/refresh', 'POST', {}); }}>Refresh schedule</button>
+        <p className="kh-publishing__meta">Approved, unpublished posts only, with status and source. Unapproved content remains in Drafts. Refresh replans approved Discover posts only; campaign and job controls remain in their existing editors. Job dates are trigger times, not guaranteed delivery times.</p>
+        <button type="button" disabled={busy || content.isFetching} onClick={() => { void act('/schedule/refresh', 'POST', {}); }}>Refresh schedule</button>
       </div>}
       {active.isLoading && <p role="status">Loading publishing {tab}…</p>}
       {active.isError && <div className="kh-publishing__error" role="alert"><p>{describeApiError(active.error)}</p><button type="button" onClick={() => { void active.refetch(); }}>Retry loading</button></div>}
-      {!active.isLoading && !active.isError && (active.data?.length === 0 || (tab === 'review' && !shown.length)) && <p className="kh-publishing__empty">{tab === 'history' ? 'No delivery attempts yet.' : tab === 'audit' ? 'No publishing events yet.' : tab === 'upcoming' ? 'No posts sent for scheduling yet.' : 'No finished drafts ready for approval. Athena completes writing and editorial checks before showing posts here. Preparation failures are recorded in Audit; unfinished or failed drafts are never offered for scheduling.'}</p>}
+      {!active.isLoading && !active.isError && (tab === 'review' ? !drafts.length : tab === 'upcoming' ? !schedule.length : active.data?.length === 0) && <p className="kh-publishing__empty">{tab === 'history' ? 'No delivery attempts yet.' : tab === 'audit' ? 'No publishing events yet.' : tab === 'upcoming' ? 'No approved, unpublished posts. Content awaiting approval is in Drafts.' : 'No unapproved publishing content. Approved posts are in Scheduling.'}</p>}
       {tab === 'review' && <ReviewWorkspace storageKey="discover-publishing" label="Publishing drafts"
-        context={{ type: 'publishing', title: 'Drafts', detail: `Draft preparation state:\n${JSON.stringify(refresh.data ?? null)}\nFeed settings:\n${JSON.stringify(feeds.data ?? null)}` }}
-        list={<PublishingDraftList topics={shown} selected={expanded} onSelect={setSelected} />}
+        context={{ type: 'publishing', title: draft?.title ?? 'Drafts', ...(draft ? { id: draft.draftId } : {}),
+          detail: `Selected saved draft:\n${JSON.stringify(draft ?? null)}\nDraft preparation state:\n${JSON.stringify(refresh.data ?? null)}\nFeed settings:\n${JSON.stringify(feeds.data ?? null)}` }}
+        list={<PublishingContentDraftList posts={drafts} selected={draft?.draftId} onSelect={setSelected} />}
         detail={<article className="kh-publishing__reading" aria-label="Selected draft">
-          {expanded && <TopicReview key={expanded} id={expanded} act={act} busy={busy} feeds={feeds.data ?? []} readyOnly />}
-          {!expanded && <p className="kh-publishing__empty">No finished draft is selected.</p>}
+          {draft && <><PublishingSources post={draft} />
+            {'jobId' in draft ? <PublishingJobPreview post={draft} onOpen={onClose} />
+              : 'noteId' in draft ? <ScheduledPodcastPreview post={draft} onOpen={onClose} />
+                : <TopicReview key={draft.draftId} id={draft.topicId} initialDestination={draft.destination} act={act} busy={busy} feeds={feeds.data ?? []} />}
+          </>}
+          {!draft && <p className="kh-publishing__empty">No draft is selected.</p>}
         </article>} />}
       {tab === 'upcoming' && <ReviewWorkspace storageKey="discover-publishing" label="Publishing schedule"
-        context={scheduled ? { type: 'publishing schedule', title: 'Scheduled draft', id: scheduled.draftId,
+        context={scheduled ? { type: 'publishing schedule', title: scheduled.title, id: scheduled.draftId,
           detail: `Selected saved schedule entry and delivery state:\n${JSON.stringify(scheduled)}\nFeed settings:\n${JSON.stringify(feeds.data ?? null)}` }
-          : { type: 'publishing', title: 'Scheduling', detail: schedule.isError ? 'Publishing schedule could not be retrieved.' : 'No post selected.' }}
-        list={<PublishingSchedule posts={schedule.isError ? [] : schedule.data ?? []} selected={scheduled?.draftId} onSelect={setSelected} />}
-        detail={<article className="kh-publishing__reading" aria-label="Scheduled draft">
+          : { type: 'publishing', title: 'Scheduling', detail: content.isError ? 'Publishing schedule could not be retrieved.' : 'No post selected.' }}
+        list={<PublishingSchedule posts={schedule} selected={scheduled?.draftId} onSelect={setSelected} />}
+        detail={<article className="kh-publishing__reading" aria-label="Publishing content">
           {scheduled && <>
           {!scheduled.scheduledAt && <section className="kh-publishing__blocker" aria-label="Scheduling blocker">
             <h3>Why this cannot be scheduled</h3>
             <p>{scheduled.reason}</p>
           </section>}
-          {'noteId' in scheduled ? <ScheduledPodcastPreview post={scheduled} onOpen={onClose} />
+          <PublishingSources post={scheduled} />
+          {'jobId' in scheduled ? <PublishingJobPreview post={scheduled} onOpen={onClose} />
+            : 'noteId' in scheduled ? <ScheduledPodcastPreview post={scheduled} onOpen={onClose} />
             : <TopicReview key={scheduled.draftId} id={scheduled.topicId} initialDestination={scheduled.destination} act={act} busy={busy} feeds={feeds.data ?? []} />}
           </>}
           {!scheduled && <p className="kh-publishing__empty">No scheduled post is selected.</p>}
@@ -422,7 +476,7 @@ export function DiscoverPublishing({ onClose }: { onClose: () => void }): React.
         detail={auditEntry ? <section className="kh-publishing__evidence"><h3>{auditEntry.event}</h3>
           <p className="kh-publishing__meta">{when(auditEntry.createdAt)} · {auditEntry.actor}</p>
           <pre>{JSON.stringify(auditEntry.detail, null, 2)}</pre></section> : <p className="kh-publishing__empty">No audit event selected.</p>} />}
-      {tab !== 'upcoming' && <div className="kh-publishing__actions kh-publishing__paging"><button type="button" disabled={offset === 0 || active.isFetching} onClick={() => { setOffset(v => Math.max(0, v - 50)); setSelected(null); }}>Previous page</button>
+      {(tab === 'history' || tab === 'audit') && <div className="kh-publishing__actions kh-publishing__paging"><button type="button" disabled={offset === 0 || active.isFetching} onClick={() => { setOffset(v => Math.max(0, v - 50)); setSelected(null); }}>Previous page</button>
         <button type="button" disabled={!active.data || active.data.length < 50 || active.isFetching || offset >= 10000} onClick={() => { setOffset(v => v + 50); setSelected(null); }}>Next page</button></div>}
     </div>
   </AppDialog>;

@@ -10,19 +10,62 @@ import { scheduleNoteIndexing } from '../routes/notes.js';
 import { linkNamedReferences } from '../services/noteLinks.js';
 import { scheduleGitHubPublish } from '../services/noteGitHubService.js';
 import type { Note } from '../types/index.js';
+import { checkDesignReadiness, pageReadiness, prepareReadinessRepair, readDesignReadiness, readinessHistory, resolveReadinessRepair } from '../designs/designReadiness.js';
 
 const MAX_PACKAGE_CHARACTERS = 250_000;
 const RECENT_FEEDBACK_COUNT = 20;
 const MAX_DOCUMENTS = 3;
 const MAX_DOCUMENT_TITLE = 500;
 const MAX_DOCUMENT_MARKDOWN = 150_000;
+const MAX_READINESS_OFFSET = 100_000;
+const MAX_REPAIR_INDEX = 4;
+const REPAIR_CHUNK_CHARS = 12_000;
+const MAX_PROPOSAL_ID = 100;
 
 export interface DesignTurnState {
   read?: { revision: number; sources: DesignSource[] };
   changedNoteIds: string[];
 }
+export const DESIGN_READINESS_WRITE_TOOLS = ['check_design_readiness', 'prepare_design_readiness_repair', 'discard_design_readiness_repair'];
 
 export const DESIGN_CHAT_TOOLS: LlmToolDefinition[] = [
+  { type: 'function', function: {
+    name: 'read_design_readiness_repair',
+    description: 'Retrieve the actual proposed Markdown for one pending readiness block change in bounded character chunks. Follow nextOffset and then next changeIndex until complete. Original blocks remain readable through the normal knowledge/document tools. Reading does not Apply the proposal.',
+    parameters: { type: 'object', additionalProperties: false, properties: {
+      changeIndex: { type: 'integer', minimum: 0, maximum: 4 }, offset: { type: 'integer', minimum: 0 },
+    } },
+  } },
+  { type: 'function', function: {
+    name: 'read_design_readiness',
+    description: 'Read the saved IMAGINE readiness assessment, actual revision freshness, coverage and a bounded page of findings. Not an assessment of unread content. Follow nextOffset for further findings; open and resolved pages are separate. Repair previews are reviewed with Apply/Discard in the existing Spec tab.',
+    parameters: { type: 'object', additionalProperties: false, properties: {
+      offset: { type: 'integer', minimum: 0 }, status: { type: 'string', enum: ['open', 'resolved'] },
+    } },
+  } },
+  { type: 'function', function: {
+    name: 'read_design_readiness_history',
+    description: 'Read a bounded page of previous IMAGINE assessment timestamps and blocker counts. Historical results are not current readiness.',
+    parameters: { type: 'object', additionalProperties: false, properties: { offset: { type: 'integer', minimum: 0 } } },
+  } },
+  { type: 'function', function: {
+    name: 'check_design_readiness',
+    description: 'Only on explicit request, assess the selected IMAGINE specification using complete saved sources. One bounded review, no automatic retries. Persists a revision-bound assessment, not a document edit or live acceptance. Read the resulting findings with read_design_readiness.',
+    parameters: { type: 'object', additionalProperties: false, properties: { specId: { type: 'string' } }, required: ['specId'] },
+  } },
+  { type: 'function', function: {
+    name: 'prepare_design_readiness_repair',
+    description: 'Prepare a finding-specific block-level repair preview using the user’s confirmed answer/instruction. Does NOT save writing or close the finding. The user reviews Apply/Discard in the Spec tab. allowSyntheticFixtures may be true only when the user explicitly authorised synthetic fixtures for this repair; never infer consent.',
+    parameters: { type: 'object', additionalProperties: false, properties: {
+      assessmentId: { type: 'string' }, findingId: { type: 'string' }, instruction: { type: 'string', maxLength: 4000 },
+      allowSyntheticFixtures: { type: 'boolean' },
+    }, required: ['assessmentId', 'findingId', 'instruction', 'allowSyntheticFixtures'] },
+  } },
+  { type: 'function', function: {
+    name: 'discard_design_readiness_repair',
+    description: 'Discard the pending readiness repair only when asked. No source writing changes. Applying requires the user’s Spec-tab preview approval, not a model-controlled confirmation flag.',
+    parameters: { type: 'object', additionalProperties: false, properties: { proposalId: { type: 'string' } }, required: ['proposalId'] },
+  } },
   { type: 'function', function: {
     name: 'read_design_package',
     description: 'Read the current Think Design, its exact linked section identities/revisions and complete selected Markdown originals. Use before creating or updating Design documents. This is the working Design, not a downloadable archive.',
@@ -59,14 +102,72 @@ export async function executeDesignTool(db: Pool, name: string, owner: string, a
   if (access.exclusionsFailed || access.excludedIds?.has(owner)
     || access.strictProjectId && design.projectId !== access.strictProjectId) throw new ValidationError('This Design is unavailable in the current conversation scope.');
   const selected = selectedAssets(design);
-  if (selected.some(asset => access.excludedIds?.has(asset.sourceId))) throw new ValidationError('A selected Design document is excluded from this conversation.');
+  const accessedAssets = name.includes('design_readiness')
+    ? [...selected, ...design.assets.filter(asset => asset.role === 'reference' && asset.sourceType === 'note')] : selected;
+  if (accessedAssets.some(asset => access.excludedIds?.has(asset.sourceId))) throw new ValidationError('A selected Design document or assessment reference is excluded from this conversation.');
   if (access.strictProjectId) {
     const outOfScope = await db.query(`SELECT id FROM notes WHERE id=ANY($1::uuid[]) AND project_id IS DISTINCT FROM $2
       UNION ALL SELECT id FROM canvases WHERE id=ANY($3::uuid[]) AND project IS DISTINCT FROM $2`, [
-      selected.filter(asset => asset.sourceType === 'note').map(asset => asset.sourceId), access.strictProjectId,
-      selected.filter(asset => asset.sourceType === 'canvas').map(asset => asset.sourceId),
+      accessedAssets.filter(asset => asset.sourceType === 'note').map(asset => asset.sourceId), access.strictProjectId,
+      accessedAssets.filter(asset => asset.sourceType === 'canvas').map(asset => asset.sourceId),
     ]);
     if (outOfScope.rows.length) throw new ValidationError('A selected original is outside the enforced project scope.');
+  }
+  if (name.includes('design_readiness')) {
+    const offset = args['offset'] ?? 0;
+    if (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0 || offset > MAX_READINESS_OFFSET) throw new ValidationError('Use a nonnegative pagination offset up to 100,000.');
+    const view = await readDesignReadiness(db, design.id);
+    // Saved assessments/proposals may refer to originals removed or excluded since the check.
+    const refs = [...(view.report?.sources ?? []), ...(view.proposal?.checkedSources ?? []),
+      ...(view.report?.findings.flatMap(finding => [...finding.evidence, ...(finding.resolution?.evidence ?? [])])
+        .map(entry => ({ id: entry.sourceId, role: entry.elementId ? 'diagram' : 'note' })) ?? [])];
+    if (refs.some(source => access.excludedIds?.has(source.id))) throw new ValidationError('An assessed source is excluded from this conversation.');
+    if (access.strictProjectId && refs.length) {
+      const notes = refs.filter(source => source.role !== 'diagram').map(source => source.id);
+      const diagrams = refs.filter(source => source.role === 'diagram').map(source => source.id);
+      const invalid = await db.query(`SELECT id FROM notes WHERE id=ANY($1::uuid[]) AND project_id IS DISTINCT FROM $2
+        UNION ALL SELECT id FROM canvases WHERE id=ANY($3::uuid[]) AND project IS DISTINCT FROM $2`, [notes, access.strictProjectId, diagrams]);
+      if (invalid.rows.length) throw new ValidationError('Assessment evidence is outside the enforced project scope.');
+    }
+    if (name === 'read_design_readiness_history') return readinessHistory(db, design.id, offset);
+    if (name === 'read_design_readiness_repair') {
+      const index = args['changeIndex'] ?? 0;
+      if (typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index > MAX_REPAIR_INDEX) throw new ValidationError('Choose a repair change index from 0 to 4.');
+      const change = view.proposal?.changes[index];
+      if (!change || offset > change.markdown.length) throw new ValidationError('This repair chunk is unavailable.');
+      const end = offset + REPAIR_CHUNK_CHARS;
+      return { proposalId: view.proposal!.id, changeIndex: index, changeCount: view.proposal!.changes.length,
+        noteId: change.noteId, blockId: change.blockId, markdown: change.markdown.slice(offset, end),
+        nextOffset: change.markdown.length > end ? end : null,
+        nextChangeIndex: index + 1 < view.proposal!.changes.length ? index + 1 : null,
+        stale: !['ready', 'blocked', 'partial'].includes(view.state), note: 'Preview only. The user must Apply in the Spec tab; this is not saved writing.' };
+    }
+    if (name === 'read_design_readiness') {
+      const status = args['status'] ?? 'open';
+      if (status !== 'open' && status !== 'resolved') throw new ValidationError('Choose open or resolved findings.');
+      const page = pageReadiness(view, offset, status);
+      // Do not duplicate large repair Markdown in every findings page.
+      return { ...page, proposal: page.proposal ? { id: page.proposal.id, findingId: page.proposal.findingId, status: page.proposal.status,
+        instruction: page.proposal.instruction, explanation: page.proposal.explanation, allowSyntheticFixtures: page.proposal.allowSyntheticFixtures,
+        note: 'Review the complete block changes and Apply/Discard in the Spec tab.' } : null };
+    }
+    if (name === 'check_design_readiness') {
+      const checked = await checkDesignReadiness(db, design.id, args['specId'], access.signal);
+      state?.changedNoteIds.push(design.parentNoteId);
+      return { state: checked.state, assessmentId: checked.report?.id, saved: true, note: 'Assessment saved, no writing changed. Read findings with read_design_readiness; this is not live approval or implementation evidence.' };
+    }
+    if (name === 'prepare_design_readiness_repair') {
+      const prepared = await prepareReadinessRepair(db, design.id, args, access.signal);
+      state?.changedNoteIds.push(design.parentNoteId);
+      return { proposed: true, proposalId: prepared.proposal?.id, explanation: prepared.proposal?.explanation,
+        note: 'No writing changed. Review the actual pending block changes with Apply/Discard in the Spec-tab readiness section. Recheck after applying; a proposal does not resolve a finding.' };
+    }
+    if (name === 'discard_design_readiness_repair') {
+      const result = await resolveReadinessRepair(db, design.id, requiredText(args['proposalId'], 'Proposal ID', MAX_PROPOSAL_ID), false, access.signal);
+      state?.changedNoteIds.push(design.parentNoteId);
+      return { discarded: true, ...result };
+    }
+    throw new ValidationError('Unknown readiness operation.');
   }
   if (name === 'read_design_package') {
     const sources = await sourceSnapshot(db, design);
@@ -78,7 +179,7 @@ export async function executeDesignTool(db: Pool, name: string, owner: string, a
       visual: visual.artifact ? { id: visual.artifact.id, revision: visual.artifact.revision, stale: visual.stale, sourceError: visual.sourceError } : null,
       pendingProposal: visual.proposal ? { id: visual.proposal.id, explanation: visual.proposal.explanation, status: visual.proposal.status } : null,
       feedback: visual.feedback.slice(-RECENT_FEEDBACK_COUNT), earlierFeedbackCount: Math.max(0, visual.feedback.length - RECENT_FEEDBACK_COUNT),
-      instructions: 'The Design is the parent. The four tabs open these exact originals. Empty sections need a new linked original, not a chat-only deliverable or standalone note. Preserve reference documents. HTML is one shared visual under Spec; Diagram is the original canvas.' };
+      instructions: 'The Design is the parent. The four tabs open these exact originals. Empty sections need a new linked original, not a chat-only deliverable or standalone note. Preserve reference documents. HTML is one shared visual under Spec; Diagram is the original canvas. IMAGINE readiness is separate revision-bound data: read_design_readiness retrieves findings, and its repairs require the Spec-tab preview Apply/Discard. A direct document edit makes readiness stale; it does not close findings.' };
   }
   if (name !== 'save_design_documents') throw new ValidationError('Unknown Design operation.');
   const read = state?.read;

@@ -1155,6 +1155,18 @@ export class KnowledgeHubApi {
     await this.client.delete(`/api/ai/session/${sessionId}/turn`);
   }
 
+  async listChatTurnTraces(sessionId: string, offset = 0): Promise<ApiResponse<import('../types/ai').ChatTurnTraceList>> {
+    const r = await this.client.get<ApiResponse<import('../types/ai').ChatTurnTraceList>>(
+      `/api/ai/sessions/${encodeURIComponent(sessionId)}/traces`, { params: { offset } });
+    return r.data;
+  }
+
+  async readChatTurnTrace(sessionId: string, traceId: string, sequence = 1, offset = 0): Promise<ApiResponse<import('../types/ai').ChatTurnTraceEventPage>> {
+    const r = await this.client.get<ApiResponse<import('../types/ai').ChatTurnTraceEventPage>>(
+      `/api/ai/sessions/${encodeURIComponent(sessionId)}/traces/${encodeURIComponent(traceId)}/events`, { params: { sequence, offset } });
+    return r.data;
+  }
+
   // ─── Chat side panel: Outputs and Decisions ─────────────────────────────────
 
   async listChatOutputs(sessionId: string): Promise<ApiResponse<ChatOutputSummary[]>> {
@@ -2796,6 +2808,22 @@ export class KnowledgeHubApi {
   async checkDesignConsistency(id: string, requestedChange?: string): Promise<ApiResponse<import('../types/designs').DesignConsistencyReport>> {
     return (await this.client.post<ApiResponse<import('../types/designs').DesignConsistencyReport>>(
       `/api/designs/${encodeURIComponent(id)}/consistency`, { requestedChange }, { timeout: 150_000 })).data;
+  }
+  async getDesignReadiness(id: string, offset = 0, status: 'open' | 'resolved' = 'open'): Promise<ApiResponse<import('../types/designs').DesignReadiness>> {
+    return (await this.client.get<ApiResponse<import('../types/designs').DesignReadiness>>(
+      `/api/designs/${encodeURIComponent(id)}/readiness`, { params: { offset, status } })).data;
+  }
+  async checkDesignReadiness(id: string, specId: string): Promise<ApiResponse<import('../types/designs').DesignReadiness>> {
+    return (await this.client.post<ApiResponse<import('../types/designs').DesignReadiness>>(
+      `/api/designs/${encodeURIComponent(id)}/readiness`, { specId }, { timeout: 150_000 })).data;
+  }
+  async prepareDesignReadinessRepair(id: string, assessmentId: string, findingId: string, instruction: string, allowSyntheticFixtures: boolean): Promise<ApiResponse<import('../types/designs').DesignReadiness>> {
+    return (await this.client.post<ApiResponse<import('../types/designs').DesignReadiness>>(
+      `/api/designs/${encodeURIComponent(id)}/readiness/repairs`, { assessmentId, findingId, instruction, allowSyntheticFixtures }, { timeout: 150_000 })).data;
+  }
+  async resolveDesignReadinessRepair(id: string, proposalId: string, accept: boolean): Promise<ApiResponse<{ noteIds: string[] }>> {
+    return (await this.client.post<ApiResponse<{ noteIds: string[] }>>(
+      `/api/designs/${encodeURIComponent(id)}/readiness/repairs/${encodeURIComponent(proposalId)}/resolve`, { accept })).data;
   }
   async generateDesignArtifact(id: string, instruction: string, onProgress?: (message: string) => void): Promise<ApiResponse<DesignArtifact>> {
     if (onProgress) {

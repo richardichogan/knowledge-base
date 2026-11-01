@@ -553,8 +553,7 @@ export const DiscoverPage: React.FC = () => {
       <PageHeader title="Discover" subtitle={isWatchlists ? 'Purpose-led monitoring · private, versioned comparisons' : isCfps
               ? `${(cfpQuery.data?.success ? cfpQuery.data.data : []).length} CFPs to review`
               : feedQuery.isLoading ? 'Loading…' : `${total} article${total !== 1 ? 's' : ''} · ${activeTabDef?.label ?? ''}`} actions={
-        <><button type="button" className="dc-sources-toggle" onClick={() => setPublishingOpen(true)}>Publishing</button>
-        <button type="button" className="dc-sources-toggle" onClick={() => setInterestsOpen(true)}>Interests</button>
+        <><button type="button" className="dc-sources-toggle" onClick={() => setInterestsOpen(true)}>Interests</button>
         <button type="button" className="dc-sources-toggle" aria-expanded={sourcesOpen} onClick={() => { setSourcesOpen((o) => !o); }}>
           {sourcesOpen ? 'Hide sources' : 'Sources'}
         </button></>

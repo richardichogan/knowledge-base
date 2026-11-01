@@ -7,10 +7,12 @@ import { writableRepository, validatePublicationPath } from '../services/noteGit
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
 import { getDesign, requiredText } from './designStore.js';
 import { assertCurrent, digest, latestArtifact, lockSources, selectedAssets, sourceSnapshot } from './designArtifacts.js';
+import { readDesignReadiness, type ReadinessView } from './designReadiness.js';
 
 export interface PackageManifest {
   id: string; version: 1; designId: string; parentNoteId: string; title: string; createdAt: string;
   ready: boolean; missingInputs: string[]; openDecisions: string[]; pendingFeedback: number;
+  specificationReadiness?: { state: ReadinessView['state']; assessmentId: string | null; warning: string };
   sources: Array<{ id: string; revision: number; role: string; path: string }>;
   artifact: { id: string; revision: number; sources: Array<{ id: string; revision: number }> } | null;
   files: Array<{ path: string; role: string; sha256: string }>;
@@ -68,10 +70,18 @@ export async function createPackage(db: Pool, id: string, input: Record<string, 
   const pendingFeedback = Number((await db.query<{ count: string }>("SELECT count(*) FROM design_feedback WHERE design_id=$1 AND status IN ('queued','proposed')", [design.id])).rows[0]!.count);
   const missingInputs = ['use_case', 'spec', 'architecture', 'diagram'].filter(role => !sources.some(source => source.role === role));
   if (!artifact) missingInputs.push('visual-design');
+  const readiness = design.specificationType === 'imagine' ? await readDesignReadiness(db, design.id) : null;
+  // Export is still model-free and never gated by this assessment.
+  if (readiness) files['specification-readiness.json'] = pretty({
+    state: readiness.state, report: readiness.report, sourceError: readiness.sourceError,
+    warning: 'This assessment concerns specification completeness only. It is not implementation, live approval or acceptance evidence. Handoff is not blocked.',
+  });
   const manifest: PackageManifest = {
     id: randomUUID(), version: 1, designId: design.id, parentNoteId: design.parentNoteId, title: design.title, createdAt: new Date().toISOString(),
     ready: !missingInputs.length && !pendingFeedback && !artifact?.blueprint.openDecisions.length,
     missingInputs, openDecisions: artifact?.blueprint.openDecisions ?? [], pendingFeedback,
+    ...(readiness ? { specificationReadiness: { state: readiness.state, assessmentId: readiness.report?.id ?? null,
+      warning: 'Read specification-readiness.json for checked revisions, findings and coverage. A stale, partial or blocked assessment is not readiness certification.' } } : {}),
     sources: sources.map(source => ({ id: source.id, role: source.role, revision: source.revision, path: filenames[source.role]! })),
     artifact: artifact ? { id: artifact.id, revision: artifact.revision, sources: artifact.sources.map(source => ({ id: source.id, revision: source.revision })) } : null,
     files: [],
@@ -99,8 +109,9 @@ ${missingInputs.length ? missingInputs.map(role => `- ${role}`).join('\n') : 'No
 ${manifest.openDecisions.length ? manifest.openDecisions.map(item => `- ${item}`).join('\n') : 'None recorded.'}
 
 ${pendingFeedback} feedback item(s) remain unaccepted. Their text is intentionally excluded from requirements.
+${readiness ? `\n## IMAGINE specification readiness\n\nAssessment: ${readiness.state}. Read specification-readiness.json for exact checked revisions and findings. Handoff remains available with open findings. Package completeness is not specification readiness, successful implementation, live approval or acceptance.\n` : ''}
 `;
-  manifest.files = Object.entries(files).map(([path, content]) => ({ path, role: path === 'visual-design.html' ? 'visual-intent' : path.startsWith('diagram.') ? 'diagram-context' : path === 'README.md' ? 'copilot-instructions' : 'authoritative-markdown', sha256: digest(content) }));
+  manifest.files = Object.entries(files).map(([path, content]) => ({ path, role: path === 'specification-readiness.json' ? 'readiness-evidence' : path === 'visual-design.html' ? 'visual-intent' : path.startsWith('diagram.') ? 'diagram-context' : path === 'README.md' ? 'copilot-instructions' : 'authoritative-markdown', sha256: digest(content) }));
   files['manifest.json'] = pretty(manifest);
   const client = await db.connect();
   try {
@@ -108,6 +119,10 @@ ${pendingFeedback} feedback item(s) remain unaccepted. Their text is intentional
     const locked = (await client.query<{ revision: number }>('SELECT revision FROM designs WHERE id=$1 FOR UPDATE', [design.id])).rows[0];
     if (locked?.revision !== design.revision) conflict('Design version selection changed before packaging.');
     await lockSources(client, sources);
+    if (readiness) {
+      const assessed = (await client.query<{ id: string }>('SELECT id FROM design_readiness_assessments WHERE design_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1', [design.id])).rows[0];
+      if ((assessed?.id ?? null) !== (readiness.report?.id ?? null)) conflict('The readiness assessment changed during packaging. Prepare a new snapshot.');
+    }
     const latest = (await client.query<{ id: string }>('SELECT id FROM design_artifacts WHERE design_id=$1 ORDER BY revision DESC LIMIT 1', [design.id])).rows[0];
     if ((latest?.id ?? null) !== (artifact?.id ?? null)) conflict('The visual artifact changed before packaging.');
     await client.query('INSERT INTO design_packages(id,design_id,files,manifest) VALUES($1,$2,$3,$4)', [manifest.id, design.id, JSON.stringify(files), JSON.stringify(manifest)]);
@@ -130,7 +145,7 @@ export async function packageArchive(snapshot: DesignPackage): Promise<Buffer> {
 interface Publication { id: string; package_id: string; repo: string; branch: string; folder: string; base_sha: string; status: string; commit_sha: string | null }
 interface Commit { sha: string; tree: { sha: string } }
 interface Tree { sha: string; truncated: boolean; tree: Array<{ path: string; sha: string; type: string; mode: string }> }
-const packagePaths = new Set([...Object.values(filenames), 'README.md', 'manifest.json', 'visual-design.html', 'diagram.svg']);
+const packagePaths = new Set([...Object.values(filenames), 'README.md', 'manifest.json', 'visual-design.html', 'diagram.svg', 'specification-readiness.json']);
 async function ownedDestination(gh: GitHubClient, repo: string, folder: string, baseSha: string, snapshot: DesignPackage): Promise<string[]> {
   const tree = await gh.get<Tree>(`/repos/${repo}/git/trees/${baseSha}`, { recursive: '1' });
   if (tree.truncated) throw new ValidationError('Repository tree is too large to safely check the package destination.');

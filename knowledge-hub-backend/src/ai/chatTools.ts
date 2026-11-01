@@ -73,6 +73,7 @@ import { readPublicPage, readingExcerpt } from '../utils/articleReading.js';
 import { REVIEW_DECISIONS_DEFINITION, REVIEW_DECISIONS_TOOL, executeReviewDecisions } from './semanticDecisionReview.js';
 import { searchPastChats, readPastChat, PAST_CHAT_SEARCH_DEFAULT_LIMIT, PAST_CHAT_SEARCH_MAX_LIMIT, PAST_CHAT_READ_DEFAULT_MESSAGES } from './chatSessionStore.js';
 import { prepareAutomaticTaskAssistance } from '../work/taskAssistanceQueue.js';
+import { TRACE_TOOLS, TRACE_TOOL_NAMES, executeTraceTool } from './traceTools.js';
 /** Cap on how much note text (including image vision analysis) we hand to the model per result. */
 const NOTE_CONTENT_MAX_CHARS = 6000;
 const DIAGRAM_SEARCH_PREVIEW_CHARS = 1000;
@@ -88,6 +89,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
   const learnTools = await getLearnMcpTools();
   const tavilyTools = await getTavilyMcpTools();
   return [
+    ...TRACE_TOOLS,
     ...WORK_CONTENT_TOOLS,
     JOB_TOOL,
     PUBLISHING_TOOL,
@@ -902,6 +904,7 @@ export async function executeToolCall(
     args['projectId'] === undefined && activeProjectId !== undefined && activeProjectId.trim() !== ''
       ? { ...args, projectId: activeProjectId }
       : args;
+  if (TRACE_TOOL_NAMES.has(name)) return executeTraceTool(db, name, args, turn);
   if (name === 'manage_scheduled_jobs') return executeJobTool(db, args, turn.sessionId);
   if (name === 'manage_publishing_feeds') return executePublishingTool(db, args, turn.sessionId);
   if (AGENT_TOOL_NAMES.has(name)) return executeAgentTool(db, name, args, turn);
@@ -915,7 +918,7 @@ export async function executeToolCall(
   }
 
   if (turn.exclusionsFailed === true && EXCLUSION_GATED_TOOLS.has(name)) return EXCLUSIONS_UNAVAILABLE_RESULT;
-  if (['read_podcast_script', 'update_podcast_script', 'read_podcast_campaign', 'update_podcast_recording_teaser', 'update_podcast_campaign_image'].includes(name)) {
+  if (['read_podcast_script', 'update_podcast_script', 'read_podcast_campaign', 'update_podcast_recording_teaser', 'update_podcast_campaign_image', 'replace_podcast_youtube_link'].includes(name)) {
     if (!turn.podcastOwner) return { error: 'Open the Podcast episode in Think before working with its script or campaign.' };
     if (isOutsideCollectionTool(name, turn.retrievalScope)
       || turn.retrievalScope && Object.keys(turn.retrievalScope.filter).length > 0) {
@@ -930,7 +933,7 @@ export async function executeToolCall(
   if (turn.podcastOwner && ['create_note_draft', 'propose_note_edit', 'update_note', 'save_output'].includes(name)) {
     return { error: 'The Podcast script is stored outside the parent note body. Use read_podcast_script and update_podcast_script for script fields, not a disconnected note or chat-only substitute.' };
   }
-  if (name === 'read_design_package' || name === 'save_design_documents') {
+  if (name === 'read_design_package' || name === 'save_design_documents' || name.includes('design_readiness')) {
     if (isOutsideCollectionTool(name, turn.retrievalScope)) return { error: 'Design operations are outside this request’s enforced collection scope.', code: 'scope_mismatch' };
     if (!turn.designOwner) return { error: 'Open the Design in Think before working with its package.' };
     try { return await executeDesignTool(db, name, turn.designOwner, args, turn, turn.designState); }

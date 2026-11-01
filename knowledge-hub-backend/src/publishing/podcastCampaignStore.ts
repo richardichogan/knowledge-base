@@ -57,9 +57,9 @@ export async function campaignDeliveries(db: Db, noteId: string): Promise<Delive
   return (await db.query<Delivery>(`SELECT ${deliveryColumns} FROM publishing_deliveries
     WHERE identity LIKE $1 ORDER BY attempted_at`, [`podcast:${noteId}:%`])).rows;
 }
-export async function listPodcastSchedule(db: Pool): Promise<ScheduledPodcastPost[]> {
+export async function listPodcastSchedule(db: Pool, includeDrafts = false): Promise<ScheduledPodcastPost[]> {
   const campaigns = (await db.query<PodcastCampaign>(`SELECT ${campaignColumns} FROM podcast_campaigns
-    WHERE state IN ('approved','paused') AND approved_at IS NOT NULL AND plan IS NOT NULL ORDER BY approved_at`)).rows;
+    WHERE ${includeDrafts ? '' : "state IN ('approved','paused') AND approved_at IS NOT NULL AND"} plan IS NOT NULL ORDER BY approved_at`)).rows;
   if (!campaigns.length) return [];
   const settings = await feeds(db);
   const history = (await db.query<Delivery>(`SELECT ${deliveryColumns} FROM publishing_deliveries
@@ -75,11 +75,17 @@ export async function listPodcastSchedule(db: Pool): Promise<ScheduledPodcastPos
       destination: post.destination, version: campaign.revision, scheduledAt: post.scheduledAt,
       timezone: 'Europe/London', paused: !feed.enabled || campaign.state === 'paused',
       campaignPaused: campaign.state === 'paused', deliveryStatus: delivery?.status ?? null,
+      ...(includeDrafts && { origin: campaign.plan!.recordingTease ? 'Podcast recording teaser' : 'Podcast campaign',
+        approved: campaign.approvedAt !== null && (campaign.state === 'approved' || campaign.state === 'paused'),
+        status: delivery?.status ?? (campaign.state === 'draft' ? 'Draft · awaiting approval' : campaign.state === 'paused' ? 'Paused' : 'Scheduled'),
+        sources: [{ id: campaign.noteId, title: campaign.plan!.recordingTease ? 'Episode transcript' : 'Show Notes', url: null }] }),
       reason: delivery?.error || campaign.error || (campaign.state === 'paused'
         ? 'Campaign paused. Open the campaign to resume delivery.'
+        : campaign.state === 'draft' ? 'Draft campaign; dates are proposed, not authorised for delivery. Review and approve in Campaign.'
         : !feed.enabled ? 'Posting automation is off for this destination.'
           : 'Approved podcast campaign. Posts publish independently of other scheduled content, publishing windows and daily limits.'),
       copy: [post.copy, post.url].filter(Boolean).join('\n\n'), blog: post.blog,
+      ...(includeDrafts && post.asset && { asset: post.asset }),
     }];
   })).sort((a, b) => (a.scheduledAt ?? 'z').localeCompare(b.scheduledAt ?? 'z'));
 }
@@ -126,6 +132,47 @@ export async function savePodcastLinks(db: Pool, noteId: string, revision: unkno
     }
     await event(c, null, actor, 'podcast-links-saved', { noteId });
   });
+  return getPodcastCampaign(db, noteId);
+}
+
+function replaceSavedLink(value: unknown, previous: string, replacement: string): unknown {
+  if (typeof value === 'string') return value.replaceAll(previous, replacement);
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index++) value[index] = replaceSavedLink(value[index], previous, replacement);
+  } else if (value && typeof value === 'object') {
+    const record = object(value);
+    for (const [key, item] of Object.entries(record)) record[key] = replaceSavedLink(item, previous, replacement);
+  }
+  return value;
+}
+
+export async function replacePodcastYoutubeLink(db: Pool, noteId: string, revision: unknown, previous: unknown, replacement: unknown, actor: string): Promise<PodcastCampaignDetail> {
+  const note = await episodeNote(db, noteId);
+  if (note.recordingTease) throw new ValidationError('Recording teasers do not use episode URLs.');
+  const oldUrl = parseEpisodeLinks({ youtube: previous, spotify: '', apple: '' }).youtube;
+  const newUrl = parseEpisodeLinks({ youtube: replacement, spotify: '', apple: '' }).youtube;
+  if (!oldUrl || !newUrl || oldUrl === newUrl) throw new ValidationError('Provide different existing and replacement YouTube episode URLs.');
+  await transaction(db, async c => {
+    const campaign = await lockedCampaign(c, noteId, revision);
+    if (!campaign.plan || campaign.links.youtube !== oldUrl) throw new ConflictError('The saved episode URL changed. Read the current campaign first.', 'PODCAST_CONFLICT');
+    const deliveries = await campaignDeliveries(c, noteId);
+    if (deliveries.some(delivery => ['sent', 'sending', 'unconfirmed'].includes(delivery.status))) {
+      throw new ValidationError('Publication has started. A link replacement cannot change published or in-flight posts.');
+    }
+    const plan = structuredClone(campaign.plan);
+    replaceSavedLink(plan, oldUrl, newUrl);
+    const previousId = new URL(oldUrl).hostname === 'youtu.be' ? new URL(oldUrl).pathname.slice(1) : new URL(oldUrl).searchParams.get('v');
+    if (previousId && JSON.stringify(plan).includes(previousId)) throw new ValidationError('Another form of the old YouTube URL remains. Replace all URL forms before saving.');
+    requirePodcastCreationReview(plan);
+    const links = { ...campaign.links, youtube: newUrl };
+    await c.query(`UPDATE podcast_campaigns SET links=$2,plan=$3,state='draft',revision=revision+1,
+      approved_at=NULL,approved_by=NULL,error=NULL,updated_at=NOW() WHERE note_id=$1`,
+    [noteId, JSON.stringify(links), JSON.stringify(plan)]);
+    await event(c, null, actor, 'podcast-youtube-link-replaced', { noteId, previous: oldUrl, replacement: newUrl,
+      previousRevision: campaign.revision, approvalCleared: true, preservedCopyArtworkAndDates: true });
+  });
+  const saved = await getPodcastCampaign(db, noteId);
+  await queuePodcastCreationReview(db, noteId, saved.revision);
   return getPodcastCampaign(db, noteId);
 }
 

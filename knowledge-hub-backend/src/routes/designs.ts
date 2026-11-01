@@ -9,10 +9,12 @@ import { writeDesignSpec } from '../designs/designSpec.js';
 import { scheduleGitHubPublish } from '../services/noteGitHubService.js';
 import type { Note } from '../types/index.js';
 import { checkDesignConsistency } from '../designs/designConsistency.js';
+import { checkDesignReadiness, pageReadiness, prepareReadinessRepair, readDesignReadiness, readinessHistory, resolveReadinessRepair } from '../designs/designReadiness.js';
 
 export const designsRouter = Router();
 const MAX_ID_LENGTH = 100;
 const MAX_SEARCH_LENGTH = 200;
+const MAX_READINESS_OFFSET = 100_000;
 const HEARTBEAT_MS = 10_000;
 const wrap = (run: (req: Request) => Promise<unknown>) => (req: Request, res: Response, next: NextFunction): void => {
   void run(req).then(data => { res.json({ success: true, data }); }).catch(next);
@@ -40,6 +42,24 @@ designsRouter.post('/:id/selection', wrap(req => selectDesignAsset(getDb(), id(r
 designsRouter.post('/:id/specification-type', wrap(req => setSpecificationType(getDb(), id(req), body(req))));
 designsRouter.get('/:id/collaboration', wrap(req => collaboration(getDb(), id(req))));
 designsRouter.post('/:id/consistency', wrap(req => checkDesignConsistency(getDb(), id(req), body(req)['requestedChange'])));
+const pageOffset = (req: Request): number => {
+  const value = Number(req.query['offset'] ?? 0);
+  if (!Number.isSafeInteger(value) || value < 0 || value > MAX_READINESS_OFFSET) throw new ValidationError('Use a nonnegative pagination offset up to 100,000.');
+  return value;
+};
+designsRouter.get('/:id/readiness', wrap(async req => {
+  const status = req.query['status'] ?? 'open';
+  if (status !== 'open' && status !== 'resolved') throw new ValidationError('Choose open or resolved findings.');
+  return pageReadiness(await readDesignReadiness(getDb(), id(req)), pageOffset(req), status);
+}));
+designsRouter.get('/:id/readiness/history', wrap(req => readinessHistory(getDb(), id(req), pageOffset(req))));
+designsRouter.post('/:id/readiness', wrap(async req => pageReadiness(await checkDesignReadiness(getDb(), id(req), body(req)['specId']))));
+designsRouter.post('/:id/readiness/repairs', wrap(async req => pageReadiness(await prepareReadinessRepair(getDb(), id(req), body(req)))));
+designsRouter.post('/:id/readiness/repairs/:proposalId/resolve', wrap(req => {
+  const input = body(req);
+  if (typeof input['accept'] !== 'boolean') throw new ValidationError('Choose Apply or Discard.');
+  return resolveReadinessRepair(getDb(), id(req), requiredText(req.params['proposalId'], 'Repair ID', MAX_ID_LENGTH), input['accept']);
+}));
 // One Blueprint run per design and instruction: other tabs that ask while it runs join it instead of paying for a duplicate.
 type ArtifactRun = { result: ReturnType<typeof generateArtifact>; progress: string[]; listeners: Set<(message: string) => void> };
 const artifactRuns = new Map<string, ArtifactRun>();

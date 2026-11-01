@@ -4,7 +4,7 @@ import { getEpisode, saveScript } from '../podcasts/podcastEpisodeStore.js';
 import { listAgentJobs } from '../agents/engine.js';
 import { ConflictError, ValidationError } from '../types/errors.js';
 import { spokenScriptText } from '../podcasts/scriptAnnotations.js';
-import { getPodcastCampaign, saveRecordingTeaserCopy, savePodcastImageSpec } from '../publishing/podcastCampaignStore.js';
+import { getPodcastCampaign, saveRecordingTeaserCopy, savePodcastImageSpec, replacePodcastYoutubeLink } from '../publishing/podcastCampaignStore.js';
 
 const MAX_READ_CHARS = 32_000;
 const MAX_CAMPAIGN_READ_CHARS = 128_000;
@@ -31,6 +31,13 @@ export interface PodcastTurnState {
 }
 
 export const PODCAST_CHAT_TOOLS: LlmToolDefinition[] = [
+  { type: 'function', function: {
+    name: 'replace_podcast_youtube_link',
+    description: 'Replace an explicitly user-requested re-uploaded YouTube URL throughout an undelivered campaign. Read the campaign first. Preserves authored copy apart from the URL, images and dates; clears approval and queues independent review. Never approves or publishes. Refuses published or in-flight campaigns.',
+    parameters: { type: 'object', additionalProperties: false, properties: {
+      expectedRevision: { type: 'integer' }, previous: { type: 'string' }, replacement: { type: 'string' },
+    }, required: ['expectedRevision', 'previous', 'replacement'] },
+  } },
   { type: 'function', function: {
     name: 'update_podcast_campaign_image',
     description: 'Persist an explicitly requested edit to one draft podcast image from saved source text, regenerating only that PNG/SVG with the approved template. Read its campaign first. Preserves copy, dates, other images and approval boundaries. Quotes and presenter attribution must match the same source passage. Does not publish.',
@@ -88,6 +95,17 @@ export async function executePodcastTool(db: Pool, name: string, owner: string, 
   }
   const episode = await getEpisode(db, owner);
   const jobs = await listAgentJobs(db, { subjectType: 'podcast-episode', subjectId: owner, limit: 10 });
+  if (name === 'replace_podcast_youtube_link') {
+    const noteId = episode.showNotesNoteId;
+    if (!noteId || !state || state.readCampaignNoteId !== noteId || state.readCampaignRevision !== args.expectedRevision) {
+      throw new ConflictError('Read the current campaign before replacing its YouTube URL.', 'PODCAST_CONFLICT');
+    }
+    if (access.excludedIds?.has(noteId)) throw new ValidationError('The campaign is excluded from this conversation.');
+    const saved = await replacePodcastYoutubeLink(db, noteId, args.expectedRevision, args.previous, args.replacement, `chat:${owner}`);
+    state.changed = true;
+    state.readCampaignRevision = saved.revision;
+    return saved;
+  }
   if (name === 'read_podcast_campaign') {
     if (args.kind !== 'teaser' && args.kind !== 'campaign') throw new ValidationError('Choose teaser or campaign.');
     const noteId = args.kind === 'teaser' ? owner : episode.showNotesNoteId;

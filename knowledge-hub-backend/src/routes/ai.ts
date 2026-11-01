@@ -36,6 +36,7 @@ import type { AiModel, ChatPageContext, WriteActionType, WriteActionPayload } fr
 import type { PodcastTurnState } from '../ai/podcastTools.js';
 import { getDesign } from '../designs/designStore.js';
 import type { DesignTurnState } from '../ai/designTools.js';
+import { linkTraceMessage, listTurnTraces, readTurnTrace, recordTurnTrace, withTurnTrace } from '../ai/turnTrace.js';
 
 const router = Router();
 const MAX_MENTION_QUERY_CHARS = 200;
@@ -116,6 +117,11 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
 
   const effectiveSessionId = providedSessionId ?? randomUUID();
   let pageContext = requestedPageContext;
+  const db = getDb();
+  const fullHistory = await getOrCreateSessionHistory(db, effectiveSessionId);
+  return withTurnTrace(db, effectiveSessionId, { message, uiContext: reqBody['uiContext'], requestedPageContext, noteId, projectId, model,
+    persona: requestedPersona, outputsPanel, screenReview }, hooks.signal, async () => {
+  await recordTurnTrace('context.ui', { uiContext: reqBody['uiContext'] ?? null, modelPageContextSupplied: requestedPageContext !== undefined });
   if (screenReview !== undefined && message !== undefined) {
     const mode = screenReview.mode === 'focus' ? 'focus' : 'journey';
     hooks.onActivity?.(mode === 'journey' ? 'Looking at the journey screens together' : 'Looking closely at the marked areas');
@@ -128,8 +134,6 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
       };
     }
   }
-  const db = getDb();
-  const fullHistory = await getOrCreateSessionHistory(db, effectiveSessionId);
   const isFirstMessage = fullHistory.length === 0;
   const modelHistory = await getModelHistory(db, effectiveSessionId);
 
@@ -280,6 +284,8 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
       : message;
   hooks.signal?.throwIfAborted();
   const { assistantMessageId } = await appendTurn(db, effectiveSessionId, historyMessage, reply, { persona, sources, contextUsed });
+  await linkTraceMessage(assistantMessageId);
+  await recordTurnTrace('reply.saved', { assistantMessageId, contextUsed });
   if (audit.row !== undefined) {
     const row = { ...audit.row, assistantMessageId };
     setImmediate(() => { void recordTurnAudit(db, row); });
@@ -335,7 +341,17 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
       ...(podcastOwner && podcastState.changed ? { podcastChanged: { noteId: podcastOwner } } : {}),
       ...(workState.changedNoteIds.length ? { workChanged: { noteIds: [...new Set(workState.changedNoteIds)] } } : {}),
   };
+  });
 }
+
+router.get('/sessions/:sessionId/traces', (req, res, next): void => {
+  void listTurnTraces(getDb(), req.params['sessionId'], req.query['offset'])
+    .then(data => { res.json({ success: true, data }); }).catch(next);
+});
+router.get('/sessions/:sessionId/traces/:traceId/events', (req, res, next): void => {
+  void readTurnTrace(getDb(), req.params['sessionId'], req.params['traceId'], req.query['sequence'], req.query['offset'])
+    .then(data => { res.json({ success: true, data }); }).catch(next);
+});
 
 /**
  * GET /api/ai/usage-summary?days=7

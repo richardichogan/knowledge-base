@@ -17,6 +17,10 @@ const PLANNING_HOURS = PLANNING_DAYS * HOURS_PER_DAY;
 export interface ScheduledPost {
   draftId: string; topicId: string; title: string; destination: Draft['destination']; version: number;
   scheduledAt: string | null; timezone: string; paused: boolean; reason: string;
+  origin?: string;
+  status?: string;
+  approved?: boolean;
+  sources?: Array<{ id: string; title: string; url: string | null }>;
 }
 interface Candidate extends Draft { title: string; topicState: string; scheduledAt: string | null; scheduleReason: string | null }
 interface Booking { draftId: string; destination: Draft['destination']; account: string; at: Date }
@@ -187,18 +191,25 @@ export async function refreshSchedule(db: Pool): Promise<void> {
   });
 }
 
-export async function listSchedule(db: Pool): Promise<ScheduledPost[]> {
+export async function listSchedule(db: Pool, includeDrafts = false): Promise<ScheduledPost[]> {
   const settings = await feeds(db);
   const candidates = (await db.query<Candidate>(`${scheduleCandidates}
-    WHERE d.topic_id IN(SELECT topic_id FROM publishing_drafts WHERE approval='approved')
+    ${includeDrafts ? '' : "WHERE d.topic_id IN(SELECT topic_id FROM publishing_drafts WHERE approval='approved')"}
     ORDER BY s.scheduled_at NULLS LAST,d.created_at`)).rows;
   const history = (await db.query<Delivery>(`SELECT ${deliveryColumns} FROM publishing_deliveries
     WHERE draft_id=ANY($1::uuid[])`, [candidates.map(d => d.id)])).rows;
-  return candidates.filter(d => d.approval === 'approved' && !completed(d, history)).map(d => {
+  const sources = includeDrafts ? (await db.query<{ topicId: string; id: string; title: string; url: string | null }>(
+    `SELECT s.topic_id AS "topicId",s.item_id AS id,COALESCE(c.title,s.title) AS title,COALESCE(c.url,s.url) AS url FROM publishing_sources s
+      LEFT JOIN content_items c ON c.id=s.item_id WHERE s.topic_id=ANY($1::uuid[])`, [candidates.map(d => d.topicId)])).rows : [];
+  return candidates.filter(d => (includeDrafts || d.approval === 'approved') && !completed(d, history)).map(d => {
     const feed = feedFor(d, settings);
     const blocker = readiness(d) ?? packageBlocker(d, candidates);
     return { draftId: d.id, topicId: d.topicId, title: String(d.content.title ?? d.title), destination: d.destination,
       version: d.version, scheduledAt: blocker || !d.scheduledAt ? null : new Date(d.scheduledAt).toISOString(), timezone: feed.policy.timezone,
-      paused: !feed.enabled, reason: blocker ?? d.scheduleReason ?? 'Refresh the schedule to assign a slot.' };
+      paused: !feed.enabled, reason: blocker ?? d.scheduleReason ?? 'Refresh the schedule to assign a slot.',
+      ...(includeDrafts && { origin: 'Discover', approved: d.approval === 'approved', status: d.approval === 'rejected' ? 'Rejected' : d.held ? 'Held'
+        : d.review !== 'pass' ? `Review: ${d.review}` : d.approval !== 'approved' ? 'Awaiting approval'
+          : !d.scheduledAt ? 'Needs scheduling' : 'Scheduled',
+      sources: sources.filter(s => s.topicId === d.topicId).map(({ id, title, url }) => ({ id, title, url })) }) };
   }).sort((a, b) => (a.scheduledAt ?? 'z').localeCompare(b.scheduledAt ?? 'z'));
 }

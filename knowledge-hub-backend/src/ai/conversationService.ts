@@ -1,6 +1,6 @@
 import type { NoteEditProposal } from './noteEdits.js';
 import { randomUUID } from 'node:crypto';
-import { DESIGN_CHAT_TOOLS, type DesignTurnState } from './designTools.js';
+import { DESIGN_CHAT_TOOLS, DESIGN_READINESS_WRITE_TOOLS, type DesignTurnState } from './designTools.js';
 import { PODCAST_CHAT_TOOLS, type PodcastTurnState } from './podcastTools.js';
 import { WORK_WRITE_TOOLS, type WorkTurnState } from './workContentTools.js';
 import type { TaskStatusProposal } from '../work/taskStatusChange.js';
@@ -50,6 +50,7 @@ import { findDiagramContext, DIAGRAM_READING_GUIDANCE } from '../services/diagra
 import type { MapChangeProposal } from './mapEdits.js';
 import { LOCAL_FILE_TOOLS, localFilesPrompt, type LocalFileWriteProposal, type LocalFolder } from './localFiles.js';
 import { ukClock } from '../sync/ukClock.js';
+import { recordTurnTrace, setTraceProject, withTurnTrace } from './turnTrace.js';
 
 const RAG_USED_LIMIT = 10;
 const TOOL_ERROR_LOG_CHARS = 400;
@@ -131,7 +132,7 @@ const NO_OUTPUTS_PANEL_NOTE = [
 const NOTE_EDIT_MAX_TOKENS = 14_000;
 
 /** Tools that change something; left out when a turn must only read. */
-const WRITE_TOOLS = new Set([...WORK_WRITE_TOOLS, 'generate_project_progress_review', 'update_podcast_script', 'save_design_documents', 'set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'propose_local_file_write', 'remember', 'forget_memory', 'save_output', 'manage_scheduled_jobs', 'manage_publishing_feeds', 'hand_off_to_specialist', 'import_meeting_list', DEMO_SPECIFICATION_WRITE_TOOL, ...ASSET_WRITE_TOOLS]);
+const WRITE_TOOLS = new Set([...WORK_WRITE_TOOLS, ...DESIGN_READINESS_WRITE_TOOLS, 'generate_project_progress_review', 'update_podcast_script', 'replace_podcast_youtube_link', 'save_design_documents', 'set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'propose_local_file_write', 'remember', 'forget_memory', 'save_output', 'manage_scheduled_jobs', 'manage_publishing_feeds', 'hand_off_to_specialist', 'import_meeting_list', DEMO_SPECIFICATION_WRITE_TOOL, ...ASSET_WRITE_TOOLS]);
 
 function isStopped(hooks: TurnHooks): boolean {
   return hooks.signal?.aborted === true;
@@ -148,7 +149,14 @@ function isStopped(hooks: TurnHooks): boolean {
  * which are executed here and fed back in a loop (capped at
  * AI_MAX_TOOL_ITERATIONS) until the model produces a final text reply.
  */
-export async function handleConversationTurn(
+export async function handleConversationTurn(...args: Parameters<typeof conversationTurn>): Promise<string> {
+  const [db, , userMessage, model, persona, sessionId, pageContext, , toolContext, hooks] = args;
+  return withTurnTrace(db, sessionId, { message: userMessage, model, persona, pageContext,
+    target: { noteId: toolContext?.noteId, designOwner: toolContext?.designOwner, podcastOwner: toolContext?.podcastOwner },
+    readOnly: hooks?.readOnlyTools === true }, hooks?.signal, () => conversationTurn(...args));
+}
+
+async function conversationTurn(
   db: Pool,
   history: ConversationMessage[],
   userMessage: string,
@@ -171,6 +179,9 @@ export async function handleConversationTurn(
   /** Live turn hooks (background turns): streamed text, activity lines, Stop, a longer time budget. */
   hooks: TurnHooks = {},
 ): Promise<string> {
+  await recordTurnTrace('context.resolved', { pageContext,
+    target: { noteId: toolContext.noteId, designOwner: toolContext.designOwner, podcastOwner: toolContext.podcastOwner },
+    model, persona, readOnly: hooks.readOnlyTools === true });
   const workforceRequestId = randomUUID();
   hooks.signal?.throwIfAborted();
   hooks.onActivity?.('Loading context');
@@ -201,6 +212,7 @@ export async function handleConversationTurn(
   if (excluded.size > 0) context.ragItems = context.ragItems.filter((item) => !excluded.has(item.id));
   let strictProjectId: string | null = null;
   const activeProjectId = sessionId !== undefined ? await getSessionProjectId(db, sessionId) : null;
+  await setTraceProject(activeProjectId);
   let diagramBlock = '';
   if (openDiagram !== null) {
     try {
@@ -272,6 +284,7 @@ Do not use generic draft creation, demo-specification generation, Outputs, chat-
 Use case = actors, goals, journey and outcomes; Spec = detailed behaviours, constraints and acceptance; Architecture = technical structure; Diagram = the linked native canvas. HTML is the shared interactive visual within Spec, not an extra document for every tab.
 Call successful tools before claiming a save. There is no Apply preview for direct Design saves. Never invent a panel, button or link. On error report what failed and preserve writing; do not make disconnected substitutes.
 Existing interactive-visual feedback still requires its explicit Accept/Discard workflow. Do not claim to regenerate a visual or mutate a diagram through the document tools.
+IMAGINE specification readiness lives in the existing Spec tab. read_design_readiness retrieves saved revision-bound findings, coverage and freshness; follow its pagination rather than claiming unread findings were reviewed. check_design_readiness runs only on explicit request, never on an unrelated question. prepare_design_readiness_repair creates a finding-specific preview, NOT a save; only the user’s Spec-tab Apply can accept it. Do not bypass that boundary through save_design_documents. Synthetic fixtures require explicit user authorisation for the repair. Applying writing makes the assessment stale; recheck before claiming a finding was resolved. Readiness is not implementation success, phase acceptance, live consent or a blocked handoff.
 Writing the whole spec from the use case, or generating the Blueprint, is specialist work: use hand_off_to_specialist (spec-writer or blueprint-designer) instead of writing it yourself. It runs in the background and reports back in this chat; do not wait for it or claim it has finished. Targeted edits to a section stay with save_design_documents.` : '';
   const podcastBlock = toolContext.podcastOwner ? `## Working Podcast episode (server-resolved)
 Episode identity: ${toolContext.podcastOwner}. Active stage: ${pageContext?.podcastTab ?? 'unspecified'}.
@@ -526,6 +539,7 @@ The Monday launch and weekday quote posts over two weeks are authored in Show No
       let result: unknown;
       let directRead = false;
       const requestedArgs = parseToolArgs(call.function.arguments);
+      await recordTurnTrace('tool.request', { callId: call.id, name: call.function.name, arguments: requestedArgs });
       const diagramRead = call.function.name === 'read_diagram';
       const wholeReadRequested = (call.function.name === 'read_knowledge_record' || diagramRead) && sessionId !== undefined
         && (diagramRead || requestedArgs['fullDocument'] !== false && (documentReview || requestedArgs['fullDocument'] === true || requestedArgs['resumeReading'] === true))
@@ -563,6 +577,7 @@ The Monday launch and weekday quote posts over two weeks are authored in Show No
             retrievalAudit.temporal = scope?.filter.within !== undefined;
           }
           result = { ...catalog.load(names), ...(retrievalScope !== undefined && { enforcedScope: retrievalScope, projectId: strictProjectId }) };
+          await recordTurnTrace('tool.result', { callId: call.id, name: call.function.name, content: JSON.stringify(result) });
           messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) });
           continue;
         }
@@ -583,6 +598,7 @@ The Monday launch and weekday quote posts over two weeks are authored in Show No
             if (room < MIN_READ_PAGE_CHARS) {
               budget.exhausted.add('source_chars');
               result = { partial: true, code: 'budget_exhausted', note: 'The document page was not read: insufficient context remains. This is a context limit, not a failed body load.' };
+              await recordTurnTrace('tool.result', { callId: call.id, name: call.function.name, content: JSON.stringify(result) });
               messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) });
               continue;
             }
@@ -593,6 +609,8 @@ The Monday launch and weekday quote posts over two weeks are authored in Show No
             }
           }
           const execute = async (argumentsJson: string): Promise<unknown> => {
+            await recordTurnTrace('tool.execution', { callId: call.id, name: call.function.name, arguments: parseToolArgs(argumentsJson),
+              retrievalScope, strictProjectId, excludedIds: [...excluded] });
             hooks.validateToolCall?.(call.function.name, parseToolArgs(argumentsJson));
             return filterExcluded(
               await executeToolCall(db, call.function.name, argumentsJson, activeProjectId ?? undefined, { sessionId, userMessage, ...toolContext, workforceRequestId, retrievalScope, retrievalAudit, excludedIds: excluded, exclusionsFailed, strictProjectId, signal: hooks.signal, mapAliases: mapOutlineResult?.aliases, mapCanvas: openMap ?? undefined, readOnly: hooks.readOnlyTools === true }),
@@ -716,6 +734,7 @@ The Monday launch and weekday quote posts over two weeks are authored in Show No
       }
       if (call.function.name === 'read_knowledge_record') updatePendingRead(pendingReads, parseToolArgs(call.function.arguments), result);
       // Only register evidence actually sent to the model, not a discarded oversized payload.
+      await recordTurnTrace('tool.result', { callId: call.id, name: call.function.name, content: toolContent });
       hooks.onToolResult?.(call.function.name, result);
       if (used !== undefined) recordToolSources(used, call.function.name, result);
       if (ledger !== undefined) {
