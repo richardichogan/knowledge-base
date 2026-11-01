@@ -3,6 +3,19 @@
 **Status:** Validated
 
 **Release execution and upload correction proof (2026-11-01, podcast campaigns):**
+- Correction commit00e84b921e7c51071b6b7cadf10b96784fe71932 pushed to both refs;
+  v283 revisionkh-prod-api-vnet--0000280 is Healthy / RunningAtMaxScale, latest-ready,
+  with100% latest traffic. Startup confirms completed migrations, database8/8
+  connections and the production specialist worker. Hosted frontend remains current.
+- User explicitly approved retrying only the definite failed LinkedIn teaser.
+  One guarded retry authorization was recorded for the unchanged approved revision5;
+  the normal production worker sent the native image post successfully at15:54:19Z:
+  https://www.linkedin.com/feed/update/urn:li:share:7522687476700811264/.
+  LinkedIn attempts2 includes the initial pre-publication rejection. Bluesky remains
+  sent once; no edit/repost/delete was performed. Both delivery errors and campaign
+  error are clear. Full campaign stays draft revision8 and has not been approved.
+- The aspect-ratio correction applies to future Bluesky posts; the existing post's
+  display is unchanged. Exact landscape/square embed payloads passed the regression.
 - Application86280758d75621b1165c98374f4a7bec1838e56c pushed to main and
   richardichogan-local-development. ACR ca8v built v282; revision0000279 is
   Healthy / RunningAtMaxScale, latest-ready and100% latest-revision traffic.
