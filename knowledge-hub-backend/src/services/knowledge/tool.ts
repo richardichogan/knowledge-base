@@ -6,7 +6,7 @@ import { recallDocumentMemory } from '../../ai/knowledge/documentReading.js';
 
 /** Tools that can surface source content and therefore must fail closed when exclusions are unknown. */
 export const EXCLUSION_GATED_TOOLS: ReadonlySet<string> = new Set([
-  'search_knowledge_base', 'search_library', 'find_files', 'read_knowledge_record', 'read_diagram',
+  'search_knowledge_base', 'search_library', 'find_files', 'read_knowledge_record', 'read_diagram', 'read_diagram_versions',
   'search_diagrams', 'search_knowledge_graph', 'search_past_chats', 'read_past_chat',
 ]);
 

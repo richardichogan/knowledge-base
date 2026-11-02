@@ -188,6 +188,7 @@ const ANALYST_CONSULTANCY_DOMAINS = [
 
 /** Classifies a URL into a fine-grained source authority tier for ranking (distinct from classifySourceByUrl's coarser SourceType). */
 export function classifySourceAuthority(articleUrl: string | null, sourceUrl: string | null): SourceAuthorityTier {
+  if ([articleUrl, sourceUrl].some(isMicrosoftAiUrl)) return 'Microsoft/GitHub Official';
   // Channel IDs, unlike a display name or a video title, identify the publisher.
   if ([articleUrl, sourceUrl].some(value => {
     if (!value) return false;
@@ -214,6 +215,15 @@ export function classifySourceAuthority(articleUrl: string | null, sourceUrl: st
     if (COMMUNITY_DOMAINS.some((d) => u.includes(d))) return 'Community';
   }
   return 'Unknown';
+}
+
+export function isMicrosoftAiUrl(value: string | null): boolean {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return ['http:', 'https:'].includes(url.protocol) && ['microsoft.ai', 'www.microsoft.ai'].includes(url.hostname)
+      && !url.username && !url.password && !url.port;
+  } catch { return false; }
 }
 
 export interface ScoringResult {

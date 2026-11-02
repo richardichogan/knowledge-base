@@ -83,7 +83,7 @@ export const ShareEmailModal: React.FC<{ content: ShareEmailContent; onClose: ()
       <p>From: Athena &lt;{query.data?.from ?? 'share@athena.themicrosoftcloudblog.com'}&gt;
         {query.data?.replyTo && <> · Reply-To: {query.data.replyTo}</>}</p>
       <label htmlFor="share-email-to">Recipients (up to 20, separated by commas)</label>
-      <input id="share-email-to" ref={recipientInput} value={recipients} disabled={busy || attempted} autoComplete="off"
+      <input id="share-email-to" spellCheck={false} ref={recipientInput} value={recipients} disabled={busy || attempted} autoComplete="off"
         role="combobox" aria-autocomplete="list" aria-expanded={!!mention && !dismissContacts}
         aria-controls="share-contact-options" aria-activedescendant={mention && !dismissContacts && suggestions[contactIndex] ? `share-contact-${contactIndex}` : undefined}
         placeholder="Email addresses or @contact"

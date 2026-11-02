@@ -33,6 +33,29 @@ export function protectedWeeklyText(text: string, sources: unknown): string[] {
   return [...new Set(spans)];
 }
 
+function restoresSourceCitationTitles(before: string, after: string, sources: unknown): boolean {
+  const titlesByUrl = new Map<string, Set<string>>();
+  for (const source of Array.isArray(sources) ? sources : []) {
+    if (!source || typeof source !== 'object') continue;
+    const entry = object(source);
+    if (typeof entry.url !== 'string' || typeof entry.title !== 'string' || !entry.title.trim()) continue;
+    const titles = titlesByUrl.get(entry.url) ?? new Set<string>();
+    titles.add(entry.title);
+    titlesByUrl.set(entry.url, titles);
+  }
+  const words = (value: string): string => value.replace(/[\p{P}\p{Z}\s]/gu, '').toLowerCase();
+  let restored = false;
+  const expected = before.replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, (link: string, label: string, url: string): string => {
+    const titles = titlesByUrl.get(url);
+    if (titles?.size !== 1) return link;
+    const title = [...titles][0]!;
+    if (label === title || words(label) !== words(title) || /[[\]\\\r\n]/.test(title)) return link;
+    restored = true;
+    return `[${title}](${url})`;
+  });
+  return restored && expected === after;
+}
+
 /** Preserve source wording and constrain each proposed replacement to one sentence or phrase. */
 export function applyWeeklyRepairs(
   content: Record<string, unknown>, response: unknown, fields: readonly string[], sources: unknown, sentenceLimit = 1,
@@ -57,6 +80,11 @@ export function applyWeeklyRepairs(
       if (beforeBlock && afterBlock && beforeBlock[1] === afterBlock[1] && beforeBlock[WRAPPER_CLOSE] === afterBlock[WRAPPER_CLOSE]) {
         edit.before = beforeBlock[WRAPPER_BODY]!;
         edit.after = afterBlock[WRAPPER_BODY]!;
+      }
+      if (edit.field === 'bodyMarkdown' && restoresSourceCitationTitles(edit.before, edit.after, sources)) {
+        revised = applyEditorialEdits('blog', revised, { edits: [edit] }, fields);
+        applied.push(edit);
+        continue;
       }
       // Models sometimes include unchanged surrounding sentences as match context.
       // Remove only identical context; never generate or infer replacement wording.

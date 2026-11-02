@@ -6,8 +6,7 @@ import { getDb } from '../db/db.js';
 import { HTTP_STATUS, DISCOVER_RECENCY_HALF_LIFE_DAYS } from '../config/constants.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 import { scoreUnscored } from '../integrations/cms/discoveredArticlesSync.js';
-import { syncDiscoveryFeeds, toSource } from '../integrations/discovery/feedSync.js';
-import { readFeed } from '../integrations/discovery/feedReader.js';
+import { addDiscoverySource, DISCOVERY_SOURCE_FIELDS, syncDiscoveryFeeds, toSource } from '../integrations/discovery/feedSync.js';
 import { discoverRankSql, discoverDiversitySql } from '../integrations/cms/discoverRank.js';
 import { interestSql } from '../services/discoverInterests.js';
 import { workflowStateSql } from '../services/discoverWorkflow.js';
@@ -21,7 +20,7 @@ import { ConflictError, NotFoundError, ValidationError, WriteActionNotConfirmedE
 import { BlueskyPostUnconfirmedError, blueskyConfigured, postToBluesky } from '../integrations/social/bluesky.js';
 import { LINKEDIN_POST_LIMIT, LinkedInPostUnconfirmedError, composeLinkedInText, getLinkedInMember, linkedinConfigured, postToLinkedIn } from '../integrations/social/linkedin.js';
 import { getDiscoverParking, saveDiscoverParking, removeDiscoverParking, type DiscoverParking } from '../services/discoverParking.js';
-import { resolveDiscoveryFeed, readYouTubeVideo } from '../integrations/discovery/youtube.js';
+import { readYouTubeVideo } from '../integrations/discovery/youtube.js';
 import { collectYouTubeEvidence, relatedYouTubeArticles } from '../integrations/discovery/youtubeEvidence.js';
 import { upsertContentItem } from '../db/queries.js';
 import { deliver, destinationAccount, PublicationUnconfirmed } from '../publishing/delivery.js';
@@ -652,7 +651,7 @@ discoverRouter.patch('/:id/workflow', (req: Request, res: Response, next: NextFu
 
 // ── Feed sources (where discovery looks) ─────────────────────────────────────
 
-const FEED_FIELDS = `id::text, title, feed_url, group_name, is_active, last_checked_at, last_success_at, last_error, last_new_count, articles_found`;
+const FEED_FIELDS = DISCOVERY_SOURCE_FIELDS;
 
 function feedBody(req: Request): { title: string; feedUrl: string; groupName: string } {
   const b = req.body as { title?: unknown; feedUrl?: unknown; groupName?: unknown };
@@ -700,27 +699,9 @@ discoverRouter.post('/videos', (req: Request, res: Response, next: NextFunction)
 discoverRouter.post('/feeds', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
-      const { title, feedUrl: submittedUrl, groupName } = feedBody(req);
-      let feedUrl = submittedUrl;
-      if (title === '' || !/^https?:\/\//i.test(feedUrl)) {
-        res.status(HTTP_STATUS.BAD_REQUEST).json({ success: false, error: { code: 'BAD_REQUEST', message: 'A name and an http(s) feed address are needed.' } });
-        return;
-      }
-      let articles;
-      try {
-        feedUrl = await resolveDiscoveryFeed(feedUrl);
-        articles = await readFeed(feedUrl);
-      } catch (err) {
-        res.status(HTTP_STATUS.BAD_REQUEST).json({ success: false, error: { code: 'BAD_FEED', message: `That address didn't work as a feed: ${err instanceof Error ? err.message : String(err)}` } });
-        return;
-      }
-      const { rows } = await getDb().query(
-        `INSERT INTO discovery_sources (title, feed_url, group_name) VALUES ($1, $2, $3)
-         ON CONFLICT (feed_url) DO UPDATE SET title = EXCLUDED.title, group_name = EXCLUDED.group_name, is_active = true
-         RETURNING ${FEED_FIELDS}`,
-        [title, feedUrl, groupName],
-      );
-      res.status(HTTP_STATUS.CREATED).json({ success: true, data: { ...toSource(rows[0] as Parameters<typeof toSource>[0]), itemsInFeed: articles.length } });
+      const { title, feedUrl, groupName } = feedBody(req);
+      const source = await addDiscoverySource(getDb(), title, feedUrl, groupName);
+      res.status(HTTP_STATUS.CREATED).json({ success: true, data: source });
     } catch (err) { next(err); }
   })();
 });

@@ -35,9 +35,10 @@ export function destinationAccount(destination: Destination, member?: string): s
   if (destination === 'linkedin') return member ?? '(not connected)';
   return new URL(env.BLOG_POSTS_URL).host;
 }
-export function slotBlock(history: Delivery[], destination: Destination, now: Date): string | null {
+export function slotBlock(history: Delivery[], destination: Destination, now: Date, independentSchedule = false): string | null {
   history = history.filter(delivery => !delivery.identity.startsWith('podcast:'));
   if (history.some(d => d.status === 'sending' || d.status === 'unconfirmed')) return 'An earlier delivery is unresolved. Reconcile it before sending again.';
+  if (independentSchedule) return null;
   if (destination === 'blog') return null;
   const day = localClock(now, 'Europe/London').day;
   const sent = history.filter(d => d.status === 'sent' && d.publishedAt);
@@ -47,11 +48,11 @@ export function slotBlock(history: Delivery[], destination: Destination, now: Da
   if (sent.some(d => now.getTime() - new Date(d.publishedAt!).getTime() < spacing * MS_PER_HOUR)) return 'Waiting for the minimum interval since the last successful post.';
   return null;
 }
-export async function assertSocialOpportunity(db: Pool, destination: 'linkedin' | 'bluesky', account: string, now = new Date()): Promise<void> {
+export async function assertSocialOpportunity(db: Pool, destination: 'linkedin' | 'bluesky', account: string, now = new Date(), independentSchedule = false): Promise<void> {
   await importPublishingHistory(db, destination, account);
   const history = (await db.query<Delivery>(`SELECT ${deliveryColumns} FROM publishing_deliveries WHERE destination=$1 AND account=$2
     AND (attempted_at>$3::timestamptz-INTERVAL '2 days' OR published_at>$3::timestamptz-INTERVAL '2 days' OR status IN ('sending','unconfirmed'))`, [destination, account, now.toISOString()])).rows;
-  const blocked = slotBlock(history, destination, now);
+  const blocked = slotBlock(history, destination, now, independentSchedule);
   if (blocked) throw new PublicationDeferred(blocked);
 }
 export async function reserveDelivery(db: Pool, destination: Destination, account: string, context: DeliveryContext): Promise<Delivery> {
@@ -114,7 +115,7 @@ export async function reserveDelivery(db: Pool, destination: Destination, accoun
     const history = (await c.query<Delivery>(`SELECT ${deliveryColumns} FROM publishing_deliveries
       WHERE destination=$1 AND account=$2 AND (attempted_at>$3::timestamptz-INTERVAL '2 days' OR published_at>$3::timestamptz-INTERVAL '2 days' OR status IN ('sending','unconfirmed'))`,
     [destination, account, now.toISOString()])).rows;
-    const blocked = context.independentSchedule ? null : slotBlock(history, destination, now);
+    const blocked = slotBlock(history, destination, now, context.independentSchedule);
     if (blocked) throw new PublicationDeferred(blocked);
     if (context.topicId) {
       if (destination === 'bluesky') {

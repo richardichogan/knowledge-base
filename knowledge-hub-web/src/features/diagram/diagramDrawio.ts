@@ -2,7 +2,7 @@
  * draw.io (diagrams.net) export: the diagram as an editable .drawio file.
  *
  * Shapes, groups, lanes, connectors (with ports, bends, arrows and label offsets), lines, icons and
- * descriptions (as draw.io tooltips) map one-to-one. Footnote badges, the notes and the colour key
+ * descriptions (in shapes unless footnoted, and retained as tooltips) map one-to-one. Footnote badges, the notes and the colour key
  * become ordinary draw.io shapes and text, placed where the PNG/SVG export puts them. Collapsed
  * groups are exported expanded so nothing is lost. AI flow step, lane and connector details become
  * draw.io custom properties (ai*) plus a tooltip summary; lane owners appear under the lane title.
@@ -14,6 +14,7 @@ import { calloutLayout } from './diagramCallouts';
 import { AGENT_MODE_BADGES, AGENT_MODE_LABELS, ASSERTION_LABELS, EDGE_TYPE_LABELS, INTERACTION_LABELS, SENSITIVITY_LABELS, STATE_LABELS, STEP_TYPE_LABELS, controlCount } from './aiFlow';
 import { aiStepSummary } from './diagramAiFlowBadges';
 import { descriptionPlainText, descriptionRuns } from './diagramDescription';
+import { diagramImageCaptionHeight, diagramShapeText } from './diagramText';
 
 export interface DrawioOptions {
   footnotes?: boolean | undefined;
@@ -56,7 +57,7 @@ const DRAWIO_DIRECTION = { right: 'east', left: 'west', up: 'north', down: 'sout
 
 function shapeStyle(n: DiagramNode, hasChildren: boolean): string {
   const common = {
-    html: 1, whiteSpace: 'wrap',
+    html: 1, whiteSpace: 'wrap', overflow: 'hidden',
     fillColor: colour(n.fill), strokeColor: colour(n.stroke), strokeWidth: n.strokeWidth ?? 1.5,
     fontColor: colour(n.textColor, '#161616'), fontSize: n.fontSize,
     ...borderStyle(n),
@@ -67,9 +68,9 @@ function shapeStyle(n: DiagramNode, hasChildren: boolean): string {
   const callout = calloutLayout(n);
   switch (n.kind) {
     case 'container':
-      return style({ swimlane: '', ...common, startSize: containerHeader(n).height, fontStyle: 1, align, spacingLeft: 4, collapsible: 1, container: 1 });
+      return style({ swimlane: '', ...common, startSize: containerHeader(n).height, align, spacingLeft: 4, collapsible: 1, container: 1 });
     case 'swimlane':
-      return style({ swimlane: '', ...common, horizontal: 0, startSize: SWIMLANE_HEADER, fontStyle: 1, collapsible: 1, container: 1 });
+      return style({ swimlane: '', ...common, horizontal: 0, startSize: SWIMLANE_HEADER, collapsible: 1, container: 1 });
     case 'decision':
       return style({ rhombus: '', ...common, align, verticalAlign, ...children });
     case 'hexagon':
@@ -175,6 +176,7 @@ export function diagramDrawioXml(doc: DiagramDocument, images: ReadonlyMap<strin
   const cells: Cell[] = [];
   const parentOf = (n: DiagramNode): DiagramNode | undefined => (n.parentId !== null ? byId.get(n.parentId) : undefined);
   const aiFlow = doc.diagramType === 'ai-flow';
+  const footnoteTargets = new Set(footnotesOf(doc).map(footnote => footnote.targetId));
 
   for (const n of renderOrder(doc.nodes)) {
     const parent = parentOf(n);
@@ -189,7 +191,8 @@ export function diagramDrawioXml(doc: DiagramDocument, images: ReadonlyMap<strin
     }
     const aiData = aiFlow ? aiNodeData(n) : {};
     const owner = aiFlow && n.kind === 'swimlane' ? (n.lane?.owner ?? '').trim() : '';
-    const label = owner === '' ? richLabel(n.label) : `${richLabel(n.label)}<br><span style="font-size:10px;font-weight:normal">${htmlLabel(owner)}</span>`;
+    const text = richLabel(diagramShapeText(n, footnoteTargets.has(n.id)));
+    const label = owner === '' ? text : `${text}<br><span style="font-size:10px;font-weight:normal">${htmlLabel(owner)}</span>`;
     cells.push(vertexCell(n.id, label, shapeStyle(n, parentIds.has(n.id)), parentId,
       { x: n.x - ox, y: n.y - oy, width: n.width, height: n.height }, joinTooltip(n.description === undefined ? undefined : descriptionPlainText(n.description), n.flow !== undefined && aiFlow ? aiStepSummary(n) : undefined), aiData));
     const callout = calloutLayout(n);
@@ -204,7 +207,7 @@ export function diagramDrawioXml(doc: DiagramDocument, images: ReadonlyMap<strin
     }
     const src = n.assetId !== null ? images.get(n.assetId) : undefined;
     if (src !== undefined) {
-      const caption = n.label.trim() !== '' ? Math.round(n.fontSize * 1.3 + 10) : 0;
+      const caption = diagramImageCaptionHeight(footnoteTargets.has(n.id) ? { ...n, description: '' } : n);
       cells.push(vertexCell(`${n.id}-image`, '', style({ shape: 'image', imageAspect: 1, aspect: 'fixed', html: 1, connectable: 0, image: drawioImage(src) }), n.id,
         { x: 4, y: 4, width: Math.max(1, n.width - 8), height: Math.max(1, n.height - caption - 8) }));
     }

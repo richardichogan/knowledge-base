@@ -52,7 +52,10 @@ If a requested window is supplied, select only posts whose ORIGINAL dates fall w
 Otherwise select ALL original posts, including those with dates that have passed. The application reads their dates from the saved headings and assigns publication times.
 Do not return timestamps or calculate timezones. Those are the scheduler's responsibility, not generated metadata.
 Never exclude a post or defer it because of other content, spacing, daily limits, weekends or publishing windows.
-Posts are independent: a recording-day tease can precede the launch blog, and no channel must wait for another.
+For future campaigns the publication stages are Teaser, episode Launch, Blog Post, then Quotes and fuller/generic posts.
+Classify social launch posts as launch, not fuller. A blog's artwork may be launch but its publication stage is Blog Post.
+Preserve authored dates even when they conflict with this order; the application flags them before approval rather than silently moving posts to another day.
+Stages may span different days. Independence from unrelated scheduled content does not permit a generic post to precede the launch.
 Select blog fields from the supplied companion blog package. Do not invent missing metadata; optional selections may be null.
 Blog content is the source body selection, not the whole package. Return copy:null for a blog and blog:null for social posts.
 Do not shorten long posts, perform style checks, add URLs or remove hashtags. The application adds URLs and checks destination limits separately.

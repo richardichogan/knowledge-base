@@ -29,6 +29,7 @@ export function statusLabel(status: string): string {
 }
 
 export function runStatusLabel(run: JobRun): string {
+  if (run.status === 'succeeded' && run.diagnostics?.sourceWarnings.length) return 'Completed with source warnings';
   const sync = run.artifacts['sync'];
   if (run.definition.kind === 'content-sync' && sync && typeof sync === 'object' && !Array.isArray(sync)) {
     const result = sync as Record<string, unknown>;

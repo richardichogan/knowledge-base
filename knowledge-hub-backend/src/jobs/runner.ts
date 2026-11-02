@@ -130,7 +130,10 @@ async function generate(db: Pool, run: JobRun): Promise<Record<string, unknown>>
   return artifacts;
 }
 
-export async function executeRun(db: Pool, run: JobRun, lease: string, delivery: JobDeliveries = deliveries): Promise<void> {
+export async function executeRun(db: Pool, run: JobRun, lease: string, delivery: JobDeliveries = deliveries, options: { independentSchedule?: boolean } = {}): Promise<void> {
+  if (options.independentSchedule && (run.definition.kind !== 'weekly-microsoft' || !run.approvedAt)) {
+    throw new ValidationError('Immediate weekly publication requires approval of this occurrence.');
+  }
   run.status = 'running';
   delete run.artifacts.error;
   await persistRun(db, run, lease);
@@ -237,7 +240,7 @@ export async function executeRun(db: Pool, run: JobRun, lease: string, delivery:
       if (job.revision !== run.revision || !job.enabled) { run.status = 'rejected'; return; }
       if (outputs.includes('blog')) {
         if (outputs.includes('linkedin') && !run.artifacts.blogReceipt && !run.steps.some(s => s.key === 'blog' && s.status === 'succeeded')) {
-          await assertSocialOpportunity(db, 'linkedin', text(object(run.artifacts.linkedinAccount).id, 'LinkedIn account'));
+          await assertSocialOpportunity(db, 'linkedin', text(object(run.artifacts.linkedinAccount).id, 'LinkedIn account'), undefined, options.independentSchedule);
         }
         const result = await step(db, run, lease, 'blog', async () => {
           const targets = object(run.artifacts.publishTargets);
@@ -308,11 +311,11 @@ export async function executeRun(db: Pool, run: JobRun, lease: string, delivery:
             }
             if (channel === 'bluesky') {
               if (object(run.artifacts.publishTargets).blueskyAccount !== (env.BLUESKY_IDENTIFIER ?? '(not connected)')) throw new Error('The Bluesky account changed. Generate and approve a new run.');
-              return deliver(db, 'bluesky', destinationAccount('bluesky'), { identity: `jobs:${run.id}:bluesky` },
+              return deliver(db, 'bluesky', destinationAccount('bluesky'), { identity: `jobs:${run.id}:bluesky`, ...(options.independentSchedule ? { independentSchedule: true } : {}) },
                 () => delivery.bluesky(text(run.artifacts.bluesky, 'Bluesky copy'), link));
             }
             const memberId = text(object(run.artifacts.linkedinAccount).id, 'LinkedIn account');
-            return deliver(db, 'linkedin', memberId, { identity: `jobs:${run.id}:linkedin` },
+            return deliver(db, 'linkedin', memberId, { identity: `jobs:${run.id}:linkedin`, ...(options.independentSchedule ? { independentSchedule: true } : {}) },
               () => delivery.linkedin(text(run.artifacts.linkedin, 'LinkedIn copy', JOB_LIMITS.linkedinCopy), link, memberId));
           }, true);
         } catch (error) {

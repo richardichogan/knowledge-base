@@ -50,6 +50,15 @@ The learning loop reuses Memory's approval-based suggestions. Weekly review pair
 
 It runs as a desktop web app at athena.themicrosoftcloudblog.com, with the Athena Desktop (Electron) wrapper, which also captures local M365 reports. The standalone `/chat` page is the only screen designed for mobile. A Raycast extension and an Android app (`knowledge-hub-raycast`, `knowledge-hub-app`) are secondary clients.
 
+Editable prose uses British-English spellchecking throughout Athena, including
+titles, chat, notes and popup fields. Right-clicking a misspelt word opens the
+existing Athena spelling menu. The menu stays within the originating dialog's
+focus boundary and above modal layers; Escape dismisses it without closing the
+dialog. Passwords, tokens, addresses, identifiers, paths and raw code/HTML fields
+are excluded, including code inside rich notes. Explicit spellcheck opt-outs also
+apply to Athena's own suggestions. Corrections use the existing editor input and
+save paths, without adding a separate content store or changing Athena access.
+
 ### Retrieval meanings and boundaries
 
 The operational vocabulary reuses the knowledge-family/source manifest and complements the typed semantic relationships; it is not a second graph or a copy of the database schema in the prompt. Discover articles, feed subscriptions and Watchlist runs are different collections. Think notes, Library documents, saved chats, live tasks, recorded decisions, diagrams and connected activity have distinct entry points. Explicit collection requests take priority over generic retrieval and current-project reference URLs.
@@ -75,6 +84,14 @@ Traces expire seven days after starting. Reads deny expired traces immediately; 
 Authenticated diagnostics use `GET /api/ai/sessions/:sessionId/traces` (20 records per page via `offset`) and `GET /api/ai/sessions/:sessionId/traces/:traceId/events` (one event, 12,000 characters at a time via `sequence` and `offset`). Responses provide continuation offsets/sequences and completion status. Athena has corresponding bounded `list_chat_turn_traces` and `read_chat_turn_trace` tools. Full prompts cannot safely be field-filtered, so trace tools refuse access under enforced project scope or source exclusions, including exclusions on the original chat. Explicit collection scopes continue to use the normal capability gates. Historical trace content is untrusted diagnostic evidence, not current instructions or a current source read. There is no replay, automatic source mutation, knowledge indexing or retrospective backfill.
 
 ### Instrumentation dashboard and saved-trace evaluations
+
+Capability loading and action reliability use the existing permitted-tool catalogue, not keyword-based mutation routing. Relevant editor schemas are preloaded only after permission filtering. A possible false editing denial gets one bounded runtime correction; schema loading never authorises a write. Traces record capability state, load/blocked attempts, save receipts with target and revision, advisory warnings and intercepted contradictory or unsupported diagram claims. These flags can include drafts repaired before delivery, are not a semantic correctness score, and only have coverage on newly instrumented turns.
+
+Diagram saves with advisory warnings remain saved. A bounded prior-save receipt lookup uses this chat's unexpired, same-runtime traces and only admits a receipt matching the current saved diagram revision; it is withheld when exclusion resolution fails or exclusions exist. It supplies action identity, not source content, and never replays the write. A subsequent correction must reconcile that receipt rather than retract a save without evidence. Saved revision, open-editor synchronisation, queued candidate, approved application and visual quality remain distinct. The normal editor bridge saves pending work before a turn and reconciles the server revision afterwards, preserving conflicting local drafts.
+
+Managed-job reads expose derived timing and source diagnostics consistently to the existing Jobs views and Athena's `manage_scheduled_jobs` tool. Source warnings retain the affected source, error count and recorded remediation; successful ingestion is not discarded. Timing shows recorded step start/finish, start delay, schedule-to-completion duration, current blocking stage and the saved occurrence deadline. Duration is not an invented punctuality SLA; absent timestamps remain unknown. Execution success does not prove complete coverage or delivery. Audit reads can select a particular run; no diagnostic operation approves, republishes or retries it.
+
+Discovery draft refreshes and worker assessments/reviews now use existing workflow attribution, with assessment topic and review draft IDs in bounded stage names. Nested work retains its parent workflow and user/scheduled purpose. This separates future refresh passes and repeated draft reviews without changing selection, editorial checks, model routing or token budgets. Historical unattributed calls remain unattributed; token volume alone does not establish duplicate or unnecessary work.
 
 Every Health data table uses fixed 25-row pagination with previous/next controls and visible row ranges, including tables smaller than one page. Filter changes reset table pages. Workflow stage details remain inside their parent workflow row. Existing bounded API result sets remain explicitly labelled; pagination does not imply access to records outside those bounds. Table page, page size and available row count are included in Athena's page context.
 
@@ -166,6 +183,14 @@ attribution, listening links and dates stay unchanged. Each adapted draft retain
 its original source copy, is identified in preparation notes, and must pass the
 separate review for meaning/factual fidelity before manual approval.
 Campaign dates stay authored.
+Newly prepared campaigns require Teaser, episode Launch, Blog Post, then Quotes
+and fuller/generic posts, across the authored days rather than necessarily on one
+day. Posts with identical authored times are ordered by stage before the existing
+30-minute spacing is applied. Explicit times and dates that violate this order
+are flagged in Campaign and block approval; dates are never silently shifted.
+The linked recording teaser's times are included when checking the release plan.
+This requirement is recorded only on newly prepared plans; existing approved
+campaigns, including this week's posts, are not rewritten or rescheduled.
 Full-campaign posts sharing a day are staggered 30 minutes apart in saved order,
 starting at the existing 08:00 UK time. This spacing is within the podcast campaign
 only; other bookings, publishing windows and daily caps do not influence it.
@@ -402,6 +427,21 @@ returns to it. Existing settings URLs remain valid, including browser Back.
 People, Companies, Activity, Sources, Knowledge graph, project cockpits and
 Knowledge health remain full-page workspaces.
 
+### Website discovery sources
+
+Discover's existing Sources form automatically recognises RSS/Atom feeds,
+YouTube channels and public blog listings, including `https://microsoft.ai/blog/`.
+Website sources use the existing schedule, article cards, relevance pipeline
+and source controls. Up to 30 unique article links are checked per listing;
+only posts with verified publication dates in the last 14 days are imported.
+Undated posts, failed article reads and bounded coverage produce visible source
+warnings, not invented dates or claims of a complete crawl. Unsupported listings
+and total read failures report errors. Website text is publisher-summary
+evidence, not a full-article read. Athena's existing source tools share the same
+reader and persistence and expose source kind, warnings and current status.
+No browser automation, third-party scraping service or automatic subscription
+is introduced. See `docs/youtube-discovery.md` for limits and operation.
+
 ### Jobs and scheduled prompts
 
 **Tools → Jobs** (`/jobs`) opens a workspace-preserving modal for schedules,
@@ -453,6 +493,16 @@ triggers are removed. Weekly Microsoft updates retains Monday 08:00 and its
 previous-full-Monday-to-Sunday evidence window, Think note, pinned chat and Slack
 summary. Its new blog → Bluesky/LinkedIn delivery chain initially requires
 approval. Both social destinations use the confirmed public blog URL.
+Weekly editorial repairs may restore a punctuation-damaged Markdown citation
+label only to the exact supplied title for that same source URL, when the
+title's words already match and the URL has one unambiguous supplied title.
+The replacement must leave every other character unchanged and identify one
+unique saved passage. This narrow restoration is not blocked by question marks
+inside citation titles or URL punctuation being counted as extra sentences.
+Descriptive shortened labels, URLs, unrelated prose, quoted text and ambiguous
+source identities remain protected. The repaired package must still pass the
+normal independent reviews and existing approval/delivery checks; no retry or
+publication is triggered by this repair capability.
 
 Jobs can run a saved grounded Athena prompt, ingest Daily Insights, save a Think
 result or a Markdown file, and deliver through the existing publishing adapters.
@@ -481,6 +531,16 @@ nothing was delivered. Pausing prevents new dispatch and later delivery steps;
 it cannot retract an external request already in flight. Archived jobs retain
 their history. Internal indexing, tagging, health and other maintenance timers
 remain separate and are not editable here.
+
+An explicitly approved publish-now operation for a checked weekly occurrence
+can bypass generic social feed windows, daily caps and post spacing. It still
+requires the occurrence's approval and editorial pass, checks the destination
+account, verifies the public blog, sends LinkedIn before Bluesky and retains
+receipt-based duplicate and unresolved-delivery safeguards. Normal scheduled
+runs keep their existing timing rules. CMS metadata is validated before sending,
+including the maximum of 30 tags; CMS validation rejections are failures, not
+unknown-delivery outcomes. Delivery reconciliation locks the occurrence and
+atomically saves the step, social delivery record and audit event.
 
 ### Athena chat motion
 
@@ -739,9 +799,32 @@ slashes.
 
 ### Approval-first task assistance
 
+Task-generated email drafts are retained as task-linked writing, not entries in
+the main Think list (including its search and counts). Existing Hermes results
+are recognised through their saved assistance provenance; new email drafts
+created through the task work-content service record that provenance separately
+from their editable writing. Ordinary emails created in Think remain listed.
+Direct task/result links still open the existing editor, and Athena retrieval,
+indexing, copying, activity, revision checks and recovery remain unchanged.
+No writing is deleted, archived or moved by this list-only distinction.
+Older structured email drafts without recorded creation provenance remain
+visible rather than inferring their origin from a title or a manually added
+task link.
+
 Today and Plan remain separate entry points. Selecting a task uses the same
 task-detail component, existing task editor, activity and connections, with
 Athena available alongside. Plan retains Board and Focus when no task is selected.
+The task-detail header always offers Back to Plan, including loading and error
+states. From Plan it restores the existing Board or Focus view and its filters;
+from Today it opens Plan. Edit task switches this detail pane into an inline
+editor with all existing task fields, including description, due date and stage.
+Save task and Cancel replace the detail-view edit modal; Plan's board modal is
+unchanged. Stage changes require their message in this same form and use the
+existing atomic status/activity save and current-status conflict check. Activity
+and connections remain below the editor. Returning to Plan with the editor open
+asks before discarding its draft. Polling does not reset that draft, and Athena
+task turns wait until the user saves or cancels; saved Athena changes refresh the
+normal task view.
 The selected-task list reuses Today's review rows, section heading and quiet
 navigation control styling; it does not introduce a separate Plan list style.
 Today details and the shared Plan task detail match Discover's expanded
@@ -835,8 +918,9 @@ task styles use the guide's existing tokens and typography.
 
 ### Task status-change notes
 
-Every change from one task status to another requires a non-empty quick note
-in the existing Athena modal style. Submit saves the status and a timestamped
+Every change from one task status to another requires a non-empty quick note,
+in the existing Athena modal or the shared task detail's inline editor.
+Submit (or Save task in the inline editor) saves the status and a timestamped
 `task_notes` entry together; Cancel leaves the task unchanged. The activity
 entry records both old and new statuses plus the submitted text. A current-status
 check rejects a stale move without saving either part. New task creation, edits
@@ -872,6 +956,59 @@ proposal tool call. `read_task_activity` retrieves actual dated activity and
 status-change notes with paging and existing project/exclusion boundaries.
 
 ## 4. Core objects
+
+The weekly Microsoft roundup's editorial gate blocks unsupported or materially
+misleading claims, invented personal experience, incorrect links, missing
+required content and publishing-platform validation failures. Punctuation,
+dash style, source-title punctuation differences that preserve meaning and URL,
+and other wording/presentation preferences are retained as advisory findings;
+they do not fail the review, trigger repair loops or prevent approval.
+Passage-only repairs address substantive blockers, not cosmetic preferences.
+The existing user approval and external-delivery safeguards remain unchanged.
+
+### Diagram save protection
+
+Existing and new shape titles render bold by default, without rewriting stored
+titles or overriding explicit Markdown formatting. A shape's description appears
+below its title with one blank line between them. Adding a footnote uses the
+existing Notes panel instead of repeating the description inside the shape;
+removing it restores the in-shape description. This follows the saved footnote
+selection even when the Notes panel is temporarily hidden. Shape dimensions,
+positions, editors and properties controls are unchanged: text wraps and clips
+to the available area. Full descriptions remain saved and editable through
+Properties and Athena's existing diagram read/write tools. Lines and connector
+labels retain their existing behaviour. SVG/PNG and draw.io carry the same
+title/description distinction; Mural retains its existing plain-text native
+export, including the blank-line separation and footnote selection.
+
+Before any save removes a shape or connector (including Athena writes and
+replacement IDs), the shared save transaction preserves the entire previous
+diagram document as an automatic recovery version. If that snapshot cannot be
+written, the save rolls back. Recovery versions appear in the existing Versions
+panel, are not trimmed with the 50 rolling revisions, and do not consume the
+100 manually named-version allowance. They remain until explicitly deleted.
+Snapshots preserve the diagram document and embedded metadata, not independent
+note relationships that were removed with an element.
+
+The diagram editor also stores account-, diagram- and editor-specific local
+drafts before debounce/network saves, including unfinished label text. On
+reopening, the user explicitly chooses a draft, keeps the saved diagram, or
+confirms discarding a draft. Recovery retains its original base revision:
+server changes produce a conflict, never an automatic overwrite. Independent
+tabs use independent keys; late save acknowledgements clear only the exact
+draft submitted, not newer writing. Save failures remain visible until a
+successful save. Local-storage failures explicitly warn that restart recovery
+is unavailable; a successful server save is still possible.
+
+Local drafts survive browser/device restarts, but belong to that browser's
+site origin and signed-in account: development ports/hosts and production do
+not share them. Signing out clears drafts with the existing note/work draft
+cleanup. Clearing browser/site data, private browsing and device loss can
+remove local drafts; they are not a substitute for server snapshots.
+Athena can read saved recovery versions through `read_diagram_versions`,
+with bounded listings/document pages and existing source/project boundaries.
+Local recovery must be resolved before editor save-dependent actions; Athena
+does not claim unsaved local writing is already in the saved diagram.
 
 - **Project:** the scope most other objects belong to. It carries the context Athena reloads on every turn.
 - **Note:** a rich document in Think. It can be versioned, tagged, published to GitHub, or turned into a Build spec.
@@ -1044,8 +1181,9 @@ an independent recheck, never an automatic second revision. A waiting dispositio
 retains its artifact without queuing a successor. Assignment claim, renewal,
 expired-lease recovery, classified failures and explicit authorised resume
 preserve the same pool, attempt limit, original scope, deadline and allowance.
-An installed domain executor can use the existing worker's two concurrency
-slots; unregistered workflows are never claimed. Legacy prerequisite failure
+An installed domain executor can use the existing worker's four concurrency
+slots per backend process, shared by Iris research and all other specialists;
+slots are not reserved per specialist. Unregistered workflows are never claimed. Legacy prerequisite failure
 handling excludes assignment-backed steps.
 
 The blog role services separate research/prompt preparation from authoring

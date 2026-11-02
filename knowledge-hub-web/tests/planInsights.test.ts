@@ -2,9 +2,29 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { normaliseTask, type PlanTask } from '../src/types/task';
 import { groupForFocus, isRecentlyCompleted, originHref, originLabel, planContextDetail, taskAthenaPrompt, taskHealth } from '../src/features/plan/taskInsights';
+import { prepareTaskChat, setTaskChatBridge } from '../src/utils/activeBlockNoteEditor';
 
 const NOW = new Date('2026-10-13T12:00:00Z');
 const daysAgo = (n: number): string => new Date(NOW.getTime() - n * 86_400_000).toISOString();
+
+test('Task editor protects its unsaved draft before an Athena turn and refreshes after a saved turn', async () => {
+  let editing = true;
+  let refreshed = false;
+  const release = setTaskChatBridge('task-editor', async () => {
+    if (editing) throw new Error('Save or cancel the open task editor.');
+    return async () => { refreshed = true; };
+  });
+  try {
+    assert.equal(await prepareTaskChat('another-task'), undefined);
+    await assert.rejects(prepareTaskChat('task-editor'), /Save or cancel/);
+    editing = false;
+    const finish = await prepareTaskChat('task-editor');
+    assert.ok(finish);
+    await finish(true);
+    assert.equal(refreshed, true);
+  } finally { release(); }
+  assert.equal(await prepareTaskChat('task-editor'), undefined);
+});
 
 function task(patch: Partial<PlanTask>): PlanTask {
   return {

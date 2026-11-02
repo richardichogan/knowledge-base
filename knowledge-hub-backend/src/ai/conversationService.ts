@@ -10,6 +10,7 @@ import type { Pool } from 'pg';
 import { getFoundryClient, AiStoppedError } from './foundryClient.js';
 import { describeToolActivity } from './turnActivity.js';
 import { ASSET_WRITE_TOOLS } from './assetTools.js';
+import { diagramReceipt, recordDiagramAction, unconfirmedDiagramClaim, previousDiagramReceipt, deniesDiagramSave, deniesEditingCapability, type DiagramActionEvidence } from './diagramActionEvidence.js';
 import type { ModelRoute } from './modelChoices.js';
 import { spreadsheetsBlock } from './chatFiles.js';
 import { getExcludedSources, filterExcluded, recordToolSources, recordToolEvidence, attachEvidence, type ContextUsed } from './contextUsage.js';
@@ -20,7 +21,7 @@ import { collectIds, resolveAnswer, stripUnseenIds } from './knowledge/citations
 import { TurnBudget, TRANSCRIPT_REVIEW_BUDGET, DETERMINISTIC_TOOLS, budgetLimitation, finalizeEvidenceAnswer, isDeterministicResultComplete, isKnowledgeOrchestrationEnabled } from './knowledge/budgets.js';
 
 const DISCOVERY_TOOLS = new Set(['search_diagrams', 'search_knowledge_base', 'search_library', 'search_past_chats', 'search_knowledge_graph']);
-const RETRIEVAL_TOOLS = new Set([...DISCOVERY_TOOLS, 'read_diagram', 'read_past_chat', 'read_output', 'traverse_relationships', 'read_knowledge_record', ...STRUCTURED_TOOL_NAMES]);
+const RETRIEVAL_TOOLS = new Set([...DISCOVERY_TOOLS, 'read_diagram', 'read_diagram_versions', 'read_past_chat', 'read_output', 'traverse_relationships', 'read_knowledge_record', ...STRUCTURED_TOOL_NAMES]);
 import { STRUCTURED_TOOL_NAMES } from './knowledge/structuredTools.js';
 import { buildOutputsBlock } from './chatOutputs.js';
 import { buildDecisionsBlock } from './chatDecisions.js';
@@ -132,7 +133,7 @@ const NO_OUTPUTS_PANEL_NOTE = [
 const NOTE_EDIT_MAX_TOKENS = 14_000;
 
 /** Tools that change something; left out when a turn must only read. */
-const WRITE_TOOLS = new Set([...WORK_WRITE_TOOLS, ...DESIGN_READINESS_WRITE_TOOLS, 'generate_project_progress_review', 'update_podcast_script', 'replace_podcast_youtube_link', 'save_design_documents', 'set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'propose_local_file_write', 'remember', 'forget_memory', 'save_output', 'manage_scheduled_jobs', 'manage_publishing_feeds', 'refresh_discover_picks', 'hand_off_to_specialist', 'import_meeting_list', DEMO_SPECIFICATION_WRITE_TOOL, ...ASSET_WRITE_TOOLS]);
+const WRITE_TOOLS = new Set([...WORK_WRITE_TOOLS, ...DESIGN_READINESS_WRITE_TOOLS, 'apply_diagram_candidate', 'generate_project_progress_review', 'update_podcast_script', 'replace_podcast_youtube_link', 'save_design_documents', 'set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'propose_local_file_write', 'remember', 'forget_memory', 'save_output', 'manage_scheduled_jobs', 'manage_publishing_feeds', 'refresh_discover_picks', 'hand_off_to_specialist', 'import_meeting_list', DEMO_SPECIFICATION_WRITE_TOOL, ...ASSET_WRITE_TOOLS]);
 
 function isStopped(hooks: TurnHooks): boolean {
   return hooks.signal?.aborted === true;
@@ -193,7 +194,7 @@ async function conversationTurn(
     return null;
   }) : null;
   const openMap = openCanvas !== null && openCanvas.canvasType === 'brainstorm' ? openCanvas : null;
-  const openDiagram = openCanvas !== null && openCanvas.canvasType === 'diagram' && pageContext?.type === 'canvas' ? openCanvas : null;
+  const openDiagram = openCanvas !== null && openCanvas.canvasType === 'diagram' ? openCanvas : null;
   const mapOutlineResult = openMap !== null
     ? await buildCanvasContext(db, openMap, userMessage, pageContext?.selectedId).catch((err: unknown) => {
       console.error('[canvas] context failed:', err);
@@ -214,7 +215,7 @@ async function conversationTurn(
   const activeProjectId = sessionId !== undefined ? await getSessionProjectId(db, sessionId) : null;
   await setTraceProject(activeProjectId);
   let diagramBlock = '';
-  if (openDiagram !== null) {
+  if (openDiagram !== null && pageContext !== undefined && !exclusionsFailed) {
     try {
       const result = await findDiagramContext(db, {
         diagramId: openDiagram.id,
@@ -238,7 +239,7 @@ async function conversationTurn(
   const dateBlock = `Current UK date: ${clock.day}. Use get_today_schedule to read today's meetings when needed.`;
   const mapBlock = mapId !== undefined && openCanvas === null && pageContext?.type === 'canvas'
     ? `The open canvas (ID ${mapId}) could not be loaded. Tell the user and do not infer contents from its title. For a diagram, read_diagram can retry.`
-    : openDiagram !== null ? [
+    : openDiagram !== null && pageContext !== undefined ? [
     `## Diagram in view: "${openDiagram.title}"`,
     diagramBlock,
   ].join('\n') : mapOutlineResult === null ? '' : [
@@ -257,6 +258,11 @@ async function conversationTurn(
   const screensBlock = sessionId !== undefined
     ? await buildScreensBlock(db, sessionId).catch((err: unknown) => { console.error('[screens] context failed:', err); return ''; })
     : '';
+  const priorDiagramSave = await previousDiagramReceipt(db, sessionId, openDiagram && !exclusionsFailed && excluded.size === 0 ? mapId : undefined)
+    .catch((error: unknown) => { console.error('[diagram] Previous action evidence unavailable:', error); return null; });
+  const actionBlock = priorDiagramSave ? `## Verified prior diagram save
+The following server receipt belongs to this chat and still matches the current saved revision: ${JSON.stringify(priorDiagramSave)}.
+It proves persistence of that revision, not visual correctness or that the open editor displayed it. On a correction, reconcile this evidence and the current content; do not deny the save, repeat the mutation, or assume the user's complaint is wrong. Later changes require their own successful result.` : '';
   if (used !== undefined) {
     used.project = context.activeProjectName;
     used.instructions = (standingBlock.match(/^- /gm) ?? []).length;
@@ -298,8 +304,9 @@ Only operate on the script when the request concerns it; unrelated questions rem
 For Campaign requests, read_podcast_campaign retrieves saved full posts and their approvals, dates, receipts and worker state, without regenerating copy. The separate recording teaser needs no episode URLs.
 For explicitly requested teaser-copy changes, read its current revision then use update_podcast_recording_teaser. It saves the draft in Campaign but never approves or publishes. Never substitute chat prose for a successful save.
 Generated image specifications, exact text, presenter attribution, dimensions and image identifiers are included in read_podcast_campaign. For a requested artwork-text correction use update_podcast_campaign_image; it renders only that image from saved source and refreshes Campaign without altering other posts or scheduling.
-The Monday launch and weekday quote posts over two weeks are authored in Show Notes; scheduling must not rewrite them or let other bookings, spacing or daily caps displace them.` : '';
-  const systemExtras = [RETRIEVAL_DICTIONARY, reviewBlock, designBlock, podcastBlock, hooks.noOutputsPanel === true && !design && !toolContext.podcastOwner ? NO_OUTPUTS_PANEL_NOTE : '', hooks.referenceBlock ?? '', standingBlock, peopleBlock, dateBlock, mapBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
+The Monday launch and weekday quote posts over two weeks are authored in Show Notes; scheduling must not rewrite them or let other bookings, spacing or daily caps displace them.
+For newly prepared campaigns the publication order is Teaser, Launch, Blog Post, then Quotes and fuller/generic posts. Stages may span different days. Flag conflicting authored dates before approval instead of silently shifting dates. Existing approved campaigns retain their schedule.` : '';
+  const systemExtras = [RETRIEVAL_DICTIONARY, reviewBlock, designBlock, podcastBlock, actionBlock, hooks.noOutputsPanel === true && !design && !toolContext.podcastOwner ? NO_OUTPUTS_PANEL_NOTE : '', hooks.referenceBlock ?? '', standingBlock, peopleBlock, dateBlock, mapBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
   const safeHistory = await scrubExcludedHistory(db, history, excluded).catch(() => history.filter((m) => m.role !== 'assistant'));
   const baseMessages = await assembleMessages(context, safeHistory, userMessage, persona, pageContext, systemExtras);
   hooks.signal?.throwIfAborted();
@@ -348,11 +355,26 @@ The Monday launch and weekday quote posts over two weeks are authored in Show No
   };
   if (design) catalog.load(['read_design_package']);
   if (toolContext.podcastOwner) catalog.load(['read_podcast_script', 'read_podcast_campaign']);
+  if (openDiagram && permittedTools.some(tool => tool.function.name === 'hand_off_to_specialist')) catalog.load(['hand_off_to_specialist']);
+  const contextCapabilities = catalog.loadPermitted([
+    ...(openDiagram ? ['update_diagram', 'hand_off_to_specialist', 'check_specialist_jobs', 'apply_diagram_candidate'] : []),
+    ...(noteOpen ? ['propose_note_edit'] : []),
+    ...(mapOutlineResult ? ['propose_map_changes'] : []),
+    ...(design ? ['save_design_documents'] : []),
+    ...(toolContext.podcastOwner ? ['update_podcast_script'] : []),
+  ]);
+  await recordTurnTrace('capability.catalog', {
+    capabilities: permittedTools.map(tool => ({ name: tool.function.name, state: catalog.state(tool.function.name), write: WRITE_TOOLS.has(tool.function.name) })),
+    contextCapabilities, readOnly: hooks.readOnlyTools === true,
+  });
+  if (priorDiagramSave) await recordTurnTrace('action.prior', priorDiagramSave);
   const runtimeCapabilities = [
     '## Current chat runtime capabilities (authoritative for this turn)',
     `Persona: ${persona ?? 'general'}. ${hooks.readOnlyTools === true ? 'Read-only turn: mutation tools are withheld.' : 'Only the supplied tools can perform actions.'}`,
     `Editable note preview: ${permittedTools.some(tool => tool.function.name === 'propose_note_edit') ? 'available; Richard must Apply to save' : 'unavailable in this turn'}.`,
     `Canvas change preview: ${permittedTools.some(tool => tool.function.name === 'propose_map_changes') ? 'available; requires user application' : 'unavailable in this turn'}.`,
+    `Diagram design: ${permittedTools.some(tool => tool.function.name === 'hand_off_to_specialist') ? 'Daedalus is available through hand_off_to_specialist (load the schema if needed). For creating/redrawing diagrams, matching reference images or substantial layout work, hand off to daedalus with the full instruction, source revision and selected screen/reference IDs. It creates a separate editable candidate and reports back here. A queued handoff is not a completed drawing. Only apply_diagram_candidate after explicit user approval of that candidate. Minor shape edits may use update_diagram.' : 'specialist handoff unavailable in this turn'}`,
+    'A permitted capability may need load_tools; not being loaded is not being unavailable. Never claim editing is unavailable just because the schema has not been loaded. Report diagram changes only from successful save results, not proposed specifications or earlier conversation claims.',
     `Outputs panel: ${design ? 'Design documents belong in their Design tabs, using save_design_documents' : hooks.noOutputsPanel === true ? 'not visible here; deliver content in the reply' : 'use supplied output tools if available'}.`,
     `Connected local folders: ${localFolders.length > 0 ? 'user-selected folders only, through supplied local-file tools' : 'none supplied; no local filesystem access'}.`,
     catalog.describe(),
@@ -400,6 +422,10 @@ The Monday launch and weekday quote posts over two weeks are authored in Show No
   let deterministicRan = false;
   let deterministicComplete = true;
   let toolErrorCount = 0;
+  const diagramEvidence: DiagramActionEvidence = { saved: false, queued: false };
+  let diagramClaimRepaired = false;
+  let capabilityClaimRepaired = false;
+  let actionDenialRepaired = false;
   const pendingReads = new Map<string, PendingRead>();
   let readingMs = 0;
   const failedDocumentReads = new Set<string>();
@@ -452,6 +478,47 @@ The Monday launch and weekday quote posts over two weeks are authored in Show No
       return "I ran out of steps before I could finish. Some of it may already be done — ask me to check what's in place and carry on from there.";
     }
     if (response.toolCalls.length === 0) {
+      const reply = response.content ?? '';
+      const confirmedSave = diagramEvidence.receipts?.at(-1) ?? priorDiagramSave;
+      if (confirmedSave && deniesDiagramSave(reply)) {
+        await recordTurnTrace('action.contradiction', { reply, receipt: confirmedSave });
+        if (!actionDenialRepaired && !wrapUp && i < maxRounds - 1) {
+          actionDenialRepaired = true;
+          hooks.onReset?.();
+          messages.push({ role: 'user', content: `[Runtime evidence check: ${JSON.stringify(confirmedSave)} is a successful save receipt. Do not retract that save without contrary evidence. Distinguish saved content, editor visibility and quality. Reconcile the user's complaint without repeating the mutation.]` });
+          continue;
+        }
+        hooks.onReset?.();
+        return `A diagram save was recorded for ${confirmedSave.targetId} at revision ${confirmedSave.revision}. That does not confirm the layout met your request or that the open editor displayed it. I have not repeated the change.`;
+      }
+      if (deniesEditingCapability(reply) && permittedTools.some(tool => WRITE_TOOLS.has(tool.function.name))) {
+        await recordTurnTrace('capability.denial', { reply, contextCapabilities, correctionAttempted: capabilityClaimRepaired,
+          note: 'Possible capability mismatch; permitted writes do not establish that this particular request is authorised.' });
+        if (!capabilityClaimRepaired && !wrapUp && i < maxRounds - 1) {
+          capabilityClaimRepaired = true;
+          hooks.onReset?.();
+          messages.push({ role: 'user', content: '[Runtime capability check: permitted write capabilities exist in the catalogue. Check the actual capability and constraints relevant to this request before declaring it unavailable. A loadable tool is not prohibited. Load only what is needed; do not infer authorisation or execute an unrelated write. If truly blocked, name the specific restriction.]' });
+          continue;
+        }
+        if (contextCapabilities.length > 0) {
+          hooks.onReset?.();
+          return 'I could not complete the requested action or establish a specific capability restriction. Permitted editing capabilities are available in this context; I should not describe them as unavailable. Check the recorded action results before continuing, rather than repeating an operation that may already have saved.';
+        }
+      }
+      if ((openDiagram !== null || diagramEvidence.queued) && unconfirmedDiagramClaim(response.content ?? '', diagramEvidence)) {
+        await recordTurnTrace('action.unconfirmed_claim', { reply });
+        console.warn('[diagram] Rejected an unconfirmed diagram-save claim.');
+        if (!diagramClaimRepaired && !wrapUp && i < maxRounds - 1) {
+          diagramClaimRepaired = true;
+          hooks.onReset?.();
+          messages.push({ role: 'user', content: `[Runtime correction: no diagram save succeeded in this turn. ${diagramEvidence.queued ? 'Daedalus was only queued; it has not completed.' : 'No successful diagram mutation was recorded.'} ${priorDiagramSave ? `A verified prior save exists at revision ${priorDiagramSave.revision}; distinguish that earlier save from a new change rather than denying it.` : ''} Correct the response using actual tool evidence. Do not claim new completion or deny a permitted tool simply because its schema needs loading.]` });
+          continue;
+        }
+        return diagramEvidence.queued
+          ? 'Daedalus is working on a separate editable candidate and will report back here. The original diagram has not been changed.'
+          : priorDiagramSave ? `An earlier diagram save is verified at revision ${priorDiagramSave.revision}. No new diagram save was confirmed in this turn; this does not establish that the earlier layout met your request.`
+          : 'No diagram changes were confirmed in this turn. The requested edit has not been completed.';
+      }
       if (design && !(toolContext.designState?.changedNoteIds.length)
         && /\b(?:I(?:'ve| have)?\s+(?:saved|updated|created|rewritten|revised)|(?:saved|updated)\s+(?:in|to)\s+(?:the|your)\s+(?:Spec|Design|Use case))\b/i.test(response.content ?? '')) {
         console.warn('[Design chat] Rejected an unconfirmed document-save claim.');
@@ -555,7 +622,11 @@ The Monday launch and weekday quote posts over two weeks are authored in Show No
         }
         if (!tools.some((tool) => tool.function.name === call.function.name) || !supportsScope(call.function.name)) {
           if (!supportsScope(call.function.name)) retrievalAudit.blockedCalls++;
-          throw new Error(hooks.readOnlyTools === true ? READ_ONLY_REFUSAL : 'This capability is not loaded or is unavailable in this context. Use load_tools for a permitted capability; no action was executed.');
+          const state = catalog.state(call.function.name);
+          await recordTurnTrace('capability.blocked', { name: call.function.name, state, scopeAllowed: supportsScope(call.function.name) });
+          throw new Error(state === 'loadable' && supportsScope(call.function.name)
+            ? 'This permitted capability is not loaded. Use load_tools first; no action was executed.'
+            : hooks.readOnlyTools === true ? READ_ONLY_REFUSAL : 'This capability is prohibited by the current permission or retrieval scope; no action was executed.');
         }
         if (call.function.name === LOAD_TOOLS) {
           const names = catalog.requestedNames(requestedArgs['names']);
@@ -709,6 +780,10 @@ The Monday launch and weekday quote posts over two weeks are authored in Show No
         toolErrorCount++;
         console.warn(`[ai] tool ${call.function.name} returned an error: ${String((result as { error: unknown }).error).slice(0, TOOL_ERROR_LOG_CHARS)}`);
       }
+      recordDiagramAction(diagramEvidence, call.function.name, result, requestedArgs['specialist']);
+      const receipt = diagramReceipt(call.function.name, result);
+      if (receipt) await recordTurnTrace('action.receipt', receipt);
+      if (call.function.name === LOAD_TOOLS) await recordTurnTrace('capability.load', result);
       // Pictures a tool captured (screenshots) go to the model as images, not as text.
       if (result !== null && typeof result === 'object' && '__images' in result) {
         const { __images, ...rest } = result as Record<string, unknown> & ToolImages;

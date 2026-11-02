@@ -5,6 +5,14 @@
  */
 import { SOURCE_AUTHORITY_WEIGHTS, ARTICLE_TYPE_WEIGHTS } from './articleScoringPrompt.js';
 
+export const MICROSOFT_AI_PRIORITY = 2;
+
+/** Match the publisher's real host, never its editable display name or a lookalike. */
+function microsoftAiSql(alias: string): string {
+  const host = '^https?://(www[.])?microsoft[.]ai([/?#]|$)';
+  return `(${alias}.url ~* '${host}' OR COALESCE(${alias}.metadata->>'sourceUrl', '') ~* '${host}')`;
+}
+
 /**
  * Builds a SQL CASE expression mapping a metadata text column's value to its weight, generated
  * directly from the same TS weight map used elsewhere — so tuning a weight constant takes effect
@@ -21,7 +29,7 @@ export interface DiscoverRankSql { rank: string; recency: string; authority: str
 
 /** Gradually discount repetition, not quality. Microsoft/GitHub feeds share one family. */
 export function discoverDiversitySql(alias: string): string {
-  const family = `CASE WHEN ${alias}.metadata->>'sourceAuthorityTier' = 'Microsoft/GitHub Official'
+  const family = `CASE WHEN ${alias}.metadata->>'sourceAuthorityTier' = 'Microsoft/GitHub Official' OR ${microsoftAiSql(alias)}
     THEN 'microsoft-github' ELSE 'source:' || COALESCE(${alias}.metadata->>'sourceTitle', ${alias}.metadata->>'sourceGroup', 'unknown') END`;
   return `(1.0 / (1 + 0.2 * (ROW_NUMBER() OVER (PARTITION BY ${family}
     ORDER BY ${alias}.base_rank_score DESC NULLS LAST, ${alias}.published_at DESC NULLS LAST, ${alias}.id ASC) - 1)))`;
@@ -29,7 +37,8 @@ export function discoverDiversitySql(alias: string): string {
 
 /** `halfLifeParam` is the SQL placeholder (e.g. `$3`) bound to the recency half-life in days. */
 export function discoverRankSql(alias: string, halfLifeParam: string): DiscoverRankSql {
-  const authority = buildWeightCaseExpr(`${alias}.metadata->>'sourceAuthorityTier'`, SOURCE_AUTHORITY_WEIGHTS, 1);
+  const normalAuthority = buildWeightCaseExpr(`${alias}.metadata->>'sourceAuthorityTier'`, SOURCE_AUTHORITY_WEIGHTS, 1);
+  const authority = `CASE WHEN ${microsoftAiSql(alias)} THEN ${SOURCE_AUTHORITY_WEIGHTS['Microsoft/GitHub Official'] * MICROSOFT_AI_PRIORITY} ELSE (${normalAuthority}) END`;
   const articleType = buildWeightCaseExpr(`${alias}.metadata->>'articleType'`, ARTICLE_TYPE_WEIGHTS, 1);
   const recency = `EXP(- EXTRACT(EPOCH FROM (NOW() - ${alias}.published_at)) / 86400.0 / ${halfLifeParam} * LN(2))`;
   const project = `(1 + COALESCE((${alias}.metadata->>'projectBoost')::real, 0))`;

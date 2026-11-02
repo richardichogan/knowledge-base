@@ -43,7 +43,7 @@ export const RepoField: React.FC<{ value: string; repos: string[]; onChange: (v:
 }) => (
   <label className="build-field">
     <span className="build-field__label">Repository</span>
-    <input className="build-input" list={listId} value={value} placeholder="owner/name" disabled={disabled}
+    <input className="build-input" spellCheck={false} list={listId} value={value} placeholder="owner/name" disabled={disabled}
       onChange={(e) => { onChange(e.target.value.trim()); }} />
     <datalist id={listId}>{repos.map((r) => <option key={r} value={r} />)}</datalist>
   </label>
@@ -90,7 +90,7 @@ export const BranchField: React.FC<{ repo: string; value: string; onChange: (v: 
     return (
       <label className="build-field">
         <span className="build-field__label">Target branch</span>
-        <input className="build-input" value={value} placeholder="main" disabled={disabled} title="Couldn't list branches for this repository"
+        <input className="build-input" spellCheck={false} value={value} placeholder="main" disabled={disabled} title="Couldn't list branches for this repository"
           onChange={(e) => { onChange(e.target.value.trim()); }} />
       </label>
     );

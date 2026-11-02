@@ -91,7 +91,7 @@ export async function executeWorkTool(db: Pool, name: string, args: Record<strin
     const created = await createWorkContent(db, name === 'create_deliverable_brief' ? 'deliverable-brief' : 'email-draft', args);
     access.workState?.changedNoteIds.push(created.noteId);
     return { ...created, title: args.title, url: `/think?noteId=${created.noteId}`, saved: true,
-      instructions: 'Created in Think. Return the exact saved noteId and a clickable link using url. Athena develops content in Think; IBM sending remains manual. No task was closed.' };
+      instructions: `${created.type === 'email-draft' ? 'Saved with the linked task; omitted from the main Think list, but this link opens its normal editor.' : 'Created in Think.'} Return the exact saved noteId and a clickable link using url. Athena develops content in Think; IBM sending remains manual. No task was closed.` };
   }
   const id = noteId(args.noteId);
   await checkNote(id);

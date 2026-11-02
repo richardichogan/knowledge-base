@@ -107,7 +107,7 @@ export async function fetchNotes(): Promise<NoteListItem[]> {
 }
 
 export async function fetchNotesPage(page = 1, query: NoteListQuery = {}, structure: 'flat' | 'designs' = 'flat',
-  typeFilter: { contentType?: ContentType; excludeContentType?: ContentType } = {}): Promise<NoteListPage> {
+  typeFilter: { contentType?: ContentType; excludeContentType?: ContentType; excludeTaskEmails?: boolean } = {}): Promise<NoteListPage> {
   const result = requireApiData(await api.getNoteSummaries(page, 100, { ...noteListQuery(query), structure, ...typeFilter }));
   const items = result.items.map((n) => ({
     id: n.id,

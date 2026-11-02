@@ -235,6 +235,7 @@ export const ChatOutputsTab: React.FC<ChatOutputsTabProps> = ({ sessionId, refre
             <div className="ai-output__edit">
               <textarea
                 className="ai-output__textarea"
+                spellCheck={output.format !== 'html'}
                 value={draft}
                 onChange={(e) => { setDraft(e.target.value); }}
                 aria-label="Edit output"

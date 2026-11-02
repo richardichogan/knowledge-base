@@ -1,5 +1,6 @@
 import { CONTENT_TYPE_OPTIONS, type ContentType } from './constants';
 import type { NoteDocument } from './types';
+import { DIAGRAM_DRAFT_PREFIX } from '../features/diagram/diagramDraftStorage';
 
 export interface NoteDraft {
   version: 1; id: string; identity: string; noteId: string; baseRevision: number; updatedAt: string;
@@ -87,7 +88,7 @@ export function clearAllNoteDrafts(storage: Storage): void {
   const keys: string[] = [];
   for (let index = 0; index < storage.length; index++) {
     const key = storage.key(index);
-    if (key?.startsWith(NOTE_DRAFT_PREFIX) || key?.startsWith(WORK_DRAFT_PREFIX)) keys.push(key);
+    if (key?.startsWith(NOTE_DRAFT_PREFIX) || key?.startsWith(WORK_DRAFT_PREFIX) || key?.startsWith(DIAGRAM_DRAFT_PREFIX)) keys.push(key);
   }
   for (const key of keys) storage.removeItem(key);
 }

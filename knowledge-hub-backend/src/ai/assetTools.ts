@@ -176,7 +176,7 @@ const diagramNodeSchema = {
   properties: {
     key: { type: 'string', description: 'Short handle used by connectors in this call (defaults to the label).' },
     label: { type: 'string' },
-    description: { type: 'string', description: 'Longer explanation; shown when a footnote marker is added.' },
+    description: { type: 'string', description: 'Explanation shown inside the shape below its bold-default title, separated by one blank line. When footnote is true, the description goes to the Notes panel instead. Existing shape sizes stay unchanged; text wraps and clips.' },
     kind: { type: 'string', enum: [...NODE_KINDS] },
     colour: { type: 'string', enum: COLOUR_NAMES, description: 'Border/fill colour. Use colours consistently by meaning and name them in the legend. In an AI flow, leave it out so the step type sets the colour.' },
     footnote: { type: 'boolean', description: 'Add a numbered footnote marker showing the description.' },
@@ -221,10 +221,10 @@ export function getAssetToolDefinitions(): LlmToolDefinition[] {
   });
   return [
     fn('add_discover_source',
-      'Subscribes Discover to an RSS/Atom feed. The feed is read first, so a bad address fails here; only report it as added when this returns success. Check get_discover_sources first to avoid duplicates.',
+      'Subscribes Discover to an RSS/Atom feed, public blog listing or YouTube channel. The source is checked first; only report it as added when this returns success. Check get_discover_sources first to avoid duplicates. Website posts require verified publication dates and use the existing 14-day import window. Report returned warnings accurately.',
       {
         title: { type: 'string', description: 'Display name, e.g. "Azure Updates".' },
-        feedUrl: { type: 'string', description: 'The feed URL (not an article or home page URL).' },
+        feedUrl: { type: 'string', description: 'RSS/Atom feed, public blog listing or YouTube channel URL, not an individual article URL.' },
         groupName: { type: 'string', description: 'Vendor group, e.g. Microsoft, GitHub, Google, AWS, OpenAI, IBM, Other.' },
       }, ['title', 'feedUrl']),
     fn('update_discover_source',
@@ -269,6 +269,7 @@ export function getAssetToolDefinitions(): LlmToolDefinition[] {
         projectId: { type: 'string' },
       }, ['noteId']),
     fn('create_diagram',
+      'Low-level diagram creation. Prefer hand_off_to_specialist with specialist daedalus for user-requested drawings, image reconstruction and composed layouts; it produces a separate editable candidate with proper grouping. ' +
       'Creates a new diagram (Think → Diagrams) from shapes and connectors, laid out automatically in aligned, evenly spaced columns with centred branches and separate feedback routes. Use for architectures, flows and processes. ' +
       'Plan the main reading path first, give shapes in logical reading order, keep labels concise, put explanations in descriptions/footnotes, and distinguish primary flow from supporting or return paths. Keep related branches together rather than producing a sprawling list of boxes. ' +
       'When asked to match a saved diagram, read it first and preserve its grouping, hierarchy and visual rhythm. Colour shapes by meaning and add a legend for the colours. ' +
@@ -284,6 +285,7 @@ export function getAssetToolDefinitions(): LlmToolDefinition[] {
         legend: legendSchema,
       }, ['title', 'nodes']),
     fn('update_diagram',
+      'For small explicit edits only. Redraws, matching an image and substantial layout changes belong to Daedalus (hand_off_to_specialist); never approximate its groups with a flat list of boxes. ' +
       'Changes a saved diagram (find it with search_diagrams/read_diagram): add shapes and connectors, relabel/recolour/describe shapes, remove shapes, set the legend or rename it. Earlier versions stay in its history. ' +
       'For AI flow diagrams it can also add lanes, move steps between lanes, set step, agent, control and connector metadata, and re-run the swimlane layout (it re-runs automatically when lanes or steps are added or moved).',
       {
@@ -375,23 +377,12 @@ export async function executeAssetTool(db: Pool, name: AssetToolName, args: Reco
 async function addDiscoverSource(db: Pool, args: Record<string, unknown>): Promise<unknown> {
   const title = str(args['title']);
   const feedUrl = str(args['feedUrl']);
-  if (title === undefined || feedUrl === undefined || !/^https?:\/\//i.test(feedUrl)) return { error: 'A title and an http(s) feed URL are needed.' };
-  const { readFeed } = await import('../integrations/discovery/feedReader.js');
-  let items: number;
-  try {
-    items = (await readFeed(feedUrl)).length;
-  } catch (err) {
-    return { error: `Not added — that address didn't work as a feed: ${err instanceof Error ? err.message : String(err)}` };
-  }
-  const { rows } = await db.query<{ id: string; existed: boolean }>(
-    `INSERT INTO discovery_sources (title, feed_url, group_name) VALUES ($1, $2, $3)
-     ON CONFLICT (feed_url) DO UPDATE SET title = EXCLUDED.title, group_name = EXCLUDED.group_name, is_active = true
-     RETURNING id::text, (xmax <> 0) AS existed`,
-    [title, feedUrl, str(args['groupName']) ?? 'Other'],
-  );
+  if (title === undefined || feedUrl === undefined) return { error: 'A title and a public source URL are needed.' };
+  const { addDiscoverySource } = await import('../integrations/discovery/feedSync.js');
+  const source = await addDiscoverySource(db, title, feedUrl, str(args['groupName']) ?? 'Other');
   return {
-    success: true, sourceId: rows[0]?.id, title, feedUrl, itemsInFeed: items,
-    note: rows[0]?.existed === true ? 'It was already configured; it is now enabled with this name.' : 'Added. Its articles appear in Discover after the next check (about every 30 minutes).',
+    success: true, sourceId: source.id, ...source,
+    note: 'Source saved and enabled. Articles from the last 14 days appear after the next check (about every 30 minutes). Website posts without verified publication dates are skipped; see lastWarning.',
   };
 }
 
@@ -836,14 +827,15 @@ async function createDiagram(db: Pool, args: Record<string, unknown>): Promise<u
   if (lanes.length + nodes.length > MAX_DIAGRAM_NODES) return { error: `At most ${MAX_DIAGRAM_NODES.toString()} lanes and shapes per call.` };
   const edges = edgeSpecs(args['edges'], aiFlow);
   const { doc, problems } = aiFlow ? addToAiFlow(emptyDiagram(), lanes, nodes, edges) : addToDiagram(emptyDiagram(), nodes, edges);
+  if (problems.length) return { error: 'The diagram was not created because some requested elements could not be resolved.', problems };
   const legend = legendFrom(args['legend'], undefined);
   const canvas = await createCanvas({ title, canvasType: 'diagram', ...(project !== null ? { project } : {}) });
   const description = str(args['description']);
   if (description !== undefined) await updateCanvas(canvas.id, { description });
   const current = await getDiagram(canvas.id);
-  await saveDiagram(canvas.id, { revision: current.revision, document: { ...doc, ...(legend !== undefined ? { legend } : {}) } });
+  const saved = await saveDiagram(canvas.id, { revision: current.revision, document: { ...doc, ...(legend !== undefined ? { legend } : {}) } });
   return {
-    success: true, diagram: { id: canvas.id, title, shapes: doc.nodes.length, connectors: doc.edges.length, ...(aiFlow ? { type: 'ai-flow', lanes: lanes.length } : {}) },
+    success: true, diagram: { id: canvas.id, title, revision: saved.revision, shapes: doc.nodes.length, connectors: doc.edges.length, ...(aiFlow ? { type: 'ai-flow', lanes: lanes.length } : {}) },
     url: `${env.FRONTEND_BASE_URL}/think?mapId=${canvas.id}`,
     ...(problems.length > 0 ? { [aiFlow ? 'problems' : 'skippedConnectors']: problems } : {}),
     ...(aiFlow ? { governance: governanceSummary(doc) } : {}),
@@ -963,6 +955,7 @@ async function updateDiagram(args: Record<string, unknown>): Promise<unknown> {
   const { updateCanvas } = await import('../services/canvasService.js');
   const current = await getDiagram(id);
   const { doc, problems } = applyDiagramUpdate(current.document, args);
+  if (problems.length) return { error: 'No diagram changes were saved. Resolve these shape/connector references and retry the complete edit.', problems };
   if (doc.nodes.length > MAX_DIAGRAM_NODES * 4) return { error: 'That would make the diagram too large.' };
 
   const saved = await saveDiagram(id, { revision: current.revision, document: doc });
@@ -971,7 +964,7 @@ async function updateDiagram(args: Record<string, unknown>): Promise<unknown> {
   return {
     success: true, diagram: { id, shapes: saved.document.nodes.length, connectors: saved.document.edges.length, revision: saved.revision },
     url: `${env.FRONTEND_BASE_URL}/think?mapId=${id}`,
-    note: 'Saved. If the diagram is open in the editor, tell the user to reopen it to see the changes.',
+    note: 'Saved to the database. The open editor reconciles the saved revision after the turn; pending local edits remain protected by conflict handling. This result does not verify editor visibility or visual quality.',
     ...(problems.length > 0 ? { problems } : {}),
     ...(saved.document.diagramType === 'ai-flow' ? { governance: governanceSummary(saved.document) } : {}),
   };

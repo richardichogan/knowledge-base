@@ -48,6 +48,16 @@ export const MeasurementData: React.FC<{ data: HealthTurnMeasurements }> = ({ da
           'Chat replies persisted': data.repliesSaved, 'Failed turns': data.failed, 'Interrupted turns': data.interrupted,
           'Completed after error events': data.completedAfterErrors, 'Transport retries': data.transportRetries,
           'Model error events': data.modelErrors, 'Tool error results': data.toolErrors,
+          ...(data.actionReliability ? {
+            'Action reliability observed turns': data.actionReliability.measuredTurns,
+            'Capability loads': data.actionReliability.capabilityLoads,
+            'Possible capability denials': data.actionReliability.capabilityDenials,
+            'Blocked tool attempts': data.actionReliability.blockedCapabilities,
+            'Diagram save receipts': data.actionReliability.receipts,
+            'Saves with warnings': data.actionReliability.warnings,
+            'Action contradictions detected': data.actionReliability.contradictions,
+            'Unconfirmed action claims detected': data.actionReliability.unconfirmedClaims,
+          } : {}),
         }).map(([label, count]) => <tr key={label}><td>{label}</td><td>{number.format(count)}</td></tr>)} />
   </section>
 );
@@ -241,9 +251,13 @@ export const HealthDashboard: React.FC<{ data: KnowledgeHealth; onInspectUsage: 
             <Observation label="Completed after errors" count={measurements?.completedAfterErrors} maximum={outcomeMax} />
             <Observation label="Workflow outcome missing" count={workflow?.outcomes?.notRecorded} maximum={outcomeMax} warning />
             <Observation label="Recorded retry attempts" count={workflow?.outcomes?.retryAttempts} maximum={outcomeMax} />
+            <Observation label="Possible capability denials" count={measurements?.actionReliability?.measuredTurns ? measurements.actionReliability.capabilityDenials : undefined} maximum={Math.max(outcomeMax, measurements?.actionReliability?.capabilityDenials ?? 0)} warning />
+            <Observation label="Action contradictions detected" count={measurements?.actionReliability?.measuredTurns ? measurements.actionReliability.contradictions : undefined} maximum={Math.max(outcomeMax, measurements?.actionReliability?.contradictions ?? 0)} warning />
+            <Observation label="Unconfirmed save claims detected" count={measurements?.actionReliability?.measuredTurns ? measurements.actionReliability.unconfirmedClaims : undefined} maximum={Math.max(outcomeMax, measurements?.actionReliability?.unconfirmedClaims ?? 0)} warning />
           </dl>
           <p className="kh-health__note">Bars compare recorded counts within each panel, not success rates.</p>
           <p className="kh-health__note">A saved chat reply is not a saved edit. Completion after errors is not proven recovery. Workflow retries require recorded attempt identity; historical outcomes are not guessed.</p>
+          <p className="kh-health__note">Action reliability observed in {measurements?.actionReliability?.measuredTurns ?? 0} turns in this window. Flags include intercepted drafts, not only delivered replies, and are not an accuracy score. Older turns are unmeasured, not clean.</p>
         </section>
       </div>
       <div className="kh-health__charts">

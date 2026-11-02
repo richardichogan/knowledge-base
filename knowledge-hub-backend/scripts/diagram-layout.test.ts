@@ -5,6 +5,30 @@ import { rankFlowNodes } from '../src/services/aiFlow.js';
 import { layoutGeneralDiagram } from '../src/services/diagramLayout.js';
 import { validateDiagramDocument } from '../src/services/diagramValidation.js';
 import { emptyDiagram, type DiagramDocument, type DiagramEdge, type DiagramNode } from '../src/types/diagram.js';
+import { buildDesignedDiagram, parseDiagramPlan, type DiagramPlan } from '../src/services/diagramDesigner.js';
+
+test('Daedalus validates its grid, sizes readable groups and retains original shape identity', () => {
+  const original = node('Original', { description: 'Original description' });
+  const plan: DiagramPlan = { title: 'Reviewed flow', description: '', legend: [], nodes: [
+    { key: 'group', originalId: null, kind: 'container', label: 'Process', description: '', parent: null, row: 0, column: 0, colour: 'grey' },
+    { key: 'start', originalId: original.id, kind: 'process', label: 'Start', description: 'Read the request', parent: 'group', row: 0, column: 0, colour: 'blue' },
+    { key: 'finish', originalId: null, kind: 'process', label: 'Finish', description: '', parent: 'group', row: 0, column: 1, colour: 'green' },
+  ], edges: [{ from: 'start', to: 'finish', label: '', role: 'primary' }] };
+  const output = buildDesignedDiagram(parseDiagramPlan(plan), doc([original]));
+  assert.equal(output.nodes.find(n => n.label === 'Start')?.id, original.id);
+  const group = output.nodes.find(n => n.kind === 'container')!;
+  const children = output.nodes.filter(n => n.parentId === group.id);
+  assert.equal(children.length, 2);
+  for (const child of children) {
+    assert.ok(child.x > group.x && child.x + child.width < group.x + group.width);
+    assert.ok(child.y > group.y && child.y + child.height < group.y + group.height);
+  }
+  assert.ok(children[0]!.x + children[0]!.width < children[1]!.x);
+  assert.equal(output.edges.length, 1);
+  assert.equal(original.label, 'Original', 'candidate generation never mutates the original');
+  assert.throws(() => parseDiagramPlan({ ...plan, nodes: [...plan.nodes, { ...plan.nodes[2], key: 'duplicate' }] }), /same grid cell/);
+  assert.throws(() => buildDesignedDiagram({ ...plan, nodes: plan.nodes.map(n => n.key === 'start' ? { ...n, originalId: randomUUID() } : n) }, doc([original])), /outside the source/);
+});
 
 const node = (label: string, over: Partial<DiagramNode> = {}): DiagramNode => ({
   id: randomUUID(), kind: 'process', label, x: 0, y: 0, width: 160, height: 64,

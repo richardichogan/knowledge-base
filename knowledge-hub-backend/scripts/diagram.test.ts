@@ -546,15 +546,20 @@ test('validates asset names', () => {
 
 // ─── Optimistic revision check (SQL path with a stubbed pg client) ──────────
 
-interface FakeState { canvasType: string; revision: number; updateRows: number; calls: string[] }
+interface FakeState {
+  canvasType: string; revision: number; updateRows: number; calls: string[];
+  document?: DiagramDocument; failRecovery?: boolean; recovery?: unknown[];
+}
 
 function stubDb(state: FakeState): () => void {
   const client = {
-    query: async (sql: string): Promise<{ rows: unknown[]; rowCount: number }> => {
+    query: async (sql: string, values?: unknown[]): Promise<{ rows: unknown[]; rowCount: number }> => {
       const s = sql.replace(/\s+/g, ' ').trim();
       state.calls.push(s.split(' ').slice(0, 2).join(' '));
       if (s.startsWith('SELECT canvas_type FROM canvases')) return { rows: [{ canvas_type: state.canvasType }], rowCount: 1 };
-      if (s.startsWith('SELECT revision FROM canvas_diagrams')) return { rows: [{ revision: state.revision }], rowCount: 1 };
+      if (s.startsWith('SELECT revision, document FROM canvas_diagrams')) return { rows: [{ revision: state.revision, document: state.document ?? emptyDiagram() }], rowCount: 1 };
+      if (s.startsWith('INSERT INTO canvas_diagram_versions') && state.failRecovery) throw new Error('Recovery storage failed');
+      if (s.startsWith('INSERT INTO canvas_diagram_versions')) { state.calls.push('RECOVERY'); state.recovery = values; }
       if (s.startsWith('SELECT id::text FROM canvas_diagram_assets')) return { rows: [], rowCount: 0 };
       if (s.startsWith('UPDATE canvas_diagrams')) {
         return state.updateRows === 0 ? { rows: [], rowCount: 0 } : { rows: [{ revision: state.revision + 1 }], rowCount: 1 };
@@ -568,6 +573,46 @@ function stubDb(state: FakeState): () => void {
 }
 
 const CANVAS = randomUUID();
+
+test('destructive diagram saves preserve the complete prior document before updating', async () => {
+  const a = node();
+  const b = node();
+  const previous = doc([a, b], [edge(a.id, b.id)]);
+  for (const next of [doc([a]), doc([a, b]), doc([node(), node()])]) {
+    const state: FakeState = { canvasType: 'diagram', revision: 3, updateRows: 1, calls: [], document: previous };
+    const restore = stubDb(state);
+    try {
+      await saveDiagram(CANVAS, { revision: 3, document: next });
+      assert.ok(state.calls.includes('RECOVERY'));
+      assert.ok(state.calls.indexOf('RECOVERY') < state.calls.indexOf('UPDATE canvas_diagrams'));
+      assert.deepEqual(state.recovery, [CANVAS, 'Automatic recovery before revision 4', 3, JSON.stringify(previous)]);
+      assert.ok(state.calls.includes('COMMIT'));
+    } finally { restore(); }
+  }
+});
+
+test('ordinary edits with the same stable IDs do not create automatic recovery versions', async () => {
+  const a = node();
+  const previous = doc([a]);
+  const state: FakeState = { canvasType: 'diagram', revision: 3, updateRows: 1, calls: [], document: previous };
+  const restore = stubDb(state);
+  try {
+    await saveDiagram(CANVAS, { revision: 3, document: doc([{ ...a, label: 'Updated label', x: a.x + 10 }]) });
+    assert.ok(!state.calls.includes('RECOVERY'));
+    assert.ok(state.calls.includes('COMMIT'));
+  } finally { restore(); }
+});
+
+test('failed recovery snapshots block destructive saves rather than losing the previous version', async () => {
+  const state: FakeState = { canvasType: 'diagram', revision: 3, updateRows: 1, calls: [], document: doc([node()]), failRecovery: true };
+  const restore = stubDb(state);
+  try {
+    await assert.rejects(saveDiagram(CANVAS, { revision: 3, document: emptyDiagram() }), /Recovery storage failed/);
+    assert.ok(state.calls.includes('ROLLBACK'));
+    assert.ok(!state.calls.includes('UPDATE canvas_diagrams'));
+    assert.ok(!state.calls.includes('RECOVERY'));
+  } finally { restore(); }
+});
 
 test('diagram metadata updates persist descriptions and allow explicit project clearing', async () => {
   let savedProject: string | null = 'cloudt-with-a-chance-of-insights';

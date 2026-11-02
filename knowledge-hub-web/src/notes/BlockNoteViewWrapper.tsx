@@ -28,6 +28,22 @@ export const BlockNoteViewWrapper: React.FC<Props> = ({ editor, theme, editable 
   useEffect(() => {
     const host = clipboardHost.current;
     if (!host) return;
+    const excludeCode = (element: HTMLElement): void => {
+      if (element.matches('pre, code')) element.spellcheck = false;
+      element.querySelectorAll<HTMLElement>('pre, code').forEach(code => { code.spellcheck = false; });
+    };
+    excludeCode(host);
+    const observer = new MutationObserver(records => {
+      for (const record of records) {
+        record.addedNodes.forEach(node => { if (node instanceof HTMLElement) excludeCode(node); });
+      }
+    });
+    observer.observe(host, { childList: true, subtree: true });
+    return () => { observer.disconnect(); };
+  }, []);
+  useEffect(() => {
+    const host = clipboardHost.current;
+    if (!host) return;
     let selectedText: string | null = null;
     const captureSelection = (): void => {
       selectedText = null;

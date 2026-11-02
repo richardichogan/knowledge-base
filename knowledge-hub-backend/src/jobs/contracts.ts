@@ -33,6 +33,44 @@ export interface JobRun {
   id: string; jobId: string; revision: number; definition: JobDefinition; scheduledAt: string;
   deadline: string; status: RunStatus; preview: boolean; steps: JobStep[];
   artifacts: Record<string, unknown>; approvedAt: string | null; createdAt: string; updatedAt: string;
+  diagnostics?: JobRunDiagnostics;
+}
+
+export interface JobRunDiagnostics {
+  sourceWarnings: Array<{ source: string; errors: number; failures: unknown[] }>;
+  startedAt: string | null; finishedAt: string | null; startDelayMs: number | null;
+  elapsedFromScheduleMs: number | null; deadlineExceeded: boolean; blockingStage: string | null;
+  note: string;
+}
+
+export function withRunDiagnostics(run: JobRun, now = new Date()): JobRun {
+  const record = (v: unknown): Record<string, unknown> | null =>
+    v !== null && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v)) : null;
+  const sync = record(run.artifacts.sync);
+  const sources = Array.isArray(sync?.results) ? sync.results
+    : Array.isArray(run.artifacts.sourceWarnings) ? run.artifacts.sourceWarnings : [];
+  const sourceWarnings = sources.flatMap(value => {
+    const source = record(value);
+    return source && typeof source.source === 'string' && typeof source.errors === 'number' && source.errors > 0
+      ? [{ source: source.source, errors: source.errors, failures: Array.isArray(source.failures) ? source.failures : [] }] : [];
+  });
+  const starts = run.steps.map(s => Date.parse(s.startedAt)).filter(Number.isFinite);
+  const ends = run.steps.flatMap(s => s.finishedAt ? [Date.parse(s.finishedAt)] : []).filter(Number.isFinite);
+  const finished = ['succeeded', 'failed', 'partial', 'missed', 'rejected'].includes(run.status);
+  const start = starts.length ? Math.min(...starts) : null;
+  const end = finished && ends.length ? Math.max(...ends) : null;
+  const scheduled = new Date(run.scheduledAt).getTime();
+  const deadline = new Date(run.deadline).getTime();
+  const asIso = (value: number | null): string | null => value === null ? null : new Date(value).toISOString();
+  return { ...run, diagnostics: {
+    sourceWarnings, startedAt: asIso(start), finishedAt: asIso(end),
+    startDelayMs: start === null ? null : Math.max(0, start - scheduled),
+    elapsedFromScheduleMs: end === null ? null : Math.max(0, end - scheduled),
+    deadlineExceeded: Number.isFinite(deadline) && (end ?? (finished ? new Date(run.updatedAt).getTime() : now.getTime())) > deadline,
+    blockingStage: run.status === 'succeeded' || run.status === 'rejected' ? null
+      : run.steps.find(s => s.status === 'running' || s.status === 'failed' || s.status === 'unconfirmed')?.key ?? (finished ? null : run.status),
+    note: 'Execution success is not complete source coverage or confirmed delivery. Finish is the last recorded step finish in a stopped run, not proof of completed delivery; missing timestamps are unknown. Schedule elapsed time is not a lateness policy; deadline exceeded uses the saved occurrence deadline.',
+  } };
 }
 
 export function object(value: unknown): Record<string, unknown> {

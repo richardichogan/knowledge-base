@@ -151,6 +151,28 @@ let activeNoteId: string | null = null;
 let designChatBridge: { owner: string; prepare: () => Promise<(changed: boolean) => Promise<void>> } | null = null;
 let podcastChatBridge: { owner: string; prepare: () => Promise<(changed: boolean) => Promise<void>> } | null = null;
 let workChatBridge: { owner: string; prepare: () => Promise<(changed: boolean) => Promise<void>> } | null = null;
+let taskChatBridge: { owner: string; prepare: () => Promise<(changed: boolean) => Promise<void>> } | null = null;
+let diagramChatBridge: { owner: string; prepare: () => Promise<(changed: boolean) => Promise<void>> } | null = null;
+
+export function setDiagramChatBridge(owner: string, prepare: () => Promise<(changed: boolean) => Promise<void>>): () => void {
+  const bridge = { owner, prepare };
+  diagramChatBridge = bridge;
+  return () => { if (diagramChatBridge === bridge) diagramChatBridge = null; };
+}
+
+export async function prepareDiagramChat(owner: string): Promise<((changed: boolean) => Promise<void>) | undefined> {
+  return diagramChatBridge?.owner === owner ? diagramChatBridge.prepare() : undefined;
+}
+
+export function setTaskChatBridge(owner: string, prepare: () => Promise<(changed: boolean) => Promise<void>>): () => void {
+  const bridge = { owner, prepare };
+  taskChatBridge = bridge;
+  return () => { if (taskChatBridge === bridge) taskChatBridge = null; };
+}
+
+export async function prepareTaskChat(owner: string): Promise<((changed: boolean) => Promise<void>) | undefined> {
+  return taskChatBridge?.owner === owner ? taskChatBridge.prepare() : undefined;
+}
 
 export function setWorkChatBridge(owner: string, prepare: () => Promise<(changed: boolean) => Promise<void>>): () => void {
   const bridge = { owner, prepare };

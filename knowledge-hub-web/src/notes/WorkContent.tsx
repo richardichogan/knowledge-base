@@ -166,6 +166,7 @@ export function EmailDraftFields({ work, disabled }: { work: WorkContentControll
     {(['to', 'cc', 'subject'] as const).map(field => <label key={field}>
       <span>{field === 'to' ? 'To' : field === 'cc' ? 'Cc' : 'Subject'}</span>
       <input value={value?.[field] ?? ''} disabled={disabled || !value || value.status === 'sent'}
+        spellCheck={field === 'subject'}
         maxLength={field === 'subject' ? 500 : 2000} autoComplete="off"
         onChange={event => { work.edit({ [field]: event.target.value }); }} />
     </label>)}
@@ -196,10 +197,10 @@ export function WorkContentProperties({ work, disabled }: { work: WorkContentCon
             onClick={() => { run(() => work.download('pptx')); }}>Download PowerPoint</button>
         </div>
         <p>Downloads save pending edits first. No M365 access or upload is required; the linked task remains open.</p>
-        <label><span>OneDrive folder</span><input value={value.targetFolder} maxLength={1000}
+        <label><span>OneDrive folder</span><input value={value.targetFolder} spellCheck={false} maxLength={1000}
           disabled={disabled || work.busy || work.recoveryConflict} placeholder="Athena/Project"
           onChange={event => { work.edit({ targetFolder: event.target.value }); }} /></label>
-        <label><span>Exact file name</span><input value={value.fileName} maxLength={200}
+        <label><span>Exact file name</span><input value={value.fileName} spellCheck={false} maxLength={200}
           disabled={disabled || work.busy || work.recoveryConflict} placeholder="Requirements.docx"
           onChange={event => { work.edit({ fileName: event.target.value }); }} /></label>
         <p role="status">{value.producedFile ? 'Synced file ready for review. Task remains open.'

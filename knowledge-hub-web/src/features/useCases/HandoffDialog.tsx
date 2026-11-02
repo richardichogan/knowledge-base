@@ -89,13 +89,13 @@ export const HandoffDialog: React.FC<{ useCase: UseCaseDetail; onClose: () => vo
         </fieldset>
         <label className="kh-uc-field" htmlFor={`${id}-repo`}>
           <span className="kh-uc-field__label">Repository (owner/name)</span>
-          <input id={`${id}-repo`} className="kh-uc-input" value={repo} placeholder="owner/name" aria-invalid={repo !== '' && !repoValid}
+          <input id={`${id}-repo`} spellCheck={false} className="kh-uc-input" value={repo} placeholder="owner/name" aria-invalid={repo !== '' && !repoValid}
             onChange={(e) => { setRepo(e.target.value); }} />
         </label>
         {mode === 'github' && (
           <label className="kh-uc-field" htmlFor={`${id}-path`}>
             <span className="kh-uc-field__label">File path in the repository</span>
-            <input id={`${id}-path`} className="kh-uc-input kh-uc-input--mono" value={path} onChange={(e) => { setPath(e.target.value); }} />
+            <input id={`${id}-path`} spellCheck={false} className="kh-uc-input kh-uc-input--mono" value={path} onChange={(e) => { setPath(e.target.value); }} />
           </label>
         )}
         <fieldset className="kh-uc-visuals" disabled={handoff.isPending}>

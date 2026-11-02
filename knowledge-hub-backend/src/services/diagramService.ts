@@ -150,7 +150,7 @@ export async function openDrilldown(canvasId: string, nodeId: string, body: unkn
  * is a 409 DIAGRAM_REVISION_CONFLICT carrying the current revision; nothing is
  * written. An invalid document is a 422 with the offending path.
  */
-export async function saveDiagram(canvasId: string, body: unknown): Promise<DiagramSnapshot> {
+export async function saveDiagram(canvasId: string, body: unknown, transactionClient?: PoolClient): Promise<DiagramSnapshot> {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     throw new ValidationError('Body must be { revision, document }', { body: 'invalid' });
   }
@@ -159,16 +159,16 @@ export async function saveDiagram(canvasId: string, body: unknown): Promise<Diag
   const { revision: rawRevision, document: rawDocument } = body as { revision?: unknown; document?: unknown };
   const revision = validateRevision(rawRevision);
 
-  const client = await getDb().connect();
+  const client = transactionClient ?? await getDb().connect();
   try {
-    await client.query('BEGIN');
+    if (!transactionClient) await client.query('BEGIN');
     // Locking the canvas row serialises saves and asset uploads for this canvas.
     await requireCanvasType(canvasId, 'diagram', client, true);
     await client.query(
       `INSERT INTO canvas_diagrams (canvas_id, revision, document) VALUES ($1, 0, $2) ON CONFLICT (canvas_id) DO NOTHING`,
       [canvasId, JSON.stringify(emptyDiagram())]);
-    const cur = await client.query<{ revision: number }>(
-      `SELECT revision FROM canvas_diagrams WHERE canvas_id = $1 FOR UPDATE`, [canvasId]);
+    const cur = await client.query<{ revision: number; document: DiagramDocument }>(
+      `SELECT revision, document FROM canvas_diagrams WHERE canvas_id = $1 FOR UPDATE`, [canvasId]);
     const current = cur.rows[0]!.revision;
     if (current !== revision) {
       throw new ConflictError(
@@ -179,6 +179,15 @@ export async function saveDiagram(canvasId: string, body: unknown): Promise<Diag
     }
     const assets = await client.query<{ id: string }>(`SELECT id::text FROM canvas_diagram_assets WHERE canvas_id = $1`, [canvasId]);
     const document = validateDiagramDocument(rawDocument, new Set(assets.rows.map((a) => a.id)));
+    const previous = cur.rows[0]!.document;
+    const nodeIds = new Set(document.nodes.map(node => node.id));
+    const edgeIds = new Set(document.edges.map(edge => edge.id));
+    if (previous.nodes.some(node => !nodeIds.has(node.id)) || previous.edges.some(edge => !edgeIds.has(edge.id))) {
+      await client.query(
+        `INSERT INTO canvas_diagram_versions (canvas_id, name, revision, document, recovery)
+         VALUES ($1, $2, $3, $4, true)`,
+        [canvasId, `Automatic recovery before revision ${current + 1}`, current, JSON.stringify(previous)]);
+    }
     const json = JSON.stringify(document);
     const upd = await client.query<{ revision: number }>(
       `UPDATE canvas_diagrams SET document = $1, revision = revision + 1, updated_at = NOW()
@@ -201,13 +210,13 @@ export async function saveDiagram(canvasId: string, body: unknown): Promise<Diag
        WHERE (a_type='diagram' AND a_id=$1 AND a_element<>'' AND NOT (a_element=ANY($2::text[])))
           OR (b_type='diagram' AND b_id=$1 AND b_element<>'' AND NOT (b_element=ANY($2::text[])))`, [canvasId, elementIds]);
     await client.query(`UPDATE canvases SET updated_at = NOW() WHERE id = $1`, [canvasId]);
-    await client.query('COMMIT');
+    if (!transactionClient) await client.query('COMMIT');
     return { revision: next, document };
   } catch (err) {
-    await client.query('ROLLBACK');
+    if (!transactionClient) await client.query('ROLLBACK');
     throw err;
   } finally {
-    client.release();
+    if (!transactionClient) client.release();
   }
 }
 
@@ -301,7 +310,7 @@ export async function createVersion(canvasId: string, body: unknown): Promise<Di
   try {
     await client.query('BEGIN');
     await requireCanvasType(canvasId, 'diagram', client, true);
-    const count = await client.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM canvas_diagram_versions WHERE canvas_id = $1`, [canvasId]);
+    const count = await client.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM canvas_diagram_versions WHERE canvas_id = $1 AND NOT recovery`, [canvasId]);
     if (Number(count.rows[0]?.n ?? 0) >= MAX_VERSIONS_PER_DIAGRAM) {
       throw new ValidationError(`A diagram can have at most ${MAX_VERSIONS_PER_DIAGRAM} named versions; delete one first`, { name: 'too many versions' });
     }

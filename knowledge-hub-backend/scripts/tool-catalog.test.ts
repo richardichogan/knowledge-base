@@ -15,11 +15,15 @@ const definitions: LlmToolDefinition[] = [
 
 test('capabilities stay discoverable without keywords; loading does not execute or invent tools', () => {
   const catalog = new ToolCatalog(definitions);
+  assert.equal(catalog.state('create_diagram'), 'loadable');
+  assert.equal(catalog.state('invented_tool'), 'prohibited');
+  assert.deepEqual(catalog.loadPermitted(['invented_tool']), []);
   assert.match(catalog.describe(), /create_diagram: Create an editable diagram/);
   assert.deepEqual(catalog.schemas().map(tool => tool.function.name), ['load_tools', 'search_knowledge_base']);
   assert.throws(() => catalog.load(['create_diagram', 'invented_tool']), /permitted capability/);
   assert.deepEqual(catalog.schemas().map(tool => tool.function.name), ['load_tools', 'search_knowledge_base'], 'failed loads are atomic');
   assert.deepEqual(catalog.load(['create_diagram']).loaded, ['create_diagram']);
+  assert.equal(catalog.state('create_diagram'), 'loaded');
   assert.ok(catalog.schemas().includes(definitions[1]!));
   const anotherTurn = new ToolCatalog(definitions);
   assert.equal(anotherTurn.schemas().length, 2, 'loaded state is not persisted across user turns');
@@ -67,7 +71,7 @@ for (const boundary of [
     ], finishReason: 'tool_calls' };
     assert.ok(!tools.some(tool => tool.function.name === 'read_past_chat'));
     if (calls === 2) {
-      assert.match(String(messages.at(-1)?.content), /not loaded or is unavailable/);
+      assert.match(String(messages.at(-1)?.content), /prohibited by the current permission or retrieval scope/);
       return { content: null, toolCalls: [{ id: 'widen', type: 'function' as const,
         function: { name: 'load_tools', arguments: '{"names":["search_knowledge_base"],"retrievalScope":{}}' } }], finishReason: 'tool_calls' };
     }

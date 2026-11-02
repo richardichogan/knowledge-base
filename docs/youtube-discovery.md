@@ -5,6 +5,49 @@ channel URL (`/@handle`, `/channel/UC…`, `/user/name` or `/c/name`), choose a
 group and select **Add source**. Athena resolves it to the channel's public
 Atom feed. Select **Check now**, or wait for the normal discovery sync.
 
+The same Sources form also automatically recognises RSS/Atom feeds and public
+blog listings, for example `https://microsoft.ai/blog/`. Give it the name
+**Microsoft AI**, choose **Microsoft**, and use **Add source**. Website entries
+are labelled **Website** in the existing source list and use the same schedule,
+pause/remove controls, scoring, project fit, article cards and URL deduplication
+as feed entries. Adding/checking a source does not publish or approve content.
+
+Microsoft AI receives a source-specific 2x priority relative to an equivalent
+official Microsoft source, identified by the real `microsoft.ai` article or
+listing URL rather than the editable name. This is applied live in shared
+Discovery ranking, including podcast research and daily roundups, without a
+rescore. Relevance, freshness, article type, project fit, user preferences and
+source diversity still apply; posts are not pinned above stronger stories.
+Other website sources do not inherit this priority. The effective authority
+factor remains visible through the existing ranking breakdown.
+
+Website discovery reads linked article headings from public HTML and checks
+the article pages for publication metadata (article-specific structured data,
+publication meta tags or publication times). Links can be outside the listing's
+path, as Microsoft AI's `/blog/` links to `/news/`. Navigation links are excluded;
+tracking parameters and canonical aliases are deduplicated. The first 30 unique
+article links are checked, with at most five article-page requests at once.
+Only posts within the existing 14-day window are imported. Modification dates
+and retrieval times are not substituted for missing publication dates.
+
+Source status and add-source results show warnings for skipped undated posts,
+unreadable articles and bounded listing coverage. If no article links can be
+identified, or all article requests fail, the source reports an error instead of
+claiming a successful empty check. JavaScript-only pages and login-protected
+sites are not supported; there is no browser automation or third-party scraping
+service. Requests use the existing public-address/redirect safeguards with
+bounded response sizes and timeouts. Imported text is a publisher summary, not
+proof Athena has read the complete article.
+
+Athena can list source kinds, URLs, warnings and current status with
+`get_discover_sources`, inspect a candidate read-only with
+`inspect_discover_feed`, and add/rename/regroup/pause sources with the existing
+source tools and write approval boundaries. The form and Athena share the same
+source validation/persistence; completed chat changes refresh the source list.
+Deployment applies additive migration `138_discovery_websites.sql`; existing
+subscriptions default to feed sources and retain their state. The migration
+does not automatically subscribe or import anything.
+
 Channel feeds contain a limited recent window, not the complete channel archive.
 The existing 14-day discovery window, scoring, project relevance and shelving
 rules still apply. Pause or remove the source using the existing controls.

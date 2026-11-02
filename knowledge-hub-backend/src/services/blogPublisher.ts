@@ -6,8 +6,9 @@ import { HTTP_STATUS } from '../config/constants.js';
 import { env } from '../config/env.js';
 import { ValidationError } from '../types/errors.js';
 import { POST_TYPES, type PostType } from '../ai/blogDraft.js';
-import { BLOG_CATEGORIES, resolveBlogCategory } from '../ai/blogHouseStyle.js';
-import { findBlogTropes, findWeeklyTropes, fixDashes } from '../ai/styleCheck.js';
+import { BLOG_CATEGORIES, MAX_BLOG_TAGS, resolveBlogCategory } from '../ai/blogHouseStyle.js';
+export { MAX_BLOG_TAGS } from '../ai/blogHouseStyle.js';
+import { findBlogTropes, fixDashes } from '../ai/styleCheck.js';
 import { resolvePostUrl } from '../types/cmsPost.js';
 
 export interface BlogPublishBody { slug?: string; sourceUrl?: string; excerpt: string; status: 'draft' | 'published'; postType: PostType; title: string; content: string; summary: string; keyTakeaways: string[]; categories: string[]; tags: string[] }
@@ -56,6 +57,7 @@ function parseBlogBody(body: unknown, preservePodcastCopy: boolean, reviewOnly: 
   const status: BlogPublishBody['status'] = o['status'] === 'published' ? 'published' : 'draft';
   const parsed = { excerpt: text(o['excerpt']).slice(0, MAX_EXCERPT), status, postType, title: text(o['title']), content: text(o['content']), summary: text(o['summary']),
     keyTakeaways: list(o['keyTakeaways']), categories: list(o['categories']), tags: list(o['tags']) };
+  if (parsed.tags.length > MAX_BLOG_TAGS) throw new ValidationError(`The blog accepts at most ${MAX_BLOG_TAGS} tags. Reduce the metadata before publishing.`);
   if (parsed.title.length > MAX_TITLE || parsed.summary.length > MAX_SUMMARY || parsed.keyTakeaways.length > MAX_TAKEAWAYS || parsed.keyTakeaways.some(t => t.length > MAX_TAKEAWAY_CHARS)) {
     throw new ValidationError('Title (200), summary (1,000) and takeaways (10 max, 300 characters each) exceed the blog limits.');
   }
@@ -73,14 +75,14 @@ function parseBlogBody(body: unknown, preservePodcastCopy: boolean, reviewOnly: 
     throw new ValidationError(`Unknown blog categories: ${unknown.join(', ')}. Use any of: ${BLOG_CATEGORIES.join(', ')}. Other topics such as Dynamics 365 belong in tags. Quick take is a post type, not a category.`);
   }
   parsed.categories = [...new Set(parsed.categories.map(category => resolveBlogCategory(category)!))];
-  if (reviewOnly || postType === 'article' || postType === 'quick' || (preservePodcastCopy && postType === 'podcast')) {
+  if (reviewOnly || postType === 'article' || postType === 'quick' || postType === 'weekly' || (preservePodcastCopy && postType === 'podcast')) {
     return { ...parsed, ...(slug ? { slug } : {}), ...(sourceUrl ? { sourceUrl } : {}) };
   }
   parsed.title = fixDashes(parsed.title); parsed.excerpt = fixDashes(parsed.excerpt); parsed.summary = fixDashes(parsed.summary);
   parsed.content = fixDashes(parsed.content); parsed.keyTakeaways = parsed.keyTakeaways.map(fixDashes);
   const ownContent = parsed.content.replace(/<hr>\s*<p><em>Source:[\s\S]*?<\/em><\/p>\s*$/i, '');
   const texts = [parsed.title, parsed.excerpt, parsed.summary, ownContent, ...parsed.keyTakeaways];
-  const tropes = postType === 'weekly' ? findWeeklyTropes(...texts) : findBlogTropes(postType, ...texts);
+  const tropes = findBlogTropes(postType, ...texts);
   if (tropes.length > 0) throw new ValidationError(`Not sent: the post still contains banned AI writing patterns. Edit these out first: ${tropes.join('; ')}.`);
   return { ...parsed, ...(slug ? { slug } : {}), ...(sourceUrl ? { sourceUrl } : {}) };
 }
@@ -102,7 +104,7 @@ export async function sendToBlog(post: BlogPublishBody): Promise<BlogSendResult>
     return { httpStatus: HTTP_STATUS.CONFLICT, payload: { success: false, error: { code: 'BLOG_DUPLICATE', message: 'A post with this title already exists on the blog this month. It may already have been created: check the blog admin, or change the title.' } } };
   }
   if (!response.ok) {
-    return { httpStatus: response.status === HTTP_STATUS.FORBIDDEN ? HTTP_STATUS.FORBIDDEN : HTTP_STATUS.BAD_GATEWAY, payload: { success: false, error: { code: 'BLOG_REJECTED',
+    return { httpStatus: response.status === HTTP_STATUS.BAD_REQUEST || response.status === HTTP_STATUS.FORBIDDEN ? response.status : HTTP_STATUS.BAD_GATEWAY, payload: { success: false, error: { code: 'BLOG_REJECTED',
       message: `The blog rejected the post: ${response.status} ${result.error ?? ''} ${(result.details ?? []).join('; ')}`.trim() } } };
   }
   return { httpStatus: HTTP_STATUS.OK, payload: { success: true, data: { editUrl: result.editUrl ?? null, url: result.url ?? null, status: post.status } } };

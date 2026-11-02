@@ -197,6 +197,10 @@ test('actual chat prompt reads the saved diagram afresh and never exposes brains
   let saved = diagram;
   let failReading = false;
   t.mock.method(Pool.prototype, 'query', async (sql: string) => {
+    if (sql.includes('SELECT viewport, brainstorm_settings FROM canvases')) return { rows: [{
+      viewport: { x: 0, y: 0, zoom: 1 },
+      brainstorm_settings: { grid: false, snapToGrid: false, snapToShapes: true, gridSize: 20 },
+    }] };
     if (sql.includes('FROM canvases c JOIN canvas_diagrams')) {
       if (failReading) throw new Error('Fixture diagram read failure');
       return { rows: [{ id: a, title: 'Claims architecture', project: null, description: null, revision: 7,

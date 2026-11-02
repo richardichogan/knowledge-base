@@ -30,17 +30,32 @@ export const DiscoverSources: React.FC<{ onClose: () => void }> = ({ onClose }) 
   const [adding, setAdding] = useState(false);
   const [videoUrl, setVideoUrl] = useState('');
   const [addingVideo, setAddingVideo] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
 
   const feeds = useQuery({
     queryKey: ['discovery-feeds'],
-    queryFn: async () => { const r = await api.listDiscoveryFeeds(); return r.success ? r.data : []; },
+    queryFn: async () => { const r = await api.listDiscoveryFeeds(); if (!r.success) throw new Error(r.error.message); return r.data; },
+    refetchInterval: 30_000,
   });
   const refresh = (): void => { void queryClient.invalidateQueries({ queryKey: ['discovery-feeds'] }); };
 
   const byGroup = new Map<string, DiscoveryFeed[]>();
   for (const f of feeds.data ?? []) byGroup.set(f.groupName, [...(byGroup.get(f.groupName) ?? []), f]);
   const groups = [...byGroup.keys()].sort((a, b) => GROUPS.indexOf(a) - GROUPS.indexOf(b));
+
+  async function checkNow(): Promise<void> {
+    setChecking(true);
+    setMessage(null);
+    try {
+      const result = await api.checkDiscoveryFeeds();
+      if (!result.success) throw new Error(result.error.message);
+      setMessage({ text: 'Checking sources in the background. Results and any website warnings appear below as each source finishes.', error: false });
+      refresh();
+    } catch (error) {
+      setMessage({ text: error instanceof Error ? error.message : 'Could not start the source check.', error: true });
+    } finally { setChecking(false); }
+  }
 
   async function add(e: React.FormEvent): Promise<void> {
     e.preventDefault();
@@ -50,7 +65,7 @@ export const DiscoverSources: React.FC<{ onClose: () => void }> = ({ onClose }) 
       const r = await api.addDiscoveryFeed({ title: title.trim(), feedUrl: feedUrl.trim(), groupName: group });
       if (!r.success) { setMessage({ text: r.error.message, error: true }); return; }
       setTitle(''); setFeedUrl('');
-      setMessage({ text: `Added “${r.data.title}” — ${r.data.itemsInFeed.toString()} items in its feed. They appear after the next check.`, error: false });
+      setMessage({ text: `Saved “${r.data.title}” — ${r.data.itemsInFeed.toString()} ${r.data.sourceKind === 'website' ? 'dated posts found on the website' : 'items in its feed'}. Eligible articles from the last 14 days appear after the next check.${r.data.lastWarning ? ` Warning: ${r.data.lastWarning}` : ''}`, error: false });
       refresh();
     } catch { setMessage({ text: 'Could not add this source. Check your connection and try again.', error: true }); }
     finally { setAdding(false); }
@@ -75,13 +90,15 @@ export const DiscoverSources: React.FC<{ onClose: () => void }> = ({ onClose }) 
     <section className="dc-sources" aria-label="Discovery sources">
       <div className="dc-sources__head">
         <h2 className="dc-sources__title">Where Athena looks for articles and videos</h2>
-        <button type="button" className="dc-sources__btn" onClick={() => { void api.checkDiscoveryFeeds().then(() => { setMessage({ text: 'Checking every source now — new articles appear in a minute or two.', error: false }); window.setTimeout(refresh, 4_000); }); }}>
-          <Renew size={14} aria-hidden="true" /> Check now
+        <button type="button" className="dc-sources__btn" disabled={checking} onClick={() => { void checkNow(); }}>
+          <Renew size={14} aria-hidden="true" /> {checking ? 'Starting…' : 'Check now'}
         </button>
         <button type="button" className="dc-sources__close" onClick={onClose} aria-label="Close sources"><Close size={16} /></button>
       </div>
 
       {feeds.isLoading && <InlineLoading description="Loading sources…" />}
+      {feeds.isError && <p className="dc-sources__msg dc-sources__msg--error" role="alert">{feeds.error instanceof Error ? feeds.error.message : 'Could not load discovery sources.'}</p>}
+      {!feeds.isLoading && !feeds.isError && feeds.data?.length === 0 && <p className="dc-sources__help">No sources configured. Add a feed or blog listing below.</p>}
       {groups.map((g) => (
         <div key={g} className="dc-sources__group">
           <h3 className="dc-sources__group-name">{g}</h3>
@@ -92,9 +109,9 @@ export const DiscoverSources: React.FC<{ onClose: () => void }> = ({ onClose }) 
                   <input type="checkbox" checked={f.isActive} onChange={(e) => { void api.updateDiscoveryFeed(f.id, { isActive: e.target.checked }).then(refresh); }} />
                   <span className="cds--visually-hidden">Read {f.title}</span>
                 </label>
-                <span className="dc-sources__name">{f.title}</span>
-                <span className={`dc-sources__status${f.lastError !== null ? ' dc-sources__status--error' : ''}`} title={f.lastError ?? f.feedUrl}>
-                  {f.lastError !== null ? `Problem: ${f.lastError}` : `checked ${ago(f.lastCheckedAt)}${f.lastCheckedAt !== null ? ` · ${f.lastNewCount.toString()} new` : ''}`}
+                <span className="dc-sources__name">{f.title}{f.sourceKind === 'website' ? ' · Website' : ''}</span>
+                <span className={`dc-sources__status${f.lastError !== null ? ' dc-sources__status--error' : f.lastWarning ? ' dc-sources__status--warning' : ''}`} title={[f.feedUrl, f.lastError, f.lastWarning].filter(Boolean).join('\n')}>
+                  {f.lastError !== null ? `Problem: ${f.lastError}` : `checked ${ago(f.lastCheckedAt)}${f.lastCheckedAt !== null ? ` · ${f.lastNewCount.toString()} new` : ''}${f.lastWarning ? ` · Warning: ${f.lastWarning}` : ''}`}
                 </span>
                 <button
                   type="button" className="dc-sources__remove" aria-label={`Remove ${f.title}`} title="Stop reading this source (its articles stay)"
@@ -114,13 +131,13 @@ export const DiscoverSources: React.FC<{ onClose: () => void }> = ({ onClose }) 
 
       <form className="dc-sources__add" onSubmit={(e) => { void add(e); }}>
         <input className="dc-sources__input" placeholder="Name, e.g. Anthropic News" value={title} onChange={(e) => { setTitle(e.target.value); }} aria-label="Source name" required />
-        <input className="dc-sources__input dc-sources__input--wide" placeholder="RSS, Atom or YouTube channel URL" value={feedUrl} onChange={(e) => { setFeedUrl(e.target.value); }} aria-label="Feed address or YouTube channel URL" required />
+        <input className="dc-sources__input dc-sources__input--wide" spellCheck={false} placeholder="RSS, Atom, blog listing or YouTube channel URL" value={feedUrl} onChange={(e) => { setFeedUrl(e.target.value); }} aria-label="Feed, blog listing or YouTube channel URL" required />
         <select className="dc-sources__input" value={group} onChange={(e) => { setGroup(e.target.value); }} aria-label="Group">
           {GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}
         </select>
         <button type="submit" className="dc-sources__btn dc-sources__btn--primary" disabled={adding || title.trim() === '' || feedUrl.trim() === ''}>{adding ? 'Checking…' : 'Add source'}</button>
       </form>
-      <p className="dc-sources__msg">For ongoing discovery, add a channel URL such as youtube.com/@MicrosoftAzure above. Then use Check now. To import one video, paste its URL below.</p>
+      <p className="dc-sources__help">Paste a feed, public blog listing (such as https://microsoft.ai/blog/) or YouTube channel URL above, then use Check now. Website sources import dated posts from the last 14 days; undated posts are skipped with a warning. JavaScript-only and login-protected listings are not supported. To import one video, paste its URL below.</p>
       <form className="dc-sources__add" onSubmit={(e) => { void addVideo(e); }}>
         <input className="dc-sources__input dc-sources__input--wide" type="url" placeholder="https://www.youtube.com/watch?v=…" value={videoUrl} onChange={(e) => { setVideoUrl(e.target.value); }} aria-label="YouTube video URL" required />
         <button type="submit" className="dc-sources__btn dc-sources__btn--primary" disabled={addingVideo || !videoUrl.trim()}>{addingVideo ? 'Importing…' : 'Add video'}</button>

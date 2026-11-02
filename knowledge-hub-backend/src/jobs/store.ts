@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { ConflictError as BaseConflictError, NotFoundError, ValidationError } from '../types/errors.js';
-import { parseJob, readyToEnable, type JobRun, type ManagedJob } from './contracts.js';
+import { object, text, JOB_LIMITS, parseJob, readyToEnable, withRunDiagnostics, type JobRun, type ManagedJob } from './contracts.js';
 import { nextOccurrence, occurrences, JOB_LOOKAHEAD_DAYS } from './schedule.js';
 import { MS_PER_DAY } from '../config/constants.js';
 
@@ -26,7 +26,7 @@ export async function getJob(db: Db, id: string): Promise<ManagedJob> {
 export async function getRun(db: Db, id: string): Promise<JobRun> {
   const run = (await db.query<JobRun>(`SELECT ${runColumns} FROM managed_job_runs WHERE id=$1`, [id])).rows[0];
   if (!run) throw new NotFoundError('Job run');
-  return run;
+  return withRunDiagnostics(run);
 }
 export async function saveJob(db: Pool, id: string | undefined, revision: number, value: unknown, enabled: boolean, actor: string): Promise<ManagedJob> {
   const definition = parseJob(value);
@@ -170,6 +170,41 @@ export async function retryRun(db: Pool, id: string, actor: string): Promise<voi
   if (!r.rowCount) throw new ConflictError('This run changed.');
   await db.query("UPDATE publishing_deliveries SET next_attempt_at=NOW() WHERE identity IN ($1,$2) AND status='failed'", [`jobs:${id}:bluesky`, `jobs:${id}:linkedin`]);
   await audit(db, run.jobId, id, actor, 'retry-requested');
+}
+
+export async function reconcileRun(db: Pool, id: string, body: unknown, actor: string): Promise<JobRun> {
+  const c = await db.connect();
+  try {
+    await c.query('BEGIN');
+    await c.query('SELECT id FROM managed_job_runs WHERE id=$1 FOR UPDATE', [id]);
+    const run = await getRun(c, id);
+    const b = object(body);
+    const key = text(b.step, 'step', JOB_LIMITS.status);
+    const item = run.steps.find(s => s.key === key && (s.status === 'unconfirmed' || s.status === 'running'));
+    if (run.status !== 'unconfirmed' || !item) throw new ValidationError('Choose an unconfirmed step.');
+    if (typeof b.delivered !== 'boolean') throw new ValidationError('Confirm whether delivery occurred.');
+    let result: unknown = { manuallyConfirmed: true };
+    if (b.delivered && ['blog', 'linkedin', 'bluesky'].includes(key)) {
+      const url = new URL(text(b.url, 'published URL'));
+      if (url.protocol !== 'https:' || url.username || url.password) throw new ValidationError('Provide the confirmed public HTTPS URL.');
+      result = key === 'blog' ? { url: url.href, status: 'published' } : { url: url.href, manuallyConfirmed: true };
+    }
+    item.status = b.delivered ? 'succeeded' : 'failed';
+    item.result = result;
+    item.finishedAt = new Date().toISOString();
+    const status = run.steps.some(s => s.status === 'unconfirmed') ? 'unconfirmed' : 'partial';
+    const changed = await c.query(`UPDATE managed_job_runs SET status=$3,steps=$2,updated_at=NOW()
+      WHERE id=$1 AND status='unconfirmed' AND (lease_until IS NULL OR lease_until<NOW()) RETURNING id`,
+    [run.id, JSON.stringify(run.steps), status]);
+    if (!changed.rowCount) throw new ConflictError('Run changed; reload before reconciling.');
+    if (key === 'bluesky' || key === 'linkedin') await c.query(`UPDATE publishing_deliveries SET status=$2,receipt=$3,
+      published_at=CASE WHEN $2='sent' THEN NOW() ELSE NULL END,next_attempt_at=CASE WHEN $2='failed' THEN NOW() ELSE NULL END,error=NULL
+      WHERE identity=$1 AND destination=$4 AND status IN ('sending','unconfirmed','failed')`,
+    [`jobs:${run.id}:${key}`, b.delivered ? 'sent' : 'failed', JSON.stringify(result), key]);
+    await audit(c, run.jobId, run.id, actor, 'delivery-reconciled', { step: key, delivered: b.delivered, result });
+    await c.query('COMMIT');
+    return getRun(db, run.id);
+  } catch (error) { await c.query('ROLLBACK'); throw error; } finally { c.release(); }
 }
 export async function proposeJob(db: Pool, sessionId: string, payload: unknown): Promise<unknown> {
   const result = await db.query<Record<string, unknown>>('INSERT INTO managed_job_proposals(session_id,payload) VALUES($1,$2) RETURNING id,payload,created_at', [sessionId, JSON.stringify(payload)]);

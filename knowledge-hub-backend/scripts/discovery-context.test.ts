@@ -28,9 +28,10 @@ test('source lookup and candidate checks are read-only and exclude disabled/URL-
   try {
     await pg.exec(`CREATE TABLE discovery_sources (
       id text, title text, feed_url text, group_name text, is_active boolean,
-      last_checked_at timestamptz, last_success_at timestamptz, last_error text
+      last_checked_at timestamptz, last_success_at timestamptz, last_error text,
+      source_kind text DEFAULT 'feed', last_warning text
     );
-    INSERT INTO discovery_sources VALUES
+    INSERT INTO discovery_sources (id, title, feed_url, group_name, is_active, last_checked_at, last_success_at, last_error) VALUES
       ('one', 'Azure', 'https://www.example.com/feed/', 'Microsoft', true, now(), now(), null),
       ('two', 'Disabled', 'https://disabled.example/feed?b=2&a=1', 'Other', false, null, null, 'HTTP 500');`);
     const queries: string[] = [];
@@ -45,7 +46,8 @@ test('source lookup and candidate checks are read-only and exclude disabled/URL-
     let reads = 0;
     const reader = async () => {
       reads++;
-      return Array.from({ length: 8 }, (_, i) => ({ title: `Article ${i}`, url: `https://new.example/${i}`, summary: '', publishedAt: null }));
+      return { feedUrl: 'https://new.example/rss', sourceKind: 'feed' as const, warning: null,
+        articles: Array.from({ length: 8 }, (_, i) => ({ title: `Article ${i}`, url: `https://new.example/${i}`, summary: '', publishedAt: null })) };
     };
     const existing = await inspectDiscoverFeed(db, 'http://example.com/feed#fragment', reader);
     assert.equal(existing.alreadyConfigured, true);
@@ -67,10 +69,10 @@ test('tool dispatch exposes current sources even in project-scoped chat', async 
   const calls: string[] = [];
   const db = { query: async (sql: string) => { calls.push(sql); return { rows: [] }; } } as unknown as Pool;
   const result = await executeToolCall(db, 'get_discover_sources', '{}', 'imagine');
-  assert.deepEqual(result, { page: '/discover', scope: 'App-wide Discover RSS/Atom subscriptions, including disabled sources', sources: [] });
+  assert.deepEqual(result, { page: '/discover', scope: 'App-wide Discover RSS/Atom, website and YouTube subscriptions, including disabled sources', sources: [] });
   assert.ok(calls[0]?.includes('discovery_sources'));
   assert.ok(!calls[0]?.includes('project'));
-  assert.deepEqual(await executeToolCall(db, 'inspect_discover_feed', '{}'), { error: 'Provide a public RSS/Atom feed URL.' });
+  assert.deepEqual(await executeToolCall(db, 'inspect_discover_feed', '{}'), { error: 'Provide a public RSS/Atom feed, blog listing or YouTube channel URL.' });
   const { assembleMessages } = await import('../src/ai/contextBuilder.js');
   const messages = await assembleMessages({
     staticContext: 'Richard works on IMAGINE',

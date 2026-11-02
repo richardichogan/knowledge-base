@@ -138,7 +138,7 @@ function PersonForm({ initial, busy, onSave, onCancel }: {
   }}>
     <h2>{'id' in initial ? 'Edit person' : 'Add person'}</h2>
     <label>Name<input required maxLength={200} value={draft.name} disabled={busy} onChange={event => { setDraft({ ...draft, name: event.target.value }); }} /></label>
-    <label>Email addresses (one per line)<textarea rows={2} value={emails} disabled={busy} onChange={event => { setEmails(event.target.value); }} /></label>
+    <label>Email addresses (one per line)<textarea spellCheck={false} rows={2} value={emails} disabled={busy} onChange={event => { setEmails(event.target.value); }} /></label>
     <label>Organisation<input maxLength={1000} value={draft.organisation} disabled={busy} onChange={event => { setDraft({ ...draft, organisation: event.target.value }); }} /></label>
     <label>Role / relationship<input maxLength={1000} value={draft.role} disabled={busy} onChange={event => { setDraft({ ...draft, role: event.target.value }); }} /></label>
     <label>Topics / threads<textarea rows={3} maxLength={10000} value={draft.threads} disabled={busy} onChange={event => { setDraft({ ...draft, threads: event.target.value }); }} /></label>

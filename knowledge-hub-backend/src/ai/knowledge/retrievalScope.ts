@@ -78,7 +78,7 @@ export function isOutsideCollectionTool(name: string, scope?: RetrievalScope): b
     return name !== scope.tool && ['search_knowledge_base', 'search_library', 'find_files', 'search_past_chats', 'search_diagrams', 'search_knowledge_graph'].includes(name);
   }
   return ['search_library', 'find_files', 'search_past_chats', 'read_past_chat', 'search_knowledge_graph',
-    'search_diagrams', 'read_diagram', 'search_ica'].includes(name) || /tavily.*search/i.test(name);
+    'search_diagrams', 'read_diagram', 'read_diagram_versions', 'search_ica'].includes(name) || /tavily.*search/i.test(name);
 }
 
 const FOLLOWUP = /^\s*(?:(?:shall|can|could)\s+we\s+)?(?:try(?:\s+that)?\s+again|again|retry|what\s+about|how\s+about|only|just|includ(?:e|ing)|exclud(?:e|ing)|instead|no\b|not\b|those\b|these\b|the\s+(?:first|last|next)\b)/i;

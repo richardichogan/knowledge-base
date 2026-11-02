@@ -50,7 +50,8 @@ test('a full review supplies the complete saved source to the answering model wi
     assert.equal(read.record.nextCursor, null);
     assert.equal(model.callCount(), 3);
     assert.equal(bulk.mock.callCount(), 0);
-    assert.deepEqual(writes, []);
+    assert.deepEqual(writes.filter(sql => !/^(?:INSERT INTO|UPDATE) (?:ai_turn_trace(?:s|_events|_spans)|ai_turn_measurements|ai_workflow_runs)\b/.test(sql)), [],
+      'Diagnostic capture is separate; source content must remain unchanged');
   } finally { bulk.mock.restore(); model.restore(); await db.close(); }
 });
 
@@ -87,7 +88,8 @@ test('CTX-03 comparing the open note with "the current spec" retrieves D1, pages
       assert.ok(!requestText(round).includes('UNRELATED-BODY-MARKER'), 'unrelated records never reach the model');
     }
     assert.ok(!called.some((n) => WEB_TOOL.test(n)));
-    assert.deepEqual(writes, []);
+    assert.deepEqual(writes.filter(sql => !/^(?:INSERT INTO|UPDATE) (?:ai_turn_trace(?:s|_events|_spans)|ai_turn_measurements|ai_workflow_runs)\b/.test(sql)), [],
+      'Diagnostic capture is separate; source content must remain unchanged');
   } finally { model.restore(); await db.close(); }
 });
 
@@ -125,6 +127,7 @@ test('CTX-04 the follow-up keeps internal read tools, forces no web search and r
     assert.ok(t1Read?.record.content.includes('T1-BODY'));
     assert.ok(!called.some((n) => WEB_TOOL.test(n)), called.join());
     assert.ok(!model.rounds.some((r) => requestText(r).includes('T2-BODY')), 'unrelated tasks are not read');
-    assert.deepEqual(writes, []);
+    assert.deepEqual(writes.filter(sql => !/^(?:INSERT INTO|UPDATE) (?:ai_turn_trace(?:s|_events|_spans)|ai_turn_measurements|ai_workflow_runs)\b/.test(sql)), [],
+      'Diagnostic capture is separate; source content must remain unchanged');
   } finally { model.restore(); await db.close(); }
 });

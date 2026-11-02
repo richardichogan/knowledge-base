@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import { requireApiData } from '../../services/apiError';
@@ -7,19 +7,25 @@ import { useProjects } from '../../services/useProjects';
 import { useAthenaContext } from '../../context/AthenaContext';
 import { DataNotice } from '../../components/DataNotice';
 import { ConnectionsPanel } from '../../components/connections/ConnectionsPanel';
-import { TaskActivitySection, TaskModal, TaskNoteText } from '../../pages/TasksPage';
+import { TaskActivitySection, TaskEditor, TaskNoteText, type TaskEditorInput } from '../../pages/TasksPage';
 import { taskAthenaPrompt } from './taskInsights';
 import type { PlanTask } from '../../types/task';
-import { Launch } from '@carbon/icons-react';
+import { ArrowLeft, Launch } from '@carbon/icons-react';
 import { EntityChip, IdentityChip, identitiesFor, useIdentity } from '../../identity';
+import { confirmDialog } from '../../services/appDialogs';
+import { setTaskChatBridge } from '../../utils/activeBlockNoteEditor';
 
-export function TaskDetail({ taskId }: { taskId: string }): React.ReactElement {
+export function TaskDetail({ taskId, onBackToPlan }: { taskId: string; onBackToPlan?: () => void }): React.ReactElement {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const { projects } = useProjects();
   const { openAthena } = useAthenaContext();
   const identity = useIdentity();
   const [editing, setEditing] = useState(false);
   const [editingTask, setEditingTask] = useState<PlanTask | null>(null);
+  const [taskChatBusy, setTaskChatBusy] = useState(false);
+  const editingRef = useRef(editing);
+  editingRef.current = editing;
   const [direction, setDirection] = useState('');
   const [copyStatus, setCopyStatus] = useState('');
   const [copyError, setCopyError] = useState<unknown>(null);
@@ -29,10 +35,18 @@ export function TaskDetail({ taskId }: { taskId: string }): React.ReactElement {
     queryFn: async () => requireApiData(await api.getTaskAssistance(taskId)),
     refetchInterval: query => query.state.data?.jobs.some(job => job.status === 'queued' || job.status === 'running') ? 5000 : false,
   });
-  const refresh = async (): Promise<void> => {
-    await Promise.all(['task-assistance', 'tasks', 'today', 'notes-list', 'task-notes', 'task-links'].map(key =>
+  const refresh = useCallback(async (): Promise<void> => {
+    await Promise.all(['task-assistance', 'tasks', 'today', 'today-tasks', 'at-risk-tasks', 'notes-list', 'task-notes', 'task-links'].map(key =>
       qc.invalidateQueries({ queryKey: key === 'task-assistance' ? [key, taskId] : [key] })));
-  };
+  }, [qc, taskId]);
+  useEffect(() => setTaskChatBridge(taskId, async () => {
+    if (editingRef.current) throw new Error('Save or cancel the open task editor before asking Athena to work on this task.');
+    setTaskChatBusy(true);
+    return async () => {
+      try { await refresh(); }
+      finally { setTaskChatBusy(false); }
+    };
+  }), [taskId, refresh]);
   const assess = useMutation({
     mutationFn: async () => requireApiData(await api.assessTaskAssistance(taskId, direction)),
     onSuccess: async () => { setDirection(''); await refresh(); },
@@ -42,7 +56,7 @@ export function TaskDetail({ taskId }: { taskId: string }): React.ReactElement {
     onSuccess: refresh,
   });
   const edit = useMutation({
-    mutationFn: async (input: Partial<PlanTask> & { title: string }) => requireApiData(await api.updateTask(taskId, input)),
+    mutationFn: async (input: TaskEditorInput) => requireApiData(await api.updateTask(taskId, input)),
     onSuccess: async saved => {
       setAutomaticHelpError(saved.assistanceStatus === 'failed'
         ? new Error('Task saved, but Athena could not queue its help proposal. Choose Help me to retry.') : null);
@@ -59,8 +73,17 @@ export function TaskDetail({ taskId }: { taskId: string }): React.ReactElement {
     onSuccess: () => { setCopyStatus('Email draft copied. Review it in Outlook before sending.'); },
     onError: error => { console.error('[Task assistance] Email copy failed', error); setCopyError(error); },
   });
+  const backToPlan = <button type="button" className="kh-task-detail__back" disabled={edit.isPending}
+    onClick={() => { void (async () => {
+      if (editing && !await confirmDialog('Discard the unsaved task edits and return to Plan?', {
+        title: 'Leave task editor?', confirmLabel: 'Discard edits', tone: 'danger',
+      })) return;
+      if (onBackToPlan) onBackToPlan();
+      else navigate('/plan');
+    })(); }}><ArrowLeft size={16} />Back to Plan</button>;
   const task = detail.data?.task;
   if (!task) return <div className="kh-task-detail">
+    {backToPlan}
     {detail.isPending ? <p role="status">Loading task...</p> : <DataNotice title="Task is unavailable" error={detail.error} onRetry={() => { void detail.refetch(); }} />}
   </div>;
   const project = projects.find(item => item.id === task.projectId)?.name ?? task.projectId;
@@ -75,6 +98,7 @@ export function TaskDetail({ taskId }: { taskId: string }): React.ReactElement {
   const refreshWithResult = Boolean(latest?.resultNoteId) && visibleJobs.length === 0;
   return <article className="kh-task-detail">
     <header className="kh-task-detail__header">
+      {backToPlan}
       <div className="kh-task-detail__meta">
         <EntityChip projectId={task.projectId} fallbackLabel={project} size="md" />
         <span>{task.status === 'in-progress' ? 'In progress' : task.status.charAt(0).toUpperCase() + task.status.slice(1)} · {task.priority} priority{task.dueDate ? ` · Due ${task.dueDate}` : ''}</span>
@@ -85,25 +109,29 @@ export function TaskDetail({ taskId }: { taskId: string }): React.ReactElement {
         {otherTags.map(name => <EntityChip key={name} name={name} size="md" />)}
       </div>}
       <div className="kh-task-detail__actions dc-article-toolbar">
-        <button type="button" className="dc-explore__action" onClick={() => { setEditingTask(task); setEditing(true); }}>Edit task</button>
-        <button type="button" className="dc-explore__primary" onClick={() => { openAthena(taskAthenaPrompt(task, project), {
+        {!editing && <button type="button" className="dc-explore__action" disabled={taskChatBusy}
+          onClick={() => { edit.reset(); setEditingTask(task); setEditing(true); }}>Edit task</button>}
+        <button type="button" className="dc-explore__primary" disabled={editing} onClick={() => { openAthena(taskAthenaPrompt(task, project), {
           type: 'task', id: task.id, title: task.title, projectId: task.projectId,
           detail: `${JSON.stringify(task)}\nDiscuss assistance only. Execution requires the saved proposal's Approve and start action in this task view.`,
         }); }}>Discuss with Athena</button>
       </div>
     </header>
-    {task.body && <p className="kh-task-detail__body"><TaskNoteText text={task.body} /></p>}
-    {task.waitingOn && <p>Waiting on: {task.waitingOn}</p>}
+    {editing && <TaskEditor inline open initial={editingTask ?? task} defaultStatus={editingTask?.status ?? task.status} projects={projects}
+      saving={edit.isPending} error={edit.error instanceof Error ? edit.error.message : null}
+      onClose={() => { if (!edit.isPending) setEditing(false); }} onSave={input => { if (!edit.isPending) edit.mutate(input); }} />}
+    {!editing && task.body && <p className="kh-task-detail__body"><TaskNoteText text={task.body} /></p>}
+    {!editing && task.waitingOn && <p>Waiting on: {task.waitingOn}</p>}
     {task.externalUrl && <a className="dc-explore__source-link" href={task.externalUrl} target="_blank" rel="noreferrer">Original task source <Launch size={16} /></a>}
     <section className="kh-task-detail__assistance" aria-labelledby={`task-assistance-${task.id}`}>
       <h3 id={`task-assistance-${task.id}`}>How Athena could help</h3>
       <p>Athena prepares a proposal for new non-recurring tasks and notifies you when it is ready. Inbox tasks wait until you accept them. Recurring tasks use Help me on request. Research, drafting and changes do not start until you approve them here.</p>
       <label className="kh-task-detail__field">Direction or clarification <span>(optional)</span>
-        <textarea value={direction} maxLength={3000} disabled={busy} rows={3}
+        <textarea value={direction} maxLength={3000} disabled={busy || editing} rows={3}
           onChange={event => { setDirection(event.target.value); }}
           placeholder="What should she look at, compare or prepare?" />
       </label>
-      <button type="button" className="dc-explore__primary" disabled={busy}
+      <button type="button" className="dc-explore__primary" disabled={busy || editing}
         onClick={() => { assess.mutate(); }}>{assess.isPending ? 'Assessing what Athena can do...' : latest ? 'Reassess with this direction' : 'Help me'}</button>
       {active && !latest && <p role="status">Athena is preparing a help proposal. You will be notified when it is ready.</p>}
       {assess.error && <DataNotice title="Assistance assessment failed" error={assess.error} />}
@@ -123,7 +151,7 @@ export function TaskDetail({ taskId }: { taskId: string }): React.ReactElement {
         {latest.stale && !latest.resultNoteId && <p role="status">The task changed. Reassess it before starting.</p>}
         {direction.trim() && !latest.resultNoteId && <p role="status">Reassess with your new direction before approving.</p>}
         {!latest.resultNoteId && <button type="button" className="dc-explore__primary"
-          disabled={busy || latest.stale || Boolean(direction.trim())}
+          disabled={busy || editing || latest.stale || Boolean(direction.trim())}
           onClick={() => { approve.mutate(latest.id); }}>{approve.isPending ? 'Starting...' : latest.approved ? 'Retry approved work' : 'Approve and start'}</button>}
         {latest.resultNoteId && <div className="kh-task-detail__actions">
           <Link className="dc-explore__source-link" to={`/think?noteId=${encodeURIComponent(latest.resultNoteId)}`}>Open result in Think</Link>
@@ -144,8 +172,5 @@ export function TaskDetail({ taskId }: { taskId: string }): React.ReactElement {
     </section>
     <TaskActivitySection taskId={task.id} />
     <ConnectionsPanel refId={task.id} refType="task" />
-    {editing && <TaskModal open initial={editingTask ?? task} defaultStatus={editingTask?.status ?? task.status} projects={projects}
-      saving={edit.isPending} error={edit.error instanceof Error ? edit.error.message : null}
-      onClose={() => { setEditing(false); }} onSave={input => { if (!edit.isPending) edit.mutate(input); }} />}
   </article>;
 }

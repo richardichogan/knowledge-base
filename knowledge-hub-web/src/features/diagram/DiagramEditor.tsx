@@ -15,7 +15,7 @@
  */
 import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { diagramTextLayout } from './diagramText';
+import { diagramImageCaptionHeight, diagramTextLayout, diagramTitleSource } from './diagramText';
 import { calloutLayout, DIAGRAM_CALLOUTS } from './diagramCallouts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { isAxiosError } from 'axios';
@@ -29,6 +29,7 @@ import {
 } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import { confirmDialog } from '../../services/appDialogs';
+import { setDiagramChatBridge } from '../../utils/activeBlockNoteEditor';
 import { DiagramChatProvider, DiagramChatTarget, useDiagramChatScope } from './DiagramChatScope';
 import type { AthenaPageContext } from '../../context/AthenaContext';
 import type { CanvasFullApi } from '../../services/api';
@@ -88,6 +89,8 @@ import { pasteReadableText } from '../../utils/clipboardText';
 import { useAnchoredPopovers } from '../../hooks/useAnchoredPopovers';
 import { ImageViewer, type ImagePreview } from '../../components/ImageViewer';
 import { copyImage } from '../../utils/imageClipboard';
+import { noteDraftIdentity } from '../../services/auth';
+import { diagramDraftKey, listDiagramDrafts, removeDiagramDraftIfUnchanged, storeDiagramDraft, type DiagramDraft } from './diagramDraftStorage';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -146,7 +149,7 @@ function captionHeight(n: Pick<DiagramNode, 'fontSize'>): number {
 
 /** The box the picture itself occupies inside an image node (above its caption). */
 function imageBox(n: DiagramNode): Rect {
-  const cap = n.label.trim() === '' ? 0 : captionHeight(n);
+  const cap = diagramImageCaptionHeight(n);
   return { x: n.x + 4, y: n.y + 4, width: Math.max(1, n.width - 8), height: Math.max(1, n.height - cap - 8) };
 }
 
@@ -258,14 +261,34 @@ export const DiagramEditor: React.FC<DiagramEditorProps> = props => {
 const DiagramEditorBody: React.FC<DiagramEditorProps> = ({ canvasId, onDeleted, onOpenNote, initialFootnote, onSaveReady, parentContext, designPanel }) => {
   const [load, setLoad] = useState<LoadState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
+  const [drafts, setDrafts] = useState<DiagramDraft[]>([]);
+  const [recovered, setRecovered] = useState<DiagramDraft | null>(null);
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const choosingRecovery = load.status !== 'ready' || drafts.length > 0;
+  useLayoutEffect(() => {
+    if (!choosingRecovery) return;
+    onSaveReady?.(async () => false);
+    return () => { onSaveReady?.(null); };
+  }, [choosingRecovery, onSaveReady]);
+  useEffect(() => {
+    if (!choosingRecovery) return;
+    return setDiagramChatBridge(`map:${canvasId}`, async () => {
+      throw new Error('Load the diagram and resolve its recovery decision before asking Athena to work on it.');
+    });
+  }, [canvasId, choosingRecovery]);
 
   useEffect(() => {
     let alive = true;
     setLoad({ status: 'loading' });
+    setRecovered(null);
+    setDrafts([]);
+    setRecoveryError(null);
     api.getDiagram(canvasId).then((r) => {
       if (!alive) return;
       if (r.success) {
         if (r.data.document.version !== 1) throw new Error('This diagram version is not supported by this editor.');
+        const identity = noteDraftIdentity.get();
+        if (identity) setDrafts(listDiagramDrafts(localStorage, identity, canvasId));
         setLoad({ status: 'ready', snapshot: r.data });
         return;
       }
@@ -293,7 +316,34 @@ const DiagramEditorBody: React.FC<DiagramEditorProps> = ({ canvasId, onDeleted, 
       </div>
     );
   }
-  return <DiagramSurface key={`${canvasId}:${attempt}`} canvasId={canvasId} initial={load.snapshot} onReload={reload} onDeleted={onDeleted} onOpenNote={onOpenNote} initialFootnote={initialFootnote} onSaveReady={onSaveReady} parentContext={parentContext} designPanel={designPanel} />;
+  if (drafts.length > 0) {
+    return <div className="dg-editor dg-recovery" role="region" aria-label="Recover diagram draft">
+      <h2>Unsaved diagram drafts found</h2>
+      <p>These drafts are stored in this browser on this device. Choose one to recover into the editor. If the server has changed, saving will require resolving the conflict first.</p>
+      {drafts.map(draft => <div className="dg-recovery__row" key={draft.draftId}>
+        <span>{new Date(draft.updatedAt).toLocaleString()} — {draft.document.nodes.length} shapes, {draft.document.edges.length} connectors (base revision {draft.baseRevision})</span>
+        <button type="button" className="dg-text-btn" onClick={() => {
+          if (noteDraftIdentity.get() !== draft.identity) { setRecoveryError('The signed-in account changed. Reopen this diagram.'); return; }
+          setRecovered(draft); setDrafts([]);
+        }}>Recover draft</button>
+        <button type="button" className="dg-text-btn" onClick={() => { void (async () => {
+          if (!await confirmDialog('Permanently discard this local diagram draft? The saved server diagram will not change.', { title: 'Discard local draft', confirmLabel: 'Discard', tone: 'danger' })) return;
+          try {
+            if (noteDraftIdentity.get() !== draft.identity) throw new Error('The signed-in account changed. Reopen this diagram.');
+            const removed = removeDiagramDraftIfUnchanged(localStorage, diagramDraftKey(draft.identity, canvasId, draft.draftId), JSON.stringify(draft));
+            if (!removed) throw new Error('This draft changed in another editor. Reopen this diagram before choosing again.');
+            setDrafts(current => current.filter(item => item.draftId !== draft.draftId));
+          } catch (error) {
+            console.error('[Diagram draft discard]', error);
+            setRecoveryError(error instanceof Error ? error.message : 'The local draft could not be discarded.');
+          }
+        })(); }}>Discard draft</button>
+      </div>)}
+      {recoveryError !== null && <p className="dg-versions__error" role="alert">{recoveryError}</p>}
+      <button type="button" className="dg-text-btn" onClick={() => { setDrafts([]); }}>Open saved diagram without deleting drafts</button>
+    </div>;
+  }
+  return <DiagramSurface key={`${canvasId}:${attempt}`} canvasId={canvasId} initial={load.snapshot} recovered={recovered} onReload={reload} onDeleted={onDeleted} onOpenNote={onOpenNote} initialFootnote={initialFootnote} onSaveReady={onSaveReady} parentContext={parentContext} designPanel={designPanel} />;
 };
 
 // ── Surface ───────────────────────────────────────────────────────────────────
@@ -334,6 +384,7 @@ interface SurfaceProps {
   designPanel?: React.ReactNode;
   parentContext?: AthenaPageContext | undefined;
   initial: DiagramSnapshot;
+  recovered?: DiagramDraft | null;
   onReload: () => void;
   onDeleted?: (() => void) | undefined;
   onOpenNote?: ((id: string) => void) | undefined;
@@ -343,11 +394,11 @@ interface SurfaceProps {
 
 const LABEL_OFFSET_MAX = 10000;
 
-const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, onDeleted, onOpenNote, initialFootnote, onSaveReady, parentContext, designPanel }) => {
+const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, recovered, onReload, onDeleted, onOpenNote, initialFootnote, onSaveReady, parentContext, designPanel }) => {
   const queryClient = useQueryClient();
   const markerBase = `dg${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
 
-  const [doc, setDocState] = useState<DiagramDocument>(initial.document);
+  const [doc, setDocState] = useState<DiagramDocument>(recovered?.document ?? initial.document);
   const docRef = useRef(doc);
   const GRID = diagramGridSize(doc.gridSize);
   const [guides, setGuides] = useState<AlignmentGuide[]>([]);
@@ -481,11 +532,53 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   // ── Save queue: debounce, one request in flight, latest document wins ─────
 
   const save = useRef({
-    rev: initial.revision, seq: 0, savedSeq: 0, inflight: null as Promise<void> | null,
+    rev: recovered?.baseRevision ?? initial.revision, seq: recovered ? 1 : 0, savedSeq: 0, inflight: null as Promise<void> | null,
     timer: null as number | null, blocked: null as 'error' | 'conflict' | null, discard: false,
   });
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>(recovered ? 'pending' : 'saved');
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [draftIdentity] = useState(() => noteDraftIdentity.get());
+  const [draftSession] = useState(() => noteDraftIdentity.snapshot());
+  const [draftId] = useState(() => crypto.randomUUID());
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const draftRaw = useRef<string | null>(null);
+  const recoveredAcknowledged = useRef(false);
+  const pendingLabel = useRef<EditingLabel | null>(null);
+  const persistDraft = useCallback((): void => {
+    try {
+      if (!draftIdentity || noteDraftIdentity.snapshot() !== draftSession) throw new Error('The signed-in recovery session changed. Reopen this diagram before saving.');
+      const current = docRef.current;
+      const label = pendingLabel.current;
+      const document = label === null ? current : {
+        ...current,
+        nodes: label.kind === 'node' ? current.nodes.map(node => node.id === label.id ? { ...node, label: label.value } : node) : current.nodes,
+        edges: label.kind === 'edge' ? current.edges.map(edge => edge.id === label.id ? { ...edge, label: label.value } : edge) : current.edges,
+      };
+      draftRaw.current = storeDiagramDraft(localStorage, {
+        version: 1, identity: draftIdentity, canvasId, draftId, baseRevision: save.current.rev,
+        updatedAt: new Date().toISOString(), document,
+      });
+      setDraftError(null);
+    } catch (error) {
+      console.error('[Diagram draft]', error);
+      setDraftError(error instanceof Error ? error.message : 'Local recovery storage failed.');
+    }
+  }, [canvasId, draftId, draftIdentity, draftSession]);
+  const acknowledgeDraft = useCallback((raw: string | null, submitted: DiagramDocument): void => {
+    if (!raw || !draftIdentity) return;
+    try {
+      // An unfinished label may be newer than the document submitted to the server.
+      if (JSON.stringify((JSON.parse(raw) as DiagramDraft).document) !== JSON.stringify(submitted)) return;
+      removeDiagramDraftIfUnchanged(localStorage, diagramDraftKey(draftIdentity, canvasId, draftId), raw);
+      if (recovered && !recoveredAcknowledged.current) {
+        removeDiagramDraftIfUnchanged(localStorage, diagramDraftKey(recovered.identity, canvasId, recovered.draftId), JSON.stringify(recovered));
+        recoveredAcknowledged.current = true;
+      }
+    } catch (error) {
+      console.error('[Diagram draft cleanup]', error);
+      setDraftError('The saved diagram is safe, but its local recovery draft could not be cleared.');
+    }
+  }, [canvasId, draftId, draftIdentity, recovered]);
   const athenaContext = useMemo<AthenaPageContext>(() => ({
     type: 'canvas', id: `map:${canvasId}`, title: savedTitle,
     conversationId: parentContext?.conversationId ?? parentContext?.id ?? `map:${canvasId}`,
@@ -501,14 +594,20 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
     const s = save.current;
     if (s.timer !== null) { window.clearTimeout(s.timer); s.timer = null; }
     if (s.discard || s.inflight !== null || s.blocked !== null) return;
-    if (s.seq === s.savedSeq) { setSaveStatus('saved'); return; }
+    if (s.seq === s.savedSeq) { setSaveStatus(pendingLabel.current ? 'pending' : 'saved'); return; }
     const seq = s.seq;
+    const raw = draftRaw.current;
+    const submitted = docRef.current;
     setSaveStatus('saving');
     s.inflight = (async () => {
       let problem: ErrorInfo | null = null;
       try {
-        const r = await api.saveDiagram(canvasId, s.rev, docRef.current);
-        if (r.success) { s.rev = r.data.revision; s.savedSeq = Math.max(s.savedSeq, seq); }
+        if (noteDraftIdentity.snapshot() !== draftSession) throw new Error('The signed-in session changed. Reopen this diagram before saving.');
+        const r = await api.saveDiagram(canvasId, s.rev, submitted);
+        if (r.success) {
+          s.rev = r.data.revision; s.savedSeq = Math.max(s.savedSeq, seq); acknowledgeDraft(raw, submitted);
+          void queryClient.invalidateQueries({ queryKey: ['diagram-versions', canvasId] });
+        }
         else problem = failure(r.error.code, r.error.message);
       } catch (err) {
         problem = describeError(err);
@@ -522,23 +621,29 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         return;
       }
       setSaveError(null);
-      if (s.seq > s.savedSeq) flush(); else setSaveStatus('saved');
+      if (s.seq > s.savedSeq) flush(); else setSaveStatus(pendingLabel.current ? 'pending' : 'saved');
     })();
-  }, [canvasId]);
+  }, [acknowledgeDraft, canvasId, draftSession, queryClient]);
 
   const markDirty = useCallback((delay: number) => {
     const s = save.current;
     s.seq += 1;
+    persistDraft();
     if (s.blocked === 'conflict') return; // keep local changes; the user decides
-    if (s.blocked === 'error') { s.blocked = null; setSaveError(null); } // the next edit retries
+    if (s.blocked === 'error') return;
     setSaveStatus((st) => (st === 'saving' ? st : 'pending'));
     if (s.timer !== null) window.clearTimeout(s.timer);
     s.timer = window.setTimeout(flush, delay);
-  }, [flush]);
+  }, [flush, persistDraft]);
+
+  useEffect(() => {
+    if (recovered) { persistDraft(); flush(); }
+  }, [flush, persistDraft, recovered]);
 
   /** Save immediately and report whether everything is now saved (needed before server-side links to new shapes). */
   const saveNow = useCallback(async (): Promise<boolean> => {
     const s = save.current;
+    if (pendingLabel.current !== null || noteDraftIdentity.snapshot() !== draftSession) return false;
     for (let i = 0; i < 5; i += 1) {
       if (s.inflight !== null) await s.inflight;
       if (s.blocked !== null || s.discard) return false;
@@ -547,12 +652,33 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       if (s.inflight !== null) await s.inflight;
     }
     return s.seq === s.savedSeq && s.blocked === null;
-  }, [flush]);
+  }, [draftSession, flush]);
 
   useEffect(() => {
     onSaveReady?.(saveNow);
     return () => { onSaveReady?.(null); };
   }, [onSaveReady, saveNow]);
+
+  useEffect(() => setDiagramChatBridge(`map:${canvasId}`, async () => {
+    if (!await saveNow()) throw new Error('Finish the open label edit and resolve any diagram save error or recovery conflict before asking Athena to work on it.');
+    return async () => {
+      if (save.current.discard || noteDraftIdentity.snapshot() !== draftSession) return;
+      const current = await api.getDiagram(canvasId);
+      if (!current.success) throw new Error(current.error.message);
+      if (current.data.revision === save.current.rev) return;
+      void queryClient.invalidateQueries({ queryKey: ['canvases'] });
+      void queryClient.invalidateQueries({ queryKey: ['canvas', canvasId] });
+      void queryClient.invalidateQueries({ queryKey: ['diagram-versions', canvasId] });
+      if (save.current.seq !== save.current.savedSeq || pendingLabel.current !== null || save.current.inflight !== null) {
+        save.current.blocked = 'conflict';
+        setSaveStatus('conflict');
+        setSaveError('The saved diagram changed while you were editing. Your local draft is retained; resolve the conflict before saving.');
+        return;
+      }
+      save.current.discard = true;
+      onReload();
+    };
+  }), [canvasId, draftSession, onReload, queryClient, saveNow]);
 
   async function openShapeDrilldown(node: DiagramNode): Promise<void> {
     if (openingDrilldownRef.current) return;
@@ -584,7 +710,6 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
 
   function retrySave(): void {
     save.current.blocked = null;
-    setSaveError(null);
     flush();
   }
 
@@ -594,7 +719,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       if (!r.success) throw new Error(r.error.message);
       save.current.rev = r.data.revision;
       save.current.blocked = null;
-      setSaveError(null);
+      persistDraft();
       flush();
     } catch (err) {
       notify('error', `Couldn’t check the latest version: ${describeError(err).message}`, { key: 'overwrite' });
@@ -603,7 +728,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
 
   async function reloadFromServer(): Promise<void> {
     const s = save.current;
-    if (s.seq > s.savedSeq && !await confirmDialog('Reload the saved diagram? Your unsaved changes here will be discarded.', { title: 'Discard changes', confirmLabel: 'Reload', tone: 'danger' })) return;
+    if (s.seq > s.savedSeq && !await confirmDialog('Reload the saved diagram? Your local recovery draft will be retained for later recovery.', { title: 'Reload saved diagram', confirmLabel: 'Reload', tone: 'danger' })) return;
     s.discard = true;
     if (s.timer !== null) window.clearTimeout(s.timer);
     onReload();
@@ -611,7 +736,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
 
   useEffect(() => {
     const s = save.current;
-    const beforeUnload = (e: BeforeUnloadEvent): void => { if (!s.discard && s.seq > s.savedSeq) { e.preventDefault(); e.returnValue = ''; } };
+    const beforeUnload = (e: BeforeUnloadEvent): void => { if (!s.discard && (s.seq > s.savedSeq || pendingLabel.current !== null)) { e.preventDefault(); e.returnValue = ''; } };
     window.addEventListener('beforeunload', beforeUnload);
     return () => {
       window.removeEventListener('beforeunload', beforeUnload);
@@ -620,11 +745,15 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       // Final save on unmount (switching canvases): wait for any in-flight save first.
       void (s.inflight ?? Promise.resolve()).then(async () => {
         if (s.seq <= s.savedSeq || s.blocked === 'conflict') return;
-        const r = await api.saveDiagram(canvasId, s.rev, docRef.current);
+        if (noteDraftIdentity.snapshot() !== draftSession) throw new Error('The signed-in session changed; the final save was withheld.');
+        const raw = draftRaw.current;
+        const submitted = docRef.current;
+        const r = await api.saveDiagram(canvasId, s.rev, submitted);
         if (!r.success) console.error('Diagram final save failed:', r.error.message);
+        else acknowledgeDraft(raw, submitted);
       }).catch((err: unknown) => { console.error('Diagram final save failed:', describeError(err).message); });
     };
-  }, [canvasId]);
+  }, [acknowledgeDraft, canvasId, draftSession]);
 
   // ── History (full-document snapshots; viewport excluded) ───────────────────
 
@@ -903,6 +1032,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
   }
 
   function commitLabel(e: EditingLabel): void {
+    pendingLabel.current = null;
     setEditing(null);
     if (e.kind === 'node') {
       const value = e.value.replace(/[ \t]+$/gm, '').replace(/^\s+|\s+$/g, '');
@@ -912,6 +1042,9 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
       const value = e.value.trim();
       const edge = docRef.current.edges.find((x) => x.id === e.id);
       if (edge !== undefined && edge.label !== value) updateEdges([e.id], (x) => ({ ...x, label: value }));
+    }
+    if (save.current.seq === save.current.savedSeq) {
+      persistDraft(); acknowledgeDraft(draftRaw.current, docRef.current); setSaveStatus('saved');
     }
     rootRef.current?.focus({ preventScroll: true });
   }
@@ -2189,6 +2322,11 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
         </div>
       </div>
 
+      {draftError !== null && <div className="dg-banner dg-banner--error" role="alert">
+        <ErrorFilled size={16} className="dg-banner__icon" />
+        <span className="dg-banner__text">Restart recovery is not available: {draftError} Keep this window open until the diagram is saved to the server.</span>
+        <button type="button" className="dg-text-btn" onClick={persistDraft}>Retry local protection</button>
+      </div>}
       {saveStatus === 'conflict' && (
         <div className="dg-banner dg-banner--warning" role="alert">
           <WarningAlt size={16} className="dg-banner__icon" />
@@ -2197,7 +2335,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
           <button type="button" className="dg-text-btn" onClick={reloadFromServer}><Renew size={16} /> Reload saved</button>
         </div>
       )}
-      {saveStatus === 'error' && (
+      {saveError !== null && saveStatus !== 'conflict' && (
         <div className="dg-banner dg-banner--error" role="alert">
           <ErrorFilled size={16} className="dg-banner__icon" />
           <span className="dg-banner__text">Couldn’t save the diagram{saveError === null ? '' : `: ${saveError}`}. Your changes are kept here.</span>
@@ -2316,6 +2454,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
               {display.edges.filter((edge) => edge.behind === true).map(renderEdge)}
               {ordered.map((n) => (
                 <NodeShape key={n.id} node={n} shadowId={`${markerBase}-shadow`} asset={n.assetId === null ? undefined : assets[n.assetId]} selected={selNodeSet.has(n.id)} editing={editing?.kind === 'node' && editing.id === n.id}
+                  footnoted={footnotes.some(footnote => footnote.targetId === n.id)}
                   dimmed={n.kind !== 'line' && keyDim(n.stroke)} hiddenCount={display.hiddenCount.get(n.id) ?? 0}
                   lineJumpPath={lineJumps.paths.get(n.id)} lineMask={lineJumps.masks.has(n.id) ? `url(#${markerBase}-jump-${n.id})` : undefined} aiFlow={isAiFlow} />
               ))}
@@ -2666,7 +2805,17 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, onReload, o
               key={`${editing.kind}:${editing.id}`} initial={editing.value} box={editorBox} limit={editing.kind === 'node' ? 2000 : 500}
               multiline={editing.kind === 'node' && byId.get(editing.id)?.kind !== 'image'}
               onCommit={(value) => { commitLabel({ ...editing, value }); }}
-              onCancel={() => { setEditing(null); rootRef.current?.focus({ preventScroll: true }); }}
+              onDraft={(value) => {
+                pendingLabel.current = { ...editing, value }; persistDraft();
+                if (save.current.blocked === null) setSaveStatus('pending');
+              }}
+              onCancel={() => {
+                pendingLabel.current = null; persistDraft();
+                if (save.current.seq === save.current.savedSeq) {
+                  acknowledgeDraft(draftRaw.current, docRef.current); setSaveStatus('saved');
+                }
+                setEditing(null); rootRef.current?.focus({ preventScroll: true });
+              }}
             />
           )}
 
@@ -3079,7 +3228,10 @@ function DiagramProperties({ item, kind, titleLimit, aiFlow, onIconChange, onRes
         onChange={(value) => { onAlignmentChange({ textVerticalAlign: value }); }} />
       </>}
     </div>}
-    <p className="dg-properties__hint">{'kind' in item && item.kind === 'line' ? 'Title and description are saved but not displayed on the line.' : 'Title is shown on the diagram. Description is saved with this item but not displayed on the drawing.'} Changes save automatically.</p>
+    <p className="dg-properties__hint">{'kind' in item
+      ? item.kind === 'line' ? 'Title and description are saved but not displayed on the line.'
+        : 'Title is bold by default. Description appears below it with one blank line, or in Notes when a footnote is added. Text wraps and clips within the existing shape.'
+      : 'Title is shown on the connector. Add a footnote to show its description in Notes.'} Changes save automatically.</p>
   </div>;
 }
 
@@ -3114,13 +3266,13 @@ function TextLines({ lines, source, cx, cy, fontSize, color, anchorX, anchor = '
   );
 }
 
-interface NodeShapeProps { node: DiagramNode; shadowId: string; asset: AssetState | undefined; selected: boolean; editing: boolean; dimmed?: boolean; hiddenCount?: number; lineJumpPath?: string | undefined; lineMask?: string | undefined; aiFlow?: boolean }
+interface NodeShapeProps { node: DiagramNode; shadowId: string; asset: AssetState | undefined; selected: boolean; editing: boolean; footnoted?: boolean; dimmed?: boolean; hiddenCount?: number; lineJumpPath?: string | undefined; lineMask?: string | undefined; aiFlow?: boolean }
 
-const NodeShape = React.memo(function NodeShape({ node: n, shadowId, asset, selected, editing, dimmed = false, hiddenCount = 0, lineJumpPath, lineMask, aiFlow = false }: NodeShapeProps): React.ReactElement {
+const NodeShape = React.memo(function NodeShape({ node, shadowId, asset, selected, editing, footnoted = false, dimmed = false, hiddenCount = 0, lineJumpPath, lineMask, aiFlow = false }: NodeShapeProps): React.ReactElement {
+  const textClipId = useId();
+  const n = footnoted ? { ...node, description: '' } : node;
   const { x, y, width: w, height: h, fontSize: fs } = n;
   const { fill, stroke, textColor: color } = diagramEditorNodeColours(n);
-  const cx = x + w / 2;
-  const cy = y + h / 2;
   const source = editing ? '' : n.label;
   const label = descriptionPlainText(source);
   const border = { strokeDasharray: diagramBorderDash(n), strokeLinecap: n.strokeStyle === 'dotted' ? 'round' as const : 'butt' as const };
@@ -3129,7 +3281,6 @@ const NodeShape = React.memo(function NodeShape({ node: n, shadowId, asset, sele
   const radius = diagramNodeRadius(n);
   let body: React.ReactNode;
   let text: React.ReactNode = null;
-  const maxLines = (avail: number): number => Math.max(1, Math.floor(avail / (fs * 1.25)));
   switch (n.kind) {
     case 'line': {
       const [start, end] = linePoints(n);
@@ -3147,28 +3298,22 @@ const NodeShape = React.memo(function NodeShape({ node: n, shadowId, asset, sele
       break;
     case 'arrow': {
       body = <path {...common} strokeLinejoin="round" d={arrowShapePath(n, n.arrowDirection)} />;
-      const layout = diagramTextLayout({ ...n, label: source });
-      text = <TextLines source={source} lines={layout.lines} cx={layout.x} cy={layout.y} anchor={layout.anchor} fontSize={fs} color={color} />;
       break;
     }
     case 'process':
       body = <rect {...common} x={x} y={y} width={w} height={h} rx={radius} />;
-      text = <TextLines source={source} lines={wrapText(label, w - 16, fs, maxLines(h - 8))} cx={cx} cy={cy} fontSize={fs} color={color} />;
       break;
     case 'decision':
       body = <path {...common} d={decisionShapePath(n)} />;
-      text = <TextLines source={source} lines={wrapText(label, w * 0.62, fs, maxLines(h * 0.6))} cx={cx} cy={cy} fontSize={fs} color={color} />;
       break;
     case 'hexagon':
       body = <path {...common} strokeLinejoin="round" d={hexagonShapePath(n)} />;
       break;
     case 'terminator':
       body = <rect {...common} x={x} y={y} width={w} height={h} rx={Math.min(h, w) / 2} />;
-      text = <TextLines source={source} lines={wrapText(label, w - h * 0.6, fs, maxLines(h - 8))} cx={cx} cy={cy} fontSize={fs} color={color} />;
       break;
     case 'text':
       body = <rect {...common} x={x} y={y} width={w} height={h} rx={radius} />;
-      text = <TextLines source={source} lines={wrapText(label, w - 8, fs, maxLines(h))} cx={cx} cy={cy} fontSize={fs} color={color} />;
       break;
     case 'image': {
       const box = imageBox(n);
@@ -3185,10 +3330,6 @@ const NodeShape = React.memo(function NodeShape({ node: n, shadowId, asset, sele
         );
       }
       body = <>{<rect {...common} x={x} y={y} width={w} height={h} rx={4} />}{picture}</>;
-      if (label.trim() !== '') {
-        const capH = captionHeight(n);
-        text = <TextLines source={source} lines={wrapText(label, w - 4, fs, 1)} cx={cx} cy={y + h - capH / 2 - 2} fontSize={fs} color={color} />;
-      }
       break;
     }
     case 'container':
@@ -3201,8 +3342,6 @@ const NodeShape = React.memo(function NodeShape({ node: n, shadowId, asset, sele
       break;
     case 'swimlane': {
       const owner = aiFlow ? aiLaneOwnerLayout(n) : null;
-      const bandX = x + SWIMLANE_HEADER / 2 + (owner?.titleShift ?? 0);
-      const lines = wrapText(label, h - 16, fs, 1);
       body = (
         <>
           <rect {...common} x={x} y={y} width={w} height={h} />
@@ -3213,16 +3352,16 @@ const NodeShape = React.memo(function NodeShape({ node: n, shadowId, asset, sele
           )}
         </>
       );
-      text = lines.length === 0 ? null : (
-        <text className="dg-node__label" x={bandX} y={cy} fontSize={fs} fill={color} textAnchor="middle" dominantBaseline="central" fontWeight={600} transform={`rotate(-90 ${bandX} ${cy})`}>{styledTspans(source, lines)[0]}</text>
-      );
       break;
     }
   }
   const callout = calloutLayout(n);
-  if (n.kind !== 'line' && (role !== null || callout !== null || n.kind === 'container' || n.kind === 'document' || n.kind === 'hexagon' || n.textAlign !== undefined || n.textVerticalAlign !== undefined)) {
-    const layout = diagramTextLayout({ ...n, label: source }, role);
-    text = <TextLines source={source} lines={layout.lines} cx={layout.x} cy={layout.y} anchor={layout.anchor} fontSize={fs} color={color} weight={layout.weight} />;
+  if (n.kind !== 'line') {
+    const layout = diagramTextLayout({ ...n, label: source, description: editing ? '' : n.description ?? '' }, role);
+    const titleShift = aiFlow && n.kind === 'swimlane' ? aiLaneOwnerLayout(n)?.titleShift ?? 0 : 0;
+    text = <g transform={titleShift ? `translate(${titleShift} 0)` : undefined}><g transform={layout.rotation}>
+      <TextLines source={layout.source} lines={layout.lines} cx={layout.x} cy={layout.y} anchor={layout.anchor} fontSize={fs} color={color} weight={layout.weight} />
+    </g></g>;
   }
   const collapsible = n.kind === 'container' || n.kind === 'swimlane';
   const collapsed = collapsible && n.collapsed === true;
@@ -3230,7 +3369,7 @@ const NodeShape = React.memo(function NodeShape({ node: n, shadowId, asset, sele
   if (collapsed) {
     const badge = hiddenCount > 0 ? `+${hiddenCount}` : '';
     body = <rect {...common} x={x} y={y} width={w} height={h} rx={radius} />;
-    text = <TextLines source={source} lines={wrapText(label, Math.max(20, w - 76), fs, 1)} cx={x + 30} cy={y + h / 2} anchor="start" fontSize={fs} color={color} weight={600} />;
+    text = <TextLines source={diagramTitleSource(source)} lines={wrapText(label, Math.max(20, w - 76), fs, 1)} cx={x + 30} cy={y + h / 2} anchor="start" fontSize={fs} color={color} weight={400} />;
     extra = badge === '' ? null : (
       <g className="dg-collapse-badge" pointerEvents="none">
         <rect x={x + w - 44} y={y + h / 2 - 9} width={36} height={18} rx={9} />
@@ -3252,8 +3391,10 @@ const NodeShape = React.memo(function NodeShape({ node: n, shadowId, asset, sele
   const cls = ['dg-node', `dg-node--${n.kind}`, n.stroke === 'none' ? 'dg-node--borderless' : '', selected ? 'dg-node--selected' : '', dimmed ? 'dg-node--dimmed' : '', collapsed ? 'dg-node--collapsed' : ''].filter(Boolean).join(' ');
   return (
     <g className={cls} data-dg="node" data-id={n.id}>
+      <title>{[descriptionPlainText(node.label), descriptionPlainText(node.description ?? '')].filter(Boolean).join('\n\n')}</title>
+      <defs><clipPath id={textClipId}><rect x={x} y={y} width={w} height={h} /></clipPath></defs>
       <g filter={diagramNodeShadow(n) ? `url(#${shadowId})` : undefined}>{body}</g>
-      {text}
+      <g clipPath={`url(#${textClipId})`}>{text}</g>
       {role !== null && <DiagramRoleBadge layout={role} />}
       {callout !== null && <g className="dg-callout" data-callout-type={callout.type} pointerEvents="none">
         <title>{callout.label} callout</title>
@@ -3355,9 +3496,9 @@ function formatTitleKey(event: React.KeyboardEvent<HTMLTextAreaElement>, value: 
   return true;
 }
 
-function LabelEditor({ initial, box, limit, multiline, onCommit, onCancel }: {
+function LabelEditor({ initial, box, limit, multiline, onCommit, onCancel, onDraft }: {
   initial: string; box: { left: number; top: number; width: number; height: number; fontSize: number }; limit: number;
-  multiline: boolean; onCommit: (value: string) => void; onCancel: () => void;
+  multiline: boolean; onCommit: (value: string) => void; onCancel: () => void; onDraft: (value: string) => void;
 }): React.ReactElement {
   const [value, setValue] = useState(initial);
   const done = useRef(false);
@@ -3395,7 +3536,7 @@ function LabelEditor({ initial, box, limit, multiline, onCommit, onCancel }: {
     <textarea
       ref={ref} spellCheck className={`dg-label-editor${multiline ? '' : ' dg-label-editor--single'}`} aria-label="Label" value={value}
       style={{ left: box.left, top: box.top, width: box.width, height: box.height, fontSize: box.fontSize }}
-      onChange={(e) => { setValue(e.target.value); }}
+      onChange={(e) => { setValue(e.target.value); onDraft(e.target.value); }}
       onBlur={(e) => {
         if (e.relatedTarget instanceof Element && e.relatedTarget.closest('.gctx')) { inMenu.current = true; return; }
         finish(true);
@@ -3403,7 +3544,7 @@ function LabelEditor({ initial, box, limit, multiline, onCommit, onCancel }: {
       onPointerDown={(e) => { e.stopPropagation(); }}
       onKeyDown={(e) => {
         e.stopPropagation();
-        if (formatTitleKey(e, value, limit, setValue)) return;
+        if (formatTitleKey(e, value, limit, next => { setValue(next); onDraft(next); })) return;
         if (e.key === 'Escape') { e.preventDefault(); finish(false); }
         else if (e.key === 'Enter' && (!multiline || !e.shiftKey)) { e.preventDefault(); finish(true); }
       }}

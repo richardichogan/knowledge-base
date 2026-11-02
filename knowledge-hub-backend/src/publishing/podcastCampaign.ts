@@ -57,6 +57,7 @@ export interface PodcastPlan {
   transcriptUploadedAt?: string | null;
   assetsRequired?: boolean;
   reviewRequired?: boolean;
+  sequenceRequired?: boolean;
   review?: PodcastCreationReview;
 }
 export interface PodcastCreationReview {
@@ -67,6 +68,7 @@ export interface PodcastCreationReview {
 export function podcastReviewFingerprint(plan: PodcastPlan): string {
   return createHash('sha256').update(JSON.stringify({
     title: plan.title, recordingTease: !!plan.recordingTease, accounts: plan.accounts,
+    ...(plan.sequenceRequired && { sequenceRequired: true }),
     posts: plan.posts.map(post => ({
       id: post.id, destination: post.destination, copy: post.copy, sourceCopy: post.sourceCopy, url: post.url, blog: post.blog,
       scheduledAt: plan.recordingTease && post.scheduledAt ? localClock(new Date(post.scheduledAt), 'Europe/London').day : post.scheduledAt,
@@ -240,9 +242,39 @@ export function parsePodcastPlan(value: unknown, links: EpisodeLinks, accounts: 
     ...(options.recordingTease && { recordingTease: true }) };
 }
 
-export function podcastPlanIssues(plan: PodcastPlan | null, _now = new Date(), includeReview = true): string[] {
-  if (!plan) return ['Prepare a campaign from the saved Show Notes first.'];
+const CAMPAIGN_STAGES = { teaser: 0, launch: 1, blog: 2, followup: 3 } as const;
+function podcastPostStage(post: PodcastPost): number {
+  if (post.destination === 'blog') return CAMPAIGN_STAGES.blog;
+  if (post.assetSpec?.kind === 'teaser') return CAMPAIGN_STAGES.teaser;
+  if (post.assetSpec?.kind === 'launch') return CAMPAIGN_STAGES.launch;
+  return CAMPAIGN_STAGES.followup;
+}
+
+export function comparePodcastPosts(a: PodcastPost, b: PodcastPost): number {
+  return (a.scheduledAt ? Date.parse(a.scheduledAt) : Infinity) - (b.scheduledAt ? Date.parse(b.scheduledAt) : Infinity)
+    || podcastPostStage(a) - podcastPostStage(b);
+}
+
+export function podcastSequenceIssues(plan: PodcastPlan, recordingTeaser?: PodcastPlan | null): string[] {
+  if (!plan.sequenceRequired) return [];
   const issues: string[] = [];
+  if (!plan.followUp && !plan.recordingTease) {
+    if (!plan.posts.some(post => podcastPostStage(post) === CAMPAIGN_STAGES.launch)) issues.push('Add the episode launch post before approving this campaign.');
+    if (!plan.posts.some(post => post.destination === 'blog')) issues.push('Add the blog post before approving this campaign.');
+  }
+  const posts = [...(recordingTeaser?.posts ?? []), ...plan.posts];
+  for (const post of plan.posts) {
+    if (!post.scheduledAt) continue;
+    const earlierStage = posts.find(other => other.scheduledAt && podcastPostStage(other) < podcastPostStage(post)
+      && Date.parse(other.scheduledAt) >= Date.parse(post.scheduledAt!));
+    if (earlierStage) issues.push(`${post.label}: schedule it after ${earlierStage.label}. Required order: Teaser, Launch, Blog Post, then Quotes and fuller/generic posts. Correct the authored dates or times before approval; no dates were moved.`);
+  }
+  return issues;
+}
+
+export function podcastPlanIssues(plan: PodcastPlan | null, _now = new Date(), includeReview = true, recordingTeaser?: PodcastPlan | null): string[] {
+  if (!plan) return ['Prepare a campaign from the saved Show Notes first.'];
+  const issues: string[] = podcastSequenceIssues(plan, recordingTeaser);
   if (includeReview && plan.reviewRequired) {
     if (!plan.review || plan.review.status === 'pending') issues.push('Independent image and post review is pending. Approval is blocked until it passes.');
     else if (plan.review.status === 'fail') issues.push(...(plan.review.findings.length ? plan.review.findings.map(finding => {

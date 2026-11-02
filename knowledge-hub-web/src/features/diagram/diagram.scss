@@ -5,6 +5,18 @@ $dg-sheet-bg: #ffffff;
 $dg-select: #0f62fe;
 $dg-ink: #161616;
 
+.dg-recovery {
+  box-sizing: border-box;
+  padding: var(--kh-spacing-panel, 24px); gap: 1rem; overflow: auto;
+  color: var(--cds-text-primary); align-items: flex-start;
+  h2 { font-size: var(--kh-panel-title); font-weight: 600; margin: 0; }
+  p { font-size: var(--kh-text-body); margin: 0; max-width: 70ch; }
+  &__row {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 1rem;
+    padding-block: 0.75rem; border-bottom: 1px solid var(--cds-border-subtle-01);
+  }
+}
+
 @keyframes dg-spin { to { transform: rotate(360deg); } }
 .dg-spin { animation: dg-spin 1s linear infinite; }
 .dg-grid-size {

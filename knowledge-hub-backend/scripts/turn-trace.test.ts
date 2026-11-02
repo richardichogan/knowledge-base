@@ -6,7 +6,8 @@ import { PGlite } from '@electric-sql/pglite';
 import { getDb } from '../src/db/db.js';
 import { redactTrace, withTurnTrace, recordTurnTrace, traceModelCall, listTurnTraces, readTurnTrace, pruneTurnTraces, linkTraceMessage } from '../src/ai/turnTrace.js';
 import { executeTraceTool } from '../src/ai/traceTools.js';
-import { evaluateSavedTrace, readTraceSpans } from '../src/health/traceReview.js';
+import { evaluateSavedTrace, readTraceSpans, reviewActionEvidence } from '../src/health/traceReview.js';
+import { diagramReceipt, recordDiagramAction, previousDiagramReceipt, type DiagramActionEvidence } from '../src/ai/diagramActionEvidence.js';
 import { newTurnMeasurement, observeTurnMeasurement } from '../src/ai/turnMeasurement.js';
 import { FoundryClient } from '../src/ai/foundryClient.js';
 
@@ -162,4 +163,77 @@ test('turn observations distinguish omitted reads, partial coverage and persiste
   assert.equal(signals.unavailableReads, 1);
   assert.equal(signals.completeReads, 1);
   assert.equal(signals.replySaved, true);
+});
+
+test('warning-bearing diagram saves retain revision evidence; queued and rejected changes are not saves', () => {
+  const saved = { success: true, diagram: { id: OTHER, revision: 363 }, problems: ['Duplicate old label; use its id.'] };
+  const evidence: DiagramActionEvidence = { saved: false, queued: false };
+  recordDiagramAction(evidence, 'update_diagram', saved);
+  assert.equal(evidence.saved, true);
+  assert.equal(evidence.receipts?.[0]?.revision, 363);
+  assert.deepEqual(evidence.receipts?.[0]?.warnings, saved.problems);
+  assert.equal(diagramReceipt('update_diagram', { error: 'Conflict', ...saved }), null);
+  assert.equal(diagramReceipt('update_diagram', { success: true }), null);
+  const queued: DiagramActionEvidence = { saved: false, queued: false };
+  recordDiagramAction(queued, 'hand_off_to_specialist', { status: 'started' }, 'daedalus');
+  assert.equal(queued.queued, true);
+  assert.equal(queued.saved, false);
+  recordDiagramAction(queued, 'apply_diagram_candidate', { status: 'needs_confirmation' });
+  assert.equal(queued.saved, false);
+});
+
+test('prior receipts are session-bound and discarded when the current diagram revision changed', async () => {
+  const db = getDb();
+  let revision = 363;
+  const query = mock.method(db, 'query', async (sql: string, values?: unknown[]) => {
+    assert.ok(sql.includes('t.session_id=$1::uuid'));
+    assert.ok(sql.includes('t.expires_at>NOW()'));
+    assert.equal(values?.[0], SESSION);
+    assert.equal(values?.[1], OTHER);
+    return { rows: [{ name: 'update_diagram', current_revision: revision,
+      content: JSON.stringify({ success: true, diagram: { id: OTHER, revision: 363 } }) }] };
+  });
+  try {
+    assert.equal((await previousDiagramReceipt(db, SESSION, OTHER))?.revision, 363);
+    revision = 364;
+    assert.equal(await previousDiagramReceipt(db, SESSION, OTHER), null);
+    assert.equal(await previousDiagramReceipt(db, undefined, OTHER), null);
+    assert.equal(query.mock.callCount(), 2);
+  } finally { query.mock.restore(); }
+});
+
+test('saved evidence review detects false tool denials and unsupported save retractions without replay', () => {
+  const capability = { sequence: 1, kind: 'model.request', payload: { feature: 'chat',
+    body: { tools: [{ function: { name: 'load_tools' } }], messages: [{ role: 'system', content: 'Available capability catalogue\nupdate_diagram: Change a saved diagram.' }] } } };
+  const denial = reviewActionEvidence([capability,
+    { sequence: 2, kind: 'turn.output', payload: { reply: "I cannot directly edit the diagram in this turn." } }]);
+  assert.equal(denial.find(check => check.criterion === 'capability_denial')?.verdict, 'fail');
+  const retraction = reviewActionEvidence([
+    { sequence: 1, kind: 'action.prior', payload: { tool: 'update_diagram', targetId: OTHER, revision: 363 } },
+    { sequence: 2, kind: 'turn.output', payload: { reply: 'I have not done it.' } },
+  ]);
+  assert.equal(retraction.find(check => check.criterion === 'action_evidence')?.verdict, 'fail');
+  const saved = reviewActionEvidence([
+    { sequence: 1, kind: 'tool.result', payload: { name: 'update_diagram',
+      content: JSON.stringify({ success: true, diagram: { id: OTHER, revision: 363 }, problems: ['Advisory warning'] }) } },
+    { sequence: 2, kind: 'turn.output', payload: { reply: 'I have saved the diagram.' } },
+  ]);
+  assert.equal(saved.find(check => check.criterion === 'action_evidence')?.verdict, 'uncertain', 'a receipt is not a quality pass');
+});
+
+test('reliability counters separate measurement coverage, attempted corrections and saved warnings', () => {
+  const signals = newTurnMeasurement();
+  assert.equal(signals.reliabilityObserved, false);
+  for (const [kind, payload] of [
+    ['capability.catalog', {}], ['capability.load', { loaded: ['update_diagram'] }],
+    ['capability.denial', {}], ['capability.blocked', {}], ['action.contradiction', {}],
+    ['action.unconfirmed_claim', {}], ['action.receipt', { warnings: ['Advisory'] }],
+  ] as const) observeTurnMeasurement(signals, kind, payload);
+  assert.equal(signals.reliabilityObserved, true);
+  assert.equal(signals.capabilityLoads, 1);
+  assert.equal(signals.capabilityDenials, 1);
+  assert.equal(signals.actionContradictions, 1);
+  assert.equal(signals.actionReceipts, 1);
+  assert.equal(signals.actionWarnings, 1);
+  assert.equal(signals.replySaved, false);
 });

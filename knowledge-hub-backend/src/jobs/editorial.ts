@@ -31,6 +31,17 @@ const editsSchema: LlmJsonSchema = {
     } } },
   },
 };
+const weeklyReviewSchema: LlmJsonSchema = {
+  name: 'editorial_review',
+  schema: {
+    type: 'object', additionalProperties: false, required: ['outcome', 'findings', 'advisory'],
+    properties: {
+      outcome: { type: 'string', enum: ['pass', 'revise', 'hold'] },
+      findings: { type: 'array', items: { type: 'string' } },
+      advisory: { type: 'array', items: { type: 'string' } },
+    },
+  },
+};
 export interface JobEditorialServices {
   preferences: typeof editorialServices.preferences;
   chat(system: string, input: unknown, tokens: number, schema: LlmJsonSchema): Promise<Record<string, unknown>>;
@@ -42,6 +53,7 @@ const services: JobEditorialServices = {
 export interface JobEditorialPass {
   at: string; outcome: 'pass' | 'revise' | 'hold';
   accuracy: string[]; voice: string[]; style: string[]; validation: string[];
+  advisory?: string[];
   repairErrors?: string[];
   rejectedEdits?: unknown[];
 }
@@ -61,11 +73,17 @@ export async function reviewWeeklyJob(
   let previousReview: JobEditorialPass | undefined;
   let repairedPassages: Array<{ field: string; before: string; after: string }> = [];
   for (let attempt = 0; attempt <= WEEKLY_LIMITS.revisions; attempt++) {
-    const reviews: Record<string, { outcome: string; findings: string[] }> = {};
+    const reviews: Record<string, { outcome: string; findings: string[]; advisory: string[] }> = {};
     const checks = await Promise.allSettled(['accuracy', 'voice'].map(async check => {
       const reviewSystem = `${SAFETY}
 Perform the ${check} review only on the complete weekly Microsoft update package and its sources.
-For each defect identify its field and quote the exact saved wording. Optional phrasing preferences are not failures.
+For each defect identify its field and quote the exact saved wording.
+PUBLICATION POLICY: findings contains ONLY substantive blockers: unsupported or materially misleading claims,
+invented personal experience, incorrect links, or missing required content. Cosmetic wording, punctuation,
+dash choices, hyphenation, house style and presentation preferences belong ONLY in advisory.
+This includes punctuation-only differences between a source title and its citation label when the source,
+meaning and URL are unchanged. They are NOT accuracy failures, even if an earlier review called them blocking.
+Do not defer publication or ask for another repair pass for advisory findings. Reclassify previous cosmetic findings as advisory.
 ${check === 'accuracy' ? 'Check claims, dates, numbers, quotations, links, availability and inference limits against the supplied evidence.' : `Check British English, Richard's standing preferences, house style, generic AI patterns and invented personal authority.\n${BLOG_WRITING_RULES}\n${preferences}`}
 bodyMarkdown is the canonical article. HTML and the CMS document are rendered from these fields after review.
 Review the actual provided fields, not missing duplicate representations.
@@ -86,26 +104,31 @@ generic newest-first feed/list preferences do not require reordering article par
 Only rhetorical triplets in authored commentary are a voice defect. Do not apply prose style rules to source titles, quotations,
 product names or faithfully reproduced source text. Do not demand literary polish or a forced narrative thread.
 Brief "so what" judgements in Richard's first-person editorial voice are the requested house style; flag only invented personal experience, usage or facts.
-Use hold only when passage edits cannot fix the package (missing or truncated content, or unsupported claims throughout); otherwise use revise.
+Use hold only for substantive blockers that passage edits cannot fix (missing required content or unsupported claims throughout);
+otherwise use revise for substantive blockers and pass when there are none.
 Saved editorial guidance:\n${guidance}
-Return outcome pass, revise or hold. Findings contain ONLY unresolved defects, never positive notes or resolved findings.
-Pass requires findings: []. Revise or hold requires at least one unresolved finding.`;
+Return outcome pass, revise or hold, findings and advisory. Findings contain ONLY unresolved substantive blockers,
+never cosmetic preferences, positive notes or resolved findings. Pass requires findings: [] and may have advisory entries.
+Revise or hold requires at least one substantive blocker.`;
       const reviewInput = { sources: artifacts.sources, content: check === 'voice' && previousReview ? undefined : content,
         previousReview, repairedPassages: previousReview ? repairedPassages : undefined,
         instruction: check === 'voice' && previousReview
           ? 'Review the exact applied before/after passages. Resolve EVERY previous voice finding: an unedited unresolved finding remains blocking. Check changed passages for regressions, but do not reopen previously accepted, untouched prose or introduce new optional phrasing preferences.'
           : 'Verify previous findings are resolved and check for actual regressions; do not substitute new optional phrasing preferences.' };
-      let result = await service.chat(reviewSystem, reviewInput, WEEKLY_LIMITS.reviewTokens, EDITORIAL_SCHEMAS.review);
+      let result = await service.chat(reviewSystem, reviewInput, WEEKLY_LIMITS.reviewTokens, weeklyReviewSchema);
       if (Array.isArray(result.findings) && (result.outcome === 'pass') !== (result.findings.length === 0)) {
         console.warn(`[WeeklyDigest] ${check} review contradicted its findings; requesting one corrected reviewer decision.`);
         result = await service.chat(reviewSystem, { ...reviewInput, invalidReview: result,
-          contractError: 'Your outcome contradicted your findings. Reassess the evidence: retain unresolved defects and use revise/hold, or use pass with an empty list. Do not put resolution notes in findings.' },
-        WEEKLY_LIMITS.reviewTokens, EDITORIAL_SCHEMAS.review);
+          contractError: 'Your outcome contradicted your blocking findings. Retain substantive blockers and use revise/hold, or use pass with empty findings. Put cosmetic preferences only in advisory. Do not put resolution notes in findings.' },
+        WEEKLY_LIMITS.reviewTokens, weeklyReviewSchema);
       }
       if (!['pass', 'revise', 'hold'].includes(String(result.outcome)) || !Array.isArray(result.findings)
-        || !result.findings.every((finding: unknown) => typeof finding === 'string')) throw new Error('Weekly editorial review returned an invalid result.');
+        || !result.findings.every((finding: unknown) => typeof finding === 'string')
+        || !Array.isArray(result.advisory) || !result.advisory.every((finding: unknown) => typeof finding === 'string')) {
+        throw new Error('Weekly editorial review returned an invalid result.');
+      }
       if ((result.outcome === 'pass') !== (result.findings.length === 0)) throw new Error('Weekly editorial outcome contradicts its findings.');
-      reviews[check] = { outcome: String(result.outcome), findings: result.findings };
+      reviews[check] = { outcome: String(result.outcome), findings: result.findings, advisory: result.advisory };
     }));
     for (const check of checks) if (check.status === 'rejected') throw check.reason;
     const validation: string[] = [];
@@ -131,16 +154,20 @@ Pass requires findings: []. Revise or hold requires at least one unresolved find
         .map(finding => `${field}: ${finding}`);
     });
     const outcomes = Object.values(reviews).map(review => review.outcome);
-    const outcome = outcomes.includes('hold') ? 'hold' : outcomes.includes('revise') || validation.length || style.length ? 'revise' : 'pass';
+    const outcome = outcomes.includes('hold') ? 'hold' : outcomes.includes('revise') || validation.length ? 'revise' : 'pass';
     const review: JobEditorialPass = { at: new Date().toISOString(), outcome,
-      accuracy: reviews.accuracy!.findings, voice: reviews.voice!.findings, style, validation };
+      accuracy: reviews.accuracy!.findings, voice: reviews.voice!.findings, style, validation,
+      advisory: [...reviews.accuracy!.advisory, ...reviews.voice!.advisory, ...style] };
     await save(artifacts.blog ? materializeWeeklyPackage(content) : content, review);
     if (outcome === 'pass') return true;
     if (outcome === 'hold' || attempt === WEEKLY_LIMITS.revisions) return false;
     const repairSystem = `${SAFETY}
 Repair only the exact phrases or single sentences identified by the findings. Never rewrite a paragraph or the whole article.
+Repair ONLY substantive blockers and publishing-platform validation errors. Cosmetic/advisory findings do not need repairs
+and must never cause another attempt. Do not alter source-title punctuation or dash style just to satisfy preferences.
 Return edits with field, before and after; before must exactly match one unique saved passage.
 Use separate edits for separate sentences. Preserve links, quotations, source titles and faithfully reproduced source text exactly.
+Exception: if an article citation label reproduces a supplied source title with altered punctuation, restore the EXACT supplied title for that SAME supplied URL. Return the complete Markdown link with its URL unchanged, using only enough unchanged surrounding text to identify one unique saved passage. Never rewrite a descriptive/shortened label, alter other words or change a URL under this exception.
 Never include a blank line in before or after. A heading and its following paragraph are two separate edits.
 Only change metadata when a finding explicitly identifies it. For an array field, before identifies one exact existing item; after may be empty to remove it.
 Do not add sections or polish passages which passed review.
@@ -151,7 +178,7 @@ Keep all unaffected fields intact. Address every concrete finding in this batch,
 ${blueskyAllowance === undefined ? '' : `Bluesky copy must fit within ${blueskyAllowance} graphemes including spaces, with no URL. The full blog URL and two line breaks are reserved separately within the 300-grapheme total.`}
 ${BLOG_WRITING_RULES}\n${preferences}\nSaved editorial guidance:\n${guidance}`;
     let edits = await service.chat(repairSystem,
-      { sources: artifacts.sources, content, findings: review }, WEEKLY_LIMITS.editTokens, editsSchema);
+      { sources: artifacts.sources, content, findings: { ...review, style: [], advisory: [] } }, WEEKLY_LIMITS.editTokens, editsSchema);
     const editableFields = ['title', 'slug', 'excerpt', 'summary', 'content', 'keyTakeaways', ...REVIEW_FIELDS];
     let result = applyWeeklyRepairs(content, edits, editableFields, artifacts.sources);
     repairedPassages = [...result.applied];

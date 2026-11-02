@@ -51,3 +51,45 @@ test('unchanged surrounding context is removed without generating replacement te
   assert.equal(result.content.bodyMarkdown, after);
   assert.equal(result.rejected.length, 0);
 });
+test('a punctuation-damaged citation can be restored only to its exact same-URL source title', () => {
+  const url = 'https://techcommunity.microsoft.com/t5/microsoft-entra-blog/story/ba-p/4515964';
+  const title = 'AI agents are coming—are your identity controls prepared?';
+  const damaged = `[AI agents are coming, are your identity controls prepared?](${url})`;
+  const exact = `[${title}](${url})`;
+  const before = `On the identity side, the Microsoft Entra team published ${damaged}.`;
+  const bodyMarkdown = `${before}\n\nSources: ${damaged}`;
+  const sources = [{ title, url }];
+  const result = applyWeeklyRepairs({ bodyMarkdown }, { edits: [
+    { field: 'bodyMarkdown', before, after: before.replace(damaged, exact) },
+    { field: 'bodyMarkdown', before: `Sources: ${damaged}`, after: `Sources: ${exact}` },
+  ] }, ['bodyMarkdown'], sources);
+  assert.equal(result.content.bodyMarkdown, bodyMarkdown.replaceAll(damaged, exact));
+  assert.equal(result.rejected.length, 0);
+  assert.equal(result.applied.length, 2);
+  assert.equal(applyWeeklyRepairs({ bodyMarkdown: exact }, { edits: [
+    { field: 'bodyMarkdown', before: exact, after: damaged },
+  ] }, ['bodyMarkdown'], sources).rejected.length, 1, 'source punctuation cannot be removed again');
+});
+test('citation restoration never authorises URL, claim, shortened-label or ambiguous-source changes', () => {
+  const url = 'https://example.com/news';
+  const damaged = `[Agents, are you ready?](${url})`;
+  const title = 'Agents—are you ready?';
+  const exact = `[${title}](${url})`;
+  const content = { bodyMarkdown: `Read ${damaged}. Unrelated wording.` };
+  for (const [before, after, sources] of [
+    [damaged, exact.replace(url, 'https://example.com/other'), [{ title, url }]],
+    [content.bodyMarkdown, content.bodyMarkdown.replace(damaged, exact).replace('Unrelated', 'Different'), [{ title, url }]],
+    [damaged, exact, [{ title, url }, { title: 'Conflicting source title', url }]],
+    [damaged, exact, [{ title, url: 'https://example.com/other' }]],
+  ] as const) {
+    const result = applyWeeklyRepairs(content, { edits: [{ field: 'bodyMarkdown', before, after }] }, ['bodyMarkdown'], sources);
+    assert.deepEqual(result.content, content);
+    assert.equal(result.rejected.length, 1);
+  }
+  const short = `[Agents](${url})`;
+  const result = applyWeeklyRepairs({ bodyMarkdown: short }, { edits: [
+    { field: 'bodyMarkdown', before: short, after: exact },
+  ] }, ['bodyMarkdown'], [{ title, url }]);
+  assert.equal(result.content.bodyMarkdown, short);
+  assert.equal(result.rejected.length, 1);
+});

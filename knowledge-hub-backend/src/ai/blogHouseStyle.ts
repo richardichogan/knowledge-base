@@ -2,6 +2,7 @@
  * ai/blogHouseStyle.ts — The Microsoft Cloud Blog house style and CMS package contract.
  * Shared by the Blog Post persona and the weekly Microsoft digest so both produce the same package.
  */
+export const MAX_BLOG_TAGS = 30;
 export const BLOG_CATEGORIES = [
   'AI', 'Copilot', 'Microsoft Azure', 'Bicep', 'Virtual Machines', 'Cost Management',
   'Security', 'Entra', 'Azure AD', 'Governance', 'GitHub', 'Development', 'PowerShell',
@@ -81,7 +82,7 @@ export const BLOG_PACKAGE_RULES = [
     'agents. The problem is not the technology.", not "Governance is changing".',
   `9. **Categories** — ${BLOG_CATEGORY_RULES}`,
   '10. **Tags** — a comma-separated list of specific technical and topical tags drawn from the post ' +
-    'content, not padded, not generic.',
+    `content, not padded, not generic. The CMS accepts at most ${MAX_BLOG_TAGS} tags; select the most relevant.`,
   '',
   '### Social content package — deliver every time, alongside the CMS package',
   '- **LinkedIn post**: 120 to 150 words, grounded tone with subtle wit, ends with an engagement question, ' +

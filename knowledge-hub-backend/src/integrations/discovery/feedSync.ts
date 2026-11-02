@@ -11,12 +11,16 @@ import { createHash } from 'node:crypto';
 import type { Pool } from 'pg';
 import { upsertContentItem, upsertSyncState } from '../../db/queries.js';
 import { env } from '../../config/env.js';
-import { readFeed, fetchPageDescription } from './feedReader.js';
+import { fetchPageDescription, type FeedArticle } from './feedReader.js';
+import { readDiscoverySource, type DiscoverySourceKind } from './sourceReader.js';
+import { ValidationError } from '../../types/errors.js';
+import { rethrowAssignmentControl } from '../../agents/workforce/modelBudget.js';
 import { scoreUnscored } from '../cms/discoveredArticlesSync.js';
 import { runProjectFitPass, PROJECT_PROTECT_BOOST } from './projectFit.js';
 import { youtubeVideoId } from './youtube.js';
 import { enrichPendingYouTubeVideos } from './youtubeEvidence.js';
 import { refreshPublishingDrafts } from '../../publishing/refresh.js';
+import { MS_PER_DAY } from '../../config/constants.js';
 
 const SYNC_STATE_KEY = 'discovered-articles';
 /** Only articles published this recently are filed — also bounds a brand-new source's first fetch. */
@@ -25,6 +29,7 @@ const RECENT_WINDOW_MS = RECENT_WINDOW_DAYS * 86_400_000;
 const MAX_PER_SOURCE_PER_RUN = 60;
 const MAX_PAGE_DESCRIPTIONS = 25;
 const MIN_FEED_SUMMARY_CHARS = 40;
+const MAX_SOURCE_URL_CHARS = 2048;
 /** Scoring batches per sync run (50 articles each); a large backlog drains over several runs. */
 const SCORING_BATCHES_PER_RUN = 6;
 export const STRONG_SCORE = 0.8;
@@ -43,6 +48,8 @@ export interface DiscoverySource {
   lastError: string | null;
   lastNewCount: number;
   articlesFound: number;
+  sourceKind: DiscoverySourceKind;
+  lastWarning: string | null;
 }
 
 interface SourceRow {
@@ -56,26 +63,55 @@ interface SourceRow {
   last_error: string | null;
   last_new_count: number;
   articles_found: number;
+  source_kind: DiscoverySourceKind;
+  last_warning: string | null;
 }
+
+export const DISCOVERY_SOURCE_FIELDS = `id::text, title, feed_url, group_name, is_active, last_checked_at, last_success_at, last_error, last_new_count, articles_found, source_kind, last_warning`;
 
 export function toSource(r: SourceRow): DiscoverySource {
   return {
     id: r.id, title: r.title, feedUrl: r.feed_url, groupName: r.group_name, isActive: r.is_active,
     lastCheckedAt: r.last_checked_at?.toISOString() ?? null, lastSuccessAt: r.last_success_at?.toISOString() ?? null,
     lastError: r.last_error, lastNewCount: r.last_new_count, articlesFound: r.articles_found,
+    sourceKind: r.source_kind, lastWarning: r.last_warning,
   };
 }
 
-/** Checks one source and files its new articles. Returns how many were new. */
-async function checkSource(db: Pool, source: SourceRow): Promise<number> {
-  const articles = await readFeed(source.feed_url);
-  const cutoff = Date.now() - RECENT_WINDOW_MS;
-  const recent = articles
-    .map((a) => ({ ...a, publicationDateKnown: a.publishedAt !== null, publishedAt: a.publishedAt ?? new Date() }))
-    .filter((a) => a.publishedAt.getTime() >= cutoff && a.publishedAt.getTime() <= Date.now() + 86_400_000)
+export async function addDiscoverySource(db: Pool, title: string, url: string, group: string, reader = readDiscoverySource): Promise<DiscoverySource & { itemsInFeed: number }> {
+  if (!title.trim() || !/^https?:\/\//i.test(url) || url.length > MAX_SOURCE_URL_CHARS) throw new ValidationError('A name and a public http(s) feed, website or YouTube channel address are needed.');
+  let result;
+  try { result = await reader(url.trim()); }
+  catch (error) {
+    rethrowAssignmentControl(error);
+    throw new ValidationError(`Source not added: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const { rows } = await db.query<SourceRow>(
+    `INSERT INTO discovery_sources (title, feed_url, group_name, source_kind, last_warning) VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (feed_url) DO UPDATE SET title = EXCLUDED.title, group_name = EXCLUDED.group_name,
+       source_kind = EXCLUDED.source_kind, last_warning = EXCLUDED.last_warning, is_active = true
+     RETURNING ${DISCOVERY_SOURCE_FIELDS}`,
+    [title.trim(), result.feedUrl, group.trim() || 'Other', result.sourceKind, result.warning],
+  );
+  if (!rows[0]) throw new Error('The checked Discovery source could not be saved.');
+  return { ...toSource(rows[0]), itemsInFeed: result.articles.length };
+}
+
+export function recentDiscoveryArticles(articles: FeedArticle[], sourceKind: DiscoverySourceKind, now = new Date()): Array<FeedArticle & { publishedAt: Date; publicationDateKnown: boolean }> {
+  const cutoff = now.getTime() - RECENT_WINDOW_MS;
+  return articles
+    .filter(article => sourceKind !== 'website' || article.publishedAt !== null)
+    .map((a) => ({ ...a, publicationDateKnown: a.publishedAt !== null, publishedAt: a.publishedAt ?? now }))
+    .filter((a) => a.publishedAt.getTime() >= cutoff && a.publishedAt.getTime() <= now.getTime() + MS_PER_DAY)
     .sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime())
     .slice(0, MAX_PER_SOURCE_PER_RUN);
-  if (recent.length === 0) return 0;
+}
+
+/** Checks one source and files its new articles, preserving existing workflow state. */
+async function checkSource(db: Pool, source: SourceRow): Promise<{ added: number; sourceKind: DiscoverySourceKind; warning: string | null }> {
+  const { articles, sourceKind, warning } = await readDiscoverySource(source.feed_url);
+  const recent = recentDiscoveryArticles(articles, sourceKind);
+  if (recent.length === 0) return { added: 0, sourceKind, warning };
 
   const known = await db.query<{ url: string }>(
     `SELECT url FROM content_items WHERE source = 'discovered-article' AND url = ANY($1)`,
@@ -117,13 +153,14 @@ async function checkSource(db: Pool, source: SourceRow): Promise<number> {
         sourceId: source.id,
         sourceGroup: source.group_name,
         status: 'new',
-        publisherSummaryOrigin: seoSummaries.has(a.url) ? 'seo' : 'feed',
+        discoverySourceKind: sourceKind,
+        publisherSummaryOrigin: sourceKind === 'website' || seoSummaries.has(a.url) ? 'seo' : 'feed',
         ...(videoId ? { contentKind: 'youtube-video', videoId, contentBasis: 'description-only', transcriptStatus: 'not-retrieved' } : {}),
       },
       tags: [source.title],
     });
   }
-  return fresh.length;
+  return { added: fresh.length, sourceKind, warning };
 }
 
 /**
@@ -213,13 +250,14 @@ export async function syncDiscoveryFeeds(db: Pool): Promise<{ indexed: number; e
   const { rows: sources } = await db.query<SourceRow>(`SELECT * FROM discovery_sources WHERE is_active = true ORDER BY created_at`);
   for (const source of sources) {
     try {
-      const added = await checkSource(db, source);
+      const { added, sourceKind, warning } = await checkSource(db, source);
       indexed += added;
       await db.query(
         `UPDATE discovery_sources
-            SET last_checked_at = NOW(), last_success_at = NOW(), last_error = NULL, last_new_count = $2, articles_found = articles_found + $2
+            SET last_checked_at = NOW(), last_success_at = NOW(), last_error = NULL, last_new_count = $2, articles_found = articles_found + $2,
+                source_kind = $3, last_warning = $4
           WHERE id = $1`,
-        [source.id, added],
+        [source.id, added, sourceKind, warning],
       );
     } catch (err) {
       errors++;

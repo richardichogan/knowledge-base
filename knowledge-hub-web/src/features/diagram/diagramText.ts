@@ -1,7 +1,7 @@
 import type { DiagramNode } from './diagramTypes';
 import { containerHeader, SWIMLANE_HEADER, HEXAGON_INSET, documentWaveDepth, wrapText, arrowAxis, arrowShaftRect } from './diagramGeometry';
 import { calloutLayout } from './diagramCallouts';
-import { descriptionPlainText } from './diagramMarkdown';
+import { descriptionPlainText, descriptionRuns } from './diagramMarkdown';
 import type { DiagramRoleLayout } from './DiagramRoleBadge';
 
 let labelContext: CanvasRenderingContext2D | undefined;
@@ -18,8 +18,40 @@ function measureRoleText(fontSize: number): ((text: string) => number) | undefin
   return text => context.measureText(text).width;
 }
 
-/** One label layout for the canvas and both export formats. */
-export function diagramTextLayout(node: DiagramNode, role?: DiagramRoleLayout | null): {
+export function diagramTitleSource(label: string): string {
+  const runs = descriptionRuns(label);
+  if (!label.trim() || runs.some(run => run.bold || run.italic)) return label;
+  return runs.map(run => run.text).join('').split('\n').map(line => {
+    const text = line.trim();
+    if (!text) return line;
+    const start = line.length - line.trimStart().length;
+    return `${line.slice(0, start)}**${text.replaceAll('*', '\\*')}**${line.slice(start + text.length)}`;
+  }).join('\n');
+}
+
+export function diagramShapeText(node: DiagramNode, footnoted = false): string {
+  const title = diagramTitleSource(node.label);
+  const description = footnoted || node.kind === 'line' ? '' : (node.description ?? '').trim();
+  return [title, description].filter(part => part.trim()).join('\n\n');
+}
+
+export function diagramImageCaptionHeight(node: DiagramNode): number {
+  const source = diagramShapeText(node);
+  if (!source.trim()) return 0;
+  const lines = wrapText(descriptionPlainText(source), node.width - 8, node.fontSize).length;
+  return Math.min(node.height, Math.max(Math.round(node.fontSize * 1.3 + 10),
+    Math.min(node.height / 2, lines * node.fontSize * 1.25 + 8)));
+}
+
+/** Canvas and exports share the same bounded title/description and Markdown runs. */
+export function diagramTextLayout(node: DiagramNode, role?: DiagramRoleLayout | null, footnoted = false): ReturnType<typeof textLayout> & { source: string } {
+  const source = diagramShapeText(node, footnoted);
+  const bounded = node.kind === 'container' ? { ...node, height: containerHeader(node).height } : node;
+  const layout = textLayout({ ...bounded, label: source }, role);
+  return { ...layout, source, weight: 400 };
+}
+
+function textLayout(node: DiagramNode, role?: DiagramRoleLayout | null): {
   lines: string[]; x: number; y: number; anchor: 'start' | 'middle' | 'end'; weight: number; rotation?: string;
 } {
   if (role !== undefined && role !== null) {
@@ -54,7 +86,7 @@ export function diagramTextLayout(node: DiagramNode, role?: DiagramRoleLayout | 
   if (!aligned && node.kind === 'swimlane') {
     const bx = x + SWIMLANE_HEADER / 2;
     const cy = y + h / 2;
-    return { lines: wrapText(descriptionPlainText(node.label), h - 16, fs, 1), x: bx, y: cy, anchor: 'middle', weight: 600, rotation: `rotate(-90 ${bx} ${cy})` };
+    return { lines: wrapText(descriptionPlainText(node.label), h - 16, fs, Math.max(1, Math.floor((SWIMLANE_HEADER - 8) / (fs * 1.25)))), x: bx, y: cy, anchor: 'middle', weight: 600, rotation: `rotate(-90 ${bx} ${cy})` };
   }
   if (node.kind === 'arrow') {
     const shaft = arrowShaftRect({ x, y, width: w, height: h }, node.arrowDirection);
@@ -74,6 +106,11 @@ export function diagramTextLayout(node: DiagramNode, role?: DiagramRoleLayout | 
       anchor: horizontal === 'left' ? 'start' : horizontal === 'right' ? 'end' : 'middle', weight: 400,
     };
   }
+  if (node.kind === 'image' && !aligned) {
+    const caption = diagramImageCaptionHeight({ ...node, description: '' });
+    const lines = wrapText(descriptionPlainText(node.label), w - 8, fs, Math.max(1, Math.floor((caption - 8) / (fs * 1.25))));
+    return { lines, x: x + w / 2, y: y + h - caption / 2, anchor: 'middle', weight: 400 };
+  }
   const width = node.kind === 'hexagon' ? Math.max(1, w * (1 - 2 * HEXAGON_INSET) - 16)
     : node.kind === 'decision' ? w * 0.62 : node.kind === 'terminator' ? w - h * 0.6 : w - (node.kind === 'text' ? 8 : 16);
   const contentHeight = node.kind === 'document' ? h - 2 * documentWaveDepth(h) : h;
@@ -84,10 +121,9 @@ export function diagramTextLayout(node: DiagramNode, role?: DiagramRoleLayout | 
   const halfText = ((lines.length - 1) * fs * 1.25 + fs) / 2;
   const insetX = (w - width) / 2;
   const insetY = (contentHeight - height) / 2;
-  let cy = vertical === 'top' ? y + insetY + halfText : vertical === 'bottom' ? y + contentHeight - insetY - halfText : y + contentHeight / 2;
-  if (!aligned && node.kind === 'image') cy = y + h - Math.round(fs * 1.3 + 10) / 2 - 2;
+  const cy = vertical === 'top' ? y + insetY + halfText : vertical === 'bottom' ? y + contentHeight - insetY - halfText : y + contentHeight / 2;
   return {
-    lines: !aligned && node.kind === 'image' ? wrapText(descriptionPlainText(node.label), w - 4, fs, 1) : lines,
+    lines,
     x: horizontal === 'left' ? x + insetX : horizontal === 'right' ? x + w - insetX : x + w / 2,
     y: cy, anchor: horizontal === 'left' ? 'start' : horizontal === 'right' ? 'end' : 'middle',
     weight: node.kind === 'swimlane' ? 600 : 400,

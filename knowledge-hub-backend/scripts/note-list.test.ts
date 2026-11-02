@@ -226,6 +226,46 @@ test('note summaries exhaust stable pages and filter saved writing, types and ex
       'Retyping the last parent reveals the shared original');
     assert.equal((await fetch(`http://127.0.0.1:${address.port}/api/notes/${id(104)}`)).status, 200,
       'Grouping never removes direct access to an original');
+
+    await db.exec(`CREATE TABLE task_assistance (result_note_id UUID, proposal JSONB);
+      CREATE TABLE email_drafts (note_id UUID PRIMARY KEY, task_id TEXT);`);
+    const emailMigration = await readFile(new URL('../src/db/migrations/136_task_generated_email_drafts.sql', import.meta.url), 'utf8');
+    await db.exec(emailMigration);
+    await db.exec(emailMigration);
+    for (const [index, title, type] of [
+      [130, 'Email draft: existing Hermes result', 'note'],
+      [131, 'Email draft: new process result', 'email-draft'],
+      [132, 'Email draft: deliberately created in Think', 'email-draft'],
+      [133, 'Email draft: ordinary note title', 'note'],
+      [134, 'Research: retained task findings', 'research'],
+    ] as const) {
+      await db.query('INSERT INTO notes(id,content) VALUES($1,$2)', [id(index), writing(title, type, 'Shared email-list search text')]);
+    }
+    await db.query("INSERT INTO task_assistance VALUES($1,'{\"kind\":\"email\"}'),($2,'{\"kind\":\"research\"}')", [id(130), id(134)]);
+    await db.query("INSERT INTO email_drafts(note_id,task_id,task_generated) VALUES($1,'task-1',true),($2,'task-1',false)", [id(131), id(132)]);
+    const emailList = await read('structure=designs&excludeTaskEmails=true&q=Shared%20email-list');
+    assert.equal(emailList.total, 3, 'Think filters generated drafts before pagination and counts');
+    assert.deepEqual(new Set(emailList.items.map(item => item.id)), new Set([id(132), id(133), id(134)]),
+      'Preserve user-created emails even when task-linked, ordinary notes and research');
+    assert.equal((await read('q=Shared%20email-list')).total, 5, 'Unfiltered retrieval remains available to Athena');
+    assert.equal((await read('excludeTaskEmails=false&q=Shared%20email-list')).total, 5);
+    const filteredPages = [await read('structure=designs&excludeTaskEmails=true'), await read('structure=designs&excludeTaskEmails=true&page=2')];
+    const filteredIds = filteredPages.flatMap(page => page.items.map(item => item.id));
+    assert.equal(new Set(filteredIds).size, filteredPages[0]!.total, 'Filtered pages exhaust the same count without duplicates');
+    assert.ok(!filteredIds.includes(id(130)) && !filteredIds.includes(id(131)));
+    assert.equal(filteredPages[1]!.hasMore, false);
+    for (const index of [130, 131]) {
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/notes/${id(index)}`);
+      assert.equal(response.status, 200, 'Task links and the normal editor still retrieve full writing');
+      const result = await response.json() as { data: { content: string; revision: number } };
+      assert.equal(result.data.revision, 1);
+      assert.match(result.data.content, /Shared email-list search text/);
+    }
+    await db.query("UPDATE notes SET status='archived' WHERE id=$1", [id(130)]);
+    assert.deepEqual((await read('status=archived&excludeTaskEmails=true&q=Shared%20email-list')).items.map(item => item.id), [id(130)],
+      'Recovery lists must retain generated drafts');
+    const invalidEmailFilter = await fetch(`http://127.0.0.1:${address.port}/api/notes?excludeTaskEmails=invalid`);
+    assert.equal(invalidEmailFilter.status, 422);
   } finally {
     query.mock.restore();
     connect.mock.restore();
