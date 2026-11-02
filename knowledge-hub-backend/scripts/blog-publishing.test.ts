@@ -44,6 +44,32 @@ test('unsupported categories fail before delivery with actionable guidance, incl
   }
 });
 
+test('the CMS tag limit is enforced before publishing without changing the article', () => {
+  const tags = Array.from({ length: 30 }, (_, i) => `Technology ${i}`);
+  const post = parsePublishBody({ ...fields, tags });
+  assert.deepEqual(post.tags, tags);
+  assert.equal(post.content, fields.content);
+  assert.throws(() => parsePublishBody({ ...fields, tags: [...tags, 'One more'] }), /at most 30 tags/);
+  assert.match(BLOG_PACKAGE_RULES, /at most 30 tags/);
+});
+
+test('definite CMS validation rejections are not reported as uncertain server failures', async t => {
+  t.mock.method(globalThis, 'fetch', async () => new Response(
+    JSON.stringify({ error: 'Validation failed', details: ['tags has more than 30 items'] }),
+    { status: 400 },
+  ));
+  const result = await sendToBlog(parsePublishBody(fields));
+  assert.equal(result.httpStatus, 400);
+  assert.equal(result.payload.success, false);
+  if (!result.payload.success) assert.match(result.payload.error.message, /400 Validation failed tags/);
+});
+test('a CMS request timeout remains uncertain rather than enabling a duplicate retry', async t => {
+  t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ error: 'Request timed out' }), { status: 408 }));
+  const result = await sendToBlog(parsePublishBody(fields));
+  assert.equal(result.httpStatus, 502);
+  assert.equal(result.payload.success, false);
+});
+
 test('generated drafts enforce canonical categories instead of returning an unpublishable package', () => {
   const parsed = parseBlogDraft(JSON.stringify({ ...fields, categories: [' ai ', 'AI', 'copilot', 'Quick Take'] }), null);
   assert.deepEqual(parsed.categories, ['AI', 'Copilot']);
