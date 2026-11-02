@@ -40,10 +40,7 @@ export function slotBlock(history: Delivery[], destination: Destination, now: Da
   if (history.some(d => d.status === 'sending' || d.status === 'unconfirmed')) return 'An earlier delivery is unresolved. Reconcile it before sending again.';
   if (independentSchedule) return null;
   if (destination === 'blog') return null;
-  const day = localClock(now, 'Europe/London').day;
   const sent = history.filter(d => d.status === 'sent' && d.publishedAt);
-  const cap = destination === 'bluesky' ? PUBLISH_LIMITS.blueskyCap : PUBLISH_LIMITS.linkedinCap;
-  if (sent.filter(d => localClock(new Date(d.publishedAt!), 'Europe/London').day === day).length >= cap) return 'Daily publishing limit reached.';
   const spacing = destination === 'bluesky' ? PUBLISH_LIMITS.blueskySpacingHours : PUBLISH_LIMITS.linkedinSpacingHours;
   if (sent.some(d => now.getTime() - new Date(d.publishedAt!).getTime() < spacing * MS_PER_HOUR)) return 'Waiting for the minimum interval since the last successful post.';
   return null;

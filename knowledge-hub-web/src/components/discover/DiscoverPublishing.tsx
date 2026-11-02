@@ -43,7 +43,7 @@ function PolicyEditor({ feed, act, busy }: { feed: PublishingFeed; act: Action; 
       <input type="checkbox" checked={policy.days.includes(i)} onChange={e => field('days', e.target.checked ? [...policy.days, i] : policy.days.filter(d => d !== i))} />{day}
     </label>)}</fieldset>
     <label>Editorial guidance<textarea rows={3} maxLength={4000} value={policy.guidance} onChange={e => field('guidance', e.target.value)} /></label>
-    <p className="kh-publishing__meta">Hours use the selected timezone, including daylight saving. Daily limits are ceilings, never targets.</p>
+    <p className="kh-publishing__meta">Hours use the selected timezone, including daylight saving.</p>
     <button disabled={busy} type="submit">Save policy</button>
   </form>;
 }

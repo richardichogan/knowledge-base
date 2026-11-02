@@ -18,6 +18,7 @@ const EXCERPT_CHARS = 700;
 const ANGLE_CHARS = 400;
 const MAX_TOKENS = 1_200;
 const TIMEOUT_MS = 90_000;
+const ISO_DATE_LENGTH = 10;
 
 export interface DiscoverPick {
   id: string; title: string; url: string | null; source: string;
@@ -70,7 +71,7 @@ async function generate(db: Pool, trigger: DiscoverPicks['trigger']): Promise<Di
   }
   const facts = rows.map(r => ({
     id: r.id, title: r.title, source: r.source_title, state: r.workflow_state,
-    published: r.published_at?.toISOString().slice(0, 10) ?? 'unknown', whyRelevant: r.relevance_explanation ?? '', excerpt: r.excerpt ?? '',
+    published: r.published_at?.toISOString().slice(0, ISO_DATE_LENGTH) ?? 'unknown', whyRelevant: r.relevance_explanation ?? '', excerpt: r.excerpt ?? '',
   }));
   const raw = await getFoundryClient('discover-picks').chat('standard',
     [{ role: 'system', content: PROMPT }, { role: 'user', content: JSON.stringify(facts) }], MAX_TOKENS, TIMEOUT_MS, undefined,

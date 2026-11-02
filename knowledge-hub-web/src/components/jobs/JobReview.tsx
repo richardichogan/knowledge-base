@@ -71,7 +71,7 @@ export function JobChatConfirmations({ sessionId }: { sessionId: string | null }
         <p>Posting automation: <strong>{item.payload.enabled ? 'On' : 'Off'}</strong></p>
         <p>{item.payload.policy.startHour}:00–{item.payload.policy.endHour}:00 · {item.payload.policy.timezone} · {item.payload.policy.days.map(d => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d]).join(', ')}</p>
         <p>Expires after {item.payload.policy.expiryHours} hours. {item.payload.policy.guidance || 'Standing editorial guidance applies.'}</p>
-        <p>Editorial checks and daily limits still apply. Blog and LinkedIn each require human approval.</p>
+        <p>Editorial checks still apply. Blog and LinkedIn each require human approval.</p>
         <a href="/discover?publishing=1">Open publishing review</a>
       </> : <>
         <h3>{item.payload.operation === 'save' ? 'Review job configuration' : item.payload.operation === 'approve' ? 'Approve delivery' : item.payload.preview ? 'Preview job' : 'Run job now'}</h3>

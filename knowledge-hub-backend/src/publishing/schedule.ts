@@ -1,6 +1,6 @@
 import type { Pool } from 'pg';
 import { MS_PER_HOUR, MS_PER_MINUTE } from '../config/constants.js';
-import { localClock, occurrences } from '../jobs/schedule.js';
+import { occurrences } from '../jobs/schedule.js';
 import { inWindow, slotBlock } from './delivery.js';
 import { PUBLISH_LIMITS, type Delivery, type Draft, type PublishingFeed } from './contracts.js';
 import { deliveryColumns, draftColumns, event, feeds, transaction } from './store.js';
@@ -65,11 +65,9 @@ function packageBlocker(draft: Draft, candidates: Candidate[]): string | null {
   return null;
 }
 function slots(feed: PublishingFeed, destination: Draft['destination'], from: Date, until: Date): Date[] {
-  const cap = destination === 'bluesky' ? PUBLISH_LIMITS.blueskyCap : PUBLISH_LIMITS.linkedinCap;
-  const minimum = destination === 'bluesky' ? PUBLISH_LIMITS.blueskySpacingHours : PUBLISH_LIMITS.linkedinSpacingHours;
-  const step = Math.max(minimum, (feed.policy.endHour - feed.policy.startHour) / cap);
+  const step = destination === 'bluesky' ? PUBLISH_LIMITS.blueskySpacingHours : PUBLISH_LIMITS.linkedinSpacingHours;
   const times: string[] = [];
-  for (let i = 0; i < cap; i++) {
+  for (let i = 0; ; i++) {
     const minutes = Math.round((feed.policy.startHour + i * step) * MINUTES_PER_HOUR);
     if (minutes >= feed.policy.endHour * MINUTES_PER_HOUR) break;
     times.push(`${String(Math.floor(minutes / MINUTES_PER_HOUR)).padStart(CLOCK_DIGITS, '0')}:${String(minutes % MINUTES_PER_HOUR).padStart(CLOCK_DIGITS, '0')}`);
@@ -91,11 +89,7 @@ export function planSchedule(candidates: Candidate[], settings: PublishingFeed[]
     if (slotBlock(relevant, draft.destination, at)) return false;
     const reserved = bookings.filter(b => b.draftId !== draft.id && b.destination === draft.destination && b.account === account);
     const spacing = draft.destination === 'bluesky' ? PUBLISH_LIMITS.blueskySpacingHours : PUBLISH_LIMITS.linkedinSpacingHours;
-    const cap = draft.destination === 'bluesky' ? PUBLISH_LIMITS.blueskyCap : PUBLISH_LIMITS.linkedinCap;
-    const day = localClock(at, 'Europe/London').day;
-    return !reserved.some(b => Math.abs(b.at.getTime() - at.getTime()) < spacing * MS_PER_HOUR)
-      && reserved.filter(b => localClock(b.at, 'Europe/London').day === day).length
-        + relevant.filter(d => d.status === 'sent' && d.publishedAt && localClock(new Date(d.publishedAt), 'Europe/London').day === day).length < cap;
+    return !reserved.some(b => Math.abs(b.at.getTime() - at.getTime()) < spacing * MS_PER_HOUR);
   }
   for (const draft of ordered) {
     const feed = feedFor(draft, settings);
@@ -147,7 +141,7 @@ export function planSchedule(candidates: Candidate[], settings: PublishingFeed[]
         retry?.nextAttemptAt ? Date.parse(retry.nextAttemptAt) : 0));
       const canReserve = effectiveAt !== undefined && inWindow(feed.policy, effectiveAt) && available(draft, effectiveAt);
       if (overdue) reason = 'Overdue; awaiting delivery checks. The original assigned time is retained, not silently rescheduled.';
-      if (!at) reason = 'No slot in the next 30 days fits the publishing window, daily limits, spacing and package dependencies. Adjust the publishing window or resolve earlier queued items, then refresh. This draft remains queued.';
+      if (!at) reason = 'No slot in the next 30 days fits the publishing window, spacing and package dependencies. Adjust the publishing window or resolve earlier queued items, then refresh. This draft remains queued.';
       else if (canReserve) {
         const reservation = bookings.find(b => b.draftId === draft.id);
         if (reservation) reservation.at = effectiveAt;

@@ -767,20 +767,20 @@ test('successful delivery uses actual publication time and returns the stored re
     assert.match(slotBlock(rows, 'bluesky', new Date())!, /interval/);
   } finally { await f.close(); }
 });
-test('daily caps count only successes, include blog-linked Bluesky and do not catch up in bursts', () => {
+test('there are no daily caps: only spacing since the last success blocks a post', () => {
   const now = new Date('2026-10-24T18:00Z');
   const history = [0, 1, 2, 3].map(i => ({ identity: `fixture:${i}`, status: 'sent', publishedAt: `2026-10-24T${String(i * 3 + 1).padStart(2, '0')}:00Z` } as Delivery));
-  assert.match(slotBlock(history, 'bluesky', now)!, /Daily/);
-  assert.match(slotBlock(history.slice(0, 3), 'linkedin', now)!, /Daily/);
+  assert.equal(slotBlock(history, 'bluesky', now), null);
+  assert.equal(slotBlock(history.slice(0, 3), 'linkedin', now), null);
   assert.equal(slotBlock(history.map(d => ({ ...d, status: 'failed' })), 'bluesky', now), null);
   assert.equal(slotBlock(history.map(d => ({ ...d, identity: `podcast:${d.identity}` })), 'bluesky', now), null);
 });
-test('explicit independent timing bypasses caps and spacing, never unresolved deliveries', () => {
+test('explicit independent timing bypasses spacing, never unresolved deliveries', () => {
   const now = new Date('2026-11-02T11:30Z');
   const history = [0, 1, 2, 3].map(i => ({
     identity: `fixture:${i}`, status: 'sent', publishedAt: '2026-11-02T11:29Z',
   } as Delivery));
-  assert.match(slotBlock(history, 'bluesky', now)!, /Daily/);
+  assert.match(slotBlock(history, 'bluesky', now)!, /interval/);
   assert.match(slotBlock(history.slice(0, 1), 'bluesky', now)!, /interval/);
   assert.equal(slotBlock(history, 'bluesky', now, true), null);
   for (const status of ['sending', 'unconfirmed'] as const) {
