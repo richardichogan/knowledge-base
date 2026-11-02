@@ -2,6 +2,19 @@
 
 **Status:** Validated
 
+**Release execution (2026-11-02, operational Health dashboard):**
+- Application commit de7c843e16b88c3737176dbc74c3bff3c0159951 pushed to main
+  and richardichogan-local-development; both remote refs confirmed identical.
+- ACR run ca8y built kh-prod-api:v285 from main. Revision
+  kh-prod-api-vnet--0000282 is Healthy / RunningAtMaxScale and latest-ready,
+  with 100% latest-revision traffic. Startup confirms completed migrations,
+  database pool 8/8 ready and the production specialist worker started.
+- Production frontend deployed to kh-prod-web. Custom-domain HTML and matching
+  /assets/index-BRzWTacz.js both return 200 at
+  https://athena.themicrosoftcloudblog.com/.
+- Evidence: health-release-{acr,swa,startup}.log in the session artifacts.
+  No Desktop release, infrastructure changes or paid model evaluation.
+
 **Section 7: Health dashboard and diagnostic measurement release proof (2026-11-02):**
 - User requested deploy, merge and push after approving the graphical dashboard.
   Existing application-only AZCLI targets: kh-prod-api-vnet and kh-prod-web,
