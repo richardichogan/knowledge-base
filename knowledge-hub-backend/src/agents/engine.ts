@@ -64,7 +64,7 @@ interface JobRow {
   lease_owner: string | null; lease_until: Date | null; assignment_id: string | null;
 }
 
-const CONCURRENCY = 2;
+const CONCURRENCY = 4;
 const POLL_MS = 5_000;
 const MAX_PROGRESS = 30;
 const ACTIVE = ['queued', 'running'];

@@ -816,8 +816,9 @@ an independent recheck, never an automatic second revision. A waiting dispositio
 retains its artifact without queuing a successor. Assignment claim, renewal,
 expired-lease recovery, classified failures and explicit authorised resume
 preserve the same pool, attempt limit, original scope, deadline and allowance.
-An installed domain executor can use the existing worker's two concurrency
-slots; unregistered workflows are never claimed. Legacy prerequisite failure
+An installed domain executor can use the existing worker's four concurrency
+slots per backend process, shared by Iris research and all other specialists;
+slots are not reserved per specialist. Unregistered workflows are never claimed. Legacy prerequisite failure
 handling excludes assignment-backed steps.
 
 The blog role services separate research/prompt preparation from authoring
