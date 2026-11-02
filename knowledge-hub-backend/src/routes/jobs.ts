@@ -5,8 +5,8 @@ import type { Pool } from 'pg';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { ConflictError, ValidationError } from '../types/errors.js';
 import { env } from '../config/env.js';
-import { object, parseJob, text, JOB_LIMITS } from '../jobs/contracts.js';
-import { audit, decideRun, enqueue, getJob, getRun, leaseRun, listJobs, pauseJob, persistRun, releaseRun, retryRun, runColumns, saveJob } from '../jobs/store.js';
+import { object, parseJob, text, JOB_LIMITS, withRunDiagnostics, type JobRun } from '../jobs/contracts.js';
+import { audit, decideRun, enqueue, getJob, getRun, leaseRun, listJobs, pauseJob, persistRun, reconcileRun, releaseRun, retryRun, runColumns, saveJob } from '../jobs/store.js';
 import { localClock, nextOccurrence } from '../jobs/schedule.js';
 import { captureDailyInsights } from '../services/dailyInsights.js';
 import { feedId } from '../publishing/contracts.js';
@@ -108,8 +108,8 @@ jobsRouter.get('/runs', route(async req => {
     values.push(from); where.push(`created_at >= $${values.length}::timestamptz`);
   }
   values.push(paging(req.query.offset));
-  return (await getDb().query<Record<string, unknown>>(`SELECT ${runColumns} FROM managed_job_runs ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-    ORDER BY created_at DESC LIMIT 25 OFFSET $${values.length}`, values)).rows;
+  return (await getDb().query<JobRun>(`SELECT ${runColumns} FROM managed_job_runs ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+    ORDER BY created_at DESC LIMIT 25 OFFSET $${values.length}`, values)).rows.map(run => withRunDiagnostics(run));
 }));
 jobsRouter.get('/runs/:runId', route(req => getRun(getDb(), uuid(req.params.runId))));
 jobsRouter.post('/runs/:runId/decision', route(async req => {
@@ -124,37 +124,7 @@ jobsRouter.post('/runs/:runId/retry', route(async req => {
 }));
 jobsRouter.post('/runs/:runId/reconcile', route(async req => {
   production();
-  const db = getDb();
-  const run = await getRun(db, uuid(req.params.runId));
-  const b = object(req.body);
-  const key = text(b.step, 'step', JOB_LIMITS.status);
-  const item = run.steps.find(s => s.key === key && (s.status === 'unconfirmed' || s.status === 'running'));
-  if (run.status !== 'unconfirmed' || !item) throw new ValidationError('Choose an unconfirmed step.');
-  if (typeof b.delivered !== 'boolean') throw new ValidationError('Confirm whether delivery occurred.');
-  let result: unknown = { manuallyConfirmed: true };
-  if (b.delivered && key === 'blog') {
-    const url = new URL(text(b.url, 'published URL'));
-    if (url.protocol !== 'https:' || url.username || url.password) throw new ValidationError('Provide the confirmed public HTTPS blog URL.');
-    result = { url: url.href, status: 'published' };
-  } else if (b.delivered && (key === 'linkedin' || key === 'bluesky')) {
-    const url = new URL(text(b.url, 'published post URL'));
-    if (url.protocol !== 'https:' || url.username || url.password) throw new ValidationError('Provide a public post URL.');
-    result = { url: url.href, manuallyConfirmed: true };
-  }
-  item.status = b.delivered ? 'succeeded' : 'failed';
-  item.result = result;
-  item.finishedAt = new Date().toISOString();
-  const status = run.steps.some(s => s.status === 'unconfirmed') ? 'unconfirmed' : 'partial';
-  const changed = await db.query(`UPDATE managed_job_runs SET status=$3,steps=$2,updated_at=NOW()
-    WHERE id=$1 AND status='unconfirmed' AND updated_at=$4 AND (lease_until IS NULL OR lease_until<NOW()) RETURNING id`,
-  [run.id, JSON.stringify(run.steps), status, run.updatedAt]);
-  if (!changed.rowCount) throw new ConflictError('Run changed; reload before reconciling.', 'JOB_CONFLICT');
-  if (key === 'bluesky' || key === 'linkedin') await db.query(`UPDATE publishing_deliveries SET status=$2,receipt=$3,
-    published_at=CASE WHEN $2='sent' THEN NOW() ELSE NULL END,next_attempt_at=CASE WHEN $2='failed' THEN NOW() ELSE NULL END,error=NULL
-    WHERE identity=$1 AND destination=$4 AND status IN ('sending','unconfirmed','failed')`,
-  [`jobs:${run.id}:${key}`, b.delivered ? 'sent' : 'failed', JSON.stringify(result), key]);
-  await audit(db, run.jobId, run.id, actor(req), 'delivery-reconciled', { step: key, delivered: b.delivered, result });
-  return getRun(db, run.id);
+  return reconcileRun(getDb(), uuid(req.params.runId), req.body, actor(req));
 }));
 jobsRouter.get('/audit', route(async req => {
   const jobId = req.query.jobId ? uuid(req.query.jobId) : null;

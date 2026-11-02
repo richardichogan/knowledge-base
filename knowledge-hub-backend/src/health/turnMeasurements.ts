@@ -25,6 +25,8 @@ export interface TurnMeasurementHealth {
   transportRetries: number;
   modelErrors: number;
   toolErrors: number;
+  actionReliability: { measuredTurns: number; capabilityLoads: number; capabilityDenials: number; blockedCapabilities: number;
+    receipts: number; warnings: number; contradictions: number; unconfirmedClaims: number };
   correctness: 'unreviewed';
   evaluated: { deterministic: number; model: number; unreviewed: number };
   daily: Array<{ day: string; accepted: number; complete: number; failed: number }>;
@@ -57,7 +59,15 @@ export async function readTurnMeasurements(
     COUNT(*) FILTER(WHERE status='completed' AND ((signals->>'modelErrors')::int>0 OR (signals->>'toolErrors')::int>0))::int recovered,
     COALESCE(SUM((signals->>'transportRetries')::int),0) retries,
     COALESCE(SUM((signals->>'modelErrors')::int),0) model_errors,
-    COALESCE(SUM((signals->>'toolErrors')::int),0) tool_errors
+    COALESCE(SUM((signals->>'toolErrors')::int),0) tool_errors,
+    COUNT(*) FILTER(WHERE signals->>'reliabilityObserved'='true')::int reliability_measured,
+    COALESCE(SUM((signals->>'capabilityLoads')::int),0) capability_loads,
+    COALESCE(SUM((signals->>'capabilityDenials')::int),0) capability_denials,
+    COALESCE(SUM((signals->>'blockedCapabilities')::int),0) capability_blocked,
+    COALESCE(SUM((signals->>'actionReceipts')::int),0) action_receipts,
+    COALESCE(SUM((signals->>'actionWarnings')::int),0) action_warnings,
+    COALESCE(SUM((signals->>'actionContradictions')::int),0) action_contradictions,
+    COALESCE(SUM((signals->>'unconfirmedActionClaims')::int),0) action_unconfirmed
     FROM ai_turn_measurements WHERE expires_at>NOW() AND started_at>=$1::timestamptz AND started_at<$2::timestamptz
       AND environment=$3 AND ($4::text IS NULL OR persona=$4)
     GROUP BY "day" ORDER BY "day"`, [start, end, filters.environment, filters.persona]);
@@ -77,6 +87,10 @@ export async function readTurnMeasurements(
     sourceReadTurns: sum('source_read'), partialReadTurns: sum('partial_read'), unavailableReadTurns: sum('unavailable_read'),
     noObservedSourceTurns: sum('no_source'), repliesSaved: sum('saved'), failed: sum('failed'), interrupted: sum('interrupted'),
     completedAfterErrors: sum('recovered'), transportRetries: sum('retries'), modelErrors: sum('model_errors'), toolErrors: sum('tool_errors'),
+    actionReliability: { measuredTurns: sum('reliability_measured'), capabilityLoads: sum('capability_loads'),
+      capabilityDenials: sum('capability_denials'), blockedCapabilities: sum('capability_blocked'),
+      receipts: sum('action_receipts'), warnings: sum('action_warnings'), contradictions: sum('action_contradictions'),
+      unconfirmedClaims: sum('action_unconfirmed') },
     correctness: 'unreviewed',
     evaluated: { deterministic: Number(evaluations.rows[0]?.deterministic ?? 0), model: Number(evaluations.rows[0]?.model ?? 0),
       unreviewed: sum('finished') - Number(evaluations.rows[0]?.model ?? 0) },

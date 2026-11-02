@@ -132,6 +132,7 @@ const tests = frontend ? [
   'scripts/knowledge-search.test.ts',
   'scripts/retrieval-scope.test.ts',
   'scripts/discovery-context.test.ts',
+  'scripts/discovery-websites.test.ts',
   'scripts/knowledge-structured.test.ts',
   'scripts/knowledge-indexing.test.ts',
   'scripts/knowledge-indexing-switch.test.ts',

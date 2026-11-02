@@ -506,7 +506,7 @@ test('Discover retries keep the actual user collection through prompt assembly, 
           function: { name: 'search_library', arguments: '{"query":"log"}' } }], finishReason: 'tool_calls' };
       }
       if (calls === 3) {
-        assert.match(JSON.stringify(messages.at(-1)), /not loaded or is unavailable/);
+        assert.match(JSON.stringify(messages.at(-1)), /prohibited by the current permission or retrieval scope/);
         return { content: null, toolCalls: [{ id: 'correct', type: 'function' as const,
           function: { name: 'search_knowledge_base', arguments: '{"query":""}' } }], finishReason: 'tool_calls' };
       }

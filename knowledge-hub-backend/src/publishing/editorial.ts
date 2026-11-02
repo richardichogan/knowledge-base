@@ -18,6 +18,7 @@ import { destinationAccount } from './delivery.js';
 import { getLinkedInMember } from '../integrations/social/linkedin.js';
 import { applyEditorialEdits } from './passageEdits.js';
 import { REVIEW_CONTEXT_RESERVE, textTokens } from '../ai/knowledge/reviewContext.js';
+import { withAiStage, withAiWorkflow } from '../ai/aiWorkflow.js';
 export { applyEditorialEdits } from './passageEdits.js';
 
 export interface EditorialServices {
@@ -218,6 +219,11 @@ async function drafts(db: Pool, topic: string): Promise<Draft[]> {
   return (await db.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts WHERE topic_id=$1`, [topic])).rows;
 }
 export async function reviewDraft(db: Pool, draft: Draft, sources: Source[], service = editorialServices, allowRevisions = true, draftsOnly = false): Promise<void> {
+  return withAiWorkflow(db, { feature: 'discovery-editorial-review', purpose: 'scheduled' },
+    () => withAiStage(`review:${draft.id}`, () => reviewDraftContent(db, draft, sources, service, allowRevisions, draftsOnly)));
+}
+
+async function reviewDraftContent(db: Pool, draft: Draft, sources: Source[], service: EditorialServices, allowRevisions: boolean, draftsOnly: boolean): Promise<void> {
   const preferences = await service.preferences(db);
   const fields = draft.destination === 'blog' ? ['title', 'summary', 'content'] : ['copy'];
   if (fields.some(field => typeof draft.content[field] !== 'string' || !draft.content[field].trim())) {
@@ -362,6 +368,11 @@ export async function editDraft(db: Pool, id: string, version: unknown, value: u
   });
 }
 export async function assessTopic(db: Pool, topic: Topic, service = editorialServices): Promise<void> {
+  return withAiWorkflow(db, { feature: 'discovery-editorial-assessment', purpose: 'scheduled' },
+    () => withAiStage(`assess:${topic.id}`, () => assessTopicContent(db, topic, service)));
+}
+
+async function assessTopicContent(db: Pool, topic: Topic, service: EditorialServices): Promise<void> {
   const sources = await readSources(db, topic.id, service);
   const settings = await feeds(db);
   const related = (await db.query<Topic>(`SELECT ${topicColumns} FROM publishing_topics WHERE id<>$1 ORDER BY created_at DESC LIMIT $2`, [topic.id, PUBLISH_LIMITS.recentTopics])).rows;

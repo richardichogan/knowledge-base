@@ -9,8 +9,13 @@ export interface ManagedJob {
 }
 export interface JobRun {
   id: string; jobId: string; revision: number; definition: JobDefinition; scheduledAt: string; deadline: string;
-  status: string; preview: boolean; steps: Array<{ key: string; status: string; error?: string; result?: unknown }>;
+  status: string; preview: boolean; steps: Array<{ key: string; status: string; startedAt?: string; finishedAt?: string; error?: string; result?: unknown }>;
   artifacts: Record<string, unknown>; approvedAt: string | null; createdAt: string; updatedAt: string;
+  diagnostics?: {
+    sourceWarnings: Array<{ source: string; errors: number; failures: unknown[] }>;
+    startedAt: string | null; finishedAt: string | null; startDelayMs: number | null;
+    elapsedFromScheduleMs: number | null; deadlineExceeded: boolean; blockingStage: string | null; note: string;
+  };
 }
 export interface JobDevice {
   id: string; name: string; folders: Array<{ id: string; name: string; path: string }>; seenAt: string;

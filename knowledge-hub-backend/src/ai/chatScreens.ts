@@ -209,7 +209,7 @@ export async function buildScreensBlock(db: Pool, sessionId: string): Promise<st
     ...rows.map((r, i) => {
       const reading = (r.reading ?? '').trim();
       return [
-        `### ${(i + 1).toString()}. ${r.name}${r.in_journey ? '' : ' (not in the journey)'}`,
+        `### ${(i + 1).toString()}. ${r.name} (screenId: ${r.id})${r.in_journey ? '' : ' (not in the journey)'}`,
         r.annotation_note !== null ? `He marked areas on it: ${r.annotation_note}` : '',
         reading.length > per ? `${reading.slice(0, per)}…` : reading,
       ].filter(Boolean).join('\n');

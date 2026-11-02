@@ -56,6 +56,16 @@ export class ToolCatalog {
     }, ...[...this.loaded].map(name => this.available.get(name)!)];
   }
 
+  state(name: string): 'loaded' | 'loadable' | 'prohibited' {
+    return !this.available.has(name) ? 'prohibited' : this.loaded.has(name) ? 'loaded' : 'loadable';
+  }
+
+  loadPermitted(names: string[]): string[] {
+    const permitted = names.filter(name => this.available.has(name));
+    for (const name of permitted) this.loaded.add(name);
+    return permitted;
+  }
+
   requestedNames(value: unknown): string[] {
     if (!Array.isArray(value) || value.length === 0 || value.length > MAX_TOOLS_PER_LOAD
       || value.some(name => typeof name !== 'string' || !this.available.has(name))) {

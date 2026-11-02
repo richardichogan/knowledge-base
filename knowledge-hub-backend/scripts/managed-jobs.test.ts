@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
 import { PGlite } from '@electric-sql/pglite';
-import { parseJob, readyToEnable, type JobDefinition, type JobRun } from '../src/jobs/contracts.js';
+import { parseJob, readyToEnable, withRunDiagnostics, type JobDefinition, type JobRun } from '../src/jobs/contracts.js';
 import { nextOccurrence, occurrences } from '../src/jobs/schedule.js';
 import { addPublishingSchema } from './publishing-fixture.js';
 
@@ -46,6 +46,46 @@ test('sync completion preserves partial source success but not a total outage', 
   assert.equal(completedSyncWithSourceErrors({ ...result, totalIndexed: 0 }), true);
   assert.equal(completedSyncWithSourceErrors({ ...result, totalIndexed: 0, results: [{ source: 'feeds', indexed: 0, errors: 2, durationMs: 50 }] }), false);
   assert.equal(completedSyncWithSourceErrors({ ...result, totalErrors: 0 }), false);
+});
+
+test('execution health retains source gaps and actual timing without changing run state or delivery', () => {
+  const run: JobRun = { id: randomUUID(), jobId: randomUUID(), revision: 1, definition: definition({ kind: 'content-sync' }),
+    scheduledAt: '2026-11-02T08:00:00Z', deadline: '2026-11-09T08:00:00Z', status: 'succeeded',
+    preview: false, approvedAt: null, createdAt: '2026-11-02T08:00:15Z', updatedAt: '2026-11-02T11:28:14Z',
+    steps: [{ key: 'content-sync', status: 'succeeded', startedAt: '2026-11-02T08:00:15Z', finishedAt: '2026-11-02T11:28:13Z' }],
+    artifacts: { sync: { results: [{ source: 'cms', errors: 0 }, { source: 'graph-mail', errors: 1,
+      failures: [{ code: 'access-denied', target: 'podcast' }] }] } } };
+  const diagnosed = withRunDiagnostics(run);
+  assert.equal(diagnosed.status, 'succeeded');
+  assert.equal(diagnosed.artifacts, run.artifacts);
+  assert.deepEqual(diagnosed.diagnostics?.sourceWarnings.map(s => s.source), ['graph-mail']);
+  assert.equal(diagnosed.diagnostics?.startDelayMs, 15000);
+  assert.equal(diagnosed.diagnostics?.elapsedFromScheduleMs, (3 * 3600 + 28 * 60 + 13) * 1000);
+  assert.equal(diagnosed.diagnostics?.deadlineExceeded, false, 'schedule delay does not invent an SLA');
+  assert.equal(withRunDiagnostics({ ...run, deadline: '2026-11-02T11:00:00Z' }).diagnostics?.deadlineExceeded, true);
+  const waiting = withRunDiagnostics({ ...run, status: 'awaiting-approval', steps: [] }, new Date('2026-11-02T10:00:00Z'));
+  assert.equal(waiting.diagnostics?.blockingStage, 'awaiting-approval');
+  assert.equal(waiting.diagnostics?.finishedAt, null);
+  assert.equal(waiting.diagnostics?.startedAt, null);
+  const partial = withRunDiagnostics({ ...run, status: 'partial',
+    steps: [{ key: 'editorial', status: 'failed', startedAt: run.scheduledAt, finishedAt: run.updatedAt }] });
+  assert.equal(partial.diagnostics?.blockingStage, 'editorial');
+});
+test('delivery reconciliation handles microsecond timestamps and records a definite non-delivery once', async () => {
+  const { pg, db } = await fixture();
+  try {
+    const job = await store.saveJob(db, undefined, 0, definition({ outputs: ['blog'] }), true, 'user');
+    const run = await store.enqueue(db, job, new Date(), 'manual:reconcile-metadata', false, 'user');
+    await db.query(`UPDATE managed_job_runs SET status='unconfirmed',
+      updated_at='2026-11-02T11:00:00.123456Z',steps=$2 WHERE id=$1`,
+    [run.id, JSON.stringify([{ key: 'blog', status: 'unconfirmed', error: 'CMS rejected the tags.' }])]);
+    const reconciled = await store.reconcileRun(db, run.id, { step: 'blog', delivered: false }, 'user');
+    assert.equal(reconciled.status, 'partial');
+    assert.equal(reconciled.steps[0]!.status, 'failed');
+    const events = await db.query("SELECT id FROM managed_job_events WHERE run_id=$1 AND event='delivery-reconciled'", [run.id]);
+    assert.equal(events.rows.length, 1);
+    await assert.rejects(store.reconcileRun(db, run.id, { step: 'blog', delivered: false }, 'user'), /unconfirmed step/);
+  } finally { await pg.close(); }
 });
 test('weekly accuracy and voice checks start together and settle before saving', { timeout: 5000 }, async () => {
   const { pg, db } = await fixture();

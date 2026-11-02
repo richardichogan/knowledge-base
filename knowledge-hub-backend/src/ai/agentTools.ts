@@ -11,12 +11,16 @@ import { KnowledgeHubError } from '../types/errors.js';
 import { getAssignmentSummary, listAssignmentSummaries } from '../agents/workforce/status.js';
 import { hasManualBlogExecutor } from '../agents/workforce/dispatcher.js';
 import { startChatManualBlogCommission, type TrustedChatBlogAction } from '../agents/workforce/blogCommission.js';
+import { applyDiagramCandidate, captureDiagramRequest, type DiagramAccess } from '../services/diagramCandidates.js';
+import type { RetrievalScope } from './knowledge/retrievalScope.js';
 
 export interface AgentToolContext extends TrustedChatBlogAction {
   designOwner?: string | undefined;
+  noteId?: string | undefined;
+  retrievalScope?: RetrievalScope | undefined;
 }
 
-export const AGENT_TOOL_NAMES = new Set(['hand_off_to_specialist', 'check_specialist_jobs', 'check_workforce_assignments']);
+export const AGENT_TOOL_NAMES = new Set(['hand_off_to_specialist', 'check_specialist_jobs', 'check_workforce_assignments', 'apply_diagram_candidate']);
 const RECENT_JOBS = 5;
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 
@@ -32,13 +36,30 @@ export function agentToolDefinitions(): LlmToolDefinition[] {
           type: 'object',
           properties: {
             specialist: { type: 'string', enum: specialists.map((s) => s.id) },
-            subjectId: { type: 'string', description: 'ID of what to work on. Omit in a Design conversation to use the open Design.' },
+            subjectId: { type: 'string', description: 'ID of what to work on. Omit to use the open Design/diagram. For a new Daedalus diagram use new:<current-chat-session-UUID>.' },
             instruction: { type: 'string', description: 'Optional direction for the specialist, e.g. what the Blueprint should emphasise.' },
             length: { type: 'string', enum: ['short', 'long'], description: 'For the blog writer: short is Quick take, long is Article. Ask which before starting.' },
-            revision: { type: 'integer', minimum: 0, description: 'For Podcast script drafting: exact current episode revision from read_podcast_script. Never guess or reuse an earlier revision.' },
+            revision: { type: 'integer', minimum: 0, description: 'Exact current diagram revision from read_diagram for Daedalus, or episode revision from read_podcast_script. Never guess or reuse an earlier revision.' },
+            referenceDiagramIds: { type: 'array', maxItems: 3, items: { type: 'string' }, description: 'Daedalus: selected saved diagrams to use as layout examples, not business content. Otherwise suitable permitted examples are retrieved.' },
+            screenIds: { type: 'array', maxItems: 2, items: { type: 'string' }, description: 'Daedalus: reference screenshot IDs from this chat’s Screens context. The specialist receives the actual images.' },
             confirmed: { type: 'boolean', description: 'He agreed to a plan that replaces existing work.' },
           },
           required: ['specialist'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'apply_diagram_candidate',
+        description: 'Apply a completed Daedalus candidate to its original diagram only after the user explicitly approves that replacement. Read both current revisions first. If the original changed since generation, generate a fresh candidate instead. Keeps a recovery snapshot and the separate candidate.',
+        parameters: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            jobId: { type: 'string' }, revision: { type: 'integer', minimum: 0 },
+            candidateRevision: { type: 'integer', minimum: 0 }, confirmed: { type: 'boolean' },
+          },
+          required: ['jobId', 'revision', 'candidateRevision', 'confirmed'],
         },
       },
     },
@@ -71,6 +92,7 @@ const brief = (job: AgentJob): Record<string, unknown> => ({
   jobId: job.id, specialist: job.specialistName, subject: job.subjectTitle, link: job.subjectUrl || undefined, status: job.status,
   latestProgress: job.progress.at(-1), summary: job.summary ?? undefined, error: job.error ?? undefined,
   prerequisiteStep: job.isStep || undefined, startedAt: job.startedAt ?? undefined, finishedAt: job.finishedAt ?? undefined,
+  ...(job.specialist === 'daedalus' && job.status === 'done' ? { result: job.result } : {}),
 });
 
 export async function executeAgentTool(
@@ -80,7 +102,13 @@ export async function executeAgentTool(
   turn: AgentToolContext,
 ): Promise<unknown> {
   const subjectArg = typeof args['subjectId'] === 'string' && args['subjectId'].trim() ? args['subjectId'].trim() : undefined;
+  const diagramAccess: DiagramAccess = {
+    userId: turn.userId, sessionId: turn.sessionId, excludedIds: turn.excludedIds, exclusionsFailed: turn.exclusionsFailed,
+    strictProjectId: turn.strictProjectId, readOnly: turn.readOnly,
+    scopeFiltered: turn.retrievalScope !== undefined && Object.keys(turn.retrievalScope.filter).length > 0,
+  };
   try {
+    if (name === 'apply_diagram_candidate') return await applyDiagramCandidate(db, args, diagramAccess);
     if (name === 'check_workforce_assignments') {
       if (!turn.userId) return { error: 'Authenticated owner identity is required to read workforce assignments.' };
       const id = typeof args['assignmentId'] === 'string' ? args['assignmentId'].trim() : '';
@@ -94,7 +122,7 @@ export async function executeAgentTool(
         if (!UUID.test(jobId)) return { error: 'That is not a specialist job ID.' };
         return brief(await getAgentJob(db, jobId, turn.userId));
       }
-      const subjectId = subjectArg ?? turn.designOwner;
+      const subjectId = subjectArg ?? (turn.noteId?.startsWith('map:') ? turn.noteId.slice('map:'.length) : turn.designOwner);
       if (!subjectId) return { error: 'Give a jobId or subjectId, or open the Design.' };
       const ids = new Set([subjectId]);
       for (const specialist of listSpecialists()) {
@@ -108,9 +136,12 @@ export async function executeAgentTool(
     const specialistId = typeof args['specialist'] === 'string' ? args['specialist'] : '';
     const specialist = getSpecialist(specialistId);
     if (!specialist) return { error: `Unknown specialist. Choose one of: ${listSpecialists().map((s) => s.id).join(', ')}.` };
-    const subjectId = subjectArg ?? (specialist.subjectType === 'design' ? turn.designOwner : undefined);
+    const subjectId = subjectArg ?? (specialist.subjectType === 'design' ? turn.designOwner
+      : specialist.id === 'daedalus' ? turn.noteId?.replace(/^map:/, '') : undefined);
     if (!subjectId) return { error: `Say which ${specialist.subjectType} ${specialist.name} should work on.` };
     const instruction = typeof args['instruction'] === 'string' && args['instruction'].trim() ? args['instruction'].trim() : undefined;
+    const diagramInput = specialist.id === 'daedalus'
+      ? await captureDiagramRequest(db, subjectId, args, diagramAccess, turn.userMessage ?? '') : undefined;
     if (specialist.id === 'blog-writer' && hasManualBlogExecutor()) {
       const commissioned = await startChatManualBlogCommission(db, workerPool(), { subjectId, length: args['length'], instruction }, turn);
       return {
@@ -122,7 +153,7 @@ export async function executeAgentTool(
     const result = await handOff(db, {
       specialist: specialist.id,
       subjectId,
-      input: { ...(instruction ? { instruction } : {}), ...(typeof args['length'] === 'string' ? { length: args['length'] } : {}),
+      input: diagramInput ?? { ...(instruction ? { instruction } : {}), ...(typeof args['length'] === 'string' ? { length: args['length'] } : {}),
         ...(args['revision'] !== undefined ? { revision: args['revision'] } : {}) },
       conversationId: turn.sessionId ?? null,
       requestedBy: 'chat',

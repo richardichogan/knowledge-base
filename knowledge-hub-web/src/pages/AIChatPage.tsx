@@ -16,7 +16,7 @@ import {
 } from '@carbon/react';
 import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, Menu, Idea, Notebook, Copy, View, Document as DocumentIcon, Compare } from '@carbon/icons-react';
 import { api } from '../services/api';
-import { prepareDesignChat, preparePodcastChat, prepareTaskChat, prepareWorkChat } from '../utils/activeBlockNoteEditor';
+import { prepareDesignChat, prepareDiagramChat, preparePodcastChat, prepareTaskChat, prepareWorkChat } from '../utils/activeBlockNoteEditor';
 import { authSession } from '../services/authSession';
 import { describeApiError, requireApiData } from '../services/apiError';
 import { confirmDialog, alertDialog } from '../services/appDialogs';
@@ -867,10 +867,13 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       let finishDesign: ((changed: boolean) => Promise<void>) | undefined;
       let designChanged = true;
       try {
-        if (ctx?.workContentId) finishDesign = await prepareWorkChat(ctx.workContentId);
-        else if (ctx?.podcastEpisodeId) finishDesign = await preparePodcastChat(ctx.podcastEpisodeId);
-        else if (ctx?.type === 'task' && ctx.id) finishDesign = await prepareTaskChat(ctx.id);
-        else if (ctx?.conversationId && isNoteLinkedPanel) finishDesign = await prepareDesignChat(ctx.conversationId);
+        if (currentNoteId?.startsWith('map:')) finishDesign = await prepareDiagramChat(currentNoteId);
+        if (!finishDesign) {
+          if (ctx?.workContentId) finishDesign = await prepareWorkChat(ctx.workContentId);
+          else if (ctx?.podcastEpisodeId) finishDesign = await preparePodcastChat(ctx.podcastEpisodeId);
+          else if (ctx?.type === 'task' && ctx.id) finishDesign = await prepareTaskChat(ctx.id);
+          else if (ctx?.conversationId && isNoteLinkedPanel) finishDesign = await prepareDesignChat(ctx.conversationId);
+        }
         // In Athena Desktop, Athena may read and propose changes to the folders he chose on this PC.
       const desktop = getDesktop();
       let localFolders: Array<{ name: string; path: string }> = [];
@@ -913,7 +916,13 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         if (turnRunRef.current !== run) throw new TurnDetachedError();
         return result;
       } finally {
-        await finishDesign?.(designChanged);
+        try {
+          await finishDesign?.(designChanged);
+        } catch (error) {
+          console.error('[Athena] Could not reconcile the open editor after the turn', error);
+          void alertDialog(`Could not refresh the open editor: ${describeApiError(error)}. This does not undo saved changes or establish that Athena's action failed. Check the saved results and resolve any editor conflict before repeating an edit.`,
+            { title: 'Editor refresh failed', tone: 'danger' });
+        }
         if (turnRunRef.current === run) {
           liveTurnIdRef.current = null;
         }
@@ -993,6 +1002,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       void queryClient.invalidateQueries({ queryKey: ['tasks'] });
       void queryClient.invalidateQueries({ queryKey: ['notes-list'] });
       void queryClient.invalidateQueries({ queryKey: ['sparks'] });
+      void queryClient.invalidateQueries({ queryKey: ['discovery-feeds'] });
       void queryClient.invalidateQueries({ queryKey: ['spark-clusters'] });
       void queryClient.invalidateQueries({ queryKey: ['unsurfaced-count'] });
       void queryClient.invalidateQueries({ queryKey: ['today-sparks-recent'] });

@@ -4,6 +4,7 @@ import './specialists/blog.js';
 import './specialists/podcast.js';
 import './specialists/learning.js';
 import './specialists/taskAssistance.js';
+import './specialists/diagram.js';
 
 export * from './engine.js';
 export { getSpecialist, listSpecialists } from './registry.js';

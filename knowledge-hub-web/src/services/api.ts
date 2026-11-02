@@ -240,6 +240,8 @@ export interface HealthTurnMeasurements {
   sourceReadTurns: number; partialReadTurns: number; unavailableReadTurns: number; noObservedSourceTurns: number;
   repliesSaved: number; failed: number; interrupted: number; completedAfterErrors: number;
   transportRetries: number; modelErrors: number; toolErrors: number; correctness: 'unreviewed';
+  actionReliability?: { measuredTurns: number; capabilityLoads: number; capabilityDenials: number; blockedCapabilities: number;
+    receipts: number; warnings: number; contradictions: number; unconfirmedClaims: number };
   evaluated: { deterministic: number; model: number; unreviewed: number };
   daily: Array<{ day: string; accepted: number; complete: number; failed: number }>; note: string;
 }
@@ -701,7 +703,7 @@ export interface DiscoverProjectFit {
   why: string;
 }
 
-/** A feed Athena reads for article discovery. */
+/** A feed or website Athena reads for article discovery. */
 export interface DiscoveryFeed {
   id: string;
   title: string;
@@ -713,6 +715,8 @@ export interface DiscoveryFeed {
   lastError: string | null;
   lastNewCount: number;
   articlesFound: number;
+  sourceKind: 'feed' | 'website';
+  lastWarning: string | null;
 }
 
 export type NoteExtractionAction = 'spark' | 'task' | 'canvas' | 'note' | 'athena';

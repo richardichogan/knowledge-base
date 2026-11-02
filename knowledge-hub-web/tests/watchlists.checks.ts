@@ -107,7 +107,8 @@ export async function runWatchlistChecks(queryClient: QueryClient): Promise<stri
   api.getProjects = async () => ok([]);
   api.listUseCases = async () => ok([]);
   api.listDiscoveryFeeds = async () => ok([{ id: sourceId, title: 'User selected feed', feedUrl: 'https://example.com/rss',
-    groupName: 'User group', isActive: true, lastCheckedAt: now, lastSuccessAt: now, lastError: null, lastNewCount: 1, articlesFound: 1 }]);
+    groupName: 'User group', isActive: true, lastCheckedAt: now, lastSuccessAt: now, lastError: null, lastNewCount: 1, articlesFound: 1,
+    sourceKind: 'feed', lastWarning: null }]);
   api.getWatchlists = async () => ok(saved);
   api.getWatchlistRuns = async () => {
     if (failHistory) throw new Error('History fixture unavailable');

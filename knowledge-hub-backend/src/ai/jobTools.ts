@@ -1,6 +1,6 @@
 import type { Pool } from 'pg';
 import type { LlmToolDefinition } from './foundryClient.js';
-import { parseJob, text } from '../jobs/contracts.js';
+import { parseJob, text, withRunDiagnostics, type JobRun } from '../jobs/contracts.js';
 import { getJob, getRun, listJobs, pauseJob, proposeJob, runColumns } from '../jobs/store.js';
 import { ValidationError } from '../types/errors.js';
 import { env } from '../config/env.js';
@@ -35,10 +35,10 @@ export async function executeJobTool(db: Pool, args: Record<string, unknown>, se
     case 'devices': return (await db.query<Record<string, unknown>>('SELECT id,name,folders,seen_at AS "seenAt" FROM managed_job_devices ORDER BY name')).rows;
     case 'read': return args.runId ? getRun(db, id(args.runId)) : {
       job: await getJob(db, id(args.id)),
-      runs: (await db.query<Record<string, unknown>>(`SELECT ${runColumns} FROM managed_job_runs WHERE job_id=$1 ORDER BY created_at DESC LIMIT 10`, [id(args.id)])).rows,
+      runs: (await db.query<JobRun>(`SELECT ${runColumns} FROM managed_job_runs WHERE job_id=$1 ORDER BY created_at DESC LIMIT 10`, [id(args.id)])).rows.map(run => withRunDiagnostics(run)),
     };
     case 'audit': return (await db.query<Record<string, unknown>>(`SELECT actor,event,detail,created_at FROM managed_job_events
-      WHERE job_id=$1 ORDER BY id DESC LIMIT 30`, [id(args.id)])).rows;
+      WHERE ${args.runId ? 'run_id' : 'job_id'}=$1 ORDER BY id DESC LIMIT 50`, [id(args.runId ?? args.id)])).rows;
     case 'pause': await pauseJob(db, id(args.id), `chat:${sessionId ?? 'unsaved'}`); return { paused: true };
     case 'save': {
       if (!sessionId) throw new ValidationError('Save the chat before proposing a job.');

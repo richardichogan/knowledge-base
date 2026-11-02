@@ -775,6 +775,18 @@ test('daily caps count only successes, include blog-linked Bluesky and do not ca
   assert.equal(slotBlock(history.map(d => ({ ...d, status: 'failed' })), 'bluesky', now), null);
   assert.equal(slotBlock(history.map(d => ({ ...d, identity: `podcast:${d.identity}` })), 'bluesky', now), null);
 });
+test('explicit independent timing bypasses caps and spacing, never unresolved deliveries', () => {
+  const now = new Date('2026-11-02T11:30Z');
+  const history = [0, 1, 2, 3].map(i => ({
+    identity: `fixture:${i}`, status: 'sent', publishedAt: '2026-11-02T11:29Z',
+  } as Delivery));
+  assert.match(slotBlock(history, 'bluesky', now)!, /Daily/);
+  assert.match(slotBlock(history.slice(0, 1), 'bluesky', now)!, /interval/);
+  assert.equal(slotBlock(history, 'bluesky', now, true), null);
+  for (const status of ['sending', 'unconfirmed'] as const) {
+    assert.match(slotBlock([{ ...history[0]!, status }], 'bluesky', now, true)!, /unresolved/);
+  }
+});
 test('unknown outcomes reserve capacity; only definite transient failures get bounded retries', async () => {
   const f = await publishingFixture();
   try {

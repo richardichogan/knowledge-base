@@ -127,7 +127,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
       type: 'function',
       function: {
         name: 'get_discover_sources',
-        description: 'Reads the actual configured RSS/Atom feed URLs, groups, enabled/disabled state and last check errors for Discover. App-wide, not project-scoped. Always use before recommending additional feeds; exclude configured feeds including disabled ones. Not the knowledge library or integration sync list.',
+        description: 'Reads actual Discover RSS/Atom, website and YouTube subscriptions, source kinds, URLs, groups, enabled/disabled state, warnings and last check errors. App-wide, not project-scoped. Always use before recommending additional sources; exclude configured sources including disabled ones. Not the knowledge library or integration sync list.',
         parameters: { type: 'object', properties: {} },
       },
     },
@@ -135,8 +135,8 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
       type: 'function',
       function: {
         name: 'inspect_discover_feed',
-        description: 'Checks a candidate RSS/Atom feed using the app feed reader and compares it against existing subscriptions. Read-only: does not add sources or import articles. Use to verify actual feed URLs before recommending them; duplicates are not new recommendations.',
-        parameters: { type: 'object', properties: { feedUrl: { type: 'string', description: 'Public RSS/Atom feed URL, not an individual article URL.' } }, required: ['feedUrl'] },
+        description: 'Checks a candidate RSS/Atom feed, public blog listing or YouTube channel using the same reader as Discovery. Returns detected source kind, sample dated articles and warnings. Read-only: does not add sources or import articles. Compare against existing subscriptions before recommending; duplicates are not new recommendations.',
+        parameters: { type: 'object', properties: { feedUrl: { type: 'string', description: 'Public RSS/Atom feed, blog listing or YouTube channel URL, not an individual article URL.' } }, required: ['feedUrl'] },
       },
     },
     {
@@ -1034,7 +1034,7 @@ export async function executeToolCall(
     case 'get_discover_watchlist_records': return retrieveWatchlistRecords(db, args);
     case 'inspect_discover_feed': {
       const url = args['feedUrl'];
-      if (typeof url !== 'string' || url.trim() === '') return { error: 'Provide a public RSS/Atom feed URL.' };
+      if (typeof url !== 'string' || url.trim() === '') return { error: 'Provide a public RSS/Atom feed, blog listing or YouTube channel URL.' };
       return inspectDiscoverFeed(db, url.trim());
     }
     case 'search_past_chats': {

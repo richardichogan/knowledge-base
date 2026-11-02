@@ -85,6 +85,14 @@ Authenticated diagnostics use `GET /api/ai/sessions/:sessionId/traces` (20 recor
 
 ### Instrumentation dashboard and saved-trace evaluations
 
+Capability loading and action reliability use the existing permitted-tool catalogue, not keyword-based mutation routing. Relevant editor schemas are preloaded only after permission filtering. A possible false editing denial gets one bounded runtime correction; schema loading never authorises a write. Traces record capability state, load/blocked attempts, save receipts with target and revision, advisory warnings and intercepted contradictory or unsupported diagram claims. These flags can include drafts repaired before delivery, are not a semantic correctness score, and only have coverage on newly instrumented turns.
+
+Diagram saves with advisory warnings remain saved. A bounded prior-save receipt lookup uses this chat's unexpired, same-runtime traces and only admits a receipt matching the current saved diagram revision; it is withheld when exclusion resolution fails or exclusions exist. It supplies action identity, not source content, and never replays the write. A subsequent correction must reconcile that receipt rather than retract a save without evidence. Saved revision, open-editor synchronisation, queued candidate, approved application and visual quality remain distinct. The normal editor bridge saves pending work before a turn and reconciles the server revision afterwards, preserving conflicting local drafts.
+
+Managed-job reads expose derived timing and source diagnostics consistently to the existing Jobs views and Athena's `manage_scheduled_jobs` tool. Source warnings retain the affected source, error count and recorded remediation; successful ingestion is not discarded. Timing shows recorded step start/finish, start delay, schedule-to-completion duration, current blocking stage and the saved occurrence deadline. Duration is not an invented punctuality SLA; absent timestamps remain unknown. Execution success does not prove complete coverage or delivery. Audit reads can select a particular run; no diagnostic operation approves, republishes or retries it.
+
+Discovery draft refreshes and worker assessments/reviews now use existing workflow attribution, with assessment topic and review draft IDs in bounded stage names. Nested work retains its parent workflow and user/scheduled purpose. This separates future refresh passes and repeated draft reviews without changing selection, editorial checks, model routing or token budgets. Historical unattributed calls remain unattributed; token volume alone does not establish duplicate or unnecessary work.
+
 Every Health data table uses fixed 25-row pagination with previous/next controls and visible row ranges, including tables smaller than one page. Filter changes reset table pages. Workflow stage details remain inside their parent workflow row. Existing bounded API result sets remain explicitly labelled; pagination does not imply access to records outside those bounds. Table page, page size and available row count are included in Athena's page context.
 
 Health retains the supplied graphical command-centre composition: success and failure-hotspot rings, a shared indexing backlog count/bar, and compact measurement-gap indicators. A wide daily-call chart sits beside AI usage totals. Short inspection actions sit with the failure and indexing measurements rather than in a prose-heavy action card. These measurements do not establish task success or live CPU, memory, concurrency or saturation. Actions inspect feature usage or knowledge coverage; they do not automatically change models, retry jobs or claim a root cause. Workflow attribution stays in the Workflows tab as diagnostic coverage.
@@ -419,6 +427,21 @@ returns to it. Existing settings URLs remain valid, including browser Back.
 People, Companies, Activity, Sources, Knowledge graph, project cockpits and
 Knowledge health remain full-page workspaces.
 
+### Website discovery sources
+
+Discover's existing Sources form automatically recognises RSS/Atom feeds,
+YouTube channels and public blog listings, including `https://microsoft.ai/blog/`.
+Website sources use the existing schedule, article cards, relevance pipeline
+and source controls. Up to 30 unique article links are checked per listing;
+only posts with verified publication dates in the last 14 days are imported.
+Undated posts, failed article reads and bounded coverage produce visible source
+warnings, not invented dates or claims of a complete crawl. Unsupported listings
+and total read failures report errors. Website text is publisher-summary
+evidence, not a full-article read. Athena's existing source tools share the same
+reader and persistence and expose source kind, warnings and current status.
+No browser automation, third-party scraping service or automatic subscription
+is introduced. See `docs/youtube-discovery.md` for limits and operation.
+
 ### Jobs and scheduled prompts
 
 **Tools → Jobs** (`/jobs`) opens a workspace-preserving modal for schedules,
@@ -508,6 +531,16 @@ nothing was delivered. Pausing prevents new dispatch and later delivery steps;
 it cannot retract an external request already in flight. Archived jobs retain
 their history. Internal indexing, tagging, health and other maintenance timers
 remain separate and are not editable here.
+
+An explicitly approved publish-now operation for a checked weekly occurrence
+can bypass generic social feed windows, daily caps and post spacing. It still
+requires the occurrence's approval and editorial pass, checks the destination
+account, verifies the public blog, sends LinkedIn before Bluesky and retains
+receipt-based duplicate and unresolved-delivery safeguards. Normal scheduled
+runs keep their existing timing rules. CMS metadata is validated before sending,
+including the maximum of 30 tags; CMS validation rejections are failures, not
+unknown-delivery outcomes. Delivery reconciliation locks the occurrence and
+atomically saves the step, social delivery record and audit event.
 
 ### Athena chat motion
 

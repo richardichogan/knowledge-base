@@ -11,6 +11,36 @@ import { isMicrosoftRelevant } from '../src/utils/microsoftRelevance.js';
 import { buildRelevanceSystemPrompt, classifySourceAuthority, SOURCE_AUTHORITY_WEIGHTS } from '../src/integrations/cms/articleScoringPrompt.js';
 import { interestSql, learnedSourceSql } from '../src/services/discoverInterests.js';
 import { buildDiscoverRoundup } from '../src/ai/morningBriefing.js';
+import { discoverRankSql, MICROSOFT_AI_PRIORITY } from '../src/integrations/cms/discoverRank.js';
+
+test('Microsoft AI receives twice the official Microsoft ranking weight without bypassing relevance or freshness', async () => {
+  const db = new PGlite();
+  try {
+    await db.exec(`CREATE TABLE content_items(id integer, url text, metadata jsonb, relevance_score real, published_at timestamptz);
+      INSERT INTO content_items VALUES
+      (1,'https://microsoft.ai/news/model/','{}',0.8,NOW()),
+      (2,'https://www.microsoft.com/en-us/research/blog/model/','{"sourceAuthorityTier":"Microsoft/GitHub Official"}',0.8,NOW()),
+      (3,'https://microsoft.ai.evil.example/news/model/','{"sourceAuthorityTier":"Microsoft/GitHub Official","sourceTitle":"Microsoft AI"}',0.8,NOW()),
+      (4,'https://microsoft.ai/news/old/','{}',0.8,NOW()-INTERVAL '30 days'),
+      (5,'https://microsoft.ai/news/weak/','{}',0.1,NOW()),
+      (6,'https://external.example/post','{"sourceUrl":"https://microsoft.ai/blog/"}',0.8,NOW()),
+      (7,'https://other.example/post','{"discoverySourceKind":"website","sourceAuthorityTier":"Microsoft/GitHub Official"}',0.8,NOW());`);
+    const weights = discoverRankSql('ci', '$1');
+    const { rows } = await db.query<{ id: number; rank: number; authority: number }>(
+      `SELECT ci.id, ${weights.rank} AS rank, ${weights.authority} AS authority FROM content_items ci ORDER BY ci.id`, [7]);
+    const rank = (id: number) => Number(rows.find(row => row.id === id)!.rank);
+    assert.equal(MICROSOFT_AI_PRIORITY, 2);
+    assert.ok(Math.abs(rank(1) / rank(2) - 2) < 0.00001);
+    assert.equal(rank(3), rank(2), 'Lookalike hosts and editable titles receive no priority');
+    assert.equal(rank(7), rank(2), 'Other website sources receive no priority');
+    assert.equal(rank(6), rank(1), 'Articles linked from the Microsoft AI source retain its priority');
+    assert.ok(rank(4) < rank(2), 'Freshness still discounts old posts');
+    assert.ok(rank(5) < rank(2), 'Low relevance is not overridden');
+    assert.equal(classifySourceAuthority('https://microsoft.ai/news/model/', null), 'Microsoft/GitHub Official');
+    assert.equal(classifySourceAuthority('https://microsoft.ai.evil.example/model/', null), 'Unknown');
+    assert.equal(classifySourceAuthority('https://example.org/article', 'https://microsoft.ai/blog/'), 'Microsoft/GitHub Official');
+  } finally { await db.close(); }
+});
 
 test('daily roundup uses feedback ranking, bounds fresh articles, escapes excerpts and exposes failures', async () => {
   const db = new PGlite();

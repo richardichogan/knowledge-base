@@ -2,6 +2,103 @@
 
 **Status:** Validated
 
+**Section 7: Athena reliability and pending application release proof (2026-11-02):**
+- User explicitly requested deployment and selected all pending application fixes:
+  Athena capability/action evidence, editor reconciliation, Daedalus candidates,
+  website discovery and Microsoft AI ranking, and publication operations.
+  Unrelated DESIGN.md and .impeccable cache changes are excluded.
+- Fetch/merge confirmed main at bb61969c; remote main independently confirmed.
+  Existing shared packed-refs maintenance lock warning was left untouched.
+- Both application npx tsc --noEmit checks and production builds passed.
+  Lint non-regression passed: backend 544/baseline 623; frontend 22/baseline 41.
+  Fixed only new lint constants and the release-blocking diagram-context case:
+  dismissed context no longer automatically supplies the saved diagram body.
+- Full isolated frontend release checks passed. Affected isolated backend checks
+  initially passed 284/285; corrected the outdated canvas-settings fixture and
+  context-dismissal regression. Final affected diagram/context/catalogue/trace
+  checks passed 71/71; discovery constant checks passed. Previously completed
+  full backend baseline is reused for unchanged code, not represented as a new run.
+- Authenticated reads confirm Alliance Tenant Reporting
+  (c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28), kh-prod-api-vnet v288 and
+  kh-prod-web in rg-knowledge-hub-prod. Existing AZCLI application-only recipe:
+  advance backend to v289 and deploy the validated frontend dist.
+- No dependency, hosting, identity, secret or Desktop changes. Existing Container
+  App identity is None with registry credentials; provisioning, infrastructure
+  templates/what-if and new AcrPull assignments are not applicable.
+  Docker includes lockfile, all SQL migrations and normal startup migration.
+  Migration 138 adds website source metadata; startup applies it idempotently.
+- No historical publication replay, permission grants or paid trace evaluation.
+  Live Athena/editor mutation and browser checks remain unperformed.
+- Evidence: reliability-{backend-build,web-build,frontend-tests,affected-tests,
+  corrected-tests,final-affected}.log in the session files.
+
+**Release execution (2026-11-02, diagram titles and descriptions):**
+- Commit bb61969c0290688e1b8a1a959d460e67d08a0874 pushed to main and
+  richardichogan-link-think-chat-projects. ACR run ca92 built kh-prod-api:v288.
+- Revision kh-prod-api-vnet--0000285 is Healthy / RunningAtMaxScale,
+  latest-ready and serving 100% latest-revision traffic. Startup confirms
+  Migration complete, database pool 8/8 ready, specialist worker and scheduler.
+- Committed frontend deployed to kh-prod-web. Production /think HTML and its
+  /assets/index-BKyPxzGP.js entrypoint both return 200 at
+  https://athena.themicrosoftcloudblog.com/.
+- Evidence: diagram-text-{web-build,acr,swa,startup}.log in session files.
+  Temporary source snapshot, archive and dependency junctions removed.
+
+**Section 7: Diagram title and description release proof (2026-11-02):**
+- User explicitly requested deployment. Commit bb61969 contains only diagram
+  text presentation, exports, focused regressions and related Athena guidance.
+  Unfinished Daedalus, publishing operations and unrelated design edits excluded.
+- Fetch and merge of origin/main confirmed the current baseline. Shared
+  packed-refs lock maintenance warning was not modified or worked around.
+- Exact committed source archived into the session diagram-text-release snapshot,
+  using existing dependency junctions. Both npx tsc --noEmit checks and both
+  production builds passed. Credential-isolated affected diagram regressions
+  passed 62/62. Reused completed full release baseline for unchanged code.
+- Authenticated reads confirm the existing Alliance Tenant Reporting subscription,
+  kh-prod-api-vnet at v287 and kh-prod-web in rg-knowledge-hub-prod.
+  Existing AZCLI application-only recipe retained; advance backend to v288 and
+  deploy the committed frontend build. No provisioning, infrastructure, RBAC,
+  migration, identity, dependency, secret or Desktop changes are required.
+- Container App identity remains None with existing registry credentials.
+  Managed-identity AcrPull checks, templates and what-if are not applicable.
+- Saved content, geometry and existing Athena read/write tools remain unchanged.
+  Live browser and actual Athena mutation checks were not performed.
+
+**Release execution (2026-11-02, writer tag limit):**
+- Commit 1e677047 pushed to main and richardichogan-link-think-chat-projects.
+  ACR run ca91 built kh-prod-api:v287. Revision kh-prod-api-vnet--0000284
+  is Healthy / RunningAtMaxScale, latest-ready and serving 100% latest traffic.
+- Startup confirms Migration complete, database pool 8/8 ready and production
+  specialist worker and scheduler started. Existing hosted frontend and
+  /assets/index-BCeWW1ol.js both return 200; no frontend deployment was needed.
+- Evidence: tag-limit-acr.log and tag-limit-startup.log in session files.
+  Temporary source archive and dependency junctions removed after release.
+
+**Section 7: Writer CMS tag-limit release proof (2026-11-02):**
+- User requested deployment of the 30-tag writer instruction and publishing
+  guard. Commit 1e677047 contains only blogHouseStyle.ts, blogPublisher.ts and
+  their publishing regressions. Unfinished Daedalus and other pending changes
+  are excluded from the release.
+- Fetch and merge of origin/main confirmed baseline 91ae43ad. Existing shared
+  packed-refs lock caused a maintenance warning; it was not removed. Remote main
+  was independently confirmed at that baseline before release.
+- Exact committed source was archived to the session release snapshot, with
+  existing dependency directories linked rather than reinstalling packages.
+  Both npx tsc --noEmit checks and npm run build for the backend passed.
+  Credential-isolated affected blog publishing and managed job tests passed
+  42/42. Completed full release coverage above is reused for unchanged code.
+- Authenticated Azure reads confirm Alliance Tenant Reporting
+  (c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28) and kh-prod-api-vnet v286 in
+  rg-knowledge-hub-prod. Advance backend only to v287. Frontend stays unchanged.
+- Existing AZCLI application-only recipe retained; no infrastructure, RBAC,
+  dependency, identity, migration, secret or Desktop changes. Registry uses
+  its existing credential secret, not managed identity, so new AcrPull
+  assignments and provisioning are not applicable. Docker includes lockfile,
+  normal startup and all existing SQL migrations.
+- Blog validation rejects more than 30 tags before sending. Writer instructions
+  share that limit. CMS 400 remains a definite failure, while timeouts and
+  other uncertain outcomes retain duplicate-protection behaviour.
+
 **Section 7: Diagram recovery and proportionate weekly publication gate (2026-11-02):**
 - User approved cosmetic weekly findings as advisory with substantive safeguards
   retained, and explicitly requested deployment of the pending changes.

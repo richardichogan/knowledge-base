@@ -14,12 +14,22 @@ export interface TurnMeasurement {
   completeReads: number;
   unavailableReads: number;
   replySaved: boolean;
+  reliabilityObserved: boolean;
+  capabilityLoads: number;
+  capabilityDenials: number;
+  blockedCapabilities: number;
+  actionReceipts: number;
+  actionWarnings: number;
+  actionContradictions: number;
+  unconfirmedActionClaims: number;
 }
 
 export const newTurnMeasurement = (): TurnMeasurement => ({
   uiObserved: false, contextObserved: false, pageContentSupplied: false,
   modelRequests: 0, modelErrors: 0, transportRetries: 0, toolResults: 0,
   toolErrors: 0, partialReads: 0, completeReads: 0, unavailableReads: 0, replySaved: false,
+  reliabilityObserved: false, capabilityLoads: 0, capabilityDenials: 0, blockedCapabilities: 0,
+  actionReceipts: 0, actionWarnings: 0, actionContradictions: 0, unconfirmedActionClaims: 0,
 });
 
 function object(value: unknown): Record<string, unknown> {
@@ -29,6 +39,16 @@ function object(value: unknown): Record<string, unknown> {
 /** Counts observations, never infers user intent, answer correctness or a successful mutation. */
 export function observeTurnMeasurement(signals: TurnMeasurement, kind: string, value: unknown): void {
   const payload = object(value);
+  if (kind === 'capability.catalog') signals.reliabilityObserved = true;
+  if (kind === 'capability.load' && Array.isArray(payload.loaded)) signals.capabilityLoads++;
+  if (kind === 'capability.denial') signals.capabilityDenials++;
+  if (kind === 'capability.blocked') signals.blockedCapabilities++;
+  if (kind === 'action.receipt') {
+    signals.actionReceipts++;
+    if (Array.isArray(payload.warnings) && payload.warnings.length > 0) signals.actionWarnings++;
+  }
+  if (kind === 'action.contradiction') signals.actionContradictions++;
+  if (kind === 'action.unconfirmed_claim') signals.unconfirmedActionClaims++;
   if (kind === 'context.ui') signals.uiObserved = payload.uiContext !== null && payload.uiContext !== undefined;
   if (kind === 'context.resolved') {
     signals.contextObserved = true;

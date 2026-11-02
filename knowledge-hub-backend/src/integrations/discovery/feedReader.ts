@@ -165,6 +165,10 @@ export async function readFeed(feedUrl: string): Promise<FeedArticle[]> {
   if (!response.ok) throw new Error(`HTTP ${response.status.toString()}`);
   const xml = await response.text();
   if (xml.length > MAX_FEED_BYTES) throw new Error('feed is too large');
+  return parseFeedXml(xml);
+}
+
+export function parseFeedXml(xml: string): FeedArticle[] {
   if (!/<(rss|feed|rdf:RDF)\b/i.test(xml.slice(0, 2_000))) throw new Error('not an RSS or Atom feed');
 
   const doc = parser.parse(xml) as Record<string, unknown>;

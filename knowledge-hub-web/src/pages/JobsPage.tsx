@@ -18,7 +18,7 @@ const date = (v: string | null, timezone?: string): string => v ? new Date(v).to
 }) : 'Not scheduled';
 
 export function JobsPage({ onClose }: { onClose?: () => void }): React.ReactElement {
-  const { openAthena } = useAthenaContext();
+  const { openAthena, setAthenaContext } = useAthenaContext();
   const location = useLocation();
   const [params, setParams] = useSearchParams();
   const selected = params.get('jobId') ?? '';
@@ -63,6 +63,18 @@ export function JobsPage({ onClose }: { onClose?: () => void }): React.ReactElem
     return () => { active = false; window.clearInterval(timer); };
   }, [load]);
   const runId = view?.id;
+  useEffect(() => {
+    setAthenaContext({
+      type: 'job', ...(selected ? { id: selected } : {}), ...(runId ? { selectedId: runId } : {}), title: view?.definition.name ?? 'Jobs',
+      detail: JSON.stringify({ activeTab: tab, selectedJobId: selected || null, selectedRunId: runId ?? null,
+        loading, error: error || null,
+        run: view ? { id: view.id, jobId: view.jobId, status: view.status, scheduledAt: view.scheduledAt,
+          deadline: view.deadline, diagnostics: view.diagnostics, steps: view.steps.map(({ result: _result, ...step }) => step) } : null,
+        visibleRuns: runs.map(run => ({ id: run.id, jobId: run.jobId, name: run.definition.name, status: runStatusLabel(run), diagnostics: run.diagnostics })),
+        fullContent: 'Use manage_scheduled_jobs read with the selected runId for saved content, source evidence and delivery receipts; use audit for its recorded history. Do not infer publication or full coverage from execution success.' }),
+    });
+    return () => setAthenaContext(null);
+  }, [setAthenaContext, selected, runId, tab, view, runs, loading, error]);
   useEffect(() => {
     if (!linkedRun) return;
     let active = true;
@@ -181,7 +193,7 @@ export function JobsPage({ onClose }: { onClose?: () => void }): React.ReactElem
       </div>
       {tab === 'runs' ? <>
       <div className="kh-jobs__runs">{runs.map(run => <button className="kh-jobs__run" type="button" key={run.id} onClick={() => { setReconcile(''); setView(run); }}>
-        <strong>{run.definition.name}{run.preview ? ' (preview)' : ''}</strong><span className="kh-jobs__status">{runStatusLabel(run)}</span><span>{date(run.scheduledAt)} · v{run.revision}</span>
+        <strong>{run.definition.name}{run.preview ? ' (preview)' : ''}</strong><span className="kh-jobs__status">{runStatusLabel(run)}{run.diagnostics?.deadlineExceeded ? ' · Deadline exceeded' : ''}</span><span>{date(run.scheduledAt)} · v{run.revision}{run.diagnostics?.elapsedFromScheduleMs != null ? ` · ${Math.round(run.diagnostics.elapsedFromScheduleMs / 60000)} min from schedule to recorded finish` : ''}</span>
       </button>)}</div>
       {!runs.length && <div className="kh-jobs__empty"><h3>No runs to show</h3><p>{selected || status || from ? 'Try a different job, status or date.' : 'Scheduled runs and previews will appear here, along with anything needing approval.'}</p></div>}
       {(offset > 0 || runs.length >= 25) && <div className="kh-jobs__actions"><button type="button" disabled={!offset} onClick={() => setOffset(Math.max(0, offset - 25))}>Newer</button>
@@ -257,8 +269,20 @@ export function JobsPage({ onClose }: { onClose?: () => void }): React.ReactElem
       {['failed', 'partial'].includes(view.status) && <button className="kh-dialog__button" disabled={busy} type="button" onClick={() => { void act(async () => { await api.jobs(`/runs/${view.id}/retry`, 'POST', {}); setView(await api.jobs<JobRun>(`/runs/${view.id}`)); }); }}>Re-run</button>}
     </>}>
       <div className="kh-jobs"><JobSummary definition={view.definition} /><p>Occurrence: {date(view.scheduledAt)} · Version {view.revision} · {view.preview ? 'Preview — no delivery' : 'Live run'}</p>
+        {view.diagnostics ? <section className="kh-jobs__diagnostics" aria-label="Run timing and source coverage">
+          <h3>Timing and source coverage</h3>
+          <p>Started: {view.diagnostics.startedAt ? date(view.diagnostics.startedAt) : 'Not recorded'} · Finished: {view.diagnostics.finishedAt ? date(view.diagnostics.finishedAt) : 'Not recorded'}</p>
+          <p>Start delay: {view.diagnostics.startDelayMs === null ? 'Unknown' : `${Math.round(view.diagnostics.startDelayMs / 60000)} min`} · Schedule to recorded finish: {view.diagnostics.elapsedFromScheduleMs === null ? 'Unknown' : `${Math.round(view.diagnostics.elapsedFromScheduleMs / 60000)} min`}</p>
+          <p className={view.diagnostics.deadlineExceeded ? 'kh-jobs__warning' : 'kh-jobs__muted'}>Deadline: {date(view.deadline)}{view.diagnostics.deadlineExceeded ? ' — exceeded' : ''}{view.diagnostics.blockingStage ? ` · Current stage: ${view.diagnostics.blockingStage}` : ''}</p>
+          {view.diagnostics.sourceWarnings.map(source => <div key={source.source} className="kh-jobs__warning">
+            <strong>{source.source}: {source.errors} source error{source.errors === 1 ? '' : 's'}</strong>
+            <JobArtifacts value={source.failures.length ? source.failures : { note: 'No structured remediation recorded. Inspect this source’s sync diagnostics.' }} />
+          </div>)}
+          <p className="kh-jobs__muted">{view.diagnostics.note}</p>
+        </section> : <p className="kh-jobs__muted">Timing and source-coverage diagnostics are unavailable from this server.</p>}
         {view.status === 'awaiting-approval' && <p>Approve the exact payloads below. The confirmed public blog URL will be appended to the shown social copy after blog publication.</p>}
-        {view.steps.map(s => <div className="kh-jobs__event" key={s.key}><strong>{s.key} · {s.status}</strong>{s.error && <p>{s.error}</p>}
+        {view.steps.map(s => <div className="kh-jobs__event" key={s.key}><strong>{s.key} · {s.status}</strong>
+          <p className="kh-jobs__muted">Started: {s.startedAt ? date(s.startedAt) : 'Not recorded'} · Finished: {s.finishedAt ? date(s.finishedAt) : 'Not recorded'}</p>{s.error && <p>{s.error}</p>}
           {s.result !== undefined && <details><summary>Step output</summary><JobArtifacts value={s.result} /></details>}</div>)}
         <h3>Saved output and delivery artifacts</h3><JobArtifacts value={view.artifacts} />
         {view.status === 'unconfirmed' && <div className="kh-jobs__editor"><h3>Reconcile uncertain delivery</h3><p>Check the destination first. Never retry an uncertain post without checking whether it exists.</p>

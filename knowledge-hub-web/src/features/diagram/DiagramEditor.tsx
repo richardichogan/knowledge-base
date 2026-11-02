@@ -29,6 +29,7 @@ import {
 } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import { confirmDialog } from '../../services/appDialogs';
+import { setDiagramChatBridge } from '../../utils/activeBlockNoteEditor';
 import { DiagramChatProvider, DiagramChatTarget, useDiagramChatScope } from './DiagramChatScope';
 import type { AthenaPageContext } from '../../context/AthenaContext';
 import type { CanvasFullApi } from '../../services/api';
@@ -269,6 +270,12 @@ const DiagramEditorBody: React.FC<DiagramEditorProps> = ({ canvasId, onDeleted, 
     onSaveReady?.(async () => false);
     return () => { onSaveReady?.(null); };
   }, [choosingRecovery, onSaveReady]);
+  useEffect(() => {
+    if (!choosingRecovery) return;
+    return setDiagramChatBridge(`map:${canvasId}`, async () => {
+      throw new Error('Load the diagram and resolve its recovery decision before asking Athena to work on it.');
+    });
+  }, [canvasId, choosingRecovery]);
 
   useEffect(() => {
     let alive = true;
@@ -651,6 +658,27 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, recovered, 
     onSaveReady?.(saveNow);
     return () => { onSaveReady?.(null); };
   }, [onSaveReady, saveNow]);
+
+  useEffect(() => setDiagramChatBridge(`map:${canvasId}`, async () => {
+    if (!await saveNow()) throw new Error('Finish the open label edit and resolve any diagram save error or recovery conflict before asking Athena to work on it.');
+    return async () => {
+      if (save.current.discard || noteDraftIdentity.snapshot() !== draftSession) return;
+      const current = await api.getDiagram(canvasId);
+      if (!current.success) throw new Error(current.error.message);
+      if (current.data.revision === save.current.rev) return;
+      void queryClient.invalidateQueries({ queryKey: ['canvases'] });
+      void queryClient.invalidateQueries({ queryKey: ['canvas', canvasId] });
+      void queryClient.invalidateQueries({ queryKey: ['diagram-versions', canvasId] });
+      if (save.current.seq !== save.current.savedSeq || pendingLabel.current !== null || save.current.inflight !== null) {
+        save.current.blocked = 'conflict';
+        setSaveStatus('conflict');
+        setSaveError('The saved diagram changed while you were editing. Your local draft is retained; resolve the conflict before saving.');
+        return;
+      }
+      save.current.discard = true;
+      onReload();
+    };
+  }), [canvasId, draftSession, onReload, queryClient, saveNow]);
 
   async function openShapeDrilldown(node: DiagramNode): Promise<void> {
     if (openingDrilldownRef.current) return;

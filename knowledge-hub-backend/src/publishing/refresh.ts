@@ -5,9 +5,15 @@ import { draftColumns, event, intake, listTopics, topicColumns, writtenPublishin
 import { PUBLISH_LIMITS, type Draft, type Topic } from './contracts.js';
 import { microsoftRelevanceSql } from '../utils/microsoftRelevance.js';
 import { ConflictError } from '../types/errors.js';
+import { withAiWorkflow } from '../ai/aiWorkflow.js';
 
 const key = 'athena-discover-publishing';
 export async function refreshPublishingDrafts(db: Pool, services: EditorialServices = editorialServices, actor = 'content-sync', heldLock?: PoolClient): Promise<void> {
+  return withAiWorkflow(db, { feature: 'discovery-draft-refresh', purpose: actor === 'content-sync' ? 'scheduled' : 'user', independent: true },
+    () => refreshDrafts(db, services, actor, heldLock));
+}
+
+async function refreshDrafts(db: Pool, services: EditorialServices, actor: string, heldLock?: PoolClient): Promise<void> {
   const lock = heldLock ?? await db.connect();
   let acquired = heldLock !== undefined;
   try {
