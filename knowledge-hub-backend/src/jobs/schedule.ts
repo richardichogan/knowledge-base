@@ -17,7 +17,7 @@ export function localClock(date: Date, timezone: string): { day: string; time: s
   return { day: `${part('year')}-${part('month')}-${part('day')}`, time: `${part('hour')}:${part('minute')}` };
 }
 
-function wallInstant(day: string, time: string, timezone: string): Date {
+export function wallInstant(day: string, time: string, timezone: string): Date {
   const wall = Date.parse(`${day}T${time}:00Z`);
   const offsets = new Set<number>();
   for (const delta of [-OFFSET_PROBE_HOURS, -HALF_DAY_HOURS, 0, HALF_DAY_HOURS, OFFSET_PROBE_HOURS]) {

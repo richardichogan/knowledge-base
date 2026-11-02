@@ -20,6 +20,7 @@ export type TaskType = 'standard' | 'cert_session' | 'cert_review';
 export type RecurringCadence = 'daily' | 'weekly' | 'fortnightly' | 'monthly';
 
 export interface PlanTask {
+  assistanceStatus?: 'queued' | 'failed' | 'skipped';
   id: string;
   title: string;
   body: string;

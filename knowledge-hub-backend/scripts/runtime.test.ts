@@ -168,6 +168,7 @@ test('durable runs and claims track partial outcomes, interruptions and never re
   const db = new PGlite();
   await db.exec('CREATE TABLE ai_chat_sessions (id TEXT PRIMARY KEY, pending_turn JSONB)');
   await db.exec(await readFile(new URL('../src/db/migrations/065_runtime_runs.sql', import.meta.url), 'utf8'));
+  await db.exec('ALTER TABLE sync_runs ADD COLUMN environment TEXT; ALTER TABLE scheduled_job_claims ADD COLUMN environment TEXT');
   await db.exec('CREATE TABLE agent_jobs(id UUID PRIMARY KEY)');
   for (const file of ['054_ai_usage_log.sql', '067_ai_usage_measured.sql', '117_ai_workflow_attribution.sql']) {
     await db.exec(await readFile(new URL(`../src/db/migrations/${file}`, import.meta.url), 'utf8'));

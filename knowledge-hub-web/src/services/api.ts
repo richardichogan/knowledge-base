@@ -4,6 +4,7 @@
  */
 
 import axios, { type AxiosInstance } from 'axios';
+import { requestTaskStatusChange, type TaskStatusMove } from './taskStatusChanges';
 import type { Relationship, RelationshipScope } from '../types/entityRelationships';
 import type { Design, DesignAsset, DesignDetail, DesignArtifact, DesignFeedback, DesignCollaboration, DesignProposal, DesignPackage, DesignPublication } from '../types/designs';
 import type {
@@ -48,6 +49,7 @@ import type {
   CreateUseCaseInput, DraftSpecResult, HandoffInput, HandoffResult, UseCase, UseCaseDetail, UseCasePatch, UseCaseSourceRef,
 } from '../types/useCases';
 import type { PodcastPrepStatus } from '../types/podcastPrep';
+import { requestCompletionNotifications } from '../chat/completionNotification';
 import type { PodcastEpisode, ScriptCard } from '../types/podcastEpisodes';
 import type { WorkContent, WorkContentPatch } from '../types/workContent';
 import type { LearningOverview, LearningQuestionView, LearningSession, LearningMessage, LearningTopicHistory } from '../types/learning';
@@ -224,11 +226,35 @@ export interface HealthUsageTotals {
   totalTokens: number; avgLatencyMs: number | null;
 }
 export interface HealthWorkflowData {
+  outcomes?: { ready: number; notRecorded: number; retryAttempts: number; withoutJobIdentity: number };
   attributedCalls: number; unattributedCalls: number; rowsTruncated: boolean;
   totals: { runs: number; completed: number; failed: number; unfinished: number; reviewBlocked: number; delivered: number };
   runs: Array<{ id: string; feature: string; purpose: string; attempt: number; status: string; outcome: string | null;
     startedAt: string; finishedAt: string | null; durationMs: number | null; calls: number; tokens: number | null; unmeasuredCalls: number }>;
   stages: Array<{ runId: string; stage: string; calls: number; tokens: number | null; failures: number; durationMs: number }>;
+}
+export interface HealthTurnMeasurements {
+  firstRecordedAt: string | null; retentionDays: number;
+  accepted: number; finished: number; captureComplete: number; missingTraces: number; incompleteCaptures: number;
+  unfinished: number; signalsMeasured: number; uiObserved: number; contextObserved: number; pageContentSupplied: number;
+  sourceReadTurns: number; partialReadTurns: number; unavailableReadTurns: number; noObservedSourceTurns: number;
+  repliesSaved: number; failed: number; interrupted: number; completedAfterErrors: number;
+  transportRetries: number; modelErrors: number; toolErrors: number; correctness: 'unreviewed';
+  evaluated: { deterministic: number; model: number; unreviewed: number };
+  daily: Array<{ day: string; accepted: number; complete: number; failed: number }>; note: string;
+}
+export interface HealthTrace {
+  id: string; session_id: string; environment: string; started_at: string; finished_at: string | null;
+  status: string; capture_complete: boolean;
+}
+export interface HealthSpan {
+  id: string; parent_id: string | null; name: string; kind: string; started_at: string;
+  finished_at: string | null; status: string; duration_ms: number | null; attributes: unknown;
+}
+export interface HealthEvaluation {
+  id: string; method: 'deterministic' | 'model'; version: string; model: string | null; environment: string;
+  status: string; created_at: string;
+  report: { checks: Array<{ criterion: string; verdict: 'pass' | 'fail' | 'uncertain'; reason: string; evidenceSequences: number[] }>; note: string } | null;
 }
 export interface KnowledgeHealth {
   generatedAt: string;
@@ -243,11 +269,16 @@ export interface KnowledgeHealth {
     firstRecordedAt: string | null;
   }>;
   syncRuns: HealthSection<{
-    runs: Array<{ id: string; status: string; startedAt: string; finishedAt: string | null; sources: Array<{ source: string; indexed: number; errors: number;
+    runs: Array<{ id: string; status: string; startedAt: string; finishedAt: string | null; environment?: string | null; sources: Array<{ source: string; indexed: number; errors: number;
       failures?: Array<{ target: string; code: string; action: string }> }> }>;
-    jobs: Array<{ job: string; period: string; status: string; startedAt: string; finishedAt: string | null }>;
+    jobs: Array<{ job: string; period: string; status: string; startedAt: string; finishedAt: string | null; environment?: string | null }>;
   }>;
   workflows?: HealthSection<HealthWorkflowData>;
+  measurements?: HealthSection<HealthTurnMeasurements>;
+  reliability?: HealthSection<{
+    daily: Array<{ day: string; calls: number; failures: number }>;
+    features: Array<{ feature: string; calls: number; failures: number }>;
+  }>;
   index: HealthSection<{
     sources: Array<{ source: string; items: number; lastIndexedAt: string | null }>;
     scoring: { discoveredArticles: number; unscored: number };
@@ -287,7 +318,7 @@ export interface HealthFamilies {
   families: HealthFamily[];
   semantic: {
     state: HealthSemanticState; providerConfigured: boolean; message: string;
-    work: { measured: boolean; pending: number | null; failed: number | null; done: number | null };
+    work: { measured: boolean; pending: number | null; failed: number | null; done: number | null; oldestPendingAt?: string | null; oldestFailedAt?: string | null };
   };
   orchestrationEnabled: boolean;
   decisionTablesMeasured: boolean;
@@ -410,7 +441,7 @@ export type ProjectColour =
   | 'red' | 'magenta' | 'purple' | 'indigo' | 'warm-gray' | 'gray';
 export type ProjectCategory = 'work' | 'personal' | 'side-hustle';
 export type ProjectPriority = 'low' | 'medium' | 'high';
-export type ProjectType = 'standard' | 'formal-client';
+export type ProjectType = 'project' | 'bau' | 'aspiration' | 'exploration' | 'side-project';
 export type ProjectLifecycleState = 'active' | 'paused' | 'completed' | 'archived';
 export type ProjectImportance = 'critical' | 'high' | 'normal' | 'low';
 
@@ -614,6 +645,7 @@ export interface DiscoverItem {
   title: string;
   url: string | null;
   description: string | null;
+  publisherSummaryOrigin?: 'feed' | 'seo';
   publishedAt: string;
   indexedAt: string;
   sourceTitle: string;
@@ -902,6 +934,22 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
+  async listHealthTraces(params: KnowledgeHealthParams, offset = 0): Promise<ApiResponse<{ items: HealthTrace[]; nextOffset: number | null }>> {
+    return (await this.client.get<ApiResponse<{ items: HealthTrace[]; nextOffset: number | null }>>('/api/health/traces', { params: { ...params, offset } })).data;
+  }
+  async getHealthTraceSpans(trace: HealthTrace, offset = 0): Promise<ApiResponse<{ items: HealthSpan[]; nextOffset: number | null }>> {
+    return (await this.client.get<ApiResponse<{ items: HealthSpan[]; nextOffset: number | null }>>(
+      `/api/health/traces/${encodeURIComponent(trace.id)}/spans`, { params: { sessionId: trace.session_id, offset } })).data;
+  }
+  async getHealthTraceEvaluations(trace: HealthTrace): Promise<ApiResponse<HealthEvaluation[]>> {
+    return (await this.client.get<ApiResponse<HealthEvaluation[]>>(`/api/health/traces/${encodeURIComponent(trace.id)}/evaluations`,
+      { params: { sessionId: trace.session_id } })).data;
+  }
+  async evaluateHealthTrace(trace: HealthTrace, method: 'deterministic' | 'model', confirmModel = false): Promise<ApiResponse<HealthEvaluation>> {
+    return (await this.client.post<ApiResponse<HealthEvaluation>>(`/api/health/traces/${encodeURIComponent(trace.id)}/evaluations`,
+      { sessionId: trace.session_id, method, confirmModel }, { timeout: 150_000 })).data;
+  }
+
   async getSources(): Promise<ApiResponse<SourceStatus[]>> {
     const r = await this.client.get<ApiResponse<SourceStatus[]>>('/api/sources');
     return r.data;
@@ -980,7 +1028,9 @@ export class KnowledgeHubApi {
 
   async savePassageFollowup(noteId: string, tagId: string, task?: { title: string; body: string; projectId: string; passageText: string }): Promise<ApiResponse<{
     taskId: string | null; state: 'pending' | 'created';
+    assistanceStatus?: 'queued' | 'failed' | 'skipped';
   }>> {
+    if (task) requestCompletionNotifications();
     return (await this.client.post(`/api/notes/${encodeURIComponent(noteId)}/passage-followups/${encodeURIComponent(tagId)}`, task ?? {})).data;
   }
 
@@ -1148,6 +1198,18 @@ export class KnowledgeHubApi {
 
   async dismissSessionTurn(sessionId: string): Promise<void> {
     await this.client.delete(`/api/ai/session/${sessionId}/turn`);
+  }
+
+  async listChatTurnTraces(sessionId: string, offset = 0): Promise<ApiResponse<import('../types/ai').ChatTurnTraceList>> {
+    const r = await this.client.get<ApiResponse<import('../types/ai').ChatTurnTraceList>>(
+      `/api/ai/sessions/${encodeURIComponent(sessionId)}/traces`, { params: { offset } });
+    return r.data;
+  }
+
+  async readChatTurnTrace(sessionId: string, traceId: string, sequence = 1, offset = 0): Promise<ApiResponse<import('../types/ai').ChatTurnTraceEventPage>> {
+    const r = await this.client.get<ApiResponse<import('../types/ai').ChatTurnTraceEventPage>>(
+      `/api/ai/sessions/${encodeURIComponent(sessionId)}/traces/${encodeURIComponent(traceId)}/events`, { params: { sequence, offset } });
+    return r.data;
   }
 
   // ─── Chat side panel: Outputs and Decisions ─────────────────────────────────
@@ -1644,14 +1706,63 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  async createTask(input: CreateTaskInput): Promise<ApiResponse<PlanTask>> {
-    const r = await this.client.post<ApiResponse<PlanTask>>('/api/tasks', input);
+  async createTask(input: CreateTaskInput): Promise<ApiResponse<PlanTask & { assistanceStatus?: 'queued' | 'failed' | 'skipped' }>> {
+    requestCompletionNotifications();
+    const r = await this.client.post<ApiResponse<PlanTask & { assistanceStatus?: 'queued' | 'failed' | 'skipped' }>>('/api/tasks', input);
     return r.data;
   }
 
   async updateTask(id: string, input: Record<string, unknown>): Promise<ApiResponse<PlanTask>> {
+    if (typeof input.status === 'string' && input.statusChangeNote === undefined) {
+      const current = await this.getTaskStatusSnapshot(id);
+      if (current.status !== input.status) {
+        let saved: ApiResponse<PlanTask> | undefined;
+        await requestTaskStatusChange([{ taskId: id, title: current.title, from: current.status, to: input.status }],
+          async note => {
+            const response = await this.updateTask(id, { ...input, statusChangeNote: note, expectedStatus: current.status });
+            if (!response.success) throw new Error(response.error.message);
+            saved = response;
+          });
+        if (!saved) throw new Error('The status change was not saved.');
+        return saved;
+      }
+    }
+    if (input.status !== undefined && input.status !== 'inbox' && input.status !== 'completed') requestCompletionNotifications();
     const r = await this.client.patch<ApiResponse<PlanTask>>(`/api/tasks/${id}`, input);
     return r.data.success && r.data.data ? { ...r.data, data: normaliseTask(r.data.data) } : r.data;
+  }
+
+  async getTaskStatusSnapshot(id: string): Promise<PlanTask> {
+    const response = (await this.client.get<ApiResponse<PlanTask>>(`/api/tasks/${encodeURIComponent(id)}`)).data;
+    if (!response.success) throw new Error(response.error.message);
+    return normaliseTask(response.data);
+  }
+
+  async reviewTaskStatusChanges(changes: Array<{ taskId: string; status: string; reason?: string; waitingOn?: string; expectedStatus?: string }>): Promise<void> {
+    const moves: TaskStatusMove[] = [];
+    for (const change of changes) {
+      const task = await this.getTaskStatusSnapshot(change.taskId);
+      if (change.expectedStatus !== undefined && task.status !== change.expectedStatus) throw new Error('The task status changed since Athena proposed the move. Review the current task.');
+      if (task.status !== change.status) moves.push({ taskId: task.id, title: task.title, from: task.status, to: change.status });
+    }
+    if (!moves.length) return;
+    const applied = new Set<string>();
+    await requestTaskStatusChange(moves, async note => {
+      try {
+        for (const move of moves) {
+          if (applied.has(move.taskId)) continue;
+          const change = changes.find(item => item.taskId === move.taskId);
+          const response = await this.updateTask(move.taskId, { status: move.to, expectedStatus: move.from, statusChangeNote: note,
+            ...(change?.waitingOn !== undefined ? { waitingOn: change.waitingOn } : {}),
+            ...(change?.reason ? { statusProposedBy: 'athena' } : {}) });
+          if (!response.success) throw new Error(response.error.message);
+          applied.add(move.taskId);
+        }
+      } catch (error) {
+        if (!applied.size) throw error;
+        throw new Error(`${applied.size} task(s) saved. Remaining moves were not saved; retry submits only those remaining. ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }, changes.map(change => change.reason ?? '').filter(Boolean).join('\n\n'));
   }
 
   async reviewPlan(today: string): Promise<ApiResponse<PlanReview>> {
@@ -1745,6 +1856,32 @@ export class KnowledgeHubApi {
   async getProjectCockpit(id: string): Promise<ApiResponse<ProjectCockpit>> {
     const r = await this.client.get<ApiResponse<ProjectCockpit>>(`/api/projects/${encodeURIComponent(id)}/cockpit`);
     return r.data;
+  }
+  async downloadDeliverable(id: string, format: 'docx' | 'pptx', revision: number, noteRevision: number): Promise<{ blob: Blob; filename: string }> {
+    const response = await this.client.post<Blob>(`/api/work-content/${encodeURIComponent(id)}/download`,
+      { format, revision, noteRevision }, { responseType: 'blob', timeout: IMAGE_UPLOAD_TIMEOUT_MS }).catch(async (error: unknown) => {
+      if (axios.isAxiosError(error) && error.response?.data instanceof Blob
+        && error.response.data.type.includes('json')) {
+        error.response.data = JSON.parse(await error.response.data.text()) as unknown;
+      }
+      throw error;
+    });
+    const disposition = String(response.headers['content-disposition'] ?? '');
+    const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+    if (!encoded) throw new Error('The generated download did not include a file name.');
+    return { blob: response.data, filename: decodeURIComponent(encoded) };
+  }
+  async getProgressReviews(id: string, offset = 0): Promise<ApiResponse<import('../types/progressReview').ProgressReviewPage>> {
+    return (await this.client.get<ApiResponse<import('../types/progressReview').ProgressReviewPage>>(
+      `/api/projects/${encodeURIComponent(id)}/progress-reviews`, { params: { offset } })).data;
+  }
+  async getProgressReview(id: string, reviewId: string): Promise<ApiResponse<import('../types/progressReview').ProgressReview>> {
+    return (await this.client.get<ApiResponse<import('../types/progressReview').ProgressReview>>(
+      `/api/projects/${encodeURIComponent(id)}/progress-reviews/${encodeURIComponent(reviewId)}`)).data;
+  }
+  async generateProgressReview(id: string, requestId: string): Promise<ApiResponse<import('../types/progressReview').ProgressReview>> {
+    return (await this.client.post<ApiResponse<import('../types/progressReview').ProgressReview>>(
+      `/api/projects/${encodeURIComponent(id)}/progress-reviews`, { requestId }, { timeout: CHAT_TIMEOUT_MS })).data;
   }
   async getProjectChanges(id: string, since: string): Promise<ApiResponse<import('../types/workContext').ProjectChanges>> {
     return (await this.client.get<ApiResponse<import('../types/workContext').ProjectChanges>>(
@@ -2060,6 +2197,12 @@ export class KnowledgeHubApi {
       { params: { state, source, page, pageSize, title, sort, format } },
     );
     return r.data;
+  }
+
+  async getDiscoverPublisherSummary(id: string): Promise<ApiResponse<{ text: string | null; origin: 'feed' | 'seo' }>> {
+    return (await this.client.get<ApiResponse<{ text: string | null; origin: 'feed' | 'seo' }>>(
+      `/api/discover/${encodeURIComponent(id)}/publisher-summary`, { timeout: CHAT_TIMEOUT_MS },
+    )).data;
   }
 
   async getDiscoverSources(state?: string): Promise<ApiResponse<Array<{ title: string; count: number }>>> {
@@ -2387,7 +2530,22 @@ export class KnowledgeHubApi {
     return (await this.client.post<ApiResponse<WorkContent>>(`/api/work-content/${encodeURIComponent(id)}/sent`, { revision, noteRevision, confirmed: true })).data;
   }
   async confirmEmailWaiting(id: string, revision: number, taskUpdatedAt: string | null): Promise<ApiResponse<WorkContent>> {
-    return (await this.client.post<ApiResponse<WorkContent>>(`/api/work-content/${encodeURIComponent(id)}/waiting`, { revision, taskUpdatedAt, confirmed: true })).data;
+    const work = await this.getWorkContent(id);
+    if (!work.success) throw new Error(work.error.message);
+    if (!work.data.taskId) throw new Error('This draft has no linked task.');
+    const task = await this.getTaskStatusSnapshot(work.data.taskId);
+    const save = async (note?: string): Promise<ApiResponse<WorkContent>> =>
+      (await this.client.post<ApiResponse<WorkContent>>(`/api/work-content/${encodeURIComponent(id)}/waiting`,
+        { revision, taskUpdatedAt, confirmed: true, expectedStatus: task.status, statusChangeNote: note })).data;
+    if (task.status === 'waiting') return save();
+    let result: ApiResponse<WorkContent> | undefined;
+    await requestTaskStatusChange([{ taskId: task.id, title: task.title, from: task.status, to: 'waiting' }], async note => {
+      const saved = await save(note);
+      if (!saved.success) throw new Error(saved.error.message);
+      result = saved;
+    }, `Waiting on ${work.data.to} after sending the linked email.`);
+    if (!result) throw new Error('The waiting-on change was not saved.');
+    return result;
   }
   async ensurePodcastPrepDocument(id: string): Promise<ApiResponse<PodcastEpisode>> {
     return (await this.client.post<ApiResponse<PodcastEpisode>>(`/api/podcast-episodes/${encodeURIComponent(id)}/prep/document`)).data;
@@ -2401,13 +2559,16 @@ export class KnowledgeHubApi {
   async listPodcastScriptJobs(subjectId: string): Promise<ApiResponse<AgentJob[]>> {
     return (await this.client.get<ApiResponse<AgentJob[]>>('/api/agent-jobs', { params: { subjectType: 'podcast-episode', subjectId, limit: 10 } })).data;
   }
-  async uploadPodcastTranscript(id: string, file: File, revision: number): Promise<ApiResponse<PodcastEpisode>> {
+  async uploadPodcastTranscript(id: string, file: File, revision: number): Promise<ApiResponse<PodcastEpisode & { teaserPreparationError?: string }>> {
     const formData = new FormData();
     formData.append('revision', String(revision));
     formData.append('file', file);
-    return (await this.client.post<ApiResponse<PodcastEpisode>>(`/api/podcast-episodes/${encodeURIComponent(id)}/transcript`, formData, {
+    return (await this.client.post<ApiResponse<PodcastEpisode & { teaserPreparationError?: string }>>(`/api/podcast-episodes/${encodeURIComponent(id)}/transcript`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' }, timeout: IMAGE_UPLOAD_TIMEOUT_MS,
     })).data;
+  }
+  async preparePodcastRecordingTeaser(id: string, revision: number): Promise<ApiResponse<AgentHandOffResult>> {
+    return (await this.client.post<ApiResponse<AgentHandOffResult>>(`/api/podcast-episodes/${encodeURIComponent(id)}/recording-teaser/prepare`, { revision })).data;
   }
   async startPodcastShowNotes(id: string): Promise<ApiResponse<PodcastEpisode>> {
     return (await this.client.post<ApiResponse<PodcastEpisode>>(`/api/podcast-episodes/${encodeURIComponent(id)}/show-notes/session`)).data;
@@ -2481,6 +2642,11 @@ export class KnowledgeHubApi {
 
   async getImageFile(id: string): Promise<Blob> {
     return (await this.client.get<Blob>(`/api/images/${encodeURIComponent(id)}/file`, { responseType: 'blob' })).data;
+  }
+
+  async getPodcastArtworkSource(noteId: string, postId: string): Promise<Blob> {
+    return (await this.client.get<Blob>(`/api/publishing/podcasts/${encodeURIComponent(noteId)}/posts/${encodeURIComponent(postId)}/image/source`,
+      { responseType: 'blob' })).data;
   }
 
   async updateCanvas(id: string, patch: { title?: string; description?: string; project?: string | null; viewport?: object; brainstormSettings?: BrainstormSettings }): Promise<ApiResponse<CanvasSummaryApi>> {
@@ -2687,6 +2853,22 @@ export class KnowledgeHubApi {
   async checkDesignConsistency(id: string, requestedChange?: string): Promise<ApiResponse<import('../types/designs').DesignConsistencyReport>> {
     return (await this.client.post<ApiResponse<import('../types/designs').DesignConsistencyReport>>(
       `/api/designs/${encodeURIComponent(id)}/consistency`, { requestedChange }, { timeout: 150_000 })).data;
+  }
+  async getDesignReadiness(id: string, offset = 0, status: 'open' | 'resolved' = 'open'): Promise<ApiResponse<import('../types/designs').DesignReadiness>> {
+    return (await this.client.get<ApiResponse<import('../types/designs').DesignReadiness>>(
+      `/api/designs/${encodeURIComponent(id)}/readiness`, { params: { offset, status } })).data;
+  }
+  async checkDesignReadiness(id: string, specId: string): Promise<ApiResponse<import('../types/designs').DesignReadiness>> {
+    return (await this.client.post<ApiResponse<import('../types/designs').DesignReadiness>>(
+      `/api/designs/${encodeURIComponent(id)}/readiness`, { specId }, { timeout: 150_000 })).data;
+  }
+  async prepareDesignReadinessRepair(id: string, assessmentId: string, findingId: string, instruction: string, allowSyntheticFixtures: boolean): Promise<ApiResponse<import('../types/designs').DesignReadiness>> {
+    return (await this.client.post<ApiResponse<import('../types/designs').DesignReadiness>>(
+      `/api/designs/${encodeURIComponent(id)}/readiness/repairs`, { assessmentId, findingId, instruction, allowSyntheticFixtures }, { timeout: 150_000 })).data;
+  }
+  async resolveDesignReadinessRepair(id: string, proposalId: string, accept: boolean): Promise<ApiResponse<{ noteIds: string[] }>> {
+    return (await this.client.post<ApiResponse<{ noteIds: string[] }>>(
+      `/api/designs/${encodeURIComponent(id)}/readiness/repairs/${encodeURIComponent(proposalId)}/resolve`, { accept })).data;
   }
   async generateDesignArtifact(id: string, instruction: string, onProgress?: (message: string) => void): Promise<ApiResponse<DesignArtifact>> {
     if (onProgress) {

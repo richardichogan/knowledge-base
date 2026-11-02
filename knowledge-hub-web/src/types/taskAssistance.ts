@@ -4,7 +4,7 @@ import type { AgentJob, AgentHandOffResult } from './agentJobs';
 export interface TaskAssistanceProposal {
   id: string;
   proposal: {
-    kind: 'research' | 'email' | 'unsupported';
+    kind: 'research' | 'email' | 'support';
     summary: string; approach: string; output: string;
     questions: string[]; humanDecisions: string[]; publicQueries: string[];
   };

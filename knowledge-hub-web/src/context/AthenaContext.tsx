@@ -13,6 +13,11 @@
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 
 export interface AthenaPageContext {
+  designId?: string;
+  designTab?: 'use_case' | 'spec' | 'architecture' | 'diagram';
+  revision?: number;
+  selectedIds?: { nodes: string[]; edges: string[] };
+  saveState?: string;
   workContentId?: string;
   workContent?: import('../types/workContent').WorkContent;
   podcastEpisodeId?: string;

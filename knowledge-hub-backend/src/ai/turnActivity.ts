@@ -6,6 +6,8 @@
 
 const LABELS: Record<string, string> = {
   get_project_details: 'Reading current project details',
+  read_project_progress_reviews: 'Reading saved project progress reviews',
+  generate_project_progress_review: 'Reviewing the last seven days of project evidence',
   search_past_chats: 'Searching your past conversations',
   read_past_chat: 'Reading an earlier conversation',
   get_discover_sources: 'Reading your Discover feed subscriptions',
@@ -22,6 +24,7 @@ const LABELS: Record<string, string> = {
   search_ica: 'Searching the ICA document collections',
   fetch_web_page: 'Reading a web page',
   list_tasks: 'Checking your tasks',
+  read_task_activity: 'Reading saved task status notes and activity',
   create_task: 'Preparing a task',
   update_task: 'Updating a task',
   create_note_draft: 'Drafting a Think note',

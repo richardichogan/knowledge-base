@@ -17,6 +17,7 @@ test('primary workspaces retain their routes including GitHub Build', () => {
 
 test('configuration routes open settings dialogs while working destinations stay pages', () => {
   assert.equal(settingsView('/memory'), 'memory');
+  assert.equal(settingsView('/publishing'), 'publishing');
   assert.equal(settingsView('/settings/repo-mappings'), 'repo-projects');
   assert.equal(settingsView('/my-work', '?sync=1'), 'sync');
   assert.equal(settingsView('/learn', '?session=one&question=2'), 'learning');
@@ -42,6 +43,7 @@ test('settings navigation preserves the exact workspace location, including unsa
   assert.equal(settingsBackground({ ...modal, state: settingsLinkState({ ...workspace, pathname: '//elsewhere' }) }), undefined);
   const jobs = { ...modal, pathname: '/jobs', search: '?jobId=job-1&runId=run-1' };
   assert.deepEqual(settingsBackground(jobs), workspace, 'a job run opens without replacing the underlying workspace');
+  assert.deepEqual(settingsBackground({ ...modal, pathname: '/publishing' }), workspace, 'Publishing preserves the existing workspace and editor state');
   assert.deepEqual(settingsBackground({ ...jobs, search: '?jobId=job-2' }), workspace, 'filtering history keeps the return location');
   const learning = { ...modal, pathname: '/learn', search: '?session=one&question=2' };
   assert.deepEqual(settingsBackground(learning), workspace, 'learning opens over the exact existing workspace');
@@ -59,6 +61,8 @@ test('supporting records, configuration and management are separated without los
   assert.equal(selectedTool('/companies', '?companyId=abc')?.label, 'Companies');
   assert.equal(selectedTool('/projects', '')?.label, 'Projects');
   assert.equal(selectedTool('/jobs', '')?.label, 'Jobs');
+  assert.equal(selectedTool('/publishing', '')?.label, 'Publishing');
+  assert.equal(TOOL_GROUPS[2]!.items.find(item => item.id === 'publishing')?.path, '/publishing');
   assert.equal(settingsView('/jobs'), 'jobs', 'Jobs opens over the current workspace');
   assert.equal(settingsView('/jobs', '?jobId=job-1&runId=run-1'), 'jobs', 'run deep links retain the modal');
   assert.equal(TOOL_GROUPS[2]!.items.find((item) => item.id === 'projects')?.path, '/projects');

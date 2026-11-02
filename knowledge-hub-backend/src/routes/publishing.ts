@@ -17,6 +17,7 @@ import type { ScheduledPodcastPost } from '../publishing/podcastCampaign.js';
 import { createPodcastCampaignRouter } from './podcastCampaigns.js';
 import { listPodcastSchedule, podcastDeliveryPost } from '../publishing/podcastCampaignStore.js';
 import { publishingRefreshStatus, startPublishingDraftRefresh } from '../publishing/refresh.js';
+import { listPublishingContent } from '../publishing/content.js';
 
 export function publishingProduction(): void {
   if (env.NODE_ENV !== 'production' && !env.isDevelopment) throw new ValidationError('Publishing changes require an application server or an isolated production-mode test.');
@@ -99,6 +100,7 @@ export function createPublishingRouter(getDb: () => Pool = defaultGetDb): Router
     return [...regular, ...podcast].sort((a, b) => (a.scheduledAt ?? 'z').localeCompare(b.scheduledAt ?? 'z'));
   };
   router.get('/schedule', route(schedule));
+  router.get('/content', route(() => listPublishingContent(getDb())));
   router.post('/schedule/refresh', route(async () => {
     publishingProduction(); await refreshSchedule(getDb()); return schedule();
   }));

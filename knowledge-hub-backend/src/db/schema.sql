@@ -209,8 +209,8 @@ CREATE TABLE IF NOT EXISTS projects (
                    CHECK (category IN ('work','personal','side-hustle')),
   priority         TEXT NOT NULL DEFAULT 'medium'
                    CHECK (priority IN ('low','medium','high')),
-  project_type     TEXT NOT NULL DEFAULT 'standard'
-                   CHECK (project_type IN ('standard','formal-client')),
+  project_type     TEXT NOT NULL DEFAULT 'project'
+                   CHECK (project_type IN ('project','bau','aspiration','exploration','side-project')),
   description      TEXT NOT NULL DEFAULT '',
   goal             TEXT NOT NULL DEFAULT '',
   role             TEXT NOT NULL DEFAULT '',
@@ -240,6 +240,17 @@ CREATE INDEX IF NOT EXISTS idx_projects_category
 
 CREATE INDEX IF NOT EXISTS idx_projects_priority
   ON projects (priority);
+
+CREATE TABLE IF NOT EXISTS project_progress_reviews (
+  id UUID PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  request_id UUID NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  payload JSONB NOT NULL CHECK (jsonb_typeof(payload) = 'object'),
+  UNIQUE (project_id, request_id)
+);
+CREATE INDEX IF NOT EXISTS project_progress_reviews_history
+  ON project_progress_reviews(project_id, created_at DESC, id DESC);
 
 -- ── Global tags (Change 007) ──────────────────────────────────────────────────
 -- Canonical tag registry — grows automatically as tags are used anywhere in the

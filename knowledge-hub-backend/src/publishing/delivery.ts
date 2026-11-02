@@ -21,6 +21,7 @@ export class BlogVerificationPending extends PublicationUnconfirmed {
 export interface DeliveryContext {
   identity: string; topicId?: string; draftId?: string; version?: number; feed?: FeedId;
   distinctArgument?: boolean; now?: Date;
+  independentSchedule?: boolean;
   authorize?: (client: PoolClient) => Promise<void>;
 }
 export function inWindow(policy: FeedPolicy, now: Date): boolean {
@@ -35,6 +36,7 @@ export function destinationAccount(destination: Destination, member?: string): s
   return new URL(env.BLOG_POSTS_URL).host;
 }
 export function slotBlock(history: Delivery[], destination: Destination, now: Date): string | null {
+  history = history.filter(delivery => !delivery.identity.startsWith('podcast:'));
   if (history.some(d => d.status === 'sending' || d.status === 'unconfirmed')) return 'An earlier delivery is unresolved. Reconcile it before sending again.';
   if (destination === 'blog') return null;
   const day = localClock(now, 'Europe/London').day;
@@ -61,12 +63,15 @@ export async function reserveDelivery(db: Pool, destination: Destination, accoun
     if (context.feed) {
       const feed = settings.find(f => f.id === context.feed);
       if (!feed?.enabled) throw new PublicationDeferred('Posting automation is off for this feed.');
-      if (!inWindow(feed.policy, now)) throw new PublicationDeferred('Outside the configured publishing window.');
+      if (!context.independentSchedule && !inWindow(feed.policy, now)) throw new PublicationDeferred('Outside the configured publishing window.');
     }
     await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`athena-publish:${destination}:${account}`]);
     const existing = (await c.query<Delivery>(`SELECT ${deliveryColumns} FROM publishing_deliveries WHERE identity=$1 AND destination=$2 FOR UPDATE`, [context.identity, destination])).rows[0];
     if (existing?.account && existing.account !== account) throw new PublicationDeferred('Publishing account changed. Re-review the destination before continuing.');
     if (existing?.status === 'sent') return existing;
+    if (existing?.status === 'sending' || existing?.status === 'unconfirmed') {
+      throw new PublicationDeferred('This delivery is unresolved. Reconcile it before sending again.');
+    }
     if (context.topicId) {
       const topic = await c.query<{ state: string }>('SELECT state FROM publishing_topics WHERE id=$1 FOR NO KEY UPDATE', [context.topicId]);
       if (!topic.rows[0] || topic.rows[0].state !== 'ready') throw new PublicationDeferred('Topic is held, rejected or not ready.');
@@ -109,7 +114,7 @@ export async function reserveDelivery(db: Pool, destination: Destination, accoun
     const history = (await c.query<Delivery>(`SELECT ${deliveryColumns} FROM publishing_deliveries
       WHERE destination=$1 AND account=$2 AND (attempted_at>$3::timestamptz-INTERVAL '2 days' OR published_at>$3::timestamptz-INTERVAL '2 days' OR status IN ('sending','unconfirmed'))`,
     [destination, account, now.toISOString()])).rows;
-    const blocked = slotBlock(history, destination, now);
+    const blocked = context.independentSchedule ? null : slotBlock(history, destination, now);
     if (blocked) throw new PublicationDeferred(blocked);
     if (context.topicId) {
       if (destination === 'bluesky') {

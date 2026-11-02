@@ -3,7 +3,9 @@ import type { Pool } from 'pg';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { object } from '../jobs/contracts.js';
 import { uuid } from '../publishing/contracts.js';
-import { decidePodcastCampaign, getPodcastCampaign, preparePodcastCampaign, savePodcastLinks } from '../publishing/podcastCampaignStore.js';
+import { decidePodcastCampaign, getPodcastCampaign, preparePodcastCampaign, savePodcastLinks, replacePodcastYoutubeLink, saveRecordingTeaserCopy, savePodcastImageSpec, retryPodcastCreationReview } from '../publishing/podcastCampaignStore.js';
+import { loadPodcastArtworkSource } from '../publishing/podcastCampaignAssets.js';
+import { NotFoundError } from '../types/errors.js';
 
 export function createPodcastCampaignRouter(getDb: () => Pool): Router {
   const router = Router();
@@ -12,9 +14,30 @@ export function createPodcastCampaignRouter(getDb: () => Pool): Router {
   };
   const actor = (req: Request): string => (req as AuthenticatedRequest).userId;
   router.get('/:id', route(req => getPodcastCampaign(getDb(), uuid(req.params.id))));
+  router.get('/:id/posts/:postId/image/source', (req, res, next) => {
+    void Promise.resolve().then(async () => {
+      const campaign = await getPodcastCampaign(getDb(), uuid(req.params.id));
+      const post = campaign.plan?.posts.find(post => post.id === uuid(req.params.postId));
+      if (!post?.asset) throw new NotFoundError('Podcast artwork');
+      const source = await loadPodcastArtworkSource(post.asset);
+      res.type('image/svg+xml').attachment(`podcast-${post.id}.svg`).send(source);
+    }).catch(next);
+  });
+  router.put('/:id/posts/:postId', route(req => {
+    const body = object(req.body);
+    return saveRecordingTeaserCopy(getDb(), uuid(req.params.id), body.revision, uuid(req.params.postId), body.copy, actor(req));
+  }));
+  router.put('/:id/posts/:postId/image', route(req => {
+    const body = object(req.body);
+    return savePodcastImageSpec(getDb(), uuid(req.params.id), body.revision, uuid(req.params.postId), body.spec, actor(req));
+  }));
   router.put('/:id/links', route(req => {
     const body = object(req.body);
     return savePodcastLinks(getDb(), uuid(req.params.id), body.revision, body.links, actor(req));
+  }));
+  router.put('/:id/links/youtube', route(req => {
+    const body = object(req.body);
+    return replacePodcastYoutubeLink(getDb(), uuid(req.params.id), body.revision, body.previous, body.replacement, actor(req));
   }));
   router.post('/:id/prepare', route(req => {
     const body = object(req.body);
@@ -23,6 +46,10 @@ export function createPodcastCampaignRouter(getDb: () => Pool): Router {
   router.post('/:id/decision', route(req => {
     const body = object(req.body);
     return decidePodcastCampaign(getDb(), uuid(req.params.id), body.revision, body.action, actor(req));
+  }));
+  router.post('/:id/review', route(req => {
+    const body = object(req.body);
+    return retryPodcastCreationReview(getDb(), uuid(req.params.id), body.revision);
   }));
   return router;
 }

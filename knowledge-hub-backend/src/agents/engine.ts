@@ -155,6 +155,8 @@ interface HandOffRequest {
   requestedBy: 'app' | 'chat';
   /** The user agreed to the plan, including anything it overwrites. */
   confirmed?: boolean;
+  /** Automatic creation hooks must not repeat a previous attempt, even after completion or failure. */
+  once?: boolean;
 }
 
 /** Hands work to a specialist. Queues prerequisites first and wakes the worker. */
@@ -194,6 +196,16 @@ export async function handOff(db: Pool, request: HandOffRequest): Promise<HandOf
       }
       await client.query('COMMIT');
       return { status: 'already_running', job: toJob(same) };
+    }
+    if (request.once) {
+      const prior = await client.query(`SELECT input FROM agent_jobs
+        WHERE subject_type=$1 AND subject_id=$2 AND specialist=$3 AND assignment_id IS NULL
+          AND NOT (status='done' AND COALESCE(result->'data'->>'skipped','false')='true')`,
+      [specialist.subjectType, subject.id, specialist.id]);
+      if (prior.rows.some((row: { input: Record<string, unknown> }) =>
+        contentSignature(specialist.parseInput ? specialist.parseInput(row.input) : row.input) === contentSignature(input))) {
+        throw new ConflictError('This automatic specialist request has already been attempted. Retry explicitly.', 'AGENT_ALREADY_REQUESTED');
+      }
     }
     if (active[0]) {
       const busy = getSpecialist(active[0].specialist)?.name ?? 'Another specialist';

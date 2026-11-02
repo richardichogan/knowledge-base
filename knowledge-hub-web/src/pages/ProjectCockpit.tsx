@@ -12,6 +12,7 @@ import './ProjectCockpit.css';
 import { ReviewPackets } from './ReviewPackets';
 import { CollapsibleSection } from '../components/CollapsibleSection';
 import { ProjectChanges } from '../components/ProjectChanges';
+import { ProjectProgressReviews } from '../components/ProjectProgressReviews';
 
 const KIND_LABEL: Record<ProjectRegisterKind, string> = { question: 'Question', risk: 'Risk', issue: 'Issue' };
 const PAGE = 25;
@@ -39,10 +40,10 @@ const LinkList: React.FC<LinkListProps> = ({ title, section, empty, action, comp
               {compact ? <a className="conn-item" href={link.href}>
                 <span className="conn-item__title">{link.label}</span>
                 <span className="conn-item__reason">{[link.meta, when(link.at)].filter(Boolean).join(' · ')}</span>
-              </a> : <>
+              </a> : <div className="pcp-link">
                 <a href={link.href}>{link.label}</a>
                 <span className="pcp-meta">{[link.meta, when(link.at)].filter(Boolean).join(' · ')}</span>
-              </>}
+              </div>}
               {action?.(link)}
             </li>
           ))}
@@ -156,7 +157,7 @@ const Register: React.FC<{ projectId: string }> = ({ projectId }) => {
   );
 };
 
-export const ProjectCockpitContent: React.FC<{ projectId: string; compact?: boolean }> = ({ projectId, compact = false }) => {
+export const ProjectCockpitContent: React.FC<{ projectId: string; compact?: boolean; embedded?: boolean }> = ({ projectId, compact = false, embedded = false }) => {
   const qc = useQueryClient();
   const [promoteError, setPromoteError] = useState<string | null>(null);
   const [promoted, setPromoted] = useState<Set<string>>(new Set());
@@ -180,19 +181,19 @@ export const ProjectCockpitContent: React.FC<{ projectId: string; compact?: bool
   };
 
   return (
-      <div className={`pcp${compact ? ' pcp--compact' : ''}`}>
-        {cockpit.isLoading && <InlineLoading description="Loading cockpit…" />}
-        {cockpit.error && <DataNotice title="The cockpit could not be loaded." error={cockpit.error} onRetry={() => { void cockpit.refetch(); }} />}
+      <div className={`pcp${compact ? ' pcp--compact' : ''}${embedded ? ' pcp--embedded' : ''}`}>
+        {cockpit.isLoading && <InlineLoading description={embedded ? 'Loading project work…' : 'Loading cockpit…'} />}
+        {cockpit.error && <DataNotice title={embedded ? 'Project work could not be loaded.' : 'The cockpit could not be loaded.'} error={cockpit.error} onRetry={() => { void cockpit.refetch(); }} />}
         {data && (
           <>
-            <section className="pcp-outcome" aria-label="Outcome">
+            {!embedded && <section className="pcp-outcome" aria-label="Outcome">
               {data.outcome.available ? (
                 <>
                   <p className={data.outcome.data.goal ? 'pcp-goal' : 'pcp-empty'}>{data.outcome.data.goal || 'No goal recorded for this project yet.'}</p>
                   <p className="pcp-meta">
                     {data.outcome.data.lifecycleState}
                     {data.outcome.data.targetEndDate ? ` · target ${data.outcome.data.targetEndDate}` : ''}
-                    {` · ${data.outcome.data.expectedOutputs.length} expected outputs`}
+                    {` · ${data.outcome.data.expectedOutputs.length} deliverables`}
                   </p>
                   {data.outcome.data.expectedOutputs.length > 0 && (
                     <ul className="pcp-outputs">{data.outcome.data.expectedOutputs.map((o, i) => <li key={i}>{o}</li>)}</ul>
@@ -200,9 +201,10 @@ export const ProjectCockpitContent: React.FC<{ projectId: string; compact?: bool
                 </>
               ) : <Unavailable title="Outcome" />}
               {!compact && <p className="pcp-meta">Counts come from linked items only; no completion score is inferred. Updated {new Date(data.generatedAt).toLocaleTimeString('en-GB')}.</p>}
-            </section>
+            </section>}
 
             {!compact && <h2 className="pcp-step">Actionable work</h2>}
+            {embedded && <ProjectProgressReviews key={projectId} projectId={projectId} />}
             <ProjectChanges key={projectId} projectId={projectId} />
             <LinkList title="Waiting" section={data.blockers} empty="Nothing waiting on others." compact={compact} />
             <LinkList title="Open commitments" section={data.commitments} empty="No open tasks linked to this project." compact={compact} />

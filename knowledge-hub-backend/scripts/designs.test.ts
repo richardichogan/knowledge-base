@@ -18,10 +18,88 @@ import { createPackage, packageArchive, preparePublication, publishPackage, vali
 import { AUTHORING_CONTRACT, authoredForModel, authoredTarget, parseAuthored, renderAuthored, selectionBelongs } from '../src/designs/visualArtifact.js';
 import { DESIGN_CHAT_TOOLS, executeDesignTool, type DesignTurnState } from '../src/ai/designTools.js';
 import { validateConsistencyFindings } from '../src/designs/designConsistency.js';
+import { mechanicalReadiness, pageReadiness, parseReadinessReview, readinessPassages, READINESS_RULE_VERSION, type ReadinessReport } from '../src/designs/designReadiness.js';
+import { DEMO_SPECIFICATION_TEMPLATE } from '../src/ai/demoSpecificationTemplate.js';
 
 const ROOT = 'b028adff-5851-4203-915f-67f2ab889433';
 const SPEC = '00000000-0000-4000-8000-000000000002';
 const OTHER = '00000000-0000-4000-8000-000000000003';
+const checkedAt = '2026-11-01T21:37:00Z';
+const readinessSource = (markdown: string) => ({ id: SPEC, role: 'spec', revision: 2, title: 'Demo specification', markdown, blocks: [] });
+const reviewCoverage = (passageId: string, gap = false) => ['scenario', 'actors', 'fixtures', 'permissions', 'workforce', 'dependencies',
+  'lifecycle', 'responses', 'screens', 'acceptance', 'traceability', 'authority'].map(obligation => ({
+  obligation, status: gap && obligation === 'fixtures' ? 'gap' : 'covered', explanation: 'Located the relevant agreed content.',
+  evidence: [{ passageId }],
+}));
+
+test('saved IMAGINE template checks retain exact obligations and distinguish live prerequisites', () => {
+  const source = readinessSource(DEMO_SPECIFICATION_TEMPLATE);
+  const checked = mechanicalReadiness(source, checkedAt);
+  assert.equal(checked.complete, true);
+  assert.ok(checked.findings.some(finding => finding.target.includes('Business problem') && finding.kind === 'blocker'));
+  assert.ok(checked.findings.some(finding => finding.kind === 'execution-prerequisite'));
+  const repeated = mechanicalReadiness(source, '2026-11-02T00:00:00Z');
+  assert.deepEqual(checked.findings.map(finding => finding.id), repeated.findings.map(finding => finding.id));
+  const duplicate = mechanicalReadiness(readinessSource(`${DEMO_SPECIFICATION_TEMPLATE}\n## 1. Duplicate\n`), checkedAt);
+  assert.equal(duplicate.complete, false, 'ambiguous structure is not empty success');
+  const fenced = mechanicalReadiness(readinessSource(`${DEMO_SPECIFICATION_TEMPLATE}\n\`\`\`md\n## 1. Example only\n\`\`\``), checkedAt);
+  assert.equal(fenced.complete, true, 'example headings in code are not template sections');
+  const missingSection = mechanicalReadiness(readinessSource('## 1. Business outcome\n'), checkedAt);
+  assert.ok(missingSection.findings.some(finding => finding.rule === 'section:9' && finding.kind === 'blocker'));
+});
+
+test('semantic readiness requires actual citations and explicitly evidenced resolution', () => {
+  const source = readinessSource('Fixtures will be added later.\nSynthetic starting record CASE-1: status=open.');
+  const citation = { passageId: 'p1' };
+  const finding = { obligation: 'fixtures', kind: 'blocker', explanation: 'A heading is not fixture records.',
+    expectedEvidence: 'Concrete labelled starting records.', evidence: [citation] };
+  const result = parseReadinessReview(JSON.stringify({ complete: true, limitations: [], coverage: reviewCoverage(citation.passageId, true), findings: [finding], resolutions: [] }), [source], SPEC, checkedAt);
+  assert.equal(result.findings[0]?.origin, 'semantic');
+  assert.equal(result.findings[0]?.evidence[0]?.revision, source.revision);
+  assert.equal(result.findings[0]?.evidence[0]?.quote, 'Fixtures will be added later.');
+  const resolved = parseReadinessReview(JSON.stringify({ complete: true, limitations: [], coverage: reviewCoverage('p2'), findings: [],
+    resolutions: [{ obligation: 'fixtures', explanation: 'Starting data is recorded.', evidence: [{ passageId: 'p2' }] }] }), [source], SPEC, checkedAt);
+  assert.ok(resolved.resolutions.has(result.findings[0]!.id));
+  assert.throws(() => parseReadinessReview(JSON.stringify({ complete: true, limitations: [], coverage: reviewCoverage(citation.passageId, true),
+    findings: [{ ...finding, evidence: [{ passageId: 'p999999' }] }], resolutions: [] }), [source], SPEC, checkedAt), /verified/);
+  assert.throws(() => parseReadinessReview(JSON.stringify({ complete: true, limitations: [], coverage: reviewCoverage(citation.passageId, true),
+    findings: [{ ...finding, evidence: [{ ...citation, quote: 'Invented data' }] }], resolutions: [] }), [source], SPEC, checkedAt), /not generated quotations/);
+  assert.throws(() => parseReadinessReview(JSON.stringify({ complete: false, limitations: [], coverage: reviewCoverage(citation.passageId), findings: [], resolutions: [] }), [source], SPEC, checkedAt), /partial review/);
+  assert.throws(() => parseReadinessReview(JSON.stringify({ complete: true, limitations: [], coverage: reviewCoverage(citation.passageId, true), findings: [finding, finding], resolutions: [] }), [source], SPEC, checkedAt), /duplicate/);
+  assert.throws(() => parseReadinessReview(JSON.stringify({ complete: true, limitations: [], coverage: reviewCoverage(citation.passageId, true), findings: [finding],
+    resolutions: [{ obligation: 'fixtures', explanation: 'Resolved.', evidence: [citation] }] }), [source], SPEC, checkedAt), /both open and resolved/);
+});
+
+test('readiness passages preserve saved wording and bind diagram evidence to textual elements', () => {
+  const text = 'No actual sign-in userId or approved identity reference for the permitted publisher has been supplied.';
+  const source = readinessSource(`${text}\n${'x'.repeat(4001)}`);
+  const diagram = { id: OTHER, role: 'diagram', revision: 3, title: 'Flow', markdown: '', blocks: [],
+    document: { nodes: [{ id: 'approval', label: 'Wait for the controller', description: 'Approval must precede publication.' }],
+      edges: [{ id: 'proceed', label: 'Approved', from: 'approval', to: 'publication' }] } };
+  const passages = readinessPassages([source, diagram]);
+  assert.equal(passages[0]?.quote, text, 'the server copies the saved phrase without inserting a negation');
+  assert.equal(passages.filter(passage => passage.sourceId === SPEC).slice(1).map(passage => passage.quote).join(''), 'x'.repeat(4001));
+  assert.ok(passages.every(passage => passage.quote.length <= 1600));
+  assert.equal(new Set(passages.map(passage => passage.passageId)).size, passages.length);
+  assert.deepEqual(passages.filter(passage => passage.sourceId === OTHER).map(({ quote, elementId }) => ({ quote, elementId })),
+    [{ quote: 'Wait for the controller', elementId: 'approval' }, { quote: 'Approval must precede publication.', elementId: 'approval' },
+      { quote: 'Approved', elementId: 'proceed' }]);
+});
+
+test('readiness findings are separately paged without losing complete counts or freshness', () => {
+  const findings = mechanicalReadiness(readinessSource(DEMO_SPECIFICATION_TEMPLATE), checkedAt).findings;
+  assert.ok(findings.length > 20);
+  const report: ReadinessReport = { id: ROOT, designRevision: 1, specId: SPEC, checkedAt,
+    ruleVersion: READINESS_RULE_VERSION, templateVersion: 'imagine-demo-specification-v1', fingerprint: 'fingerprint',
+    complete: true, limitations: [], coverage: [], sources: [], findings };
+  const first = pageReadiness({ state: 'stale', sourceError: null, report, proposal: null });
+  assert.equal(first.report?.findings.length, 20);
+  assert.equal(first.nextOffset, 20);
+  assert.equal(first.state, 'stale');
+  assert.equal(first.counts.blockers + first.counts.executionPrerequisites, findings.length);
+  assert.equal(pageReadiness({ state: 'blocked', sourceError: null, report, proposal: null }, 0, 'resolved').report?.findings.length, 0);
+  assert.equal(pageReadiness({ state: 'not-assessed', sourceError: null, report: null, proposal: null }).report, null);
+});
 const writing = (title: string, contentType: string, text: string): string =>
   JSON.stringify({ title, contentType, contentJson: JSON.stringify([{ id: 'body', type: 'paragraph', content: [{ type: 'text', text, styles: { bold: true } }], children: [] }]) });
 const blueprint = {
@@ -339,7 +417,7 @@ test('real parent conversion, source identity, persisted feedback, atomic accept
   }
   const original = writing('Claims', 'use-case', 'Original requirement');
   await local.query('INSERT INTO notes(id,content) VALUES($1,$2),($3,$4)', [ROOT, original, SPEC, writing('Claims spec', 'spec', 'Original specification')]);
-  for (const file of ['104_design_note_artifacts.sql', '105_design_note_parent_trigger.sql', '111_design_specification_type.sql']) await local.exec(await readFile(new URL(`../src/db/migrations/${file}`, import.meta.url), 'utf8'));
+  for (const file of ['104_design_note_artifacts.sql', '105_design_note_parent_trigger.sql', '111_design_specification_type.sql', '133_design_specification_readiness.sql']) await local.exec(await readFile(new URL(`../src/db/migrations/${file}`, import.meta.url), 'utf8'));
   let failSecondWrite = false;
   const query = async (sql: string, values?: unknown[]) => {
     if (failSecondWrite && sql.includes('UPDATE notes SET content') && values?.[0] === ROOT) throw new Error('Injected second-source failure');
@@ -484,7 +562,11 @@ test('real parent conversion, source identity, persisted feedback, atomic accept
       assert.equal(patches, 1, 'retry verifies the prior commit without republishing');
     } finally { credential.mock.restore(); ghGet.mock.restore(); ghGetOptional.mock.restore(); ghPost.mock.restore(); ghPatch.mock.restore(); }
 
-    assert.deepEqual(DESIGN_CHAT_TOOLS.map(tool => tool.function.name), ['read_design_package', 'save_design_documents']);
+    assert.deepEqual(DESIGN_CHAT_TOOLS.map(tool => tool.function.name), [
+      'read_design_readiness_repair', 'read_design_readiness', 'read_design_readiness_history',
+      'check_design_readiness', 'prepare_design_readiness_repair', 'discard_design_readiness_repair',
+      'read_design_package', 'save_design_documents',
+    ]);
     const chatState: DesignTurnState = { changedNoteIds: [] };
     const owner = design.parentNoteId;
     await assert.rejects(executeDesignTool(getDb(), 'save_design_documents', owner, {}, {}, chatState), /Read the current Design/);

@@ -309,7 +309,7 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
         onExplore(item);
       }}
       data-ctx-title={item.title}
-      data-ctx-body={item.relevanceExplanation ?? undefined}
+      data-ctx-body={[!item.contentBasis && item.description ? `Publisher summary (${item.publisherSummaryOrigin ?? 'feed'}; not a full article read): ${item.description}` : '', item.relevanceExplanation ? `Athena assessment: ${item.relevanceExplanation}` : ''].filter(Boolean).join('\n') || undefined}
       data-ctx-source={item.sourceTitle ?? undefined}
       data-ctx-url={item.url ?? undefined}
       data-ctx-type="hub_ref"
@@ -333,7 +333,6 @@ const DiscoverCard: React.FC<CardProps> = ({ item, onStateChange, isUpdating, on
         <h3 className="dc-card-title">{item.title}</h3>
       </div>
 
-      {item.parking && item.description && <p className="dc-parking-excerpt">{item.description}</p>}
       {(item.alreadyCovered ?? 0) > 0 && item.coveredBy !== null && item.coveredBy !== undefined && (
         <p className="dc-card-covered" title="Athena found one of your own pieces on this">
           {item.alreadyCovered === 2 ? 'You’ve already covered this' : 'Related to something you’ve written'}: <em>{item.coveredBy}</em>
@@ -554,8 +553,7 @@ export const DiscoverPage: React.FC = () => {
       <PageHeader title="Discover" subtitle={isWatchlists ? 'Purpose-led monitoring · private, versioned comparisons' : isCfps
               ? `${(cfpQuery.data?.success ? cfpQuery.data.data : []).length} CFPs to review`
               : feedQuery.isLoading ? 'Loading…' : `${total} article${total !== 1 ? 's' : ''} · ${activeTabDef?.label ?? ''}`} actions={
-        <><button type="button" className="dc-sources-toggle" onClick={() => setPublishingOpen(true)}>Publishing</button>
-        <button type="button" className="dc-sources-toggle" onClick={() => setInterestsOpen(true)}>Interests</button>
+        <><button type="button" className="dc-sources-toggle" onClick={() => setInterestsOpen(true)}>Interests</button>
         <button type="button" className="dc-sources-toggle" aria-expanded={sourcesOpen} onClick={() => { setSourcesOpen((o) => !o); }}>
           {sourcesOpen ? 'Hide sources' : 'Sources'}
         </button></>

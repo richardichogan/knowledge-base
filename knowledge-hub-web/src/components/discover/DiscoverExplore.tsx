@@ -17,6 +17,7 @@ import { launchFromRef } from '../../features/useCases/useCaseView';
 import { DiscoverParkingAction } from './DiscoverParkingAction';
 import { YouTubeEvidenceNotice } from './YouTubeEvidenceNotice';
 import { DiscoverVote } from './DiscoverVote';
+import { PublisherSummary, usePublisherSummary } from './PublisherSummary';
 
 interface DiscoverExploreProps {
   item: DiscoverItem;
@@ -41,6 +42,7 @@ function anglePrompt(item: DiscoverItem): string {
 }
 
 export const DiscoverExplore: React.FC<DiscoverExploreProps> = ({ item, tagNames, isUpdating, onClose, onStateChange, onLinkedIn, onBlog, embedded = false, publishedUrlEditor }) => {
+  const publisherSummary = usePublisherSummary(item);
   const exploreTags = identitiesFor(useIdentity(), item.taxonomyTagIds ?? []);
   const closeRef = useRef<HTMLButtonElement>(null);
   const [copied, setCopied] = useState(false);
@@ -91,7 +93,11 @@ export const DiscoverExplore: React.FC<DiscoverExploreProps> = ({ item, tagNames
           </div>
           <p className="dc-article-verdict"><span>Athena assessment</span><strong>{verdict}</strong></p>
           <h2 id="dc-explore-title" className="dc-explore__title">{item.title}</h2>
-          <p className="dc-article-heading__assessment">{item.relevanceExplanation ?? 'Athena has not assessed this article yet.'}</p>
+          {!item.contentBasis && <PublisherSummary summary={publisherSummary} />}
+          <div className="dc-article-pick-reason">
+            <h3>Why Athena picked it</h3>
+            <p>{item.relevanceExplanation?.trim() || 'Athena has not assessed this article yet.'}</p>
+          </div>
           <YouTubeEvidenceNotice item={item} />
           {!embedded && <button ref={closeRef} type="button" className="dc-explore__close" onClick={onClose} aria-label="Close">
             <Close size={20} />
@@ -231,7 +237,7 @@ export const DiscoverExplore: React.FC<DiscoverExploreProps> = ({ item, tagNames
             openAthena(anglePrompt(item), {
               type: 'discover item',
               title: item.title,
-              detail: [item.sourceTitle, item.contentBasis === 'description-only' ? 'YouTube description only; no transcript. Do not infer spoken claims, quotes or timestamps. Use attributed secondary research to explain unfamiliar subjects; keep it separate from video claims.' : item.contentBasis === 'captions' ? 'YouTube public captions available; may be automatic or incomplete. Do not invent speech.' : '', item.relevanceExplanation ?? '', item.sparkReason ?? '', item.url ?? '', ...(item.relatedArticles ?? []).map(article => `Secondary background: ${article.title} ${article.url}`)].filter(Boolean).join(' | '),
+              detail: [item.sourceTitle, publisherSummary.text ? `Publisher summary (${publisherSummary.origin}; not a full article read): ${publisherSummary.text}` : '', item.contentBasis === 'description-only' ? 'YouTube description only; no transcript. Do not infer spoken claims, quotes or timestamps. Use attributed secondary research to explain unfamiliar subjects; keep it separate from video claims.' : item.contentBasis === 'captions' ? 'YouTube public captions available; may be automatic or incomplete. Do not invent speech.' : '', item.relevanceExplanation ?? '', item.sparkReason ?? '', item.url ?? '', ...(item.relatedArticles ?? []).map(article => `Secondary background: ${article.title} ${article.url}`)].filter(Boolean).join(' | '),
             });
             if (!embedded) onClose();
           }}>

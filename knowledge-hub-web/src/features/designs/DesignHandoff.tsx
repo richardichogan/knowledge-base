@@ -68,6 +68,10 @@ export const DesignHandoff: React.FC<{ design: DesignDetail; prepare: () => Prom
       <button type="button" className="kh-btn-accent" disabled={busy} onClick={() => { create.mutate(); }}>
         {create.isPending ? 'Preparing package...' : snapshot ? 'Create a new snapshot' : 'Prepare snapshot'}</button>
       {snapshot && <>
+        {snapshot.manifest.specificationReadiness && <p className="kh-design-readiness__warning" role="status">
+          IMAGINE readiness: {snapshot.manifest.specificationReadiness.state}. {snapshot.manifest.specificationReadiness.warning}
+          {' '}Handoff remains available; implementation and live acceptance are separate.
+        </p>}
         <p className={snapshot.manifest.ready ? 'kh-design-hint' : 'kh-uc-error'} role="status">
           {snapshot.manifest.ready ? 'Current complete package.' : 'Incomplete / open decisions — not labelled ready.'}
           {snapshot.manifest.missingInputs.length > 0 && ` Missing: ${snapshot.manifest.missingInputs.join(', ')}.`}

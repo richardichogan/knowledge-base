@@ -16,6 +16,8 @@ import { ValidationError, NotFoundError } from '../types/errors.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 import { IDENTITY_COLOURS, IDENTITY_PALETTE, type IdentityColour } from '../services/identityPalette.js';
 import { projectGitHubRepositories } from '../integrations/github/projectContext.js';
+import { PROJECT_TYPES, type ProjectType } from '../services/projectTypes.js';
+export type { ProjectType } from '../services/projectTypes.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -23,7 +25,6 @@ export type ProjectColour = IdentityColour;
 
 export type ProjectCategory = 'work' | 'personal' | 'side-hustle';
 export type ProjectPriority = 'low' | 'medium' | 'high';
-export type ProjectType = 'standard' | 'formal-client';
 export type ProjectLifecycleState = 'active' | 'paused' | 'completed' | 'archived';
 export type ProjectImportance = 'critical' | 'high' | 'normal' | 'low';
 
@@ -85,7 +86,7 @@ function rowToProject(row: Record<string, unknown>): Project {
     groupName:    row['group_name'] == null ? null : String(row['group_name']),
     category:     row['category'] as ProjectCategory,
     priority:     row['priority'] as ProjectPriority,
-    projectType:  (row['project_type'] as ProjectType | undefined) ?? 'standard',
+    projectType:  (row['project_type'] as ProjectType | undefined) ?? 'project',
     description:  row['description'] as string,
     goal:         String(row['goal'] ?? ''),
     role:         String(row['role'] ?? ''),
@@ -113,7 +114,6 @@ const COLOURS: ProjectColour[] = IDENTITY_COLOURS;
 const ICON_RE = /^[a-z0-9-]{1,40}$/;
 const CATEGORIES: ProjectCategory[] = ['work', 'personal', 'side-hustle'];
 const PRIORITIES: ProjectPriority[] = ['low', 'medium', 'high'];
-const PROJECT_TYPES: ProjectType[] = ['standard', 'formal-client'];
 const LIFECYCLE_STATES: ProjectLifecycleState[] = ['active', 'paused', 'completed', 'archived'];
 const IMPORTANCES: ProjectImportance[] = ['critical', 'high', 'normal', 'low'];
 const ISO_DATE_LENGTH = 10;
@@ -321,7 +321,7 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
           (input['icon'] as string | undefined) ?? 'folder',
           (input['category'] as string | undefined) ?? 'work',
           (input['priority'] as string | undefined) ?? 'medium',
-          (input['projectType'] as string | undefined) ?? 'standard',
+          (input['projectType'] as string | undefined) ?? 'project',
           String(input['description'] ?? '').trim(),
           String(input['goal'] ?? '').trim(),
           String(input['role'] ?? '').trim(),

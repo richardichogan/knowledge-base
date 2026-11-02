@@ -61,6 +61,31 @@ export interface DesignCollaboration { artifact: DesignArtifact | null; feedback
 export interface DesignPackage {
   id: string;
   manifest: { ready: boolean; missingInputs: string[]; openDecisions: string[]; pendingFeedback: number;
+    specificationReadiness?: { state: DesignReadiness['state']; assessmentId: string | null; warning: string };
     files: Array<{ path: string; sha256: string; role: string }> };
+}
+export interface ReadinessEvidence { sourceId: string; revision: number; quote: string; elementId: string | null }
+export interface ReadinessFinding {
+  id: string; rule: string; origin: 'mechanical' | 'semantic'; kind: 'blocker' | 'execution-prerequisite';
+  target: string; explanation: string; expectedEvidence: string; evidence: ReadinessEvidence[];
+  status: 'open' | 'resolved'; firstSeenAt: string;
+  resolution: { explanation: string; evidence: ReadinessEvidence[]; checkedAt: string } | null;
+}
+export interface DesignReadiness {
+  state: 'not-assessed' | 'blocked' | 'ready' | 'partial' | 'stale' | 'unavailable';
+  sourceError: string | null; nextOffset: number | null;
+  counts: { blockers: number; executionPrerequisites: number; resolved: number };
+  report: {
+    id: string; designRevision: number; specId: string; checkedAt: string; ruleVersion: string; templateVersion: string;
+    fingerprint: string; complete: boolean; limitations: string[];
+    coverage: Array<{ obligation: string; status: 'covered' | 'gap' | 'not-applicable' | 'unassessed'; explanation: string; evidence: ReadinessEvidence[] }>;
+    sources: Array<{ id: string; role: string; revision: number; title: string; href: string }>;
+    findings: ReadinessFinding[];
+  } | null;
+  proposal: {
+    id: string; assessmentId: string; findingId: string; instruction: string; allowSyntheticFixtures: boolean;
+    designRevision: number; explanation: string; status: 'pending' | 'accepted' | 'discarded';
+    changes: Array<{ noteId: string; blockId: string | null; markdown: string; before: unknown }>;
+  } | null;
 }
 export interface DesignPublication { id: string; repo: string; branch: string; folder: string; base_sha: string }

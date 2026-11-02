@@ -22,6 +22,7 @@ import { checkAiFlow, EDGE_STYLES, layoutAiFlow, nextLaneOrder, rankFlowNodes, S
 import { layoutGeneralDiagram } from '../services/diagramLayout.js';
 import { DIAGRAM_LIMITS, currentStepType } from '../services/diagramValidation.js';
 import { env } from '../config/env.js';
+import { PROJECT_TYPES } from '../services/projectTypes.js';
 
 export const ASSET_WRITE_TOOLS = [
   'add_discover_source', 'update_discover_source', 'set_discover_item_state', 'update_spark',
@@ -244,13 +245,15 @@ export function getAssetToolDefinitions(): LlmToolDefinition[] {
       {
         name: { type: 'string' }, id: { type: 'string', description: 'Optional short kebab-case id.' },
         description: { type: 'string' }, goal: { type: 'string' },
+        projectType: { type: 'string', enum: [...PROJECT_TYPES], description: 'Nature of the work: project, ongoing responsibility (bau), aspiration, exploration or side-project. Select only as requested; do not invent completion dates for ongoing work.' },
         category: { type: 'string', enum: [...PROJECT_CATEGORIES] }, priority: { type: 'string', enum: [...PROJECT_PRIORITIES] },
         importance: { type: 'string', enum: [...PROJECT_IMPORTANCE] }, tags: { type: 'array', items: { type: 'string' } },
       }, ['name']),
-    fn('update_project', 'Updates a project\'s name, description, goal, category, priority, importance, state (active/paused/completed/archived) or tags. Tags given replace the existing tags.',
+    fn('update_project', 'Updates a project\'s name, description, goal, work type, category, priority, importance, state (active/paused/completed/archived) or tags. Tags given replace the existing tags.',
       {
         projectId: { type: 'string', description: 'Project id or exact name.' },
         name: { type: 'string' }, description: { type: 'string' }, goal: { type: 'string' },
+        projectType: { type: 'string', enum: [...PROJECT_TYPES] },
         category: { type: 'string', enum: [...PROJECT_CATEGORIES] }, priority: { type: 'string', enum: [...PROJECT_PRIORITIES] },
         importance: { type: 'string', enum: [...PROJECT_IMPORTANCE] }, lifecycleState: { type: 'string', enum: [...PROJECT_LIFECYCLE] },
         tags: { type: 'array', items: { type: 'string' } },
@@ -452,6 +455,11 @@ function cleanTags(v: unknown): string[] | null {
 }
 
 async function createProject(db: Pool, args: Record<string, unknown>): Promise<unknown> {
+  const projectType = oneOf(args['projectType'], PROJECT_TYPES);
+  if (args['projectType'] !== undefined && projectType === undefined) {
+    console.warn('[AssetTools] Invalid project work type on create');
+    return { error: `projectType must be one of: ${PROJECT_TYPES.join(', ')}.` };
+  }
   const name = str(args['name']);
   if (name === undefined) return { error: 'name is required.' };
   if (await resolveProjectId(db, name) !== null) return { error: `A project called "${name}" already exists; use update_project.` };
@@ -460,14 +468,19 @@ async function createProject(db: Pool, args: Record<string, unknown>): Promise<u
   const tags = cleanTags(args['tags']) ?? [];
   await db.query(
     `INSERT INTO projects (id, name, colour, category, priority, project_type, description, goal, role, ownership, lifecycle_state, importance, expected_outputs, gitlab_paths, github_repos, links, tags)
-     VALUES ($1, $2, 'gray', $3, $4, 'standard', $5, $6, '', '', 'active', $7, '{}', '{}', '{}', '[]', $8)`,
+     VALUES ($1, $2, 'gray', $3, $4, $9, $5, $6, '', '', 'active', $7, '{}', '{}', '{}', '[]', $8)`,
     [id, name, oneOf(args['category'], PROJECT_CATEGORIES) ?? 'work', oneOf(args['priority'], PROJECT_PRIORITIES) ?? 'medium',
-      str(args['description']) ?? '', str(args['goal']) ?? '', oneOf(args['importance'], PROJECT_IMPORTANCE) ?? 'normal', tags],
+      str(args['description']) ?? '', str(args['goal']) ?? '', oneOf(args['importance'], PROJECT_IMPORTANCE) ?? 'normal', tags, projectType ?? 'project'],
   );
   return { success: true, project: { id, name }, url: `${env.FRONTEND_BASE_URL}/projects` };
 }
 
 async function updateProject(db: Pool, args: Record<string, unknown>): Promise<unknown> {
+  const projectType = oneOf(args['projectType'], PROJECT_TYPES);
+  if (args['projectType'] !== undefined && projectType === undefined) {
+    console.warn('[AssetTools] Invalid project work type on update');
+    return { error: `projectType must be one of: ${PROJECT_TYPES.join(', ')}.` };
+  }
   const ref = str(args['projectId']);
   const id = ref === undefined ? null : await resolveProjectId(db, ref);
   if (id === null) return { error: 'Project not found. Use the id from the project catalogue.' };
@@ -477,6 +490,7 @@ async function updateProject(db: Pool, args: Record<string, unknown>): Promise<u
   set('name', str(args['name']));
   set('description', typeof args['description'] === 'string' ? args['description'].trim() : undefined);
   set('goal', typeof args['goal'] === 'string' ? args['goal'].trim() : undefined);
+  set('project_type', projectType);
   set('category', oneOf(args['category'], PROJECT_CATEGORIES));
   set('priority', oneOf(args['priority'], PROJECT_PRIORITIES));
   set('importance', oneOf(args['importance'], PROJECT_IMPORTANCE));

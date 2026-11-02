@@ -838,6 +838,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       clearEmotion();
     },
     mutationFn: async ({ text, composerDraft, pageContext: ctx, resumeTurnId, resumeStartedAt, screenReview }: { text: string; composerDraft?: string; pageContext?: AthenaPageContext; resumeTurnId?: string; resumeStartedAt?: string; screenReview?: ChatRequest['screenReview'] }) => {
+      const uiContext = captureUiContext();
       // Runs on the server in the background; this view follows it live and
       // can let go (switching chats) without losing the answer.
       const run = ++turnRunRef.current;
@@ -887,6 +888,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
             persona,
             projectId: conversationProjectId(isNoteLinkedPanel, noteProjectId, activeProjectId),
             sessionId: requestSessionId,
+            uiContext,
             ...(ctx && { pageContext: ctx }),
             ...(isNoteLinkedPanel && currentNoteId !== undefined && { noteId: currentNoteId }),
             ...(screenReview !== undefined && { screenReview }),
@@ -970,6 +972,21 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       if (result.data.pendingActions.length > 0) {
         setPendingActions((prev) => [...prev, ...result.data.pendingActions]);
       }
+      if (result.data.taskStatusChanges?.length) {
+        void api.reviewTaskStatusChanges(result.data.taskStatusChanges.map(change => ({
+          taskId: change.taskId, status: change.to, reason: change.note, expectedStatus: change.from,
+          ...(change.waitingOn !== undefined ? { waitingOn: change.waitingOn } : {}),
+        }))).then(() => {
+          appendMessage('assistant', 'Task status change saved with your timestamped note.');
+        }).catch((error: unknown) => {
+          console.error('[Athena status proposal]', error);
+          appendMessage('assistant', describeApiError(error));
+        }).finally(() => {
+          void queryClient.invalidateQueries({ queryKey: ['tasks'] });
+          void queryClient.invalidateQueries({ queryKey: ['task-assistance'] });
+          void queryClient.invalidateQueries({ queryKey: ['task-notes'] });
+        });
+      }
       // The AI may have created/updated tasks, notes or Sparks via tool calls this turn —
       // refresh the relevant lists so they show up without a manual reload.
       void queryClient.invalidateQueries({ queryKey: ['tasks'] });
@@ -1035,10 +1052,23 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
    * screenshot read, project change). If he switches chats during the wait,
    * the message still goes to — and is answered in — the chat it was written in.
    */
-  function captureSendTarget(): { view: number; request: Pick<ChatRequest, 'persona' | 'projectId' | 'sessionId'> } {
+  function captureUiContext(): NonNullable<ChatRequest['uiContext']> {
+    return {
+      dismissed: isContextDismissed,
+      activeItem: pageContext ? {
+        id: pageContext.id ?? null, type: pageContext.type, title: pageContext.title,
+        conversationId: pageContext.conversationId ?? null,
+        designId: pageContext.designId ?? null, designTab: pageContext.designTab ?? null,
+        revision: pageContext.revision ?? null, selectedId: pageContext.selectedId ?? null,
+        selectedIds: pageContext.selectedIds ?? null, saveState: pageContext.saveState ?? null,
+      } : null,
+    };
+  }
+
+  function captureSendTarget(): { view: number; request: Pick<ChatRequest, 'persona' | 'projectId' | 'sessionId' | 'uiContext'> } {
     return {
       view: turnRunRef.current,
-      request: { persona, projectId: conversationProjectId(isNoteLinkedPanel, noteProjectId, activeProjectId), sessionId: chatIdForUploads() },
+      request: { persona, projectId: conversationProjectId(isNoteLinkedPanel, noteProjectId, activeProjectId), sessionId: chatIdForUploads(), uiContext: captureUiContext() },
     };
   }
 

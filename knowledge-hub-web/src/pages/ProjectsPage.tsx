@@ -9,7 +9,7 @@ import {
   Button, TextInput, TextArea, Modal,
   Select, SelectItem, InlineNotification, Checkbox,
 } from '@carbon/react';
-import { Add, Dashboard, Edit, TrashCan, LogoGithub, Launch, Search } from '@carbon/icons-react';
+import { Add, Edit, TrashCan, LogoGithub, Launch, Search } from '@carbon/icons-react';
 import {
   useProjects,
   type ProjectRecord,
@@ -28,7 +28,8 @@ import { describeApiError, requireApiData } from '../services/apiError';
 import { DataNotice } from '../components/DataNotice';
 import { PageHeader } from '../components/PageHeader';
 import { parseExpectedOutputs, validateProjectContext } from '../services/projectFormValidation';
-import { ProjectCockpitModal } from './ProjectCockpit';
+import { ProjectCockpitContent } from './ProjectCockpit';
+import { ReviewWorkspace, ReviewItem } from '../components/ReviewWorkspace';
 
 // ── GitLab SVG icon ───────────────────────────────────────────────────────────
 
@@ -46,8 +47,11 @@ const PRIORITIES: { value: ProjectPriority; label: string }[] = [
   { value: 'low',    label: '🟢 Low' },
 ];
 const PROJECT_TYPES: { value: ProjectType; label: string }[] = [
-  { value: 'standard',      label: 'Standard project' },
-  { value: 'formal-client', label: 'Formal client project' },
+  { value: 'project', label: 'Project' },
+  { value: 'bau', label: 'Ongoing responsibility (BAU)' },
+  { value: 'aspiration', label: 'Aspiration' },
+  { value: 'exploration', label: 'Exploration' },
+  { value: 'side-project', label: 'Side project' },
 ];
 const LIFECYCLE_STATES: { value: ProjectLifecycleState | 'all'; label: string }[] = [
   { value: 'all', label: 'All project states' },
@@ -67,11 +71,6 @@ const LIFECYCLE_LABEL: Record<ProjectLifecycleState, string> = {
   paused: 'Paused',
   completed: 'Completed',
   archived: 'Archived',
-};
-const PRIORITY_BADGE: Record<ProjectPriority, { label: string; cls: string }> = {
-  high:   { label: 'High',   cls: 'proj-pri--high' },
-  medium: { label: 'Medium', cls: 'proj-pri--medium' },
-  low:    { label: 'Low',    cls: 'proj-pri--low' },
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -112,7 +111,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, groups, onCl
   const [icon, setIcon]             = useState<string>(initial?.icon ?? 'folder');
   const [groupId, setGroupId]       = useState<string>(initial?.groupId ?? '');
   const [priority, setPriority]     = useState<ProjectPriority>(initial?.priority ?? 'medium');
-  const [projectType, setProjectType] = useState<ProjectType>(initial?.projectType ?? 'standard');
+  const [projectType, setProjectType] = useState<ProjectType>(initial?.projectType ?? 'project');
   const [hasIcaCollection, setHasIcaCollection] = useState(initial?.hasIcaDocumentCollection ?? false);
   const [icaCollectionName, setIcaCollectionName] = useState(initial?.icaDocumentCollectionName ?? '');
   const [icaCollectionId, setIcaCollectionId] = useState(initial?.icaDocumentCollectionId ?? '');
@@ -138,7 +137,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, groups, onCl
       setIcon(initial?.icon ?? 'folder');
       setGroupId(initial?.groupId ?? '');
       setPriority(initial?.priority ?? 'medium');
-      setProjectType(initial?.projectType ?? 'standard');
+      setProjectType(initial?.projectType ?? 'project');
       setHasIcaCollection(initial?.hasIcaDocumentCollection ?? false);
       setIcaCollectionName(initial?.icaDocumentCollectionName ?? '');
       setIcaCollectionId(initial?.icaDocumentCollectionId ?? '');
@@ -301,7 +300,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, groups, onCl
           </div>
           <TextArea
             id="pm-expected-outputs"
-            labelText="Expected outputs"
+            labelText="Deliverables"
             helperText="Enter one output per line. Full descriptions are supported; blank lines are ignored."
             value={expectedOutputsRaw}
             rows={3}
@@ -472,12 +471,6 @@ export const ProjectsPage: React.FC = () => {
   const [deleting, setDeleting] = useState(false);
   const deletePending = useRef(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [cockpitProject, setCockpitProject] = useState<ProjectRecord | null>(null);
-  React.useEffect(() => {
-    if (loading || !linkedProjectId) return;
-    const linked = projects.find(project => project.id === linkedProjectId);
-    if (linked) setCockpitProject(linked);
-  }, [linkedProjectId, loading, projects]);
 
   const { data: groupsData, error: groupsError, refetch: reloadGroups } = useQuery<ProjectGroup[]>({
     queryKey: ['project-groups'],
@@ -502,6 +495,16 @@ export const ProjectsPage: React.FC = () => {
       p.expectedOutputs.some((output) => output.toLowerCase().includes(q))
     );
   });
+  const selectedProject = linkedProjectId
+    ? projects.find(project => project.id === linkedProjectId)
+    : visible[0];
+  const selectProject = (projectId: string): void => {
+    setSearchParams(previous => {
+      const next = new URLSearchParams(previous);
+      next.set('projectId', projectId);
+      return next;
+    }, { replace: true });
+  };
 
   const openCreate = (): void => { setEditProject(null); setModalOpen(true); };
   const openEdit = (p: ProjectRecord): void => { setEditProject(p); setModalOpen(true); };
@@ -514,7 +517,8 @@ export const ProjectsPage: React.FC = () => {
       if (editProject != null) {
         await updateProject(editProject.id, data as UpdateProjectInput);
       } else {
-        await createProject(data as CreateProjectInput);
+        const created = await createProject(data as CreateProjectInput);
+        selectProject(created.id);
       }
       setModalOpen(false);
       setEditProject(null);
@@ -531,6 +535,11 @@ export const ProjectsPage: React.FC = () => {
     setDeleteError(null);
     try {
       await deleteProject(deleteConfirm.id);
+      if (linkedProjectId === deleteConfirm.id) setSearchParams(previous => {
+        const next = new URLSearchParams(previous);
+        next.delete('projectId');
+        return next;
+      }, { replace: true });
       setDeleteConfirm(null);
     } catch (err) {
       setDeleteError(describeApiError(err));
@@ -541,7 +550,7 @@ export const ProjectsPage: React.FC = () => {
   };
 
   return (
-    <main className="page-root proj-page">
+    <main className="page-root proj-page kh-review-page">
 
       <PageHeader title="Projects" subtitle={`${visible.length} of ${projects.length} projects`} actions={
           <button type="button" className="docs-upload-btn" onClick={openCreate}><Add size={16} /> New project</button>
@@ -588,29 +597,41 @@ export const ProjectsPage: React.FC = () => {
       {error && <DataNotice title="Projects could not be refreshed." error={error} onRetry={() => { void reload(); }} />}
       {groupsError && <DataNotice title="Project groups are unavailable." error={groupsError} onRetry={() => { void reloadGroups(); }} />}
 
-      {/* ── Grid ── */}
-      {loading ? (
+      <ReviewWorkspace storageKey="projects" label="Projects"
+        context={selectedProject ? {
+          type: 'project', id: selectedProject.id, projectId: selectedProject.id, title: selectedProject.name,
+          detail: `Selected project's current saved properties and references:\n${JSON.stringify(selectedProject)}\nThe main record includes dated direction/progress reviews, changes, waiting work, open commitments, questions/risks/issues, review packets and supporting evidence. Use read_project_progress_reviews for saved review history and reviewId for the full assessment, captured evidence and rationale. generate_project_progress_review appends a last-seven-days review only when requested; it does not change tasks/goals/deliverables. Use get_project_details with includeWork=true for current bounded work; use packetId to retrieve a full review packet and saved-content retrieval for linked documents. Use update_project to change the work type only when requested. Do not infer progress, require a finish date for BAU/aspirations, or treat repository links as read source content.`,
+        } : { type: 'project', title: 'Projects', detail: 'No project selected. Do not infer project details.' }}
+        list={<>
+          <h2>Projects</h2>
+          {loading && <p className="proj-loading" role="status">Loading projects...</p>}
+          {!loading && visible.length === 0 && !error && <p className="proj-empty">
+            {projects.length === 0 ? 'No projects yet. Create a project to organise your work.' : 'No projects match these filters. Try another search or group.'}
+          </p>}
+          {visible.map(project => <ReviewItem key={project.id} title={project.name}
+            meta={[project.groupName, LIFECYCLE_LABEL[project.lifecycleState ?? 'active'], `${project.priority ?? 'medium'} priority`].filter(Boolean).join(' · ')}
+            selected={selectedProject?.id === project.id} onSelect={() => { selectProject(project.id); }} />)}
+        </>}
+        detail={loading ? (
         <p className="proj-loading" role="status">Loading projects...</p>
       ) : (
         <>
-        {visible.length === 0 && !error && (
-          <p className="proj-empty">
-            {projects.length === 0
+        {!selectedProject && !error && (
+          <p className="proj-empty" role={linkedProjectId ? 'alert' : undefined}>
+            {linkedProjectId ? 'The linked project is no longer available.' : projects.length === 0
               ? 'No projects yet. Create a project to organise your work.'
-              : 'No projects match these filters. Try another search or group.'}
+              : 'Select a project to view its details.'}
           </p>
         )}
-        <div className="dc-feed proj-feed">
-          {visible.map((project) => {
+        <div className="proj-detail">
+          {(selectedProject ? [selectedProject] : []).map((project) => {
             const repos = [
               ...(project.gitlabPaths ?? []).map((path) => ({ type: 'gitlab' as const, name: path.split('/').pop() ?? path, url: `https://gitlab.com/${path}` })),
               ...(project.githubRepos ?? []).map((repo) => ({ type: 'github' as const, name: repo.split('/').pop() ?? repo, url: `https://github.com/${repo}` })),
             ];
             const source = getSource(project);
             const ProjectIcon = identityIcon(project.icon);
-            const pri = PRIORITY_BADGE[project.priority ?? 'medium'];
             const lifecycle = project.lifecycleState ?? 'active';
-            const importanceClass = `proj-importance--${project.importance ?? 'normal'}`;
             const projectDates = [
               project.startDate ? `Start: ${project.startDate}` : null,
               project.targetEndDate ? `Target end: ${project.targetEndDate}` : null,
@@ -626,7 +647,7 @@ export const ProjectsPage: React.FC = () => {
             );
 
             return (
-              <article key={project.id} className="dc-card proj-card">
+              <article key={project.id} className="proj-card proj-detail__article">
                 <div className="proj-card-body">
                   {/* Card Header */}
                   <div className="proj-card-header">
@@ -649,20 +670,18 @@ export const ProjectsPage: React.FC = () => {
                       </div>
 
                       {/* Badges / metadata */}
-                      <div className="proj-card-badges">
+                      <div className="proj-detail-meta">
                         {project.groupName && (
                           <IdentityChip identity={{ tagId: project.groupId ?? null, label: project.groupName, kind: 'group', hex: null, icon: null, projectId: null, parentName: null }} />
                         )}
-                        <span className={`proj-pri-badge ${pri.cls}`}>{pri.label} priority</span>
-                        <span className={`proj-lifecycle-badge proj-lifecycle-badge--${lifecycle}`}>{LIFECYCLE_LABEL[lifecycle]}</span>
+                        <span>{LIFECYCLE_LABEL[lifecycle]}</span>
+                        <span>{project.priority ?? 'medium'} priority</span>
                         {project.importance && project.importance !== 'normal' && (
-                          <span className={`proj-importance-badge ${importanceClass}`}>{project.importance}</span>
+                          <span>{project.importance} importance</span>
                         )}
-                        {project.projectType === 'formal-client' && (
-                          <span className="proj-client-badge">Formal client</span>
-                        )}
+                        <span>{PROJECT_TYPES.find(type => type.value === project.projectType)?.label}</span>
                         {project.hasIcaDocumentCollection && (
-                          <span className="proj-ica-badge" title={project.icaDocumentCollectionName || project.icaDocumentCollectionId}>
+                          <span title={project.icaDocumentCollectionName || project.icaDocumentCollectionId}>
                             ICA docs
                           </span>
                         )}
@@ -671,15 +690,6 @@ export const ProjectsPage: React.FC = () => {
 
                     {/* Quick actions */}
                     <div className="proj-card-actions">
-                      <button
-                        type="button"
-                        className="proj-cockpit-btn"
-                        aria-label={`Open ${project.name} cockpit`}
-                        onClick={() => setCockpitProject(project)}
-                      >
-                        <Dashboard size={14} />
-                        <span>Cockpit</span>
-                      </button>
                       <button
                         type="button"
                         className="proj-icon-btn"
@@ -704,12 +714,30 @@ export const ProjectsPage: React.FC = () => {
                   {/* Project details */}
                   {hasDetails && (
                     <div className="proj-card-details__body">
+                      <div className="proj-detail-narrative">
+                        {project.description && (
+                          <div className="proj-detail-section">
+                            <h3 className="proj-detail-heading">Description</h3>
+                            <p className="proj-card-desc">{project.description}</p>
+                          </div>
+                        )}
                         {project.goal && (
                           <div className="proj-detail-section">
                             <h3 className="proj-detail-heading">Goal</h3>
                             <p className="proj-card-goal">{project.goal}</p>
                           </div>
                         )}
+                        {project.expectedOutputs.length > 0 && (
+                          <div className="proj-detail-section">
+                            <h3 className="proj-detail-heading">Deliverables</h3>
+                            <ul className="proj-card-outputs">
+                              {project.expectedOutputs.map((output, index) => (
+                                <li key={index}>{output}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
                         {(project.role || project.ownership || projectDates.length > 0) && (
                           <div className="proj-card-context">
                             {project.role && (
@@ -730,22 +758,6 @@ export const ProjectsPage: React.FC = () => {
                                 <span className="proj-context-value">{projectDates.join(' · ')}</span>
                               </div>
                             )}
-                          </div>
-                        )}
-                        {project.expectedOutputs.length > 0 && (
-                          <div className="proj-detail-section">
-                            <h3 className="proj-detail-heading">Expected outputs</h3>
-                            <ul className="proj-card-outputs">
-                              {project.expectedOutputs.map((output, index) => (
-                                <li key={index}>{output}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                        {project.description && (
-                          <div className="proj-detail-section">
-                            <h3 className="proj-detail-heading">Description</h3>
-                            <p className="proj-card-desc">{project.description}</p>
                           </div>
                         )}
                       </div>
@@ -787,13 +799,14 @@ export const ProjectsPage: React.FC = () => {
                       )}
                     </div>
                   )}
+                  <ProjectCockpitContent key={project.id} projectId={project.id} embedded />
                 </div>
               </article>
             );
           })}
         </div>
         </>
-      )}
+      )} />
 
       {/* ── Create/Edit modal ── */}
       <ProjectModal
@@ -804,14 +817,6 @@ export const ProjectsPage: React.FC = () => {
         onSave={handleSave}
         saving={saving}
       />
-
-      {/* ── Cockpit ── */}
-      {linkedProjectId && !loading && !error && !projects.some(project => project.id === linkedProjectId) &&
-        <p role="alert" className="proj-link-error">The linked project is no longer available.</p>}
-      <ProjectCockpitModal projectId={cockpitProject?.id ?? null} projectName={cockpitProject?.name ?? ''} onClose={() => {
-        setCockpitProject(null);
-        if (linkedProjectId) setSearchParams(previous => { const next = new URLSearchParams(previous); next.delete('projectId'); return next; }, { replace: true });
-      }} />
 
       {/* ── Delete confirm modal ── */}
       <Modal

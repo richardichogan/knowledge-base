@@ -24,8 +24,14 @@ import { resolveDiscoveryFeed, readYouTubeVideo } from '../integrations/discover
 import { collectYouTubeEvidence, relatedYouTubeArticles } from '../integrations/discovery/youtubeEvidence.js';
 import { upsertContentItem } from '../db/queries.js';
 import { deliver, destinationAccount, PublicationUnconfirmed } from '../publishing/delivery.js';
+import { getPublisherSummary, storedPublisherSummary } from '../services/discoverSummary.js';
 
 export const discoverRouter = Router();
+
+discoverRouter.get('/:id/publisher-summary', (req, res, next): void => {
+  void getPublisherSummary(getDb(), req.params['id'] ?? '')
+    .then(data => { res.json({ success: true, data }); }).catch(next);
+});
 
 discoverRouter.get('/blog-categories', (_req: Request, res: Response): void => {
   res.json({ success: true, data: BLOG_CATEGORIES });
@@ -43,6 +49,7 @@ export interface DiscoverItem {
   title: string;
   url: string | null;
   description: string | null;
+  publisherSummaryOrigin?: 'feed' | 'seo';
   publishedAt: string;
   indexedAt: string;
   sourceTitle: string;
@@ -474,7 +481,8 @@ const serveDiscoverFeed = (req: Request, res: Response, next: NextFunction): voi
         sourceId: row.source_id,
         title: row.title,
         url: row.url,
-        description: row.body || null,
+        description: row.metadata['contentBasis'] ? row.body || null : storedPublisherSummary(row.body, row.metadata).text,
+        publisherSummaryOrigin: storedPublisherSummary(row.body, row.metadata).origin,
         publishedAt: row.published_at.toISOString(),
         indexedAt: row.indexed_at.toISOString(),
         sourceTitle: (row.metadata['sourceTitle'] as string) || '',

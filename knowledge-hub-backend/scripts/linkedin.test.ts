@@ -11,6 +11,7 @@ import { discoverRouter } from '../src/routes/discover.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
 import { listConnectionCredentials, updateConnectionCredential } from '../src/services/connectionCredentials.js';
 import { publishingFixture } from './publishing-fixture.js';
+import { renderPodcastArtwork } from '../src/publishing/podcastCampaignAssets.js';
 
 const articleId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 const member = { sub: 'fixture-member', name: 'Fixture Author' };
@@ -18,6 +19,69 @@ const token = 'fixture-linkedin-token-not-real';
 const urn = 'urn:li:ugcPost:123456789';
 const articleUrl = 'https://example.com/article';
 const postResponse = (): Response => new Response(null, { status: 201, headers: { 'x-restli-id': urn } });
+
+test('LinkedIn uploads the exact reviewed PNG synchronously to its documented host before publishing', async () => {
+  setCredentialValue('LINKEDIN_ACCESS_TOKEN', token);
+  const image = renderPodcastArtwork({ kind: 'teaser', headline: 'Testing the actual image upload', quote: null,
+    speaker: null, timestamp: null, episodeNumber: 46 });
+  const uploadUrl = 'https://www.linkedin.com/dms-uploads/fixture/feedshare-uploadedImage/0?sync=1';
+  const asset = 'urn:li:digitalmediaAsset:fixture';
+  const calls: string[] = [];
+  const network = mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    calls.push(url);
+    assert.equal(new Headers(init?.headers).get('Authorization'), `Bearer ${token}`);
+    assert.equal(init?.redirect, 'error');
+    if (url.endsWith('/userinfo')) return Response.json(member);
+    if (url.endsWith('/assets?action=registerUpload')) {
+      const body = JSON.parse(String(init?.body));
+      assert.deepEqual(body.registerUploadRequest.supportedUploadMechanism, ['SYNCHRONOUS_UPLOAD']);
+      return Response.json({ value: { asset, uploadMechanism: {
+        'com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest': { uploadUrl },
+      } } });
+    }
+    if (url === uploadUrl) {
+      assert.equal(init?.method, 'PUT');
+      assert.deepEqual(init?.body, new Uint8Array(image.png));
+      return new Response(null, { status: 201 });
+    }
+    assert.equal(url, 'https://api.linkedin.com/v2/ugcPosts');
+    const content = JSON.parse(String(init?.body)).specificContent['com.linkedin.ugc.ShareContent'];
+    assert.equal(content.shareMediaCategory, 'IMAGE');
+    assert.equal(content.media[0].media, asset);
+    assert.equal(content.media[0].description.text, image.alt);
+    return postResponse();
+  });
+  try {
+    await postToLinkedIn('Reviewed copy', null, member.sub, { bytes: image.png, alt: image.alt, mimeType: 'image/png' });
+    assert.deepEqual(calls, ['https://api.linkedin.com/v2/userinfo',
+      'https://api.linkedin.com/v2/assets?action=registerUpload', uploadUrl, 'https://api.linkedin.com/v2/ugcPosts']);
+  } finally { network.mock.restore(); replaceCredentialValues(new Map()); }
+});
+
+test('LinkedIn rejects untrusted upload hosts and paths before sending PNG bytes or a post', async () => {
+  setCredentialValue('LINKEDIN_ACCESS_TOKEN', token);
+  const image = renderPodcastArtwork({ kind: 'teaser', headline: 'Safe image destination', quote: null,
+    speaker: null, timestamp: null, episodeNumber: 46 });
+  let uploadUrl = '';
+  const network = mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.endsWith('/userinfo')) return Response.json(member);
+    assert.equal(url, 'https://api.linkedin.com/v2/assets?action=registerUpload', 'no upload or publication for unsafe destinations');
+    return Response.json({ value: { asset: 'urn:li:digitalmediaAsset:fixture', uploadMechanism: {
+      'com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest': { uploadUrl },
+    } } });
+  });
+  try {
+    for (const address of ['https://attacker.example/dms-uploads/image', 'https://www.linkedin.com.attacker.example/dms-uploads/image',
+      'https://www.linkedin.com/other-path/image', 'http://www.linkedin.com/dms-uploads/image',
+      'https://www.linkedin.com:8443/dms-uploads/image', 'https://user:password@www.linkedin.com/dms-uploads/image']) {
+      uploadUrl = address;
+      await assert.rejects(postToLinkedIn('Reviewed copy', null, member.sub,
+        { bytes: image.png, alt: image.alt, mimeType: 'image/png' }), /unexpected image-upload destination/);
+    }
+  } finally { network.mock.restore(); replaceCredentialValues(new Map()); }
+});
 
 test('LinkedIn composes the exact reviewed copy and link and rejects unsafe or oversized input', () => {
   assert.equal(composeLinkedInText('  A practical observation.  ', articleUrl), `A practical observation.\n\n${articleUrl}`);

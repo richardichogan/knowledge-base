@@ -9,7 +9,28 @@ export type AiModel = 'standard' | 'light' | 'reasoning';
 
 export type AthenaPersona = 'general' | 'brainstorming' | 'copilot_coach' | 'blog_post' | 'demo_designer' | 'podcast_prep' | 'web_designer' | 'podcast_show_notes';
 
+export interface ChatTurnTraceSummary {
+  id: string; assistant_message_id: string | null; environment: string; project_id: string | null;
+  started_at: string; expires_at: string; finished_at: string | null;
+  status: 'running' | 'completed' | 'failed' | 'interrupted'; capture_complete: boolean;
+}
+export interface ChatTurnTraceList {
+  items: ChatTurnTraceSummary[]; nextOffset: number | null; retentionDays: number;
+}
+export interface ChatTurnTraceEventPage {
+  trace: Pick<ChatTurnTraceSummary, 'id' | 'status' | 'capture_complete'>;
+  event: { sequence: number; kind: string; spanId?: string | null; createdAt: string; format: 'json'; offset: number; totalChars: number; content: string } | null;
+  nextSequence: number | null; nextOffset: number | null;
+}
+
 export interface ChatPageContext {
+  id?: string;
+  conversationId?: string;
+  designId?: string;
+  designTab?: 'use_case' | 'spec' | 'architecture' | 'diagram';
+  revision?: number;
+  selectedIds?: { nodes: string[]; edges: string[] };
+  saveState?: string;
   workContentId?: string;
   workContent?: import('./workContent').WorkContent;
   podcastEpisodeId?: string;
@@ -23,6 +44,15 @@ export interface ChatPageContext {
 }
 
 export interface ChatRequest {
+  /** Current UI identity for diagnostics, even when unchanged context is not sent to the model. */
+  uiContext?: {
+    dismissed: boolean;
+    activeItem: {
+      id: string | null; type: string; title: string; conversationId: string | null;
+      designId: string | null; designTab: string | null; revision: number | null;
+      selectedId: string | null; selectedIds: { nodes: string[]; edges: string[] } | null; saveState: string | null;
+    } | null;
+  };
   message: string;
   sessionId?: string;
   model?: AiModel;
@@ -257,6 +287,7 @@ export interface WriteActionProposal {
 }
 
 export interface ChatResponse {
+  taskStatusChanges?: Array<{ taskId: string; title: string; from: string; to: string; note: string; waitingOn?: string }>;
   workChanged?: { noteIds: string[] };
   podcastChanged?: { noteId: string };
   designChanged?: { parentNoteId: string; noteIds: string[] };

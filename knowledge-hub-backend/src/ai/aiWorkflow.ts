@@ -31,15 +31,20 @@ export async function withAiStage<T>(stage: string, run: () => Promise<T>): Prom
 
 export async function withAiWorkflow<T>(
   db: Pool,
-  options: { feature: string; jobId?: string; attempt?: number; purpose?: Purpose; signal?: AbortSignal },
+  options: { feature: string; jobId?: string; attempt?: number; purpose?: Purpose; signal?: AbortSignal; independent?: boolean },
   run: () => Promise<T>,
 ): Promise<T> {
   // Direct entry points also serve specialists; keep all nested calls in the same attempt.
-  if (context.getStore()) return withAiStage(options.feature, run);
+  if (context.getStore() && !options.independent) return withAiStage(options.feature, run);
   const current: WorkflowContext = { id: randomUUID(), stage: options.feature, purpose: options.purpose ?? 'user', result: { outcome: null } };
-  await db.query(`INSERT INTO ai_workflow_runs(id,environment,feature,purpose,job_id,attempt,status)
+  try {
+    await db.query(`INSERT INTO ai_workflow_runs(id,environment,feature,purpose,job_id,attempt,status)
     VALUES($1,$2,$3,$4,$5,$6,'running')`,
-  [current.id, env.isDevelopment ? 'dev' : 'prod', options.feature, current.purpose, options.jobId ?? null, options.attempt ?? 1]);
+    [current.id, env.isDevelopment ? 'dev' : 'prod', options.feature, current.purpose, options.jobId ?? null, options.attempt ?? 1]);
+  } catch {
+    console.error('[ai-workflow] Attribution unavailable; operation will run without workflow tracking:', current.id);
+    return run();
+  }
   return context.run(current, async () => {
     let status: 'completed' | 'failed' | 'interrupted' = 'completed';
     try { return await run(); }

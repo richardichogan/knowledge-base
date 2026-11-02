@@ -13,7 +13,7 @@ const project: CurrentProjectContext = {
   id: 'imagine', name: 'IMAGINE', description: 'Updated description',
   goal: 'Updated goal', role: 'Chief architect', ownership: 'Joint IBM/Microsoft',
   lifecycleState: 'active', startDate: '2026-10-01', targetEndDate: '2026-12-31',
-  importance: 'critical', priority: 'high', category: 'work', projectType: 'formal-client',
+  importance: 'critical', priority: 'high', category: 'work', projectType: 'project',
   expectedOutputs: [output, 'Second output'], links: [{ label: 'Reference', url: 'https://example.com' }],
   gitlabPaths: ['team/imagine'], githubRepos: ['team/imagine'], tags: ['Insurance'],
   hasIcaDocumentCollection: true, icaDocumentCollectionName: 'IMAGINE documents', icaDocumentCollectionId: 'collection-1',

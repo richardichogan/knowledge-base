@@ -16,6 +16,8 @@ import type { PoolClient } from 'pg';
 import { normaliseTaskStatus, type TaskStatus } from '../services/taskStatus.js';
 import { reviewPlan } from '../services/planReview.js';
 import { atRiskTasks, getCheckin, isLaterDueDate, saveCheckin, workDay } from '../services/planNudges.js';
+import { prepareAutomaticTaskAssistance } from '../work/taskAssistanceQueue.js';
+import { recordTaskStatusChange } from '../work/taskStatusChange.js';
 
 const ISO_DATE_LENGTH = 10;
 const MAX_SETTLED = 50;
@@ -128,7 +130,7 @@ export async function syncTaskToTimeline(db: ReturnType<typeof getDb>, task: Tas
 }
 
 router.get('/', (req: Request, res: Response, next: NextFunction): void => {
-  void (async () => {
+  void (async (): Promise<void> => {
     try {
       const db = getDb();
       const { status, projectId } = req.query as Record<string, string | undefined>;
@@ -202,7 +204,11 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
           task.externalUrl = url;
         } catch (e) { console.error('[tasks] GitHub issue push failed:', e); }
       }
-      const body: ApiSuccess<Task> = { success: true, data: task };
+      const assistance = await prepareAutomaticTaskAssistance(getDb(), task.id,
+        'userId' in req && typeof req.userId === 'string' ? req.userId : undefined, { kind: 'app' });
+      const body: ApiSuccess<Task & { assistanceStatus: typeof assistance.status }> = {
+        success: true, data: { ...task, assistanceStatus: assistance.status },
+      };
       res.status(HTTP_STATUS.CREATED).json(body);
       void syncTaskToTimeline(getDb(), task);
       queueAutoTag(getDb(), 'task', task.id);
@@ -229,7 +235,7 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       const previousStatus = previous.rows[0]?.status;
       const previousDue = previous.rows[0]?.due_date ?? null;
       if (previousStatus === undefined) throw new NotFoundError(`Task ${id} not found`);
-      const input = req.body as Partial<{ title: string; body: string; status: string; projectId: string; tags: string[]; priority: string; task_type: Task['task_type']; dueDate: string | null; startDate: string | null; endDate: string | null; linkedTagId: string | null; taxonomyTagIds: string[]; recurringCadence: string | null; waitingOn: string | null }>;
+      const input = req.body as Partial<{ title: string; body: string; status: string; statusChangeNote: string; expectedStatus: string; projectId: string; tags: string[]; priority: string; task_type: Task['task_type']; dueDate: string | null; startDate: string | null; endDate: string | null; linkedTagId: string | null; taxonomyTagIds: string[]; recurringCadence: string | null; waitingOn: string | null }>;
       if (input.task_type !== undefined && !['standard', 'cert_session', 'cert_review'].includes(input.task_type)) throw new ValidationError('Invalid task type');
       const fields: string[] = [];
       const params: unknown[] = [];
@@ -239,6 +245,7 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       if (input.status !== undefined) {
         const status = normaliseTaskStatus(input.status);
         if (status === undefined) throw new ValidationError('Invalid task status', { status: 'invalid' });
+        await recordTaskStatusChange(db, String(id), previousStatus, status, input);
         add('status', status);
       }
       if ('waitingOn' in input) add('waiting_on', input.waitingOn?.trim() || null);
@@ -334,7 +341,12 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       await db.query('COMMIT');
       client.release();
       client = undefined;
-      const body: ApiSuccess<Task> = { success: true, data: task };
+      const assistance = previousStatus === 'inbox' && task.status !== 'inbox'
+        ? await prepareAutomaticTaskAssistance(getDb(), task.id,
+          'userId' in req && typeof req.userId === 'string' ? req.userId : undefined, { kind: 'app' }) : undefined;
+      const body: ApiSuccess<Task & { assistanceStatus?: 'queued' | 'failed' | 'skipped' }> = {
+        success: true, data: { ...task, ...(assistance ? { assistanceStatus: assistance.status } : {}) },
+      };
       res.status(HTTP_STATUS.OK).json(body);
       void syncTaskToTimeline(getDb(), task);
       for (const spawned of spawnedTasks) void syncTaskToTimeline(getDb(), spawned);
@@ -389,6 +401,7 @@ interface TaskNote {
   taskId: string;
   body: string;
   createdAt: string;
+  activity?: unknown;
 }
 
 router.get('/:id/notes', (req: Request, res: Response, next: NextFunction): void => {
@@ -396,7 +409,7 @@ router.get('/:id/notes', (req: Request, res: Response, next: NextFunction): void
     try {
       const db = getDb();
       const result = await db.query<Record<string, unknown>>(
-        `SELECT id, task_id, body, created_at FROM task_notes WHERE task_id = $1 ORDER BY created_at ASC`,
+        `SELECT id, task_id, body, created_at, activity FROM task_notes WHERE task_id = $1 ORDER BY created_at ASC`,
         [req.params['id']],
       );
       const notes: TaskNote[] = result.rows.map((r) => ({
@@ -404,6 +417,7 @@ router.get('/:id/notes', (req: Request, res: Response, next: NextFunction): void
         taskId: r['task_id'] as string,
         body: r['body'] as string,
         createdAt: String(r['created_at']),
+        activity: r['activity'],
       }));
       const body: ApiSuccess<TaskNote[]> = { success: true, data: notes };
       res.status(HTTP_STATUS.OK).json(body);
@@ -419,11 +433,11 @@ router.post('/:id/notes', (req: Request, res: Response, next: NextFunction): voi
       const input = req.body as { body?: string };
       if (!input.body?.trim()) throw new ValidationError('body is required', { body: 'required' });
       const result = await db.query<Record<string, unknown>>(
-        `INSERT INTO task_notes (task_id, body) VALUES ($1, $2) RETURNING id, task_id, body, created_at`,
+        `INSERT INTO task_notes (task_id, body, activity) VALUES ($1, $2, '{"actor":"richard","action":"note-added"}') RETURNING id, task_id, body, created_at, activity`,
         [id, input.body.trim()],
       );
       const row = result.rows[0] as Record<string, unknown>;
-      const note: TaskNote = { id: row['id'] as string, taskId: row['task_id'] as string, body: row['body'] as string, createdAt: String(row['created_at']) };
+      const note: TaskNote = { id: row['id'] as string, taskId: row['task_id'] as string, body: row['body'] as string, createdAt: String(row['created_at']), activity: row['activity'] };
       const body: ApiSuccess<TaskNote> = { success: true, data: note };
       res.status(HTTP_STATUS.CREATED).json(body);
     } catch (err) { next(err); }
@@ -663,6 +677,16 @@ router.post('/import', (req: Request, res: Response, next: NextFunction): void =
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) { next(err); }
   })();
+});
+
+router.get('/:id', (req: Request, res: Response, next: NextFunction): void => {
+  void (async () => {
+    const row = (await getDb().query<Record<string, unknown>>(`SELECT t.*,
+      ARRAY(SELECT tt.tag_id::text FROM task_tags tt WHERE tt.task_id=t.id ORDER BY tt.tag_id) AS taxonomy_tag_ids
+      FROM tasks t WHERE t.id=$1 AND NOT archived`, [req.params.id])).rows[0];
+    if (!row) throw new NotFoundError('Task');
+    res.json({ success: true, data: rowToTask(row) });
+  })().catch(next);
 });
 
 export { router as tasksRouter };

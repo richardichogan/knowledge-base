@@ -14,6 +14,7 @@ import { STATUS_CODES } from 'node:http';
 import { reviewContextTokens } from './knowledge/reviewContext.js';
 import { currentAgentAttempt } from '../agents/attempt.js';
 import { beginAssignmentModelCall, type AssignmentModelCall } from '../agents/workforce/modelBudget.js';
+import { recordTurnTrace, traceModelCall, withTurnSpan } from './turnTrace.js';
 
 const DEFAULT_CHAT_TEMPERATURE = 0.7;
 const AI_RESPONSE_HEADERS_TIMEOUT_MS = 30_000;
@@ -44,13 +45,16 @@ async function fetchModelStream(
 ): Promise<{ response: Response; budget: AssignmentModelCall | undefined }> {
   for (let attempt = 0; ; attempt++) {
     signal.throwIfAborted();
+    await recordTurnTrace('model.transport', { attempt: attempt + 1, streaming: true });
     const budget = await beginAssignmentModelCall(JSON.parse(String(init.body)), maxOutputTokens);
     const controller = new AbortController();
     const headersTimeout = setTimeout(() => {
       controller.abort(new Error('The model endpoint did not send response headers within 30 seconds'));
     }, AI_RESPONSE_HEADERS_TIMEOUT_MS);
     try {
-      const response = await fetch(url, { ...init, signal: AbortSignal.any([signal, controller.signal, ...(budget ? [budget.signal] : [])]) });
+      const response = await withTurnSpan('model.response_headers', 'transport', () =>
+        fetch(url, { ...init, signal: AbortSignal.any([signal, controller.signal, ...(budget ? [budget.signal] : [])]) }),
+      { attempt: attempt + 1, streaming: true });
       clearTimeout(headersTimeout);
       return { response, budget };
     } catch (error) {
@@ -275,6 +279,7 @@ export class FoundryClient {
       } as const;
       budget = await beginAssignmentModelCall(JSON.parse(options.body), maxTokens);
       const boundedOptions = budget ? { ...options, signal: AbortSignal.any([signal, budget.signal]) } : options;
+      const data = await traceModelCall(this.feature, deployment, 'chat', JSON.parse(options.body), async () => {
       if (timeoutMs > NATIVE_FETCH_HEADERS_TIMEOUT_MS) {
         // Native fetch has a separate five-minute headers deadline; AbortSignal alone cannot extend it.
         const result = await requestHttp(url, { ...boundedOptions, headersTimeout: timeoutMs, bodyTimeout: timeoutMs });
@@ -285,7 +290,8 @@ export class FoundryClient {
       if (!response.ok) {
         throw new AiError(`${response.status.toString()} ${response.statusText}: ${(await response.text()).slice(0, MAX_ERROR_DETAILS_CHARS)}`);
       }
-      const data = (await response.json()) as ChatCompletionResponse;
+      return await response.json() as ChatCompletionResponse;
+      });
       usage = tokenUsageFrom(data.usage);
       const content = data.choices[0]?.message.content;
       if (data.choices[0]?.finish_reason === 'length') throw new AiOutputLimitError();
@@ -319,8 +325,9 @@ export class FoundryClient {
     toolChoice: LlmToolChoice = 'auto',
     timeoutMs?: number,
     signal?: AbortSignal,
+    route?: ModelRoute,
   ): Promise<{ content: string | null; toolCalls: LlmToolCall[]; finishReason: string | undefined }> {
-    const data = await this.request(model, messages, tools, maxTokens, toolChoice, timeoutMs, undefined, signal);
+    const data = await this.request(model, messages, tools, maxTokens, toolChoice, timeoutMs, undefined, signal, route);
     const message = data.choices[0]?.message;
 
     if (!message) {
@@ -400,6 +407,7 @@ export class FoundryClient {
           stream: true,
           stream_options: { include_usage: true },
         };
+    return traceModelCall(this.feature, deployment, viaResponses ? 'responses' : 'chat', body, async () => {
     const timeout = AbortSignal.timeout(timeoutMs);
 
     let response: Response;
@@ -487,6 +495,8 @@ export class FoundryClient {
         }
       }
     } catch (err) {
+      await recordTurnTrace('model.partial', { feature: this.feature, content, toolCalls,
+        partialCalls: [...partialCalls.values()], incomplete: true });
       if (budget?.signal.aborted) throw budget.signal.reason;
       if (err instanceof KnowledgeHubError) throw err;
       throw streamError(model, err, timeoutMs, signal);
@@ -495,6 +505,7 @@ export class FoundryClient {
     toolCalls.push(...[...partialCalls.entries()].sort((a, b) => a[0] - b[0]).map(([, c]) => c));
     if (toolCalls.length > 0) finishReason = 'tool_calls';
     return { content: content === '' ? null : content, toolCalls, finishReason, usage };
+    });
   }
 
   /**
@@ -563,7 +574,15 @@ export class FoundryClient {
       return this.requestViaResponses(model, deployment, endpoint, apiKey, messages, tools, maxTokens, toolChoice, timeoutMs, signal, jsonSchema);
     }
     const url = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`;
+    const body = {
+      messages,
+      max_completion_tokens: maxTokens,
+      ...(jsonSchema !== undefined && { response_format: { type: 'json_schema', json_schema: { ...jsonSchema, strict: true } } }),
+      ...(this.supportsCustomTemperature(model) && { temperature: jsonSchema !== undefined ? 0 : DEFAULT_CHAT_TEMPERATURE }),
+      ...(tools !== undefined && tools.length > 0 && { tools, tool_choice: toolChoice }),
+    };
 
+    return traceModelCall(this.feature, deployment, 'chat', body, async () => {
     let response: Response;
     try {
       response = await fetch(url, {
@@ -572,13 +591,7 @@ export class FoundryClient {
           'Content-Type': 'application/json',
           ...(apiKey !== undefined && { 'api-key': apiKey }),
         } as Record<string, string>,
-        body: JSON.stringify({
-          messages,
-          max_completion_tokens: maxTokens,
-          ...(jsonSchema !== undefined && { response_format: { type: 'json_schema', json_schema: { ...jsonSchema, strict: true } } }),
-          ...(this.supportsCustomTemperature(model) && { temperature: jsonSchema !== undefined ? 0 : DEFAULT_CHAT_TEMPERATURE }),
-          ...(tools !== undefined && tools.length > 0 && { tools, tool_choice: toolChoice }),
-        }),
+        body: JSON.stringify(body),
         // Never hang forever — a slow/unreachable endpoint must not stall sync jobs.
         signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
       });
@@ -602,6 +615,7 @@ export class FoundryClient {
 
 
     return response.json() as Promise<ChatCompletionResponse>;
+    });
   }
 
   /**
@@ -623,6 +637,11 @@ export class FoundryClient {
     signal?: AbortSignal,
     jsonSchema?: LlmJsonSchema,
   ): Promise<ChatCompletionResponse> {
+    const body = {
+      ...responsesBody(deployment, messages, tools, maxTokens, toolChoice),
+      ...(jsonSchema ? { text: { format: { type: 'json_schema', ...jsonSchema, strict: true } } } : {}),
+    };
+    return traceModelCall(this.feature, deployment, 'responses', body, async () => {
     let response: Response;
     try {
       response = await fetch(`${endpoint}/openai/v1/responses`, {
@@ -631,10 +650,7 @@ export class FoundryClient {
           'Content-Type': 'application/json',
           ...(apiKey !== undefined && { 'api-key': apiKey }),
         } as Record<string, string>,
-        body: JSON.stringify({
-          ...responsesBody(deployment, messages, tools, maxTokens, toolChoice),
-          ...(jsonSchema ? { text: { format: { type: 'json_schema', ...jsonSchema, strict: true } } } : {}),
-        }),
+        body: JSON.stringify(body),
         signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
       });
     } catch (err) {
@@ -681,6 +697,7 @@ export class FoundryClient {
         completion_tokens_details: { reasoning_tokens: data.usage.output_tokens_details?.reasoning_tokens ?? 0 },
       },
     };
+    });
   }
 }
 

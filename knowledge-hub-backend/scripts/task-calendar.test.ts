@@ -45,6 +45,9 @@ test('isolated task routes round-trip types and dates, create one successor, and
     linked_tag_id UUID, recurring_cadence TEXT, archived BOOLEAN DEFAULT false, waiting_on TEXT, reschedule_count INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now());
     CREATE TABLE tags (id UUID PRIMARY KEY);
+    CREATE TABLE task_notes (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(), task_id TEXT REFERENCES tasks(id),
+      body TEXT NOT NULL, activity JSONB, created_at TIMESTAMPTZ DEFAULT now());
     CREATE TABLE task_links (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(), task_id TEXT REFERENCES tasks(id), target_type TEXT, target_id TEXT,
       target_title TEXT, target_url TEXT DEFAULT '', created_at TIMESTAMPTZ DEFAULT now());
@@ -105,7 +108,8 @@ test('isolated task routes round-trip types and dates, create one successor, and
     const list = await (await fetch(base)).json() as { data: { items: Array<{ id: string; task_type: string }> } };
     assert.equal(list.data.items[0]?.task_type, 'cert_review');
     const url = `${base}/${task.id}`;
-    const completed = await Promise.all([write(url, 'PATCH', { status: 'completed' }), write(url, 'PATCH', { status: 'completed' })]);
+    const completion = { status: 'completed', expectedStatus: 'backlog', statusChangeNote: 'Review completed.' };
+    const completed = await Promise.all([write(url, 'PATCH', completion), write(url, 'PATCH', completion)]);
     assert.deepEqual(completed.map((response) => response.status), [200, 200]);
     const successors = await db.query<{ id: string; task_type: string; start_date: string; due_date: string }>(
       'SELECT * FROM tasks WHERE recurring_parent_id = $1', [task.id],
@@ -114,8 +118,9 @@ test('isolated task routes round-trip types and dates, create one successor, and
     assert.equal(successors.rows[0]?.task_type, 'cert_review');
     assert.equal(rowToTask(successors.rows[0]!).startDate, '2026-10-25');
     assert.equal(rowToTask(successors.rows[0]!).dueDate, '2026-10-26');
-    await write(url, 'PATCH', { status: 'backlog' });
-    await write(url, 'PATCH', { status: 'completed', task_type: 'cert_session' });
+    assert.equal((await db.query('SELECT id FROM task_notes WHERE task_id=$1', [task.id])).rows.length, 1);
+    assert.equal((await write(url, 'PATCH', { status: 'backlog', expectedStatus: 'completed', statusChangeNote: 'Reopened for another review.' })).status, 200);
+    assert.equal((await write(url, 'PATCH', { status: 'completed', expectedStatus: 'backlog', statusChangeNote: 'Session review completed.', task_type: 'cert_session' })).status, 200);
     assert.equal((await db.query('SELECT id FROM tasks WHERE recurring_parent_id = $1', [task.id])).rows.length, 1);
     assert.equal((await db.query('SELECT task_type FROM tasks WHERE id = $1', [task.id])).rows[0]?.task_type, 'cert_session');
     assert.ok(queries.some((sql) => /SELECT status.*FOR UPDATE/.test(sql)));
@@ -139,9 +144,10 @@ test('isolated task routes round-trip types and dates, create one successor, and
     assert.equal(rolledBack.status, 500);
     assert.equal((await db.query('SELECT title FROM tasks WHERE id = $1', [task.id])).rows[0]?.title, 'Recurring review');
     assert.equal((await db.query('SELECT tag_id FROM task_tags WHERE task_id = $1', [task.id])).rows.length, 1);
-    assert.equal((await write(`${base}/${nextTask.id}`, 'PATCH', { status: 'completed' })).status, 500);
+    assert.equal((await write(`${base}/${nextTask.id}`, 'PATCH', { status: 'completed', expectedStatus: 'backlog', statusChangeNote: 'Completed review.' })).status, 500);
     assert.equal((await db.query('SELECT status FROM tasks WHERE id = $1', [nextTask.id])).rows[0]?.status, 'backlog');
     assert.equal((await db.query('SELECT id FROM tasks WHERE recurring_parent_id = $1', [nextTask.id])).rows.length, 0);
+    assert.equal((await db.query('SELECT id FROM task_notes WHERE task_id=$1', [nextTask.id])).rows.length, 0);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((err) => err ? reject(err) : resolve()));
     connect.mock.restore();

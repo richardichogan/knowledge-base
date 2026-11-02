@@ -1,10 +1,11 @@
 /**
  * Posts to Bluesky through the AT Protocol with an app password (never the account password).
  */
-import { AtpAgent, RichText, type AppBskyEmbedExternal, type BlobRef } from '@atproto/api';
+import { AtpAgent, RichText, type AppBskyEmbedExternal, type AppBskyEmbedImages, type BlobRef } from '@atproto/api';
 import { env } from '../../config/env.js';
 import { IntegrationError, ValidationError } from '../../types/errors.js';
 import { fetchPublic } from '../discovery/feedReader.js';
+import { validateSocialImage, type SocialImage } from './image.js';
 
 export const BLUESKY_POST_LIMIT = 300;
 const LINK_SEPARATOR = '\n\n';
@@ -76,11 +77,12 @@ async function uploadThumbnail(agent: AtpAgent, pageUrl: string): Promise<BlobRe
 }
 
 /** Publishes a post with clickable links and, when a link is given, a link card. Returns the public post URL. */
-export async function postToBluesky(copy: string, link: BlueskyLink | null): Promise<BlueskyPostResult> {
+export async function postToBluesky(copy: string, link: BlueskyLink | null, image?: SocialImage): Promise<BlueskyPostResult> {
   const identifier = env.BLUESKY_IDENTIFIER;
   const password = env.BLUESKY_APP_PASSWORD;
   if (!identifier || !password) throw new IntegrationError('bluesky', 'Bluesky posting is not configured (BLUESKY_APP_PASSWORD).');
   const text = composeBlueskyText(copy, link?.url ?? null);
+  const approvedImage = image ? { ...image, aspectRatio: validateSocialImage(image) } : null;
 
   const agent = new AtpAgent({ service: env.BLUESKY_SERVICE });
   try {
@@ -91,8 +93,11 @@ export async function postToBluesky(copy: string, link: BlueskyLink | null): Pro
 
   const rich = new RichText({ text });
   await rich.detectFacets(agent);
-  let embed: AppBskyEmbedExternal.Main | undefined;
-  if (link) {
+  let embed: AppBskyEmbedExternal.Main | AppBskyEmbedImages.Main | undefined;
+  if (approvedImage) {
+    const uploaded = await agent.uploadBlob(approvedImage.bytes, { encoding: approvedImage.mimeType });
+    embed = { $type: 'app.bsky.embed.images', images: [{ image: uploaded.data.blob, alt: approvedImage.alt, aspectRatio: approvedImage.aspectRatio }] };
+  } else if (link) {
     const thumb = await uploadThumbnail(agent, link.url);
     embed = {
       $type: 'app.bsky.embed.external',

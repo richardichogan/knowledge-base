@@ -67,6 +67,16 @@ export const PodcastEpisodeParent: React.FC<{
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const activeShowNotesJob = showNotesJobs.find(isActiveAgentJob);
   const latestShowNotesJob = activeShowNotesJob ?? showNotesJobs[0];
+  const teaserJobs = [...scriptJobMap.values()].filter(job => job.specialist === 'podcast-recording-teaser-writer')
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const activeTeaserJob = teaserJobs.find(isActiveAgentJob);
+  const latestTeaserJob = activeTeaserJob ?? teaserJobs[0];
+  const teaserJobId = latestTeaserJob?.id;
+  const teaserJobStatus = latestTeaserJob?.status;
+  useEffect(() => {
+    if (!teaserJobId || (teaserJobStatus !== 'done' && teaserJobStatus !== 'failed')) return;
+    void qc.invalidateQueries({ queryKey: ['podcast-campaign', id] });
+  }, [id, qc, teaserJobId, teaserJobStatus]);
   const showNotesJobId = latestShowNotesJob?.id;
   const showNotesJobStatus = latestShowNotesJob?.status;
   useEffect(() => {
@@ -96,6 +106,7 @@ export const PodcastEpisodeParent: React.FC<{
     enabled: !!episode, refetchOnWindowFocus: false, staleTime: 30_000,
   });
   const campaign = usePodcastCampaign(showNotesId ?? id, documentId === showNotesId ? document.data?.revision ?? 0 : 0, !!showNotesId);
+  const teaser = usePodcastCampaign(id, episode?.revision ?? 0, !!episode?.transcript);
   const busy = stageBusy || scriptChatBusy || workspaceBusy;
   const { setAthenaContext } = useAthenaContext();
   useEffect(() => {
@@ -109,10 +120,13 @@ export const PodcastEpisodeParent: React.FC<{
     const scriptContext = `Podcast episode: ${episode.title}\nActive stage: ${tab}\nEpisode ID: ${id}\nScript revision: ${episode.revision}\n`
       + `Intro:\n${episode.scriptIntro}\nTopic cards (IDs and titles):\n${episode.scriptCards.map(card => `${card.id}: ${card.title}`).join('\n')}\n`
       + `Use read_podcast_script for current complete card text and duration estimates; the parent note body is not the script.\n`
-      + `Script worker: ${activeScriptJob ? `${activeScriptJob.status}: ${activeScriptJob.progress.at(-1) ?? 'Waiting for a worker'}` : 'No active script worker'}\n`;
+      + `Script worker: ${activeScriptJob ? `${activeScriptJob.status}: ${activeScriptJob.progress.at(-1) ?? 'Waiting for a worker'}` : 'No active script worker'}\n`
+      + `Recording teaser: ${teaser.data?.state ?? 'Not loaded'}, revision ${teaser.data?.revision ?? 'unknown'}.\n`
+      + `Teaser worker: ${latestTeaserJob ? `${latestTeaserJob.status}: ${latestTeaserJob.progress.at(-1) ?? latestTeaserJob.error ?? ''}` : 'No teaser worker'}.\n`
+      + `Use read_podcast_campaign to retrieve actual full posts, dates, approvals and receipts. Use update_podcast_recording_teaser for requested draft-copy edits; it does not approve or publish.\n`;
     setAthenaContext({ type: 'note', id: note.id, conversationId: id, podcastEpisodeId: id, podcastTab: tab,
       title: note.title, detail: `${scriptContext}\nActive document body:\n${detail}`, ...(note.projectId ? { projectId: note.projectId } : {}) });
-  }, [document.data, episode, tab, id, activeScriptJob, setAthenaContext]);
+  }, [document.data, episode, tab, id, activeScriptJob, teaser.data, latestTeaserJob, setAthenaContext]);
   useEffect(() => () => { setAthenaContext(null); }, [setAthenaContext]);
 
   const prepare = useCallback(async (): Promise<void> => {
@@ -132,10 +146,12 @@ export const PodcastEpisodeParent: React.FC<{
         await Promise.all([
           qc.invalidateQueries({ queryKey: ['podcast-episode', id] }),
           qc.invalidateQueries({ queryKey: ['podcast-script-jobs', id] }),
+          qc.invalidateQueries({ queryKey: ['podcast-campaign', id] }),
+          ...(showNotesId ? [qc.invalidateQueries({ queryKey: ['podcast-campaign', showNotesId] })] : []),
         ]);
       } finally { scriptChatBusyRef.current = false; setScriptChatBusy(false); }
     };
-  }), [id, prepare, qc, stageBusy]);
+  }), [id, prepare, qc, stageBusy, showNotesId]);
   const switchTo = async (next: PodcastEpisodeTab): Promise<void> => {
     if (switching || busy || next === tab) return;
     setSwitching(true); setError(null);
@@ -148,7 +164,7 @@ export const PodcastEpisodeParent: React.FC<{
   };
   const runStage = async (action: () => Promise<PodcastEpisode>, failure: string): Promise<PodcastEpisode | null> => {
     setStageBusy(true); setError(null);
-    try { const next = await action(); setEpisode(next); return next; }
+    try { const next = await action(); setEpisode(next); void qc.invalidateQueries({ queryKey: ['podcast-script-jobs', id] }); return next; }
     catch (err) { setError(`${failure} ${describeApiError(err)}`); return null; }
     finally { setStageBusy(false); }
   };
@@ -167,7 +183,7 @@ export const PodcastEpisodeParent: React.FC<{
   const campaignData = campaign.data;
   const campaignSent = !!campaignData?.plan?.posts.length && campaignData.plan.posts.every(post =>
     campaignData.deliveries.some(delivery => delivery.identity === `podcast:${showNotesId}:${post.id}` && delivery.status === 'sent'));
-  const campaignStatus = !showNotesId ? 'Show Notes needed'
+  const campaignStatus = !showNotesId ? teaser.data?.plan ? 'Teaser available' : activeTeaserJob ? 'Preparing teaser' : episode.transcript ? 'Teaser not prepared' : 'Transcript needed'
     : campaign.isError ? 'Status unavailable'
       : !campaignData ? 'Loading'
         : campaignData.error ? 'Needs attention'
@@ -180,7 +196,7 @@ export const PodcastEpisodeParent: React.FC<{
     { label: 'Script', done: episode.scriptCards.length > 0 || !!episode.scriptIntro },
     { label: 'Transcript', done: !!episode.transcript },
     { label: 'Show Notes', done: !!episode.showNotesNoteId },
-    { label: 'Campaign', done: !!campaignData?.plan, status: campaignStatus },
+    { label: 'Campaign', done: !!campaignData?.plan || !!teaser.data?.plan, status: campaignStatus },
   ];
   const episodePanel = <div className="kh-design-work">
     <section aria-label="Episode details">
@@ -254,7 +270,11 @@ export const PodcastEpisodeParent: React.FC<{
       }} />;
   } else if (tab === 'transcript') {
     body = <TranscriptPanel episode={episode} busy={busy || switching}
-      onUpload={file => { void runStage(async () => requireApiData(await api.uploadPodcastTranscript(id, file, episode.revision)), 'The transcript was not uploaded.'); }} />;
+      onUpload={file => { void runStage(async () => {
+        const saved = requireApiData(await api.uploadPodcastTranscript(id, file, episode.revision));
+        if (saved.teaserPreparationError) setError(saved.teaserPreparationError);
+        return saved;
+      }, 'The transcript was not uploaded.'); }} />;
   } else if (tab === 'show_notes' && !showNotesId) {
     body = !episode.transcript
       ? <section className="kh-design-diagram-empty" aria-label="Show notes"><h3>Upload the transcript first</h3>
@@ -278,11 +298,22 @@ export const PodcastEpisodeParent: React.FC<{
           }}>{activeShowNotesJob ? 'Creating show notes...' : 'Create show notes'}</button>
       </section>;
   } else if (tab === 'campaign') {
-    body = showNotesId && document.data?.id === showNotesId
-      ? <div className="kh-episode-campaign"><PodcastCampaign key={showNotesId} noteId={showNotesId} noteRevision={document.data.revision ?? 0}
-        beforePrepare={async () => noteSave.current ? noteSave.current() : true} /></div>
-      : <section className="kh-design-diagram-empty" aria-label="Campaign"><h3>Save show notes first</h3>
-        <p>The campaign is built from this episode's show notes. Draft and save them on the Show Notes tab.</p></section>;
+    body = <div className="kh-episode-campaign">
+      {episode.transcript ? <PodcastCampaign key={id} noteId={id} noteRevision={episode.revision} recordingTease
+        preparingTeaser={!!activeTeaserJob} beforePrepare={async () => { await prepare(); return true; }}
+        prepareTeaser={async () => {
+          const result = requireApiData(await api.preparePodcastRecordingTeaser(id, episode.revision));
+          if (result.status === 'needs_confirmation') throw new Error(result.message);
+          rememberAgentJob(result.job);
+          void qc.invalidateQueries({ queryKey: ['podcast-script-jobs', id] });
+        }} /> : <section className="kh-design-diagram-empty"><h3>Recording teaser</h3><p>Upload the transcript to make the complete teaser available for approval, without episode URLs.</p></section>}
+      {latestTeaserJob?.status === 'failed' && <p className="notes-podcast__error" role="alert">{latestTeaserJob.error ?? 'The recording teaser was not prepared. Retry preparation.'}</p>}
+      {showNotesId && document.data?.id === showNotesId
+        ? <PodcastCampaign key={showNotesId} noteId={showNotesId} noteRevision={document.data.revision ?? 0}
+          beforePrepare={async () => noteSave.current ? noteSave.current() : true} />
+        : <section className="kh-design-diagram-empty" aria-label="Launch campaign"><h3>Monday launch and two-week campaign</h3>
+          <p>The launch, weekday quote posts and fuller posts are already defined in Show Notes. Save that package to schedule its existing posts; the recording teaser has its own approval above.</p></section>}
+    </div>;
   }
 
   return <div className="kh-design-parent" role="tabpanel" id={`${uid}-document`} aria-labelledby={`${uid}-${tab}`}>

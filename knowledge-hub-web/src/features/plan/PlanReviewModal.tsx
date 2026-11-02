@@ -19,7 +19,7 @@ function formatDate(iso: string): string {
 
 async function applyProposal(p: PlanReviewProposal): Promise<void> {
   if (p.action === 'reschedule' && p.dueDate) { await api.updateTask(p.taskId, { dueDate: p.dueDate }); return; }
-  if (p.action === 'complete') { await api.updateTask(p.taskId, { status: 'completed' }); return; }
+  if (p.action === 'complete') return;
   if (p.action === 'archive') { await api.archiveTask(p.taskId); return; }
   if (p.action === 'split' && p.subtasks) {
     for (const title of p.subtasks) {
@@ -54,6 +54,10 @@ export const PlanReviewModal: React.FC<{ open: boolean; onClose: () => void }> =
   const apply = useMutation({
     mutationFn: async (proposals: PlanReviewProposal[]) => {
       const failed: string[] = [];
+      const completing = proposals.filter(proposal => proposal.action === 'complete');
+      if (completing.length) await api.reviewTaskStatusChanges(completing.map(proposal => ({
+        taskId: proposal.taskId, status: 'completed', reason: `${proposal.title}: ${proposal.reason}`,
+      })));
       for (const p of proposals) {
         try { await applyProposal(p); } catch (err) {
           console.error('[PlanReview] could not apply proposal', p, err);
@@ -64,9 +68,11 @@ export const PlanReviewModal: React.FC<{ open: boolean; onClose: () => void }> =
     },
     onSuccess: (failed) => {
       void qc.invalidateQueries({ queryKey: ['tasks'] });
+      void qc.invalidateQueries({ queryKey: ['task-notes'] });
       if (failed.length > 0) setApplyError(`Could not update: ${failed.join(', ')}. The rest were applied.`);
       else onClose();
     },
+    onError: (error: unknown) => { setApplyError(error instanceof Error ? error.message : 'The selected changes were not applied.'); },
   });
 
   const proposals = review.data?.proposals ?? [];

@@ -2,6 +2,274 @@
 
 **Status:** Validated
 
+**Release execution (2026-11-02, operational Health dashboard):**
+- Application commit de7c843e16b88c3737176dbc74c3bff3c0159951 pushed to main
+  and richardichogan-local-development; both remote refs confirmed identical.
+- ACR run ca8y built kh-prod-api:v285 from main. Revision
+  kh-prod-api-vnet--0000282 is Healthy / RunningAtMaxScale and latest-ready,
+  with 100% latest-revision traffic. Startup confirms completed migrations,
+  database pool 8/8 ready and the production specialist worker started.
+- Production frontend deployed to kh-prod-web. Custom-domain HTML and matching
+  /assets/index-BRzWTacz.js both return 200 at
+  https://athena.themicrosoftcloudblog.com/.
+- Evidence: health-release-{acr,swa,startup}.log in the session artifacts.
+  No Desktop release, infrastructure changes or paid model evaluation.
+
+**Section 7: Health dashboard and diagnostic measurement release proof (2026-11-02):**
+- User requested deploy, merge and push after approving the graphical dashboard.
+  Existing application-only AZCLI targets: kh-prod-api-vnet and kh-prod-web,
+  rg-knowledge-hub-prod, Alliance Tenant Reporting. Backend v284 advances to v285.
+- git fetch origin and git merge origin/main completed, already current at 69a6784.
+  Both tsc --noEmit checks and production builds passed. Lint non-regression:
+  backend 545 existing violations / baseline 623; frontend 22 / baseline 41.
+  Diagnostic query rows, evaluator evidence arrays and request bodies now use
+  explicit types/guards; no baseline suppression or dependency change.
+- Full isolated frontend suite passed 328 checks. Full backend suite was run once
+  and stopped after its known parent-runner stall without a complete summary;
+  it is not reported as passing. Direct credential-isolated execution of all
+  six affected tracing, Health, runtime, readonly, context and catalogue files
+  passed 70/70. Prior full baseline is reused only for unchanged code.
+- Desktop inspection confirms enlarged rings, common caption/action baselines,
+  flush-left links and evenly spaced measurement indicators. Live page inspection
+  confirms the new usage action selects AI usage and focuses detailed data.
+  Chart rows/bars expand with available height while preserving minimum sizes.
+- Migration 135 is additive, already applied to the shared production database;
+  the unchanged Dockerfile includes tracked SQL migrations. No infrastructure,
+  RBAC, policy, identity, secret or Desktop change, so provisioning/template/
+  what-if steps are not applicable. Existing Azure target/authentication reads passed.
+- Bulk indexing remains enabled following the earlier explicit user request:
+  143 pending records drained, one exhausted failed record left untouched.
+  No paid evaluation, manual retry/backfill or publication is commissioned by release.
+- Evidence: health-release-{backend-tests,affected,web-tests,web-build}.log
+  in the session artifacts. Unrelated .impeccable cache/critique files are excluded.
+
+**Release execution (2026-11-01, readiness and context tracing):**
+- Application commit f34f9630730ee4ce344d47a45f3268c61e623346 pushed to main
+  and richardichogan-local-development; both remote refs confirmed identical.
+- ACR run ca8x built kh-prod-api:v284 from main. New revision
+  kh-prod-api-vnet--0000281 is Healthy / RunningAtMaxScale and latest-ready,
+  with 100% latest-revision traffic. Startup confirms Migration complete,
+  database pool 8/8 ready and the production specialist worker started.
+- Production frontend deployed to kh-prod-web. Custom-domain HTML and exact
+  built entry /assets/index-DcWb2RZ9.js return 200 at
+  https://athena.themicrosoftcloudblog.com/.
+- No Desktop release, infrastructure changes or manual publishing/replay.
+  The earlier local database read timeout remains captured, not fixed.
+- Evidence: context-release-{acr,swa,startup}.log in the session artifacts.
+
+**Section 7: Readiness, publishing visibility and context tracing release proof (2026-11-01):**
+- User requested deploy, merge and push. Existing application targets only:
+  kh-prod-api-vnet and kh-prod-web, rg-knowledge-hub-prod, Alliance Tenant
+  Reporting. Image v283 advances to v284; no infrastructure or Desktop change.
+- git fetch origin and git merge origin/main completed: already current at
+  93cf737. Release includes the pending combined publishing visibility,
+  Design IMAGINE readiness with exact passage citations, and seven-day
+  content-level chat diagnostics. Migrations 133/134 are additive and already
+  applied to the shared production database with approval.
+- Both tsc --noEmit checks, production builds and lint non-regression passed:
+  backend 545 existing violations / baseline 623; frontend 22 / baseline 41.
+  New lint violations were fixed without changing intended behaviour.
+- Full isolated frontend release coverage passed 329 tests. The full backend
+  parent runner stalled after reporting passing tests; it was stopped, not
+  restarted. Its bounded-concurrency retry also stalled. Direct credential-isolated
+  execution completed all 173 affected backend checks, including Design, tracing,
+  publishing, podcast campaigns, context assembly, catalogue, safety and readonly.
+  Completed prior full baseline is reused for unchanged backend code.
+- The affected Design fixture now loads migration 133 and expects the approved
+  readiness tools. Readonly assertions still forbid source mutations while
+  permitting only separate diagnostic-table writes. Undefined trace outputs
+  persist as JSON null instead of falsely marking capture incomplete.
+- Actual local Design turns persist exact model-visible tool output, source/tab/
+  revision metadata, completed reply linkage and seven-day expiry. Athena used
+  both diagnostic tools to retrieve a saved trace. A real database timeout was
+  captured as failed with its error; tracing does not fix that timeout or reasoning.
+- Docker packages all tracked migrations; lockfiles are present and unchanged.
+  Azure authenticated reads confirm the existing ACA/SWA resources. No Bicep,
+  policy, RBAC, identity, dependency or secret changes; provisioning is not applicable.
+  Local scheduled delivery stays disabled. Exclude .impeccable/hook.cache.json.
+- Evidence: context-release-{backend-tests,web-tests,web-build,direct-affected,
+  final-affected}.log in the session artifact directory.
+
+**Section 7: Campaign image visibility release proof (2026-11-01, 16:20 UTC):**
+- User requested deployment of the approved presentation change: every campaign
+  post with a saved image opens expanded, not just Bluesky. Existing controls,
+  artwork, copy, scheduling, review and approval state remain unchanged.
+- Frontend-only deployment to existing kh-prod-web. Backend v283 remains unchanged.
+  git fetch origin and git merge origin/main passed, already synced at6ed17c1.
+- Both tsc --noEmit checks and frontend lint non-regression passed immediately
+  before release. Frontend production build passed; affected campaign component
+  regression passed4/4, including all three destinations and collapsed text-only posts.
+  Completed full release coverage from this same unchanged backend/frontend baseline
+  is reused; no full-suite rerun, infrastructure, RBAC, dependency or Desktop change.
+- Evidence: campaign-visible-images-build.log and affected component command output.
+  Unrelated .impeccable/hook.cache.json remains excluded.
+
+**Release execution and upload correction proof (2026-11-01, podcast campaigns):**
+- Correction commit00e84b921e7c51071b6b7cadf10b96784fe71932 pushed to both refs;
+  v283 revisionkh-prod-api-vnet--0000280 is Healthy / RunningAtMaxScale, latest-ready,
+  with100% latest traffic. Startup confirms completed migrations, database8/8
+  connections and the production specialist worker. Hosted frontend remains current.
+- User explicitly approved retrying only the definite failed LinkedIn teaser.
+  One guarded retry authorization was recorded for the unchanged approved revision5;
+  the normal production worker sent the native image post successfully at15:54:19Z:
+  https://www.linkedin.com/feed/update/urn:li:share:7522687476700811264/.
+  LinkedIn attempts2 includes the initial pre-publication rejection. Bluesky remains
+  sent once; no edit/repost/delete was performed. Both delivery errors and campaign
+  error are clear. Full campaign stays draft revision8 and has not been approved.
+- The aspect-ratio correction applies to future Bluesky posts; the existing post's
+  display is unchanged. Exact landscape/square embed payloads passed the regression.
+- Application86280758d75621b1165c98374f4a7bec1838e56c pushed to main and
+  richardichogan-local-development. ACR ca8v built v282; revision0000279 is
+  Healthy / RunningAtMaxScale, latest-ready and100% latest-revision traffic.
+  Startup confirms Migration complete, database8/8 ready and production worker.
+- Production frontend matches /assets/index-OAfTTBUD.js; HTML and entry return200
+  at https://athena.themicrosoftcloudblog.com/. No Desktop release.
+- Approved Bluesky teaser sent once with native PNG at15:19:33Z, confirmed receipt:
+  https://bsky.app/profile/richardihogan.bsky.social/post/3mzb4baomv22g.
+  LinkedIn failed before publication because the upload host guard was too narrow;
+  no receipt and one definite failed attempt. No manual retry was commissioned.
+- User approved verifying/fixing the LinkedIn upload guard and redeploying,
+  then approved adding Bluesky's actual PNG aspect ratio without changing artwork
+  or replacing the published post. Official LinkedIn Assets API documentation and
+  a real registration-only response confirm HTTPS www.linkedin.com/dms-uploads/
+  and synchronous upload. Signed URLs and credentials were not logged.
+- Backend-only correction advances v282 to v283. Existing frontend remains unchanged.
+  Backend tsc, build and lint non-regression passed. Directly affected LinkedIn,
+  Bluesky and podcast suite:46/47 passed initially; SDK-mock-only fixture corrected
+  and the failed native-aspect-ratio regression passed. No full suite rerun.
+- Actual landscape1200x675 and quote1080x1080 embed payloads retain exact saved PNG
+  bytes and alternative text. Unsafe host/path/protocol/credential/port responses
+  are rejected before upload or post. Synchronous upload finishes before UGC send.
+- Evidence: podcast-release-{acr,startup,worker,swa}.log and
+  podcast-upload-fix-{build,tests,affected}.log. Full campaign remains draft revision8.
+
+**Release scope and Section 7: Validation Proof (2026-11-01, podcast campaigns):**
+- User requested deploy, merge and push. Existing ACA/SWA targets only:
+  kh-prod-api-vnet and kh-prod-web, rg-knowledge-hub-prod, Alliance Tenant
+  Reporting. Current image v281; release image v282. No infrastructure or Desktop change.
+- git fetch origin and git merge origin/main completed; already current at e5457ef.
+- Both npx tsc --noEmit checks and production builds passed. Lint non-regression
+  passed: backend545 existing violations / baseline623; frontend22 / baseline41.
+  New numeric constants, import/types and effect dependencies were corrected without
+  changing the approved artwork, copy, dates or UI layout.
+- Full credential-isolated backend release suite:910/911 initially passed.
+  One publishing-cap fixture omitted the required delivery identity; fixed the
+  fixture and its directly affected test passed, including podcast-cap exclusion.
+  Full suite was not rerun. Full isolated frontend coverage:324 passed, zero failures.
+- Existing Azure target/authentication reads passed. Docker packages the new
+  resvg renderer, PNG logo, IBM Plex fonts and license alongside existing migrations.
+  No Bicep, policy, identity, RBAC or secret changes; provisioning is not applicable.
+- Release includes independent GPT-6 Astra review gates, native social images,
+  existing-copy extraction and Bluesky-only adaptation, exact-text blog H2 formatting,
+  and independent podcast schedules with30-minute same-day staggering.
+- Saved full campaign revision8 passed independent review with no findings before
+  release and remains a draft. Already-approved due teasers may be picked up by the
+  new production worker; local automatic delivery remains disabled.
+- Architecture/hosting remain existing Think editors, domain services, specialist
+  jobs and ACA/SWA. resvg is required for native reviewed PNGs; the separate reviewer
+  adds bounded model calls. Typed revisions/fingerprints and approval boundaries
+  remain. Secrets stay outside source; no text-only fallback after image failure.
+  The safest scope preserves these gates and does not approve or manually resend posts.
+- Evidence: session files/podcast-release-{backend-tests,affected,web-tests,
+  backend-build,web-build}.log. Unrelated .impeccable/hook.cache.json is excluded.
+
+**Release execution (2026-11-01, task activity and Office downloads):**
+- Application commit34ac114bdc9e7b05b12905a780186b62a120aa49 pushed to main
+  and richardichogan-local-development; both remote refs verified.
+- ACR run ca8u built and pushed kh-prod-api:v281 from main.
+  Revision kh-prod-api-vnet--0000278 is Healthy / RunningAtMaxScale;
+  latestReadyRevision matches and latest-revision traffic is100%.
+- Startup confirms Migration complete, database pool8/8 ready and production
+  specialist worker started. Migrations131/132 were already applied.
+- Frontend deployed to kh-prod-web. https://athena.themicrosoftcloudblog.com/
+  serves the matching /assets/index-C1MbD3Ur.js; HTML and entry asset return200.
+- No Desktop release, manual task move, email send or publication commissioned.
+- Evidence: session files/task-office-release-{acr,swa,startup}.log.
+
+**Release scope and Section 7: Validation Proof (2026-11-01, task activity and Office downloads):**
+- User requested deploy, merge and push. Existing web/backend targets only:
+  kh-prod-api-vnet and kh-prod-web in rg-knowledge-hub-prod, Alliance Tenant
+  Reporting. Image v280 advances to v281. No Desktop or infrastructure changes.
+- Includes pending Projects visual corrections, on-demand seven-day progress
+  reviews, editable Office downloads, nonblocking task preparation, mandatory
+  status notes, Richard/Hermes action attribution and task-detail styling.
+- `git fetch origin` and `git merge origin/main`: current at 5eb4e3a.
+- Both `npx tsc --noEmit` and production builds passed. Lint non-regression:
+  backend 545 existing violations / baseline623; frontend22 / baseline41.
+- Full credential-isolated backend release suite: 892/893 initially passed.
+  The recurring-task fixture omitted newly mandatory status notes; corrected
+  fixture and all seven affected recurrence/status-note checks passed. No full rerun.
+- Full isolated frontend release coverage: 322 passed, zero failures.
+- Azure CLI2.79.0 authenticated target reads passed. Docker copies lockfile and
+  all tracked migrations; ACR builds exact-main backend from the existing target.
+  Migrations131/132 are additive and already applied to shared production data.
+- Actual local task detail renders saved actor attribution, descriptive Think
+  links without visible GUIDs, styled note fields and consolidated result controls.
+  Real Office downloads were generated and retrieved; native Office rendering
+  remains unverified. No task move, email send or publication is part of release.
+- Fit: existing Think/Plan services, specialist queue and ACA/SWA hosting remain;
+  docx/PptxGenJS supply requested editable files without M365 Graph or a new
+  cloud service. Existing approval, revision, ownership and secret handling remain.
+  Safest scope retains these boundaries and excludes automatic external actions.
+- No Bicep/RBAC/policy changes; provisioning/what-if is not applicable.
+  Unrelated .impeccable/hook.cache.json is excluded. Local delivery stays disabled.
+- Evidence: session files/task-office-release-{backend,affected,frontend,web-build}.log.
+
+**Release execution (2026-10-31, Projects workspace):**
+- Application commit 3df2876cefebe4a02a1fdc17d97ea051efbf55c9 pushed to main
+  and richardichogan-local-development; both live remote refs verified.
+- ACR run ca8t built kh-prod-api:v280. Revision kh-prod-api-vnet--0000277 is
+  Healthy / RunningAtMaxScale; latestReadyRevision matches the new revision
+  and latest-revision traffic is 100%. Startup explicitly confirms migration130
+  applied, Migration complete and the production specialist worker started.
+- Frontend deployed to kh-prod-web. https://athena.themicrosoftcloudblog.com/
+  serves the matching /assets/index-cIunC1uX.js; HTML and entry asset return 200.
+- Local backend restarted with the updated code, shared production data,
+  local-mac.lan worker isolation and scheduled delivery disabled.
+- A real idempotent project-type save through the normal local API client succeeded:
+  Reckitt remains Project, with description, goal and deliverables preserved.
+  The previous standard/formal-client validation error is no longer returned.
+- Final affected project-context/work-context/migration checks passed 9/9.
+- No individual work types were inferred, and no task, email, publication or
+  Desktop release was manually commissioned by this deployment.
+- Evidence: session files/projects-release-{acr,swa,startup,affected}.log.
+
+**Release scope and Section 7: Validation Proof (2026-10-31, Projects workspace):**
+- User approved deploying the inline project work view and five work types with
+  their shared-database migration. Includes the pending automatic task-help
+  coverage and publisher-summary/relevance-explanation changes from this session.
+- Existing application-only AZCLI targets: kh-prod-api-vnet and kh-prod-web,
+  rg-knowledge-hub-prod, Alliance Tenant Reporting. Current image v279; next v280.
+  No Desktop, Cowork, new resources, dependency, identity, policy or secret changes.
+- All validation checks pass:
+  - [x] `git fetch origin` and `git merge origin/main`: already current at ca58134.
+  - [x] Both `npx tsc --noEmit` checks and production builds passed.
+    Final backend build includes changed-record retrieval through project tools.
+  - [x] Lint non-regression passed: backend 545/623, frontend 22/41.
+  - [x] Full credential-isolated backend release suite: 858 passed, zero failures.
+    Includes migration130 preservation/default/type-validation and re-run coverage.
+  - [x] Full isolated frontend release coverage: 320 passed, zero failures.
+  - [x] Azure CLI 2.79.0 authentication and existing ACA image/identity/FQDN and SWA
+    target reads passed. Docker packaging includes tracked migrations and lockfile
+    installs. ACR performs the exact-main container build; no provisioning needed.
+  - [x] Local desktop inspection confirms expanded work sections, retained register
+    and packet actions, collapsed supporting evidence and no duplicate outcome
+    summary. Earlier project read roundtrip returned the exact saved description.
+  - [x] Diff whitespace checks pass. No infrastructure/RBAC/template changes:
+    Bicep, what-if, policy and role-provisioning checks are not applicable.
+- Fit: existing project/editor/domain services and ReviewWorkspace are reused;
+  ACA/SWA/shared-production-data hosting is unchanged; no new packages or model
+  jobs; work-type contracts and bounded retrieval remain typed; credentials remain
+  process-only. The safest scope preserves legacy data through explicit migration,
+  does not infer individual classifications, and retains existing review approvals.
+- Migration130 must accompany the updated backend; the previous backend rejects
+  new work types. Restart the local backend after release and verify real saving
+  against shared production data. Keep local automatic delivery disabled.
+- Existing light-diagram palette and unrelated compact/modal CSS findings are
+  pre-existing/outside this release; no design-system waivers or changes were made.
+- Evidence: session files/projects-release-{backend,frontend,web-build}.log.
+  Exclude unrelated .impeccable/hook.cache.json from the release.
+
 **Release execution (2026-10-31, task research and reading details):**
 - Application commit 3ae849c3e39625e43ae77cb413f2da06c895da9d pushed to
   main and richardichogan-link-think-chat-projects; both live remote refs verified.

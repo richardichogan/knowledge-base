@@ -1,4 +1,5 @@
 import type { Pool } from 'pg';
+import type { ProjectType } from '../services/projectTypes.js';
 
 export interface CurrentProjectContext {
   id: string;
@@ -13,7 +14,7 @@ export interface CurrentProjectContext {
   importance: string;
   priority: string;
   category: string;
-  projectType: string;
+  projectType: ProjectType;
   expectedOutputs: string[];
   links: Array<{ label: string; url: string }>;
   gitlabPaths: string[];
@@ -64,7 +65,8 @@ export function formatCurrentProjectContext(project: CurrentProjectContext): str
     `Category: ${project.category}; type: ${project.projectType}`,
     project.startDate && `Start date: ${project.startDate}`,
     project.targetEndDate && `Target end date: ${project.targetEndDate}`,
-    project.expectedOutputs.length > 0 && `Expected outputs:\n${project.expectedOutputs.map((output) => `- ${output}`).join('\n')}`,
+    project.expectedOutputs.length > 0 && `Deliverables:\n${project.expectedOutputs.map((output) => `- ${output}`).join('\n')}`,
+    'Work type describes the nature of the work, not a client arrangement. BAU is an ongoing responsibility; an aspiration is a direction for growth. Neither implies a required end date or completion score.',
     project.githubRepos.length > 0 && `GitHub repositories: ${project.githubRepos.join(', ')}`,
     project.gitlabPaths.length > 0 && `GitLab paths: ${project.gitlabPaths.join(', ')}`,
     project.tags.length > 0 && `Tags: ${project.tags.join(', ')}`,

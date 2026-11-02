@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/api';
-import { requireApiData } from '../services/apiError';
+import { describeApiError, requireApiData } from '../services/apiError';
 import { noteDraftIdentity } from '../services/auth';
 import { WORK_DRAFT_PREFIX } from './noteDraftStorage';
 import type { WorkContent, WorkContentPatch } from '../types/workContent';
@@ -28,7 +28,7 @@ export function useWorkContent(noteId: string, enabled: boolean, saveNote: () =>
   }, []);
   const report = useCallback((err: unknown): void => {
     console.error('[Think work content]', err);
-    if (live.current) setError(err instanceof Error ? err.message : 'Work properties could not be saved. Your draft is retained.');
+    if (live.current) setError(err instanceof Error ? describeApiError(err) : 'Work properties could not be saved. Your draft is retained.');
   }, []);
   const reload = useCallback(async (): Promise<void> => {
     if (Object.keys(pending.current).length) throw new Error('Save or discard the retained properties draft before refreshing.');
@@ -140,8 +140,23 @@ export function useWorkContent(noteId: string, enabled: boolean, saveNote: () =>
     const value = requireApiData(await api.copyEmailDraft(noteId));
     await navigator.clipboard.writeText(value.text);
   };
+  const download = async (format: 'docx' | 'pptx'): Promise<void> => {
+    await action(async loaded => {
+      const file = await api.downloadDeliverable(noteId, format, loaded.revision, loaded.noteRevision);
+      const url = URL.createObjectURL(file.blob);
+      const link = document.createElement('a');
+      try {
+        link.href = url; link.download = file.filename;
+        document.body.appendChild(link); link.click();
+      } finally {
+        link.remove();
+        window.setTimeout(() => { URL.revokeObjectURL(url); }, 1000);
+      }
+      return loaded;
+    });
+  };
   return { data, values: data ? { ...data, ...patch } : null, error, busy, recoveryConflict,
-    dirty: Object.keys(patch).length > 0, edit, saveMetadata, reload, discard, action, copy, report };
+    dirty: Object.keys(patch).length > 0, edit, saveMetadata, reload, discard, action, copy, download, report };
 }
 
 export type WorkContentController = ReturnType<typeof useWorkContent>;
@@ -173,13 +188,22 @@ export function WorkContentProperties({ work, disabled }: { work: WorkContentCon
       <p>{value.taskId ? <a href={`/plan?taskId=${encodeURIComponent(value.taskId)}`}>{value.taskTitle ?? 'Linked task'}</a>
         : 'No linked task. Ask Athena to link this item to a Plan task.'}</p>
       {value.type === 'deliverable-brief' ? <>
+        <p>Develop the finished document in the final <strong>Deliverable content</strong> section of this editor. For PowerPoint, level-two headings start slides. Downloads contain editable text, lists and tables, not the brief instructions.</p>
+        <div className="kh-work-properties__downloads">
+          <button type="button" className="notes-ghost-btn" disabled={disabled || work.busy || work.recoveryConflict}
+            onClick={() => { run(() => work.download('docx')); }}>Download Word</button>
+          <button type="button" className="notes-ghost-btn" disabled={disabled || work.busy || work.recoveryConflict}
+            onClick={() => { run(() => work.download('pptx')); }}>Download PowerPoint</button>
+        </div>
+        <p>Downloads save pending edits first. No M365 access or upload is required; the linked task remains open.</p>
         <label><span>OneDrive folder</span><input value={value.targetFolder} maxLength={1000}
           disabled={disabled || work.busy || work.recoveryConflict} placeholder="Athena/Project"
           onChange={event => { work.edit({ targetFolder: event.target.value }); }} /></label>
         <label><span>Exact file name</span><input value={value.fileName} maxLength={200}
           disabled={disabled || work.busy || work.recoveryConflict} placeholder="Requirements.docx"
           onChange={event => { work.edit({ fileName: event.target.value }); }} /></label>
-        <p role="status">{value.producedFile ? 'File ready for review. Task remains open.' : 'Awaiting the exact file in OneDrive sync.'}</p>
+        <p role="status">{value.producedFile ? 'Synced file ready for review. Task remains open.'
+          : value.targetFolder ? 'Awaiting the exact file in OneDrive sync. Local downloads are separate.' : 'Download-only unless you choose a OneDrive destination.'}</p>
         {value.producedFile && (value.producedFile.url ? <a href={value.producedFile.url}
           target="_blank" rel="noreferrer">{value.producedFile.title || value.fileName}</a>
           : <p>{value.producedFile.title || value.fileName} — original file link unavailable.</p>)}

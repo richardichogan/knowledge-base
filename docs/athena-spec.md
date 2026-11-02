@@ -66,6 +66,38 @@ Reading checkpoints are private to the chat, review objective, source and scope,
 
 Health exposes conversation retrieval signals as well as provider usage: measured scope, prevented cross-collection attempts, inherited scope, possible deferred retries, temporal/default-window use, unread search hits, unverified quotes, budget exhaustion and tool errors. Deferred retries are heuristic review flags, not proven failures. Audit storage contains categories/counts only, never prompts or source text. Legacy rows without scope/environment attribution stay separate and unmeasured. No-retrieval can be correct for conversation, provider success is not task success, and these signals are not an accuracy score. Health's selected dates are UTC and environment/persona/feature filters apply; deployment-attributed turn quality is explicitly unavailable.
 
+### Short-lived chat diagnostics
+
+Every new chat turn separately captures a content-level diagnostic trace: the received page context, resolved target and project, actual provider request bodies (including system messages, history and available tools), model responses, ordered tool requests, execution arguments and model-visible results, saved reply linkage and failures. The UI sends a separate identity-only snapshot on every turn, even when unchanged page content is withheld from the model; it records whether the user dismissed context. This diagnostic snapshot does not itself become model context. Design context identifies the Design, active tab and source revision when available; diagrams additionally identify all selected shapes/connectors and save state. Missing context remains missing, rather than being reconstructed from a title. These records distinguish what the application supplied from what the model inferred; they do not themselves improve reasoning or prove the answer correct.
+
+Traces expire seven days after starting. Reads deny expired traces immediately; startup and hourly cleanup physically delete them, including their event content. Deleting a linked chat or assistant message cascades to its traces. Known runtime connection credentials, sensitive JSON fields, bearer tokens, private keys, signed-URL signatures and credential-bearing URLs are redacted before storage. Redaction deliberately means these are not byte-identical transport recordings, and cannot guarantee detection of an arbitrary unidentified secret embedded in source prose. Trace write failures log an explicit diagnostic failure and mark persisted captures incomplete rather than failing the user's chat; an abrupt process loss can leave a trace marked running.
+
+Authenticated diagnostics use `GET /api/ai/sessions/:sessionId/traces` (20 records per page via `offset`) and `GET /api/ai/sessions/:sessionId/traces/:traceId/events` (one event, 12,000 characters at a time via `sequence` and `offset`). Responses provide continuation offsets/sequences and completion status. Athena has corresponding bounded `list_chat_turn_traces` and `read_chat_turn_trace` tools. Full prompts cannot safely be field-filtered, so trace tools refuse access under enforced project scope or source exclusions, including exclusions on the original chat. Explicit collection scopes continue to use the normal capability gates. Historical trace content is untrusted diagnostic evidence, not current instructions or a current source read. There is no replay, automatic source mutation, knowledge indexing or retrospective backfill.
+
+### Instrumentation dashboard and saved-trace evaluations
+
+Every Health data table uses fixed 25-row pagination with previous/next controls and visible row ranges, including tables smaller than one page. Filter changes reset table pages. Workflow stage details remain inside their parent workflow row. Existing bounded API result sets remain explicitly labelled; pagination does not imply access to records outside those bounds. Table page, page size and available row count are included in Athena's page context.
+
+Health retains the supplied graphical command-centre composition: success and failure-hotspot rings, a shared indexing backlog count/bar, and compact measurement-gap indicators. A wide daily-call chart sits beside AI usage totals. Short inspection actions sit with the failure and indexing measurements rather than in a prose-heavy action card. These measurements do not establish task success or live CPU, memory, concurrency or saturation. Actions inspect feature usage or knowledge coverage; they do not automatically change models, retry jobs or claim a root cause. Workflow attribution stays in the Workflows tab as diagnostic coverage.
+
+Wide-desktop rings use 180px canvases with enlarged percentage and supporting text. Headline cards share heading, minimum-180px flexible measurement, caption and action rows so ring centres, captions and inspection actions align; rings reduce to 136px in the narrower four-column desktop layout. All headline inspection labels are flush-left; model-call success opens AI usage with current filters. Measurement-gap indicators use larger icons/text and evenly distributed rows. Paired chart contents grow to use available panel height: latency/failure bars retain a 12px minimum, observation bars an 8px minimum, and AI usage groups a 104px minimum. Additional vertical space expands the chart rows and bars rather than leaving a bottom void.
+
+Inspecting a feature preserves applied runtime/date/persona/deployment filters, selects AI usage, resets pagination and focuses detailed data after loading; usage rows are aggregate groups, not individual failed-call evidence. Runtime/date badges accompany the heading. All six filters sit directly below it with Apply/Reset after the fields on a common baseline. A wide daily chart has count axis, grid, weekday labels and success/failure legend alongside a separate AI usage panel. Feature failures, indexing distribution and context/outcome/source diagnostics remain visible. Count bars compare magnitudes within a panel, not success rates. No-turn and no-source states explicitly avoid healthy-zero claims. Evaluation reports open by default; detailed tables remain in eight tabs with 25-row pagination. No synthetic health or accuracy score is introduced.
+
+Paired horizontal-bar charts show the five slowest returned feature/persona/deployment usage groups and feature failure rates. Feature labels open the existing usage inspection. Latency retains sample counts and group identity; long tasks, small samples and bounded returned groups are not evidence of a system-wide or end-to-end bottleneck. Interpretation notes remain below the graphics; traces are needed before recommending a configuration change.
+
+The existing **Knowledge health** workspace (`/health`) is dashboard-first: daily model-call success/failure bars, per-feature failure rates with sample counts, trace-capture distribution, source-check tiles, observed-context and outcome summaries. Detailed data is organised in keyboard-accessible tabs: AI usage, Workflows, Source sync, Retrieval quality, Knowledge coverage, Index freshness, Turn measurements, and Traces and evaluations. The active tab is included in Athena's page context. Environment, feature and status labels remain visible within the data. A provider returning successfully is not task success; completed workflows, saved chat replies, saved edits and confirmed delivery remain distinct.
+
+Runtime attribution is `dev` or `prod`, independent of the database: local development using production content is still `dev`. Model usage, workflows, chat audits, independent turn measurements and traces are filtered by runtime. New sync runs and scheduler claims carry runtime attribution; historical rows remain explicitly unknown, never backfilled as production. Source history shows the selected runtime plus labelled legacy rows and is independent of date/feature filters. Content/extraction/index inventory is shared. Per-source successful-check timestamps are derived from recorded zero-error results in the latest ten shared runs, including successful sources within a partial run; last indexed is not last checked. Index backlog age is the oldest pending/failed work update, not proof of total upstream completeness. Eligible upstream counts remain unknown where not recorded.
+
+An independent, content-free `ai_turn_measurements` row is written before trace creation and session loading. It records accepted-turn attempts entering the instrumented handler, runtime/persona, capture startup/completeness, final status and structured context/read/error/persistence observations. It can expose trace-start failure separately from chat failure. Database telemetry failures can still leave uncounted turns; these are logged, and this denominator is not claimed as an infallible HTTP-request count. Final missing measurements, process-loss running records and legacy turns are never treated as successful captures. Metadata expires after seven days and cascades with session deletion. Context observations overlap; no observed read does not prove a read was necessary, or that history/search contained no evidence. Omitted budget-limited reads are not counted as partial reads. A complete stored-text read does not prove complete upstream extraction. Turn coverage has no reliable per-provider-deployment denominator, so selecting a deployment makes that section unavailable rather than showing zero.
+
+New traces include parent/child timing spans for the root turn, session/context loading, model calls, streaming response-header attempts, tool execution and chat persistence. Spans record status, timestamps, parent identifiers and redacted attributes; events identify the active span where available, while tool/model call IDs correlate results across admission boundaries. Spans and evaluation reports cascade with their seven-day trace. Older traces have no retrospectively invented spans. The Health trace explorer provides paged traces, span waterfalls, bounded raw-event inspection and explicit refresh. It broadcasts selected trace/session/span/event identifiers to Athena. `read_knowledge_health` retrieves current structured report sections; `read_chat_trace_spans` and `read_chat_trace_evaluations` use the same diagnostic services and scope/exclusion restrictions.
+
+`GET /api/health/traces` lists runtime/date-filtered trace metadata, 20 per page. `GET /api/health/traces/:traceId/spans` pages spans; `GET /api/health/traces/:traceId/evaluations` lists the latest 20 reports. All are authenticated and require the original session identity for trace detail. `POST /api/health/traces/:traceId/evaluations` explicitly runs `deterministic` or `model` evaluation; model mode also requires `confirmModel: true`. Athena can request the same operation through `evaluate_chat_trace` only for an explicit user request, with separate model opt-in. Reports record the evaluator runtime separately from the source-trace runtime.
+
+Deterministic checks make no model call: capture integrity, context-snapshot observation, chat-reply persistence and recorded citation-validator signals. Answer correctness remains uncertain. Optional model review uses one configured standard-model call, with no tool execution or replay, and checks relevance, groundedness, context selection and action claims. Input is the redacted saved trace, not live sources, and is treated as untrusted evidence. The review budget is 200,000 serialized characters, 500 events, 4,000 output tokens and two minutes; oversized inputs fail explicitly before a model call, with no silent truncation or fallback. Verdicts are `pass`, `fail` or `uncertain` with validated event-sequence references. They are model judgements, not human-verified accuracy. Failed/incomplete reviews are not passes; concurrent evaluation of the same trace is guarded. Evaluation is manual, never scheduled, and its usage is attributed as diagnostic work. Health reports review coverage separately from capture coverage, without manufacturing an accuracy percentage.
+
 Workflow health separately records new specialist attempts, direct Design operations and claimed scheduled jobs. Model calls inherit a workflow ID, stage and explicit purpose through async-local context; diagnostic callers must explicitly choose diagnostic purpose, not rely on worker-name guesses. No prompts or document text enter this telemetry. Blog checks distinguish completed operations from review-blocked/ready drafts and successful blog delivery. Elapsed run time and summed model-call time are different measures. Earlier calls/jobs are not retroactively attributed; running records can represent work interrupted by process failure. Workflow cohorts use start time; call aggregates follow the usage date/environment/model filters. Review/delivery counts overlap completed runs and do not prove user acceptance.
 
 Source sync retains up to 20 safe failure categories, targets and corrective actions per source, with an explicit total error count. Raw provider response bodies are not shown in Health. These latest shared-source runs do not follow usage filters; older records retain counts only. Project Markdown ingestion decodes strict UTF-8 or BOM-tagged UTF-16LE/BE and rejects invalid text/NULs rather than discarding bytes. Graph sign-in requests Mail.Read.Shared for the podcast shared mailbox; existing sign-ins retain their granted scopes during refresh, and need renewed consent plus mailbox read permission. Expired ICA consulting keys and GitHub repository access require credential/access correction, not silent source removal.
@@ -123,6 +155,81 @@ Transcript has uploaded text, and Show Notes has a saved package.
 Campaign also appears in Progress, with its live preparation, approval, pause,
 attention or all-posts-sent status. Its check means a saved campaign plan exists,
 not that every post has been delivered.
+Campaign scheduling reads the existing posts from saved Show Notes; it does not
+regenerate their copy. Only Bluesky drafts exceeding the 300-grapheme limit
+including the actual listening URL are automatically adapted by the existing
+copy-fitting agent. It receives the actual listening URL and measured remaining
+budget and may rewrite the draft from the original message when mechanical
+reduction would be incoherent; complete sentences and material qualifications
+must survive. The original Show Notes, valid posts, image quotations,
+attribution, listening links and dates stay unchanged. Each adapted draft retains
+its original source copy, is identified in preparation notes, and must pass the
+separate review for meaning/factual fidelity before manual approval.
+Campaign dates stay authored.
+Full-campaign posts sharing a day are staggered 30 minutes apart in saved order,
+starting at the existing 08:00 UK time. This spacing is within the podcast campaign
+only; other bookings, publishing windows and daily caps do not influence it.
+Public-copy extraction omits leading scheduling/channel headings. Internal Athena
+links render as their authored visible text in the launch blog, not authoring-site
+URLs; external links and episode listening URLs are preserved.
+The launch blog uses its saved title as one H1, with agent-selected H2 section
+breaks above existing paragraphs. The application inserts only the headings:
+body wording, paragraph order, links, TL;DR, excerpt, key takeaways, categories,
+tags and slug are preserved. Formatting invalidates the prior independent review.
+Only the recording teaser receives a next available pre-release time (15 minutes
+ahead) when prepared/reviewed later that weekend, without checking other bookings,
+daily caps, spacing or publishing windows. Other scheduled content is never moved,
+deleted or deferred. Due podcast posts deliver independently: a tease need not
+wait for the launch blog, and another post's failure does not stop the rest.
+Human approval, explicit pause/automation-off controls, account/revision checks,
+provider content limits and per-post duplicate/uncertain-send protection remain.
+Publication dates are read directly from saved campaign headings; the application
+adds the configured account time and resolves its timezone, retaining explicit
+source times. Date-only authored headings are valid input. Source selection does
+not ask the model for timestamps or require the user to supply/repair them.
+Only the recording teaser has a flexible date: recording Friday, or Saturday/
+Sunday before the Monday release when the transcript/review is ready later.
+The launch and subsequent authored campaign dates are never shifted by this rule.
+The recording teaser is queued automatically when the transcript is uploaded.
+It uses existing recording-day Show Notes copy when available, otherwise the
+transcript, and includes complete personal LinkedIn and Bluesky copy but no
+episode URLs. It appears in the same Campaign tab for separate approval. An
+existing teaser is never regenerated, and its posts are excluded from the later
+Monday launch, weekday quote posts and fuller posts across the two-week campaign.
+Create campaign generates a PNG and editable SVG for every existing post, with
+the approved Carbon/podcast identity: Richard teal, David blue and Cyrus purple.
+Quotes, presenter names and timestamps are selected from the authored campaign,
+not invented from the transcript. Quote cards are square; launch, teaser and fuller
+post images are landscape. IBM Plex fonts and the supplied podcast mark are
+bundled for identical local/container rendering, with no image-model call per card.
+Each image appears with its post for manual review and approval. No automatic
+campaign/image approval is enabled for the initial episode-review phase.
+Every newly prepared campaign/teaser and every supported copy/artwork mutation
+queues a separate persistent podcast-publication-reviewer job. The reviewer uses
+the existing GPT-6 Astra route, not the GPT-5.4 creator, and receives the actual
+saved PNG bytes, full source, exact posts and structured artwork metadata.
+It checks audience-facing titles, source/copy fidelity, attribution, cadence,
+completeness, text readability/clipping, formats, colours and export defects.
+Approval is blocked while review is pending, when a finding exists, if review
+fails/is unavailable, or if the reviewed content fingerprint no longer matches.
+Findings and Retry independent review appear in the existing Campaign tab and
+are accessible to Athena. The reviewer never edits, approves or publishes.
+Campaign posts with saved artwork open expanded by default on every destination,
+showing their image preview against the copy and scheduled time. Users can still
+collapse individual posts; text-only posts retain their collapsed presentation.
+PNG assets and source SVGs are persisted in Athena storage; approved image-byte
+hashes prevent changed artwork being sent. LinkedIn and Bluesky receive the
+reviewed image with the post. Bluesky embeds include the actual PNG width and
+height so landscape cards retain their intended feed ratio without added bands.
+LinkedIn requests synchronous image processing and accepts its documented HTTPS
+www.linkedin.com/dms-uploads/ destination alongside api.linkedin.com; credentials,
+custom ports, other hosts/paths and redirects remain blocked. Ordinary publishing capacity does not count podcast
+deliveries. The blog image is a downloadable review asset, not an automatic
+replacement of the blog's existing cover. The authenticated source-download
+route exposes each editable SVG alongside its PNG without exposing storage keys.
+Athena reads complete paged posts and artwork specifications through
+read_podcast_campaign, edits draft teaser copy through update_podcast_recording_teaser,
+and revises one source-grounded image through update_podcast_campaign_image.
 Prep shows the document loading/error states with Retry, not a conversation
 composer. Script drafting uses the edited Prep as the authoritative brief and
 the original conversation only as supporting history. Saving changes to the
@@ -270,7 +377,7 @@ of inventing a brief.
 | Area | Role |
 |---|---|
 | **Today** (`/`) | What needs attention now: overdue, blocked or due tasks; failed connections; open Athena decisions; continue-working items; recent changes; and suggestions worth exploring (Discover picks with a reason, growing Spark themes). Also shows the Thursday podcast prep. |
-| **Discover** (`/discover`) | A ranked feed of articles from Microsoft and industry sources, weighted by relevance, freshness, authority and project fit, with calls for papers (CFPs), saved views and interest weights. **Sources** manages RSS/Atom feeds and **YouTube** channels, and imports single videos with a public-caption attempt; missing captions leave description-only evidence and separately attributed related background links. **Watchlists** monitor named competitors against a question and versioned baseline. **Parking lot** keeps items for a future newsletter or podcast. Items can be saved, turned into Sparks or use cases, or turned into quick LinkedIn, Bluesky and blog posts. |
+| **Discover** (`/discover`) | A ranked feed of articles from Microsoft and industry sources, weighted by relevance, freshness, authority and project fit, with calls for papers (CFPs), saved views and interest weights. Only the selected article's main reading pane shows a short publisher summary separately from Athena's assessment; the left article list remains compact. Missing summaries load asynchronously for the selected article from public-page SEO descriptions (Open Graph, meta description, then Twitter), with four concurrent reads, bounded page reads and cached results; unavailable or failed reads are checked again after 24 hours. Summaries are plain text, not AI-generated TL;DRs or evidence of a full article read. Athena receives the summary and provenance in context and can retrieve saved content through existing article tools. **Sources** manages RSS/Atom feeds and **YouTube** channels, and imports single videos with a public-caption attempt; missing captions leave description-only evidence and separately attributed related background links rather than being labelled publisher article summaries. **Watchlists** monitor named competitors against a question and versioned baseline. **Parking lot** keeps items for a future newsletter or podcast. Items can be saved, turned into Sparks or use cases, or turned into quick LinkedIn, Bluesky and blog posts. |
 | **Plan** (`/plan`) | Tasks in Board and Focus views, with saved views, Athena check-ins and at-risk prompts. Status moves update immediately and reconcile only the saved task in place, preserving other task order and origin links without refetching the whole list. Completing recurring tasks still refreshes to discover the next occurrence. Failed moves restore the task and show an error. Open use cases appear in the Board's Backlog or In Progress columns without creating duplicate task records. |
 | **Think** (`/think`) | Notes (BlockNote editor with history, recovery, tags, `@` mentions of people, projects and documents, and GitHub publishing), **Sparks** (capture, connect into themes, mature, ship) and **canvases** (diagrams with drilldowns and links to notes, exportable to draw.io and Mural). |
 | **Build** (`/build`) | Specs are split into dependency-ordered tasks and dispatched to GitHub cloud coding agents (Copilot or Claude) as issues. Their PRs are tracked and merged. |
@@ -282,6 +389,8 @@ of inventing a brief.
 | **People** (`/people`) | Contacts with email aliases, organisation, role and topics. Import contact reports from Markdown; mention people with `@` in notes and chat. |
 | **Projects** (`/projects`) | Project goal, role, dates, expected outputs, and the project **cockpit**, which holds the register of questions, risks and issues, and review packets. |
 | **Share** | Manual, review-before-send emails through SMTP2GO (Mural links, draw.io attachments, GitHub note links), Mural export, GitHub note publishing and Bluesky/LinkedIn personal-profile posting from Discover articles. Automatic publishing is permitted only through an explicitly enabled Jobs workflow with automatic delivery selected. |
+
+The selected article's main reading pane shows **Why Athena picked it** immediately beneath the publisher summary, using the saved relevance explanation rather than generating another assessment. Neither section appears in the left article list. Unassessed items say so explicitly; existing controls are unchanged.
 | **Management** | Tag Manager, repo-to-tag and repo-to-project mappings, Knowledge health (AI usage, sync runs, index freshness), practice-exam score history, and voice transcription and speech. |
 
 Old routes (`/tasks`, `/calendar`, `/notes`, `/documents`, `/timeline`, `/search`, `/ai`, `/blog-post`) redirect to the areas above.
@@ -304,6 +413,38 @@ links, open the same modal. Athena can design and manage saved jobs from any cha
 the Jobs screen is not a required setup wizard. Chat proposals display the exact
 configuration and require a user confirmation card before they change a schedule
 or enable publishing. Discussing a possible job does not enable one.
+
+**Tools → Publishing** (`/publishing`) opens the existing Publishing dialog
+over the current workspace, preserving its editors, selection and return
+location. Discover no longer has a Publishing menu action; existing
+`/discover?publishing=1` links remain compatible.
+Publishing's **Drafts** view contains unapproved Discover content, grouped
+by topic so Blog / LinkedIn packages remain one entry, plus unapproved podcast
+campaign and recording-teaser posts and publishing job outputs. Preparation,
+review and hold states remain visible without granting approval.
+**Scheduling** contains only approved, unpublished content across those same
+sources. Publishing jobs include the latest 50 outstanding runs, including
+Microsoft weekly digests. Typed approval state, not a proposed date or status
+label, determines which view contains an entry.
+Each entry shows its status, origin, saved copy and source
+references; image-bearing podcast previews show their saved artwork. Published
+outputs are excluded, including completed destinations of partial job runs;
+only their unpublished outputs remain. Proposed campaign dates and job
+trigger dates are not approvals or guaranteed delivery times. Existing topic,
+Think campaign and Jobs editors retain their approval and editing controls.
+This read-only content projection does not change the approved-only schedule,
+reserve slots, approve drafts, retry failures or trigger deliveries. Athena's
+publishing tool can retrieve the same saved content in bounded pages, with
+existing topic, campaign and job tools providing deeper reads and safeguarded
+edits.
+
+For a re-uploaded episode video, the revision-checked YouTube link replacement
+updates the existing campaign in place rather than discarding its plan. It
+preserves copy apart from the replaced URL, artwork, post identities and dates,
+clears approval and queues independent review of the changed fingerprint.
+Published, in-flight or unconfirmed campaigns are locked against this change.
+The authenticated campaign endpoint and Athena's read-before-write tool share
+the same domain service; replacement never approves or delivers posts.
 
 Schedules have an explicit IANA timezone, selected days (workdays, full week or
 weekly days), and one or more local times. Content sync starts with **06:00 and
@@ -525,6 +666,17 @@ control in that deliverable-brief workflow.
   setting the task to Waiting on the recipient requires a separate confirmation.
   Replies are known only when Richard supplies them. Sent writing/recipient
   fields are protected; a follow-up uses a new draft.
+- **Word and PowerPoint downloads** use the final `# Deliverable content`
+  section of a Deliverable brief, not its instructions. Existing properties
+  controls save pending edits and check both revisions before generating the
+  selected binary file. Word retains editable text, lists, links and tables;
+  `##` headings start PowerPoint slides. Formatting is neutral. Embedded
+  images and oversized slide/table content produce actionable errors instead
+  of silently losing content. No Graph access, upload or task closure is involved.
+  `prepare_deliverable_download` lets Athena generate a requested format after
+  a complete current-body read; it returns filename, byte count and the Think
+  link, not a claim of device delivery or acceptance. Local downloads do not
+  set the separate OneDrive produced-file field.
 - Athena initiates this workflow through `create_deliverable_brief` and
   `create_email_draft`. `read_work_content` reads current structured metadata
   and pages the body. Requested edits use `update_deliverable_brief` or
@@ -600,21 +752,51 @@ connection headers retain their own control styling rather than inheriting
 generic task-button borders. Activity entries share the panel's text edge;
 editing, assistance, activity and connections stay in their established locations.
 
-**Help me** assesses whether Athena can advance part of the task. This is an
-intent assessment, not a keyword trigger or an automatic job on task creation.
+When a new non-recurring task is created outside Inbox, a background assessment
+automatically prepares a **How Athena could help** proposal and notifies the
+user when it is ready. Inbox tasks wait until the user accepts them into
+Backlog, In progress or Waiting, whether through the app or Athena. This covers
+daily-report imports, meeting-preparation imports and Spark tasks without doing
+work on unaccepted Inbox items. Passage follow-up tasks are assessed when created.
+Recurring tasks, including recurring children, are excluded from automatic
+assessment; **Help me** remains available on request. Completed and archived
+tasks are excluded. Existing tasks are not backfilled or assessed on ordinary edits.
+Returning a task to Inbox and accepting it again does not repeat an earlier
+assessment attempt or replace an existing proposal. Failed jobs require an
+explicit retry/reassessment. Duplicate handoffs are guarded within the existing
+specialist engine's subject lock, including finished attempts.
+This is an intent assessment, not a keyword trigger.
+The proposal is saved to the task and remains unapproved; creating it does not
+start research, drafting, or other task work. If queueing fails, the task stays
+created and the failure is surfaced so the assessment can be retried.
+Acceptance and passage follow-up creation report the same partial-success
+condition if the task is saved but its assessment cannot be queued.
+
+**Help me** remains available to assess existing tasks or reassess with new
+direction. This is an intent assessment, not a keyword trigger.
 Review, investigate, look at, think about, validate and compare may indicate
 research; missing information is not a reason to create an unrelated email.
 The saved proposal explains the work, expected result, missing information,
 public search queries and decisions you retain. Research questions do not block
 approval or execution: Iris investigates them and flags unresolved ambiguity
 in the findings without choosing for you or changing original artefacts.
-Email prerequisites still require clarification and reassessment. New direction
-requires a new assessment; unsupported tasks are explained without a job.
+Email questions likewise never block approval or drafting: Athena reads the linked
+evidence, drafts the useful content and labels unknown recipients/context as
+placeholders, retaining unresolved decisions for review without sending anything.
+This applies to existing saved proposals as well as new assessments. When direct
+execution is unavailable, task preparation offers a useful checklist, talking
+points or decision aid without claiming the unavailable action was performed.
+Legacy unsupported proposals can start that preparation too. Completed tasks
+remain eligible for on-demand help; automatic assessment eligibility is unchanged.
+New direction requires a new assessment so you review the actual work and public
+queries being approved. Active-job duplication, ownership, privacy, current-task
+snapshot checks and explicit approval remain protected.
 
 **Approve and start** commissions a durable specialist job against the saved,
 owner-bound proposal and task snapshot. Iris reads actual sources and returns
 source-backed Think findings using the proposal UUID as its database chat-session
 identity. Failed jobs are retried explicitly, not automatically after a code fix.
+
 Findings include fit/gaps and proposed changes. Repository work
 locates and verifies the repository, then compares it with relevant Athena
 architecture or project artefacts. Project work prioritises existing notes,
@@ -650,6 +832,44 @@ require the displayed approved queries. The safer scope is this assisted,
 draft-only workflow, not automatic task dispatch or completion. Existing design
 hook warnings in unchanged stylesheet rules are outside this change; the new
 task styles use the guide's existing tokens and typography.
+
+### Task status-change notes
+
+Every change from one task status to another requires a non-empty quick note
+in the existing Athena modal style. Submit saves the status and a timestamped
+`task_notes` entry together; Cancel leaves the task unchanged. The activity
+entry records both old and new statuses plus the submitted text. A current-status
+check rejects a stale move without saving either part. New task creation, edits
+that do not change status and archiving are not status moves.
+The existing Activity tab shows newest notes first in bordered cards, with the
+timestamp and status transition separated from the note text for visibility.
+The email-drafting specialist is Hermes — Email draft assistant
+(`task-email-drafter`); Iris is the task-research specialist.
+Email-draft activity records Hermes's specialist identity and displays
+“Hermes · Email draft assistant”, rather than attributing execution to Athena.
+Task detail renders saved note references as descriptive clickable Think links,
+not visible GUIDs. Its note composer, assistance controls and connections use
+the Today surface's Athena/Carbon field, button, typography and state treatment,
+without relocating existing sections or actions.
+Activity stores structured attribution: Richard's manual notes and status
+changes, Athena's preparatory results, and system file-sync events. Athena
+proposals submitted by Richard show both proposal and confirmation. Unknown
+historical authors remain “Earlier activity”; action attribution is not proof
+that the overall task was completed. Transitions use sentence-case status
+labels, a Carbon arrow and restrained existing status tokens with card padding
+preserved in the task-detail screen.
+
+Board drag/drop and menu actions, task editing, Today/check-in completion and
+the email Waiting-on confirmation all use the same popup. Plan review completion
+uses one shared note saved separately against every affected task; Athena's
+reasons prefill it for review. Bulk failures disclose which portion was saved,
+and retries do not duplicate already applied moves.
+
+Athena's `update_task` proposes status changes with a reason rather than executing
+them. Its completed chat turn opens the same mandatory popup; only the user's
+Submit persists the move. No status or unrelated fields are written by the
+proposal tool call. `read_task_activity` retrieves actual dated activity and
+status-change notes with paging and existing project/exclusion boundaries.
 
 ## 4. Core objects
 
@@ -702,6 +922,14 @@ A *use case* tracks one idea for one product.
 Blueprint generation and feedback that rewrites an authored Blueprint require the configured dedicated bulk endpoint and key. If either is missing, the request fails explicitly without calling the light/chat model. The full generation and feedback output budgets remain unchanged; legacy lower-budget feedback and other bulk callers retain their existing fallback behaviour.
 
 The existing Design properties panel offers a manual **Check consistency** action. It saves pending editor changes, then reads the selected saved inputs without rewriting documents, resolving decisions or blocking handoff. Coverage explicitly distinguishes missing, ambiguous and unavailable inputs; fewer than two supplied inputs do not trigger a model comparison. Reports are timestamped revision snapshots, not continuously current certification. Contradictions require exact quotations from at least two different sources; diagram evidence must identify a saved node/connector and quote its label or description. Unverifiable model citations reject the report, and source changes during review require a fresh check. Missing architecture/diagrams are not inferred from unrelated records or generated automatically.
+
+For **IMAGINE** Designs only, the existing Spec-tab properties/work panel also provides **Check readiness**. It checks the specification selected for handoff after saving pending edits, retaining the existing editor, controls and properties. Standard and standalone specification notes are unchanged. Mechanical checks use the versioned ten-section IMAGINE template to locate required labelled fields/tables and unresolved placeholders; they do not treat a heading as fixture data. One explicit dedicated-model review assesses concrete actors, starting fixtures, permissions, workforce/dependency/lifecycle contracts, responses, screen states and acceptance traceability. Its budget is 12,000 output tokens and two minutes, with no automatic retry or light-model fallback. The model selects request-local IDs for exact saved text passages rather than generating quotation text; the server retrieves and verifies each original quote, source revision and diagram element. Unknown IDs and generated quotation overrides reject the assessment. All nonempty source text remains supplied, with long passages bounded to 1,600 characters per citation. Incomplete coverage and inaccessible referenced guides are explicit, and source changes reject an in-flight result.
+
+Separate immutable assessment records retain template/rule versions, source snapshots, findings and resolutions. Stable mechanical obligation keys and semantic checklist keys keep finding identity independent of model wording. Unchanged open findings persist; a semantic finding closes only with verified current-source resolution evidence, while complete mechanical reassessment records the current section when an obligation passes. Open and resolved findings are paged separately. Readiness distinguishes not assessed, specification gaps open, partial, stale and checked complete; it never implies implementation, live approval, measured results or G0–G7 acceptance. Unrecorded live approvals/results are separate execution prerequisites. Editing or changing linked selections makes an assessment stale; save remains available throughout.
+
+Each current open finding supports **Prepare repair** with a confirmed user answer/instruction. Synthetic fixtures require an explicit repair-specific authorisation checkbox and labelled provenance. Athena prepares at most five block-level replacements/appends; the user reviews original/proposed writing and uses **Apply/Discard**. No model tool can accept its own preview. Apply uses normal note history, permissions, source locks, revision checks, indexing and editor refresh, preserves unrelated content/media/titles, and makes readiness stale until explicitly rechecked. Native-reference/media blocks cannot be replaced. `read_design_readiness`, `read_design_readiness_repair` and history retrieval give Athena bounded access to actual structured findings/proposed writing; check/prepare/discard tools respect read-only turns, exclusions and enforced project scope. A preview or chat reply never counts as a saved repair or closed finding.
+
+The existing immutable Copilot package includes `specification-readiness.json` and assessment identity/state in its manifest for IMAGINE Designs, without running AI on export. Open, partial, stale or unassessed readiness warns but **does not block handoff**. Package input completeness remains distinct from specification readiness and live acceptance. Existing Standard package behaviour is preserved. The additive readiness migrations do not rewrite existing specification content or assessment-free Designs.
 
 ### Connected-work usability
 
@@ -1001,6 +1229,67 @@ Notes, tasks, recorded decisions, risks/issues and canonical source activity
 are bounded and evidence-linked. Source activity uses its update/publication
 time, not indexing time; the result is current changed records, not an audit
 diff or a claim that all integrations are current.
+
+Projects uses the same resizable list/detail/Athena workspace as Today and
+Discover. Lifecycle, group and search filters narrow the compact project list;
+selecting a row opens its full saved properties and repository/reference links
+in the main pane. `projectId` links select the project even when it is outside
+the current filters. New projects become the selection. Editing and deletion
+remain the existing header actions and dialogs; this layout does not
+change project fields or introduce outcome scoring. The embedded Athena panel
+receives the selected project's stable identity and actual saved properties,
+and refreshes project/cockpit data after Athena finishes.
+The detail body places Description, then Goal and Deliverables in the left 70%,
+with Role, Ownership and Timeline together in a single compact card in the right 30%.
+Narrow detail panes stack the columns. Deliverables is the display label for the
+existing expected-outputs field in the detail view and editor; saved content and
+API contracts are unchanged. The project work sections are expanded beneath the main details: changes,
+waiting work, open commitments, questions/risks/issues and review packets.
+Supporting evidence remains collapsible. The separate Cockpit button is removed
+from Projects, and the duplicate outcome summary is omitted in this embedded
+view. Existing register editors, packet review/approval and evidence links remain
+unchanged; compact project previews elsewhere retain their existing presentation.
+`get_project_details` supports bounded work/register/packet retrieval via
+`includeWork`, changed-record periods via `changesSince` (default: last 24 hours),
+register pagination via `registerOffset`, and full packet retrieval
+via `packetId`. Evidence links do not imply that linked documents have been read.
+
+Work types are Project (`project`), Ongoing responsibility (BAU) (`bau`),
+Aspiration (`aspiration`), Exploration (`exploration`) and Side project
+(`side-project`). Both legacy Standard and Formal client records migrate to
+Project; individual records are not automatically inferred or reclassified.
+These types describe the nature of work, not client arrangements. Athena can
+read and create/update the type through the existing project tools. The existing
+category, ICA, lifecycle and scheduling fields are unchanged. BAU and aspirations
+do not imply required end dates, invented milestones or completion scores.
+Project metadata uses quiet sentence-case text, retaining the shared group
+identity chip. The 30% context card stacks labels above values to avoid cramped
+columns. Embedded work sections follow the shared detail heading, body/metadata,
+list-row, divider and control treatment; their editors and actions stay in place.
+
+The main project record includes **Direction and progress** with an on-demand
+**Review progress** action for the last seven days. Reviews adapt to the saved
+work type and retain dated history (latest expanded). Each assessment separates
+meaningful progress, activity without demonstrated outcomes, blockers/uncertainty
+and a suggested next move with **Why Athena picked it**. It never changes tasks,
+goals or deliverables or infers completion percentages.
+
+Review generation reads saved linked notes, chat outputs/decisions, current and
+recent tasks/register items and indexed project changes, within explicit source
+and excerpt limits. Evidence snapshots, review periods, saved direction and access
+limitations remain available with the dated assessment. Saved update times are
+not version diffs, and task completion or packet approval is not owner acceptance.
+Live repository code, external reference destinations, ICA collections, unsaved
+drafts and structured content outside the note body are not claimed as retrieved.
+
+`project_progress_reviews` (migration 131) is append-only via the application
+services; requests carry a stable UUID for safe retry and per-project generation
+is guarded by an advisory lock. Project edits during generation reject the save.
+Athena uses `read_project_progress_reviews` for bounded history/full captured
+reviews and `generate_project_progress_review` for an explicitly requested review
+through the same service as the UI. Read-only and scope/exclusion restrictions
+remain enforced. Review selection and generation state refresh the page context;
+completed Athena turns invalidate review queries.
 
 Today lists upcoming indexed calendar entries; Activity calendar cards offer the
 same manual meeting-preparation action. The owner selects a project explicitly.

@@ -24,6 +24,7 @@ const RECENT_WINDOW_DAYS = 14;
 const RECENT_WINDOW_MS = RECENT_WINDOW_DAYS * 86_400_000;
 const MAX_PER_SOURCE_PER_RUN = 60;
 const MAX_PAGE_DESCRIPTIONS = 25;
+const MIN_FEED_SUMMARY_CHARS = 40;
 /** Scoring batches per sync run (50 articles each); a large backlog drains over several runs. */
 const SCORING_BATCHES_PER_RUN = 6;
 export const STRONG_SCORE = 0.8;
@@ -84,8 +85,15 @@ async function checkSource(db: Pool, source: SourceRow): Promise<number> {
   const fresh = recent.filter((a) => !knownUrls.has(a.url));
 
   // Feeds that publish titles only (IBM, DeepMind): borrow the page's own summary line.
+  const seoSummaries = new Set<string>();
   for (const a of fresh.slice(0, MAX_PAGE_DESCRIPTIONS)) {
-    if (a.summary.length < 40) a.summary = (await fetchPageDescription(a.url)) || a.summary;
+    if (a.summary.length < MIN_FEED_SUMMARY_CHARS) {
+      const description = await fetchPageDescription(a.url);
+      if (description) {
+        a.summary = description;
+        seoSummaries.add(a.url);
+      }
+    }
   }
 
   const discoveredAt = new Date().toISOString();
@@ -109,6 +117,7 @@ async function checkSource(db: Pool, source: SourceRow): Promise<number> {
         sourceId: source.id,
         sourceGroup: source.group_name,
         status: 'new',
+        publisherSummaryOrigin: seoSummaries.has(a.url) ? 'seo' : 'feed',
         ...(videoId ? { contentKind: 'youtube-video', videoId, contentBasis: 'description-only', transcriptStatus: 'not-retrieved' } : {}),
       },
       tags: [source.title],
