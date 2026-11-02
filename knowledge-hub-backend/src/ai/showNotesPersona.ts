@@ -132,8 +132,13 @@ export const SHOW_NOTES_PERSONA_BLURB = [
     'Friday and days count forward from it. 11a Post-Recording Tease: Day 0 (Friday) or Day 2 (Sunday). 11b Launch ' +
     'Day Posts: Day 3 (Monday, release day). 11c Strategic Posts: Day 6 (Thursday of week 1), Day 9 (Sunday of week ' +
     '2) or Day 10 (Monday), and Day 12 (Wednesday of week 2). 11d Companion Post: Day 14 (Friday of week 2). 11e ' +
-    'Bluesky Daily Posts: every weekday from Day 0 through Day 14. If his dates differ, keep the same beats in the ' +
-    'same relative order.',
+    'Bluesky quote posts: weekdays from the companion blog publication through Day 14, always after the blog. ' +
+    'The publication order is Teaser, episode Launch, Blog Post, then Quotes and fuller/generic posts. ' +
+    'This is publication order, not the document section order. The companion blog and its promotional LinkedIn ' +
+    'post must not precede the episode launch. Strategic/full companion posts belong after the blog alongside ' +
+    'quotes. Stages may fall on different days; never force all stages onto release day. Preserve dates he ' +
+    'explicitly supplies and flag any conflict with the stage order rather than silently moving posts. ' +
+    'If his dates differ, keep the same beats in the same relative order.',
   '- **11a Post-Recording Tease** (published on recording day or over the weekend): frames the episode as just ' +
     'recorded, teasing the release. Hints at the strongest discussion points without giving everything away. ' +
     'Creates anticipation without overselling. Deliver a LinkedIn post (personal account) and an X/Twitter post.',
@@ -151,12 +156,12 @@ export const SHOW_NOTES_PERSONA_BLURB = [
     'it for a broader audience than cloud practitioners, connecting the technical discussion to a wider ' +
     'business, industry or leadership question. The most expansive post in the campaign. Plus an X/Twitter post.',
   '- **11e Bluesky Daily Posts (Weekdays)**: its own top-level section, not interleaved with the milestone posts. ' +
-    'One post per weekday from Day 0 (recording Friday) through Day 14, eleven posts. Each weekday ' +
+    'One post per weekday from the companion blog publication through Day 14, scheduled after that blog. Each weekday ' +
     'takes a different episode story or angle, so the run works through the whole episode. On any day an X/Twitter ' +
     'or LinkedIn milestone post lands, that day\'s Bluesky post must cover a different story. Never run the same ' +
     'theme on adjacent days, never repeat post text. Under 300 characters each (count them), grounded tone, 1 to ' +
     '2 hashtags, at most one emoji, usually including #CloudyPodcast. Label each with its calendar date and a ' +
-    'short parenthetical naming the story it covers. Every Bluesky post after the first (Day 0) comes with a quote ' +
+    'short parenthetical naming the story it covers. Every Bluesky quote post comes with a quote ' +
     'from the podcast to accompany it: a separate line directly under the post reading "Quote:" then the words in ' +
     'quotation marks, then the speaker and the transcript timestamp in brackets, so he can cut the clip. The quote ' +
     'is verbatim from the transcript, never paraphrased, stitched together or reconstructed (trim with an ' +

@@ -90,6 +90,7 @@ type EditTarget =
   | { kind: 'rich'; root: HTMLElement; range: Range };
 
 const TEXT_INPUT_TYPES = new Set(['text', 'search', 'email', 'url', 'tel', 'password', '']);
+const SPELLING_INPUT_TYPES = new Set(['text', 'search', '']);
 
 function caretRangeAtPoint(x: number, y: number): Range | null {
   if (document.caretRangeFromPoint) return document.caretRangeFromPoint(x, y);
@@ -104,6 +105,17 @@ function caretRangeAtPoint(x: number, y: number): Range | null {
 function textField(target: HTMLElement): HTMLInputElement | HTMLTextAreaElement | null {
   const field = target.closest('input, textarea');
   return field instanceof HTMLTextAreaElement || (field instanceof HTMLInputElement && TEXT_INPUT_TYPES.has(field.type)) ? field : null;
+}
+
+export function supportsSpelling(target: HTMLElement): boolean {
+  const setting = target.closest('[spellcheck]')?.getAttribute('spellcheck')?.toLowerCase();
+  if (setting === 'false' || target.closest('pre, code, [data-content-type="codeBlock"], [contenteditable="false"]')) return false;
+  const field = textField(target);
+  if (field) {
+    return !field.readOnly && !field.disabled
+      && (field instanceof HTMLTextAreaElement || SPELLING_INPUT_TYPES.has(field.type));
+  }
+  return target.closest('[contenteditable="true"]') !== null;
 }
 
 function editTargetAt(target: HTMLElement, x: number, y: number): EditTarget | null {
@@ -144,6 +156,7 @@ function wordBounds(text: string, at: number): { start: number; end: number } | 
  * the browser only selects a misspelled word after the 'contextmenu' event.
  */
 export function wordAtPoint(target: HTMLElement, x: number, y: number): SpellTarget | null {
+  if (!supportsSpelling(target)) return null;
   const field = textField(target);
   if (field) {
     if (field.readOnly || field.disabled || field.type === 'password' || field.selectionStart === null) return null;
@@ -155,6 +168,8 @@ export function wordAtPoint(target: HTMLElement, x: number, y: number): SpellTar
   const root = target.closest<HTMLElement>('[contenteditable="true"]');
   const caret = root ? caretRangeAtPoint(x, y) : null;
   if (!root || !caret || caret.startContainer.nodeType !== Node.TEXT_NODE || !root.contains(caret.startContainer)) return null;
+  const container = caret.startContainer.parentElement;
+  if (container && !supportsSpelling(container)) return null;
   const node = caret.startContainer as Text;
   const bounds = wordBounds(node.data, caret.startOffset);
   if (!bounds) return null;
@@ -170,7 +185,7 @@ export function wordAtPoint(target: HTMLElement, x: number, y: number): SpellTar
 function replaceMisspelling(target: SpellTarget, replacement: string): boolean {
   if (target.kind === 'field') {
     const { el, start, end, word } = target;
-    if (el.value.slice(start, end) !== word) return false;
+    if (!el.isConnected || !supportsSpelling(el) || el.value.slice(start, end) !== word) return false;
     el.focus({ preventScroll: true });
     el.setSelectionRange(start, end);
     // execCommand keeps the edit on the field's undo stack and fires React's onChange.
@@ -181,6 +196,8 @@ function replaceMisspelling(target: SpellTarget, replacement: string): boolean {
     return true;
   }
   const { root, range, word } = target;
+  const container = range.startContainer.parentElement;
+  if (!root.isConnected || !container || !supportsSpelling(container)) return false;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote does not type its ProseMirror view
   const view = (getActiveBlockNoteEditor() as any)?._tiptapEditor?.view as import('prosemirror-view').EditorView | undefined;
   if (view && view.dom.contains(range.startContainer) && view.dom.contains(range.endContainer)) {
@@ -314,9 +331,14 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
       if (browserWordSelection.current && !browserWordSelection.current.range) endBrowserWordSelection();
     }
     function onFocusIn(e: FocusEvent) {
+      if (!(e.target instanceof HTMLElement)) return;
+      const field = textField(e.target);
+      if (field instanceof HTMLInputElement && !SPELLING_INPUT_TYPES.has(field.type)) {
+        field.spellcheck = false;
+        return;
+      }
       // Fetch the dictionary before the first right-click needs it.
-      if ((e.target as HTMLElement | null)?.closest?.('[contenteditable="true"], input, textarea')) {
-        document.removeEventListener('focusin', onFocusIn, true);
+      if (supportsSpelling(e.target)) {
         loadSpelling().catch((err: unknown) => { console.warn('[GlobalContextMenu] spelling dictionary unavailable:', err); });
       }
     }
@@ -514,7 +536,8 @@ export function GlobalContextMenuProvider({ children }: { children: React.ReactN
       )}
       {spellMenu && createPortal(
         <SpellingMenu key={`${spellMenu.x},${spellMenu.y}`} {...spellMenu} onClose={() => setSpellMenu(null)} />,
-        document.body,
+        (spellMenu.edit.kind === 'field' ? spellMenu.edit.el : spellMenu.edit.root)
+          .closest('dialog[open], [role="dialog"], [role="alertdialog"]') ?? document.body,
       )}
       {useCaseLaunch && <UseCaseLauncher launch={useCaseLaunch} onClose={() => { setUseCaseLaunch(null); }} />}
       {imagePreview && <ImageViewer image={imagePreview} onClose={() => { setImagePreview(null); }} />}
@@ -573,6 +596,9 @@ function SpellingMenu({ x, y, edit, spelling, onClose }: SpellMenuState & { onCl
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
+    // Keep the menu above modal top layers without moving it outside their focus boundary.
+    el.setAttribute('popover', 'manual');
+    el.showPopover();
     el.style.left = `${x}px`;
     el.style.top = `${y}px`;
     const r = el.getBoundingClientRect();
@@ -588,6 +614,13 @@ function SpellingMenu({ x, y, edit, spelling, onClose }: SpellMenuState & { onCl
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        onClose();
+        restoreEditTarget(edit);
+        return;
+      }
+      if (e.key === 'Tab') {
         e.preventDefault();
         onClose();
         restoreEditTarget(edit);

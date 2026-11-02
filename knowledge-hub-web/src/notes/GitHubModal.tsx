@@ -146,6 +146,7 @@ export const GitHubModal: React.FC<GitHubModalProps> = ({
       <div className="notes-modal-spacer" />
       <TextInput
         id="github-file-path"
+        spellCheck={false}
         labelText="File path in repository"
         value={filePath}
         onChange={(e) => { setFilePath(e.target.value); }}

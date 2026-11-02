@@ -40,6 +40,57 @@ const rawPlan = () => ({
   ],
 });
 const plan = (): PodcastPlan => contracts.parsePodcastPlan(rawPlan(), links, accounts, 'Richard');
+function sequencePost(kind: 'teaser' | 'launch' | 'quote' | 'fuller', scheduledAt: string): PodcastPlan['posts'][number] {
+  const post = plan().posts[1]!;
+  return { ...post, label: kind, scheduledAt, assetSpec: {
+    kind, headline: 'Episode title', quote: null, speaker: null, timestamp: null, episodeNumber: null,
+  } };
+}
+test('new campaigns stagger tied source times by stage, leaving legacy saved order unchanged', () => {
+  const draft = plan();
+  const at = '2099-01-05T08:00:00.000Z';
+  draft.posts = [sequencePost('fuller', at), { ...draft.posts[0]!, scheduledAt: at },
+    sequencePost('quote', at), sequencePost('launch', at), sequencePost('teaser', at)];
+  const original = structuredClone(draft);
+  draft.posts.sort(contracts.comparePodcastPosts);
+  proposePodcastTimes(draft, new Date('2098-01-01'));
+  draft.sequenceRequired = true;
+  assert.deepEqual(draft.posts.map(post => post.destination === 'blog' ? 'blog' : post.assetSpec?.kind),
+    ['teaser', 'launch', 'blog', 'fuller', 'quote']);
+  assert.deepEqual(contracts.podcastSequenceIssues(draft), []);
+  assert.ok(draft.posts.every(post => post.scheduledAt?.startsWith('2099-01-05')));
+  assert.deepEqual(contracts.podcastSequenceIssues(original), [], 'legacy plans are not gated or changed');
+  assert.equal(original.posts[0]?.assetSpec?.kind, 'fuller');
+});
+test('future stages can span days; inverted dates, equal stage times and missing milestones block approval without mutation', () => {
+  const draft = plan();
+  draft.sequenceRequired = true;
+  draft.posts = [sequencePost('launch', '2099-01-05T09:00:00.000Z'),
+    { ...draft.posts[0]!, scheduledAt: '2099-01-06T09:00:00.000Z' },
+    sequencePost('quote', '2099-01-07T09:00:00.000Z'), sequencePost('fuller', '2099-01-07T09:00:00.000Z')];
+  assert.deepEqual(contracts.podcastSequenceIssues(draft), []);
+  draft.posts[2]!.scheduledAt = '2099-01-04T09:00:00.000Z';
+  const original = structuredClone(draft);
+  assert.match(contracts.podcastPlanIssues(draft).join('\n'), /quote: schedule it after launch/);
+  assert.deepEqual(draft, original);
+  draft.posts[2]!.scheduledAt = draft.posts[1]!.scheduledAt;
+  assert.match(contracts.podcastSequenceIssues(draft).join('\n'), /quote: schedule it after Launch blog/);
+  draft.posts = draft.posts.filter(post => post.assetSpec?.kind !== 'launch');
+  assert.match(contracts.podcastSequenceIssues(draft).join('\n'), /Add the episode launch post/);
+  draft.followUp = true;
+  draft.posts = [sequencePost('quote', '2099-01-07T09:00:00.000Z')];
+  assert.deepEqual(contracts.podcastSequenceIssues(draft), [], 'bounded follow-up windows do not require reissuing earlier posts');
+});
+test('future campaign checks include its separately prepared recording teaser', () => {
+  const draft = plan();
+  draft.sequenceRequired = true;
+  draft.posts = [sequencePost('launch', '2099-01-05T08:00:00.000Z'),
+    { ...draft.posts[0]!, scheduledAt: '2099-01-06T08:00:00.000Z' }];
+  const teaser = { ...plan(), recordingTease: true, posts: [sequencePost('teaser', '2099-01-04T08:00:00.000Z')] };
+  assert.deepEqual(contracts.podcastSequenceIssues(draft, teaser), []);
+  teaser.posts[0]!.scheduledAt = '2099-01-07T08:00:00.000Z';
+  assert.match(contracts.podcastPlanIssues(draft, new Date(), true, teaser).join('\n'), /launch: schedule it after teaser/);
+});
 test('blog formatting inserts H2s while preserving exact H1, paragraphs and inline links', async () => {
   const html = '<h1>Saved title</h1>\n<p>Exact introduction.</p>\n<p>Keep <strong>these words</strong>.</p>\n<p>Keep <a href="https://example.com">this link</a>.</p>';
   const formatted = await formatPodcastBlog(html, 'Saved title', async () => ({

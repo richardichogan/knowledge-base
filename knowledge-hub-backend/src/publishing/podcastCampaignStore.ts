@@ -14,6 +14,7 @@ import {
   PODCAST_LIMITS, episodeLinksFromNote, parseEpisodeLinks, parsePodcastPlan, podcastPlanIssues, parsePodcastWindow,
   parsePodcastAssetSpec,
   requirePodcastCreationReview,
+  comparePodcastPosts,
   type PodcastCampaign, type PodcastCampaignDetail, type PodcastPlan, type PodcastPost, type ScheduledPodcastPost,
 } from './podcastCampaign.js';
 import { materialisePodcastSelections, podcastSourceBlocks, podcastSelectionSchema, PODCAST_SELECTION_INSTRUCTIONS, validatePodcastArtworkSource, formatPodcastBlog } from './podcastCampaignSource.js';
@@ -98,12 +99,18 @@ export async function getPodcastCampaign(db: Pool, noteId: string): Promise<Podc
   };
   const sourceChanged = campaign.sourceRevision !== null && (note.recordingTease
     ? campaign.plan?.transcriptUploadedAt !== note.transcriptUploadedAt : campaign.sourceRevision !== note.revision);
-  const issues = campaign.state === 'draft' ? podcastPlanIssues(campaign.plan) : [];
+  const issues = campaign.state === 'draft'
+    ? podcastPlanIssues(campaign.plan, new Date(), true, await recordingTeaserForSequence(db, noteId, campaign.plan)) : [];
   if (campaign.state === 'draft' && sourceChanged) issues.push(note.recordingTease
     ? 'The transcript changed. Review and save the recording teaser before approving.'
     : 'The saved Show Notes changed. Prepare the campaign again before approving.');
   return { ...campaign, deliveries: await campaignDeliveries(db, noteId), issues, sourceChanged,
     automaticDelivery: env.NODE_ENV === 'production' && !env.isDevelopment };
+}
+async function recordingTeaserForSequence(db: Db, noteId: string, plan: PodcastPlan | null): Promise<PodcastPlan | null> {
+  if (!plan?.sequenceRequired || plan.recordingTease) return null;
+  return (await db.query<{ plan: PodcastPlan | null }>(`SELECT c.plan FROM podcast_episodes e
+    JOIN podcast_campaigns c ON c.note_id=e.note_id WHERE e.show_notes_note_id=$1`, [noteId])).rows[0]?.plan ?? null;
 }
 async function lockedCampaign(c: PoolClient, noteId: string, revision: unknown): Promise<PodcastCampaign> {
   const current = (await c.query<PodcastCampaign>(`SELECT ${campaignColumns} FROM podcast_campaigns WHERE note_id=$1 FOR UPDATE`, [noteId])).rows[0];
@@ -231,7 +238,9 @@ export async function preparePodcastCampaign(db: Pool, noteId: string, revision:
     await formatPlanBlog(plan);
     await generatePodcastAssets(db, plan);
     plan.assetsRequired = true;
+    plan.posts.sort(comparePodcastPosts);
     proposePodcastTimes(plan);
+    plan.sequenceRequired = true;
     requirePodcastCreationReview(plan);
     await transaction(db, async c => {
       const current = await lockedCampaign(c, noteId, revision);
@@ -262,7 +271,7 @@ export async function decidePodcastCampaign(db: Pool, noteId: string, revision: 
     if (action === 'approve') {
       if (current.state !== 'draft') throw new ValidationError('Only a draft campaign can be approved.');
       proposePodcastTimes(current.plan);
-      const issues = podcastPlanIssues(current.plan);
+      const issues = podcastPlanIssues(current.plan, new Date(), true, await recordingTeaserForSequence(c, noteId, current.plan));
       if (current.plan.recordingTease ? current.plan.transcriptUploadedAt !== note.transcriptUploadedAt : current.sourceRevision !== note.revision) {
         issues.push(current.plan.recordingTease ? 'The transcript changed. Review and save the teaser before approval.' : 'The Show Notes changed. Prepare the campaign again.');
       }

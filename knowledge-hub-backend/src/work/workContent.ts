@@ -255,6 +255,7 @@ export async function createWorkContent(db: Pool, type: WorkContentType, input: 
     const assignments = Object.entries(parsed).map(([key, value]) => {
       values.push(key === 'sources' ? JSON.stringify(value) : value); return `${columns[key]}=$${values.length}`;
     });
+    if (type === 'email-draft') assignments.push('task_generated=true');
     await client.query(`UPDATE ${table} SET ${assignments.join(',')} WHERE note_id=$1`, values);
     await linkTask(client, taskId, id, title);
     await client.query('COMMIT');

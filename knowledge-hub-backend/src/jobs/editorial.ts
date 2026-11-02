@@ -141,6 +141,7 @@ Pass requires findings: []. Revise or hold requires at least one unresolved find
 Repair only the exact phrases or single sentences identified by the findings. Never rewrite a paragraph or the whole article.
 Return edits with field, before and after; before must exactly match one unique saved passage.
 Use separate edits for separate sentences. Preserve links, quotations, source titles and faithfully reproduced source text exactly.
+Exception: if an article citation label reproduces a supplied source title with altered punctuation, restore the EXACT supplied title for that SAME supplied URL. Return the complete Markdown link with its URL unchanged, using only enough unchanged surrounding text to identify one unique saved passage. Never rewrite a descriptive/shortened label, alter other words or change a URL under this exception.
 Never include a blank line in before or after. A heading and its following paragraph are two separate edits.
 Only change metadata when a finding explicitly identifies it. For an array field, before identifies one exact existing item; after may be empty to remove it.
 Do not add sections or polish passages which passed review.

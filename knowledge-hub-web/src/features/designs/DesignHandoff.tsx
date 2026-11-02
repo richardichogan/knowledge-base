@@ -94,7 +94,7 @@ export const DesignHandoff: React.FC<{ design: DesignDetail; prepare: () => Prom
         </div>}
         {repositories.isError && <p className="kh-uc-error" role="alert">{describeApiError(repositories.error)} <button type="button" className="kh-btn-ghost" onClick={() => { void repositories.refetch(); }}>Retry</button></p>}
         <label className="kh-uc-field"><span className="kh-uc-field__label">Destination folder</span>
-          <input className="kh-uc-input" disabled={busy || !!commitUrl} maxLength={160} value={folder} onChange={event => { setFolder(event.target.value); setConfirmation(null); }} /></label>
+          <input className="kh-uc-input" spellCheck={false} disabled={busy || !!commitUrl} maxLength={160} value={folder} onChange={event => { setFolder(event.target.value); setConfirmation(null); }} /></label>
         {!commitUrl && <button type="button" className="kh-btn-ghost" disabled={busy || !repo || !folder.trim()} onClick={() => { preparePublication.mutate(); }}>
           {preparePublication.isPending ? 'Checking destination...' : 'Review publication destination'}</button>}
         {confirmation && !commitUrl && <div className="kh-design-confirmation">

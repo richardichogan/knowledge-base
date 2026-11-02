@@ -341,6 +341,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, groups, onCl
               />
               <TextInput
                 id="pm-ica-id"
+                spellCheck={false}
                 labelText="ICA document collection ID"
                 helperText="Required for automatic sync when the ICA API address is ID-based."
                 value={icaCollectionId}
@@ -380,6 +381,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, groups, onCl
 
         <TextArea
           id="pm-gitlab"
+          spellCheck={false}
           labelText="GitLab paths (one per line)"
           helperText="e.g. structara-group/Structara-AI"
           value={gitlabRaw}
@@ -389,6 +391,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, groups, onCl
 
         <TextArea
           id="pm-github"
+          spellCheck={false}
           labelText="GitHub repos (one per line)"
           helperText="e.g. richardichogan/BlogSite"
           value={githubRaw}
@@ -428,6 +431,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, groups, onCl
               />
               <TextInput
                 id={`pm-link-url-${index}`}
+                spellCheck={false}
                 labelText="URL"
                 placeholder="https://..."
                 value={link.url}

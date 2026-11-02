@@ -16,7 +16,7 @@ import {
 } from '@carbon/react';
 import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, Menu, Idea, Notebook, Copy, View, Document as DocumentIcon, Compare } from '@carbon/icons-react';
 import { api } from '../services/api';
-import { prepareDesignChat, preparePodcastChat, prepareWorkChat } from '../utils/activeBlockNoteEditor';
+import { prepareDesignChat, preparePodcastChat, prepareTaskChat, prepareWorkChat } from '../utils/activeBlockNoteEditor';
 import { authSession } from '../services/authSession';
 import { describeApiError, requireApiData } from '../services/apiError';
 import { confirmDialog, alertDialog } from '../services/appDialogs';
@@ -869,6 +869,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       try {
         if (ctx?.workContentId) finishDesign = await prepareWorkChat(ctx.workContentId);
         else if (ctx?.podcastEpisodeId) finishDesign = await preparePodcastChat(ctx.podcastEpisodeId);
+        else if (ctx?.type === 'task' && ctx.id) finishDesign = await prepareTaskChat(ctx.id);
         else if (ctx?.conversationId && isNoteLinkedPanel) finishDesign = await prepareDesignChat(ctx.conversationId);
         // In Athena Desktop, Athena may read and propose changes to the folders he chose on this PC.
       const desktop = getDesktop();

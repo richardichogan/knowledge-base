@@ -175,7 +175,7 @@ const WatchlistForm: React.FC<{ existing: Watchlist | null; onClose: () => void;
       <label className="dw-field">Our position (optional)<span className="dw-hint">Athena uses saved project information and indexed project notes and documents. Add text only for a specific comparison.</span><textarea rows={5} maxLength={16000} value={config.baseline.text}
         onChange={e => patch({ baseline: { ...config.baseline, text: e.target.value } })} /></label>
       {existing && <p className="dw-hint">Current baseline: v{existing.baselineVersion}. Editing the baseline or its links creates a new version. Existing runs keep their original version.</p>}
-      <label className="dw-field">Links to supporting material (one http(s) URL per line, optional)<textarea rows={2} value={links} onChange={e => setLinks(e.target.value)} /></label>
+      <label className="dw-field">Links to supporting material (one http(s) URL per line, optional)<textarea rows={2} spellCheck={false} value={links} onChange={e => setLinks(e.target.value)} /></label>
       <fieldset className="dw-fieldset"><legend>Extra Discover sources (optional)</legend>
         <p className="dw-hint">Not required: each run already searches the web for every monitored name. Tick feeds only to also include articles Discover has collected.</p>
         {sources.isLoading && <p className="dw-hint">Loading sources…</p>}

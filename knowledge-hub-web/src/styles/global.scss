@@ -4841,8 +4841,13 @@ body.kh-native-context .bn-formatting-toolbar {
 }
 
 .gctx--spelling {
+  inset: auto;
+  margin: 0;
   min-width: 200px;
   max-width: 280px;
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  box-sizing: border-box;
   padding-bottom: 0.25rem;
 
   .gctx__preview { width: auto; max-width: none; gap: 0.125rem; }

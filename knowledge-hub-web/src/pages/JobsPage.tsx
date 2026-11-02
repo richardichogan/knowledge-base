@@ -214,8 +214,8 @@ export function JobsPage({ onClose }: { onClose?: () => void }): React.ReactElem
         </section>
         <section className="kh-jobs__form-section"><h3>Schedule</h3>
         <div className="kh-jobs__field-grid">
-        <label>Timezone<input value={definition.schedule.timezone} onChange={e => setDefinition({ ...definition, schedule: { ...definition.schedule, timezone: e.target.value } })} /></label>
-        <label>Times (24-hour, comma separated)<input value={times} onChange={e => setTimes(e.target.value)} /></label>
+        <label>Timezone<input spellCheck={false} value={definition.schedule.timezone} onChange={e => setDefinition({ ...definition, schedule: { ...definition.schedule, timezone: e.target.value } })} /></label>
+        <label>Times (24-hour, comma separated)<input spellCheck={false} value={times} onChange={e => setTimes(e.target.value)} /></label>
         </div>
         <fieldset><legend>Run on</legend>
         <div className="kh-jobs__actions"><button type="button" onClick={() => setDefinition({ ...definition, schedule: { ...definition.schedule, days: [1, 2, 3, 4, 5] } })}>Workdays</button><button type="button" onClick={() => setDefinition({ ...definition, schedule: { ...definition.schedule, days: [0, 1, 2, 3, 4, 5, 6] } })}>Full week</button></div>
@@ -263,7 +263,7 @@ export function JobsPage({ onClose }: { onClose?: () => void }): React.ReactElem
         <h3>Saved output and delivery artifacts</h3><JobArtifacts value={view.artifacts} />
         {view.status === 'unconfirmed' && <div className="kh-jobs__editor"><h3>Reconcile uncertain delivery</h3><p>Check the destination first. Never retry an uncertain post without checking whether it exists.</p>
           <label>Step<select value={reconcile} onChange={e => setReconcile(e.target.value)}><option value="">Select step</option>{view.steps.filter(s => s.status === 'unconfirmed' || s.status === 'running').map(s => <option key={s.key}>{s.key}</option>)}</select></label>
-          <label>Confirmed public URL<input value={receiptUrl} onChange={e => setReceiptUrl(e.target.value)} /></label>
+          <label>Confirmed public URL<input spellCheck={false} value={receiptUrl} onChange={e => setReceiptUrl(e.target.value)} /></label>
           <div className="kh-jobs__actions">{[true, false].map(delivered => <button key={String(delivered)} type="button" disabled={busy || !reconcile} onClick={() => { void act(async () => setView(await api.jobs<JobRun>(`/runs/${view.id}/reconcile`, 'POST', { step: reconcile, delivered, url: receiptUrl }))); }}>{delivered ? 'Confirm it was delivered' : 'Confirm nothing was delivered'}</button>)}</div>
         </div>}
         {error && <p role="alert" className="kh-jobs__error">{error}</p>}

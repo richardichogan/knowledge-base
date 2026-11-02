@@ -143,7 +143,7 @@ export const NotesPage: React.FC = () => {
   const { data: notePages, isLoading, isError, error: listError, isFetching, refetch,
     hasNextPage, fetchNextPage, isFetchingNextPage, isFetchNextPageError } = useInfiniteQuery({
     queryKey: ['notes-list', 'designs', listQuery],
-    queryFn: ({ pageParam }) => fetchNotesPage(pageParam, listQuery, 'designs', { excludeContentType: 'definition' }),
+    queryFn: ({ pageParam }) => fetchNotesPage(pageParam, listQuery, 'designs', { excludeContentType: 'definition', excludeTaskEmails: true }),
     initialPageParam: 1,
     getNextPageParam: nextNotesPage,
     staleTime: 30_000,

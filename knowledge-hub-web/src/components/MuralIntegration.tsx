@@ -64,7 +64,7 @@ export const MuralIntegration: React.FC = () => {
         });
       }}>
         <label htmlFor="mural-client-id">Client ID</label>
-        <input id="mural-client-id" value={clientId} required maxLength={36} disabled={busy} autoComplete="off"
+        <input id="mural-client-id" spellCheck={false} value={clientId} required maxLength={36} disabled={busy} autoComplete="off"
           onChange={event => { setClientId(event.target.value); }} />
         <label htmlFor="mural-secret">Client secret{status.configured ? ' (leave blank to keep the saved secret)' : ''}</label>
         <input id="mural-secret" type="password" value={secret} required={!status.configured} disabled={busy} autoComplete="new-password"

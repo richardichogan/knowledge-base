@@ -230,6 +230,9 @@ const VOICE_RULES = [
     'No "less about X, more about Y". Do not use "signal" as a mass noun. ' +
     'No vague "most organisations" claims.',
   'Only use facts and links from the input. Never invent announcements, dates, or URLs.',
+  'Preserve exact source titles, quotations, product names and URLs, including their original punctuation. ' +
+    'Prose style rules never authorise changing a cited title. Concise descriptive link labels are allowed, ' +
+    'but do not present a punctuation-rewritten title as the source title.',
 ].join('\n');
 
 export const BLOG_PROMPT = [

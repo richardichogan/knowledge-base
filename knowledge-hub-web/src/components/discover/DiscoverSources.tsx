@@ -114,7 +114,7 @@ export const DiscoverSources: React.FC<{ onClose: () => void }> = ({ onClose }) 
 
       <form className="dc-sources__add" onSubmit={(e) => { void add(e); }}>
         <input className="dc-sources__input" placeholder="Name, e.g. Anthropic News" value={title} onChange={(e) => { setTitle(e.target.value); }} aria-label="Source name" required />
-        <input className="dc-sources__input dc-sources__input--wide" placeholder="RSS, Atom or YouTube channel URL" value={feedUrl} onChange={(e) => { setFeedUrl(e.target.value); }} aria-label="Feed address or YouTube channel URL" required />
+        <input className="dc-sources__input dc-sources__input--wide" spellCheck={false} placeholder="RSS, Atom or YouTube channel URL" value={feedUrl} onChange={(e) => { setFeedUrl(e.target.value); }} aria-label="Feed address or YouTube channel URL" required />
         <select className="dc-sources__input" value={group} onChange={(e) => { setGroup(e.target.value); }} aria-label="Group">
           {GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}
         </select>

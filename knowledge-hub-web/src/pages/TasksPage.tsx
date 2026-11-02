@@ -789,16 +789,26 @@ const PodcastImportModal: React.FC<{
 
 // ── Create / Edit modal ───────────────────────────────────────────────────────
 
-export const TaskModal: React.FC<{
+export type TaskEditorInput = Partial<Task> & {
+  title: string;
+  statusChangeNote?: string;
+  expectedStatus?: TaskStatus;
+};
+
+interface TaskEditorProps {
   open: boolean;
   initial: Task | null;
   defaultStatus: TaskStatus;
   projects: ProjectRecord[];
   onClose: () => void;
-  onSave: (data: Partial<Task> & { title: string }) => void;
+  onSave: (data: TaskEditorInput) => void;
   saving: boolean;
   error: string | null;
-}> = ({ open, initial, defaultStatus, projects, onClose, onSave, saving, error }) => {
+}
+
+export const TaskEditor: React.FC<TaskEditorProps & { inline?: boolean }> = ({
+  open, initial, defaultStatus, projects, onClose, onSave, saving, error, inline = false,
+}) => {
   const [title,       setTitle]       = useState('');
   const [body,        setBody]        = useState('');
   const [status,      setStatus]      = useState<TaskStatus>(defaultStatus);
@@ -810,6 +820,9 @@ export const TaskModal: React.FC<{
   const [linkedTagIds, setLinkedTagIds] = useState<string[]>([]);
   const [recurringCadence, setRecurringCadence] = useState<string>('none');
   const [waitingOn, setWaitingOn] = useState('');
+  const [statusChangeNote, setStatusChangeNote] = useState('');
+  const statusChanged = inline && initial != null && status !== initial.status;
+  const canSave = !saving && Boolean(title.trim()) && (!statusChanged || Boolean(statusChangeNote.trim()));
   const statusOptions = initial?.status === 'inbox' ? [{ id: 'inbox' as const, label: 'Inbox' }, ...COLUMNS] : COLUMNS;
 
   React.useEffect(() => {
@@ -824,36 +837,29 @@ export const TaskModal: React.FC<{
     setLinkedTagIds(initial?.taxonomyTagIds?.length ? initial.taxonomyTagIds : initial?.linkedTagId ? [initial.linkedTagId] : []);
     setRecurringCadence(initial?.recurringCadence ?? 'none');
     setWaitingOn(initial?.waitingOn ?? '');
+    setStatusChangeNote('');
   }, [initial, open, defaultStatus]);
 
-  return (
-    <Modal
-      open={open}
-      modalHeading={initial != null ? 'Edit Task' : 'New Task'}
-      primaryButtonText={saving ? 'Saving…' : 'Save'}
-      secondaryButtonText="Cancel"
-      onRequestClose={() => { if (!saving) onClose(); }}
-      onRequestSubmit={() => {
-        if (saving || !title.trim()) return;
-        onSave({
-          title: title.trim(),
-          body: body.trim(),
-          status,
-          ...(status === 'waiting' || initial?.waitingOn ? { waitingOn: status === 'waiting' ? waitingOn.trim() || null : null } : {}),
-          projectId,
-          priority,
-          task_type: initial?.task_type ?? 'standard',
-          startDate: startDate || null,
-          endDate: endDate || null,
-          dueDate: dueDate || null,
-          tags: [],
-          taxonomyTagIds: linkedTagIds,
-          recurringCadence: recurringCadence === 'none' ? null : recurringCadence as Task['recurringCadence'],
-        });
-      }}
-      primaryButtonDisabled={saving || !title.trim()}
-      size="md"
-    >
+  const submit = (): void => {
+    if (!canSave) return;
+    onSave({
+      title: title.trim(),
+      body: body.trim(),
+      status,
+      ...(status === 'waiting' || initial?.waitingOn ? { waitingOn: status === 'waiting' ? waitingOn.trim() || null : null } : {}),
+      projectId,
+      priority,
+      task_type: initial?.task_type ?? 'standard',
+      startDate: startDate || null,
+      endDate: endDate || null,
+      dueDate: dueDate || null,
+      tags: inline ? initial?.tags ?? [] : [],
+      taxonomyTagIds: linkedTagIds,
+      recurringCadence: recurringCadence === 'none' ? null : recurringCadence as Task['recurringCadence'],
+      ...(inline && initial ? { expectedStatus: initial.status, statusChangeNote: statusChanged ? statusChangeNote.trim() : '' } : {}),
+    });
+  };
+  const fields = (
       <fieldset className="kb-modal-form" disabled={saving} aria-label="Task fields">
         {error != null && (
           <InlineNotification kind="error" title="Save failed" subtitle={error} lowContrast hideCloseButton />
@@ -863,7 +869,7 @@ export const TaskModal: React.FC<{
         <TextInput id="t-title" labelText="Title *" value={title} onChange={(e) => setTitle(e.target.value)} />
 
         {/* Notes — full width */}
-        <TextArea id="t-body" labelText="Notes" rows={3} value={body} onChange={(e) => setBody(e.target.value)} />
+        <TextArea id="t-body" labelText={inline ? 'Description' : 'Notes'} rows={3} value={body} onChange={(e) => setBody(e.target.value)} />
 
         {/* Project + Status — side by side */}
         <div className="kb-modal-form__row">
@@ -876,6 +882,11 @@ export const TaskModal: React.FC<{
             {statusOptions.map((c) => <SelectItem key={c.id} value={c.id} text={c.label} />)}
           </Select>
         </div>
+
+        {statusChanged && <TextArea id="t-status-note" labelText="Status change message *" rows={3}
+          maxLength={3000} required value={statusChangeNote}
+          helperText="This message and the stage change are saved together in the task's timestamped activity."
+          onChange={event => { setStatusChangeNote(event.target.value); }} />}
 
         {status === 'waiting' && (
           <TextInput id="t-waiting-on" labelText="Waiting on" placeholder="Who or what, e.g. Feedback from Sarah"
@@ -900,15 +911,13 @@ export const TaskModal: React.FC<{
         </div>
 
         {/* Dates — due date alone (half width) or start+end side by side */}
-        {recurringCadence === 'none'
-          ? <div className="kb-modal-form__row kb-modal-form__row--half-left">
-              <TextInput id="t-due" labelText="Due date" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-            </div>
-          : <div className="kb-modal-form__row">
-              <TextInput id="t-start" labelText="Start date" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-              <TextInput id="t-end"   labelText="End date"   type="date" value={endDate}   onChange={(e) => setEndDate(e.target.value)} />
-            </div>
-        }
+        {(inline || recurringCadence === 'none') && <div className="kb-modal-form__row kb-modal-form__row--half-left">
+          <TextInput id="t-due" labelText="Due date" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+        </div>}
+        {recurringCadence !== 'none' && <div className="kb-modal-form__row">
+          <TextInput id="t-start" labelText="Start date" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          <TextInput id="t-end"   labelText="End date"   type="date" value={endDate}   onChange={(e) => setEndDate(e.target.value)} />
+        </div>}
 
         {/* Tags — hierarchical tag picker */}
         <div className="kb-modal-form__field">
@@ -925,17 +934,41 @@ export const TaskModal: React.FC<{
         </div>
 
         {/* Activity log + linked items — only shown when editing an existing task */}
-        {initial != null && (
+        {!inline && initial != null && (
           <TaskActivitySection taskId={initial.id} />
         )}
 
-        {initial != null && (
+        {!inline && initial != null && (
           <ConnectionsPanel refId={initial.id} refType="task" />
         )}
       </fieldset>
+  );
+  if (inline) return <form className="kh-task-detail__editor" aria-label="Edit task"
+    onSubmit={event => { event.preventDefault(); submit(); }}>
+    <h3>Edit task</h3>
+    {fields}
+    <div className="kh-task-detail__actions">
+      <button type="submit" className="dc-explore__primary" disabled={!canSave}>{saving ? 'Saving...' : 'Save task'}</button>
+      <button type="button" className="dc-explore__action" disabled={saving} onClick={onClose}>Cancel</button>
+    </div>
+  </form>;
+  return (
+    <Modal
+      open={open}
+      modalHeading={initial != null ? 'Edit Task' : 'New Task'}
+      primaryButtonText={saving ? 'Saving…' : 'Save'}
+      secondaryButtonText="Cancel"
+      onRequestClose={() => { if (!saving) onClose(); }}
+      onRequestSubmit={submit}
+      primaryButtonDisabled={!canSave}
+      size="md"
+    >
+      {fields}
     </Modal>
   );
 };
+
+export const TaskModal: React.FC<TaskEditorProps> = props => <TaskEditor {...props} />;
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -1108,7 +1141,7 @@ export const TasksPage: React.FC<{
           {scopedTasks.map(task => <ReviewItem key={task.id} title={task.title} meta={`${getProjectName(task.projectId, projects)} · ${task.status}`}
             description={task.body} selected={selectedTaskId === task.id} onSelect={() => { selectTask(task); }} />)}
         </section>}
-        detail={<TaskDetail key={selectedTaskId} taskId={selectedTaskId} />} />}
+        detail={<TaskDetail key={selectedTaskId} taskId={selectedTaskId} onBackToPlan={() => { setSelectedTaskId(null); }} />} />}
 
       {!selectedTaskId && <>
       {isPending && <InlineLoading description="Loading…" />}

@@ -54,7 +54,7 @@ export const ShareEmailSettings: React.FC = () => {
         });
       }}>
         <label htmlFor="share-smtp-user">SMTP username</label>
-        <input id="share-smtp-user" autoComplete="off" value={username} required maxLength={254} disabled={busy} onChange={e => { setUsername(e.target.value); }} />
+        <input id="share-smtp-user" spellCheck={false} autoComplete="off" value={username} required maxLength={254} disabled={busy} onChange={e => { setUsername(e.target.value); }} />
         <label htmlFor="share-smtp-password">SMTP password{status.configured ? ' (leave blank to keep saved)' : ''}</label>
         <input id="share-smtp-password" type="password" autoComplete="new-password" spellCheck={false} value={password} required={!status.configured}
           maxLength={8192} disabled={busy} onChange={e => { setPassword(e.target.value); }} />

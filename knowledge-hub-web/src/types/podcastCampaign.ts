@@ -19,6 +19,7 @@ export interface PodcastCampaignDetail {
     recordingTease?: boolean; transcriptUploadedAt?: string | null;
     assetsRequired?: boolean;
     reviewRequired?: boolean;
+    sequenceRequired?: boolean;
     review?: {
       status: 'pending' | 'pass' | 'fail'; fingerprint: string; reviewer: string | null; checkedAt: string | null;
       findings: Array<{ postId: string | null; message: string }>;

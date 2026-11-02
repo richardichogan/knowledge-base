@@ -999,6 +999,7 @@ export class KnowledgeHubApi {
     sort?: 'modified' | 'created' | 'title';
     status?: 'active' | 'archived';
     structure?: 'flat' | 'designs';
+    excludeTaskEmails?: boolean;
   }): Promise<ApiResponse<PaginatedList<NoteSummary>>> {
     const r = await this.client.get<ApiResponse<PaginatedList<NoteSummary>>>(
       '/api/notes',

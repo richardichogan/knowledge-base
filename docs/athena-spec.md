@@ -50,6 +50,15 @@ The learning loop reuses Memory's approval-based suggestions. Weekly review pair
 
 It runs as a desktop web app at athena.themicrosoftcloudblog.com, with the Athena Desktop (Electron) wrapper, which also captures local M365 reports. The standalone `/chat` page is the only screen designed for mobile. A Raycast extension and an Android app (`knowledge-hub-raycast`, `knowledge-hub-app`) are secondary clients.
 
+Editable prose uses British-English spellchecking throughout Athena, including
+titles, chat, notes and popup fields. Right-clicking a misspelt word opens the
+existing Athena spelling menu. The menu stays within the originating dialog's
+focus boundary and above modal layers; Escape dismisses it without closing the
+dialog. Passwords, tokens, addresses, identifiers, paths and raw code/HTML fields
+are excluded, including code inside rich notes. Explicit spellcheck opt-outs also
+apply to Athena's own suggestions. Corrections use the existing editor input and
+save paths, without adding a separate content store or changing Athena access.
+
 ### Retrieval meanings and boundaries
 
 The operational vocabulary reuses the knowledge-family/source manifest and complements the typed semantic relationships; it is not a second graph or a copy of the database schema in the prompt. Discover articles, feed subscriptions and Watchlist runs are different collections. Think notes, Library documents, saved chats, live tasks, recorded decisions, diagrams and connected activity have distinct entry points. Explicit collection requests take priority over generic retrieval and current-project reference URLs.
@@ -166,6 +175,14 @@ attribution, listening links and dates stay unchanged. Each adapted draft retain
 its original source copy, is identified in preparation notes, and must pass the
 separate review for meaning/factual fidelity before manual approval.
 Campaign dates stay authored.
+Newly prepared campaigns require Teaser, episode Launch, Blog Post, then Quotes
+and fuller/generic posts, across the authored days rather than necessarily on one
+day. Posts with identical authored times are ordered by stage before the existing
+30-minute spacing is applied. Explicit times and dates that violate this order
+are flagged in Campaign and block approval; dates are never silently shifted.
+The linked recording teaser's times are included when checking the release plan.
+This requirement is recorded only on newly prepared plans; existing approved
+campaigns, including this week's posts, are not rewritten or rescheduled.
 Full-campaign posts sharing a day are staggered 30 minutes apart in saved order,
 starting at the existing 08:00 UK time. This spacing is within the podcast campaign
 only; other bookings, publishing windows and daily caps do not influence it.
@@ -453,6 +470,16 @@ triggers are removed. Weekly Microsoft updates retains Monday 08:00 and its
 previous-full-Monday-to-Sunday evidence window, Think note, pinned chat and Slack
 summary. Its new blog → Bluesky/LinkedIn delivery chain initially requires
 approval. Both social destinations use the confirmed public blog URL.
+Weekly editorial repairs may restore a punctuation-damaged Markdown citation
+label only to the exact supplied title for that same source URL, when the
+title's words already match and the URL has one unambiguous supplied title.
+The replacement must leave every other character unchanged and identify one
+unique saved passage. This narrow restoration is not blocked by question marks
+inside citation titles or URL punctuation being counted as extra sentences.
+Descriptive shortened labels, URLs, unrelated prose, quoted text and ambiguous
+source identities remain protected. The repaired package must still pass the
+normal independent reviews and existing approval/delivery checks; no retry or
+publication is triggered by this repair capability.
 
 Jobs can run a saved grounded Athena prompt, ingest Daily Insights, save a Think
 result or a Markdown file, and deliver through the existing publishing adapters.
@@ -739,9 +766,32 @@ slashes.
 
 ### Approval-first task assistance
 
+Task-generated email drafts are retained as task-linked writing, not entries in
+the main Think list (including its search and counts). Existing Hermes results
+are recognised through their saved assistance provenance; new email drafts
+created through the task work-content service record that provenance separately
+from their editable writing. Ordinary emails created in Think remain listed.
+Direct task/result links still open the existing editor, and Athena retrieval,
+indexing, copying, activity, revision checks and recovery remain unchanged.
+No writing is deleted, archived or moved by this list-only distinction.
+Older structured email drafts without recorded creation provenance remain
+visible rather than inferring their origin from a title or a manually added
+task link.
+
 Today and Plan remain separate entry points. Selecting a task uses the same
 task-detail component, existing task editor, activity and connections, with
 Athena available alongside. Plan retains Board and Focus when no task is selected.
+The task-detail header always offers Back to Plan, including loading and error
+states. From Plan it restores the existing Board or Focus view and its filters;
+from Today it opens Plan. Edit task switches this detail pane into an inline
+editor with all existing task fields, including description, due date and stage.
+Save task and Cancel replace the detail-view edit modal; Plan's board modal is
+unchanged. Stage changes require their message in this same form and use the
+existing atomic status/activity save and current-status conflict check. Activity
+and connections remain below the editor. Returning to Plan with the editor open
+asks before discarding its draft. Polling does not reset that draft, and Athena
+task turns wait until the user saves or cancels; saved Athena changes refresh the
+normal task view.
 The selected-task list reuses Today's review rows, section heading and quiet
 navigation control styling; it does not introduce a separate Plan list style.
 Today details and the shared Plan task detail match Discover's expanded
@@ -835,8 +885,9 @@ task styles use the guide's existing tokens and typography.
 
 ### Task status-change notes
 
-Every change from one task status to another requires a non-empty quick note
-in the existing Athena modal style. Submit saves the status and a timestamped
+Every change from one task status to another requires a non-empty quick note,
+in the existing Athena modal or the shared task detail's inline editor.
+Submit (or Save task in the inline editor) saves the status and a timestamped
 `task_notes` entry together; Cancel leaves the task unchanged. The activity
 entry records both old and new statuses plus the submitted text. A current-status
 check rejects a stale move without saving either part. New task creation, edits

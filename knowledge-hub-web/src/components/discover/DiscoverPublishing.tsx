@@ -35,7 +35,7 @@ function PolicyEditor({ feed, act, busy }: { feed: PublishingFeed; act: Action; 
   function field<K extends keyof FeedPolicy>(key: K, value: FeedPolicy[K]): void { setPolicy(p => ({ ...p, [key]: value })); }
   return <form className="kh-publishing__form" onSubmit={e => { e.preventDefault(); void act(`/feeds/${feed.id}`, 'PUT', { ...feed, policy }); }}>
     <div className="kh-publishing__fields">
-      <label>Timezone<input required value={policy.timezone} onChange={e => field('timezone', e.target.value)} /></label>
+      <label>Timezone<input spellCheck={false} required value={policy.timezone} onChange={e => field('timezone', e.target.value)} /></label>
       <label>From<input required type="number" min={0} max={23} value={policy.startHour} onChange={e => field('startHour', Number(e.target.value))} /></label>
       <label>Until<input required type="number" min={1} max={24} value={policy.endHour} onChange={e => field('endHour', Number(e.target.value))} /></label>
     </div>
