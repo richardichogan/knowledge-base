@@ -23,6 +23,7 @@ import { layoutGeneralDiagram } from '../services/diagramLayout.js';
 import { DIAGRAM_LIMITS, currentStepType } from '../services/diagramValidation.js';
 import { env } from '../config/env.js';
 import { PROJECT_TYPES } from '../services/projectTypes.js';
+import { workflowStateSql } from '../services/discoverWorkflow.js';
 
 export const ASSET_WRITE_TOOLS = [
   'add_discover_source', 'update_discover_source', 'set_discover_item_state', 'update_spark',
@@ -418,14 +419,20 @@ async function setDiscoverItemState(db: Pool, args: Record<string, unknown>): Pr
   const stamp = state === 'to-review'
     ? `, metadata = metadata || jsonb_build_object('restoredAt', to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))`
     : state === 'shelved' ? `, metadata = metadata || jsonb_build_object('shelvedAt', to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))` : '';
-  const { rows } = await db.query<{ id: string; title: string }>(
-    `UPDATE content_items SET workflow_state = $1${stamp}
+  const { rows } = await db.query<{ id: string; title: string; workflow_state: string }>(
+    `UPDATE content_items SET workflow_state = ${workflowStateSql('$1::text')}${stamp}
       WHERE source = 'discovered-article' AND (id::text = $2 OR rtrim(url, '/') = rtrim($2, '/'))
-      RETURNING id::text, title`,
+      RETURNING id::text, title, workflow_state`,
     [state, ref],
   );
   if (rows.length === 0) return { error: 'No Discover article with that id or URL.' };
-  return { success: true, updated: rows.map((r) => ({ id: r.id, title: r.title, state })) };
+  return {
+    success: true,
+    updated: rows.map((r) => ({
+      id: r.id, title: r.title, state: r.workflow_state,
+      ...(r.workflow_state !== state && { note: 'Already posted to LinkedIn or Bluesky, so it stays in Published.' }),
+    })),
+  };
 }
 
 // ── Sparks ───────────────────────────────────────────────────────────────────

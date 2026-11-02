@@ -10,6 +10,7 @@ import { syncDiscoveryFeeds, toSource } from '../integrations/discovery/feedSync
 import { readFeed } from '../integrations/discovery/feedReader.js';
 import { discoverRankSql, discoverDiversitySql } from '../integrations/cms/discoverRank.js';
 import { interestSql } from '../services/discoverInterests.js';
+import { workflowStateSql } from '../services/discoverWorkflow.js';
 import { generateLinkedInDraft, generateShortSocialDraft, sourceUrl, type LinkedInSource } from '../ai/linkedInDraft.js';
 import { handOff } from '../agents/index.js';
 import { BLOG_CATEGORIES } from '../ai/blogHouseStyle.js';
@@ -630,7 +631,7 @@ discoverRouter.patch('/:id/workflow', (req: Request, res: Response, next: NextFu
           ? `, metadata = metadata || jsonb_build_object('shelvedAt', to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))`
           : '';
       const result = await db.query(
-        `UPDATE content_items SET workflow_state = $1${stamp} WHERE id = $2 AND source = 'discovered-article' RETURNING id`,
+        `UPDATE content_items SET workflow_state = ${workflowStateSql('$1::text')}${stamp} WHERE id = $2 AND source = 'discovered-article' RETURNING workflow_state`,
         [state, id],
       );
 
@@ -642,7 +643,7 @@ discoverRouter.patch('/:id/workflow', (req: Request, res: Response, next: NextFu
         return;
       }
 
-      res.json({ success: true });
+      res.json({ success: true, data: { state: (result.rows[0] as { workflow_state: string }).workflow_state } });
     } catch (err) {
       next(err);
     }
