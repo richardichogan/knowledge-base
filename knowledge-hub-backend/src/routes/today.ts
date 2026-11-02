@@ -9,6 +9,7 @@ import { env } from '../config/env.js';
 import { getPodcastPrepStatus, generatePodcastPrep, acknowledgePodcastPrep } from '../ai/podcastPrep.js';
 import { ValidationError } from '../types/errors.js';
 import { HTTP_STATUS } from '../config/constants.js';
+import { getDiscoverPicks, refreshDiscoverPicks, discoverPicksRunning } from '../services/discoverPicks.js';
 
 export const todayRouter = Router();
 
@@ -25,6 +26,16 @@ todayRouter.post('/podcast-prep/acknowledge', (req, res, next) => {
   }
   void acknowledgePodcastPrep(getDb(), body.recordingDate, body.generatedAt)
     .then(() => { res.json({ success: true, data: null }); }).catch(next);
+});
+
+/** GET /api/today/discover-picks — the saved "Worth posting today" picks, filtered by current article state. */
+todayRouter.get('/discover-picks', (_req, res, next) => {
+  void getDiscoverPicks(getDb()).then((picks) => { res.json({ success: true, data: { picks, running: discoverPicksRunning() } }); }).catch(next);
+});
+/** POST /api/today/discover-picks/refresh — choose today's picks again now (internal only; nothing is posted). */
+todayRouter.post('/discover-picks/refresh', (_req, res, next) => {
+  void refreshDiscoverPicks(getDb(), 'manual').then(() => getDiscoverPicks(getDb()))
+    .then((picks) => { res.json({ success: true, data: { picks, running: false } }); }).catch(next);
 });
 
 /** Raw mapped GitHub activity row returned by the Today activity SQL query. */

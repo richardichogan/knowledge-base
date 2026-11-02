@@ -51,6 +51,8 @@ const LABELS: Record<string, string> = {
   create_mind_map: 'Creating a mind map',
   create_weekly_microsoft_digest: 'Collating this week\'s Microsoft updates',
   manage_scheduled_jobs: 'Working with scheduled jobs',
+  read_discover_picks: 'Reading today\'s posting picks',
+  refresh_discover_picks: 'Choosing articles worth posting today',
 };
 
 /** One line describing a tool call, including what it's looking for when that's short. */

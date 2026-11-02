@@ -7,13 +7,13 @@ import { confirmDialog } from '../../services/appDialogs';
 import { AppDialog } from '../AppDialog';
 import { BLUESKY_POST_LIMIT, LINKEDIN_POST_LIMIT, SHORT_POST_LIMIT, blueskyLength, linkedinLength, socialLength } from './socialLength';
 
-export const LinkedInDraftModal: React.FC<{ itemId: string; title: string; onClose: () => void }> = ({ itemId, title, onClose }) => {
+export const LinkedInDraftModal: React.FC<{ itemId: string; title: string; initialFormat?: 'linkedin' | 'short'; onClose: () => void }> = ({ itemId, title, initialFormat = 'linkedin', onClose }) => {
   const queryClient = useQueryClient();
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [markedPublished, setMarkedPublished] = useState(false);
-  const [format, setFormat] = useState<'linkedin' | 'short'>('linkedin');
+  const [format, setFormat] = useState<'linkedin' | 'short'>(initialFormat);
   const [edits, setEdits] = useState<Partial<Record<'linkedin' | 'short', string>>>({});
   const [posting, setPosting] = useState<'bluesky' | 'linkedin' | null>(null);
   const [blueskyUrl, setBlueskyUrl] = useState<string | null>(null);

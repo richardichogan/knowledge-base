@@ -13,6 +13,7 @@ import { useUseCases } from '../hooks/useUseCases';
 import { stalledNudge } from '../features/useCases/useCaseView';
 import { UpcomingMeetings } from '../components/today/UpcomingMeetings';
 import { TaskDetail } from '../features/plan/TaskDetail';
+import { DiscoverPickDetail, chosenLabel, picksContext, refreshError, useDiscoverPicks } from '../components/today/DiscoverPicks';
 
 type SectionQueries = Array<{ name: string; query: {
   isPending: boolean; isError: boolean; error: unknown; refetch: () => Promise<unknown>;
@@ -108,7 +109,8 @@ export const HomePage: React.FC = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [expandedChanges, setExpandedChanges] = useState(false);
   const podcast = usePodcastPrep();
-  const context = todayContext(model);
+  const discoverPicks = useDiscoverPicks();
+  const context = `${todayContext(model)}\n\n${picksContext(discoverPicks.picks, discoverPicks.saved?.generatedAt ?? null)}`;
   function ask(prompt: string, item?: TodayItem): void {
     if (item && item.id !== 'today-all-attention') setSelectedId(item.id);
     openAthena(prompt, item ? {
@@ -120,12 +122,16 @@ export const HomePage: React.FC = () => {
   const visibleAttention = model.attention.slice(0, TODAY_LIMITS.attention);
   const visibleChanges = expandedChanges ? model.changes : model.changes.slice(0, TODAY_LIMITS.changes);
   const workItems = [...visibleAttention, ...visibleChanges, ...model.continuing, ...model.exploration];
-  const selection = selectedId === 'today-meetings' || selectedId === 'today-podcast' ? selectedId
+  const selectedPick = discoverPicks.picks.find(pick => `pick:${pick.id}` === selectedId);
+  const selection = selectedId === 'today-meetings' || selectedId === 'today-podcast' || selectedPick ? selectedId
     : workItems.find(item => item.id === selectedId)?.id ?? workItems[0]?.id ?? 'today-podcast';
   const selected = workItems.find(item => item.id === selection);
   const selectedSection = selected && (visibleAttention.includes(selected) ? 'Needs your attention'
     : visibleChanges.includes(selected) ? 'What changed' : model.continuing.includes(selected) ? 'Continue working' : 'Worth exploring');
-  const selectedContext = selected ? {
+  const selectedContext = selectedPick ? {
+    type: 'discover article', title: selectedPick.title, id: selectedPick.id,
+    detail: `Today section: Worth posting today. Selected pick (Discover article id ${selectedPick.id}; retrieve the article for its full content):\n${JSON.stringify(selectedPick)}\n\nDaily brief:\n${context}`,
+  } : selected ? {
     type: selected.type.toLowerCase(), title: selected.title, id: selected.discoverId ?? selected.taskId ?? selected.id,
     ...(selected.projectId ? { projectId: selected.projectId } : {}),
     detail: `Today section: ${selectedSection}. Selected item summary and state (retrieve the underlying record for its full content):\n${JSON.stringify(selected)}\n\nDaily brief:\n${context}`,
@@ -154,12 +160,28 @@ export const HomePage: React.FC = () => {
       {brief.storageError && <p className="today-brief__error" role="status">Your browser cannot save the Today visit time. Changes use the last 24 hours.</p>}
       {brief.projects.isError && <p className="today-brief__error" role="alert">Project names are unavailable. <button type="button" onClick={() => { void brief.projects.refetch(); }}>Retry projects</button></p>}
       <ReviewWorkspace storageKey="today" label="Today" context={selectedContext}
-        detail={selected ? <><h2 className="kh-review-detail-heading">{selectedSection}</h2>
+        detail={selectedPick ? <><h2 className="kh-review-detail-heading">Worth posting today</h2>
+          <DiscoverPickDetail key={selectedPick.id} pick={selectedPick} onAsk={() => { openAthena('Help me shape a social post from this article using the suggested angle.', selectedContext); }} /></>
+          : selected ? <><h2 className="kh-review-detail-heading">{selectedSection}</h2>
           {selected.taskId ? <TaskDetail key={selected.taskId} taskId={selected.taskId} />
             : <WorkItem key={selected.id} item={selected} ask={item => { ask('Help me work out the next step for this item.', item); }} />}</>
           : selection === 'today-meetings' ? <UpcomingMeetings projects={brief.projects.data ?? []} />
             : <PodcastPrepCard />}
         list={<>
+        <section className="today-brief__picks" aria-labelledby="today-picks">
+          <div className="today-brief__section-heading"><h2 id="today-picks">Worth posting today</h2>
+            <button type="button" className="today-brief__quiet" disabled={discoverPicks.refresh.isPending} onClick={() => { discoverPicks.refresh.mutate(); }}>
+              <Renew size={16} /> {discoverPicks.refresh.isPending ? 'Choosing...' : 'Refresh'}
+            </button></div>
+          {discoverPicks.saved && <p className="today-brief__meta">Chosen {chosenLabel(discoverPicks.saved.generatedAt)}{discoverPicks.saved.removed > 0 ? ` · ${discoverPicks.saved.removed} since posted or moved` : ''}</p>}
+          {discoverPicks.refresh.isPending && <p className="today-brief__meta" role="status">Athena is choosing three articles worth posting...</p>}
+          {discoverPicks.refresh.isError && <p className="today-brief__error" role="alert">{refreshError(discoverPicks.refresh.error)}</p>}
+          <SectionState queries={[{ name: 'Posting picks', query: discoverPicks.query }]} hasItems={discoverPicks.picks.length > 0}
+            empty={discoverPicks.saved?.note ?? (discoverPicks.saved ? 'All of today\'s picks have been posted or moved. Refresh for more.' : 'No picks yet. Refresh to choose three articles worth posting today.')} />
+          {discoverPicks.picks.map(pick => <ReviewItem key={pick.id} title={pick.title}
+            selected={selection === `pick:${pick.id}`} meta={[pick.source, pick.workflowState === 'saved' ? 'Saved' : 'To review'].filter(Boolean).join(' · ')}
+            description={pick.angle} onSelect={() => { setSelectedId(`pick:${pick.id}`); }} />)}
+        </section>
         <section className="today-brief__attention" aria-labelledby="today-attention">
           <div className="today-brief__section-heading"><h2 id="today-attention">Needs your attention</h2><Link to="/plan">All tasks in Plan</Link></div>
           <SectionState queries={sectionQueries.attention} hasItems={visibleAttention.length > 0} empty="No deadlines, blockers, or open decisions need attention in the available recent sources." />

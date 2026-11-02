@@ -387,7 +387,19 @@ export const DiscoverPage: React.FC = () => {
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [blogItem, setBlogItem] = useState<{ id: string; title: string; length?: 'short' | 'long' } | null>(null);
-  const [linkedInItem, setLinkedInItem] = useState<{ id: string; title: string } | null>(null);
+  const [linkedInItem, setLinkedInItem] = useState<{ id: string; title: string; format?: 'linkedin' | 'short' } | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get('socialDraft');
+    return id ? { id, title: params.get('title') ?? 'Discover article', format: params.get('format') === 'short' ? 'short' : 'linkedin' } : null;
+  });
+  function closeSocialDraft(): void {
+    setLinkedInItem(null);
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('socialDraft')) {
+      ['socialDraft', 'format', 'title'].forEach(key => { url.searchParams.delete(key); });
+      window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+    }
+  }
   const [since] = useState(() => readSinceLastLooked());
   const flatTags = useFlatTags();
   const queryClient = useQueryClient();
@@ -739,7 +751,8 @@ export const DiscoverPage: React.FC = () => {
         {...(blogItem.length ? { initialLength: blogItem.length } : {})}
         onClose={() => { setBlogItem(null); }} />}
       {linkedInItem && <LinkedInDraftModal key={linkedInItem.id} itemId={linkedInItem.id} title={linkedInItem.title}
-        onClose={() => { setLinkedInItem(null); }} />}
+        {...(linkedInItem.format ? { initialFormat: linkedInItem.format } : {})}
+        onClose={closeSocialDraft} />}
     </div>
   );
 };

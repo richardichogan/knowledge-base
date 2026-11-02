@@ -132,7 +132,7 @@ const NO_OUTPUTS_PANEL_NOTE = [
 const NOTE_EDIT_MAX_TOKENS = 14_000;
 
 /** Tools that change something; left out when a turn must only read. */
-const WRITE_TOOLS = new Set([...WORK_WRITE_TOOLS, ...DESIGN_READINESS_WRITE_TOOLS, 'generate_project_progress_review', 'update_podcast_script', 'replace_podcast_youtube_link', 'save_design_documents', 'set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'propose_local_file_write', 'remember', 'forget_memory', 'save_output', 'manage_scheduled_jobs', 'manage_publishing_feeds', 'hand_off_to_specialist', 'import_meeting_list', DEMO_SPECIFICATION_WRITE_TOOL, ...ASSET_WRITE_TOOLS]);
+const WRITE_TOOLS = new Set([...WORK_WRITE_TOOLS, ...DESIGN_READINESS_WRITE_TOOLS, 'generate_project_progress_review', 'update_podcast_script', 'replace_podcast_youtube_link', 'save_design_documents', 'set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'propose_local_file_write', 'remember', 'forget_memory', 'save_output', 'manage_scheduled_jobs', 'manage_publishing_feeds', 'refresh_discover_picks', 'hand_off_to_specialist', 'import_meeting_list', DEMO_SPECIFICATION_WRITE_TOOL, ...ASSET_WRITE_TOOLS]);
 
 function isStopped(hooks: TurnHooks): boolean {
   return hooks.signal?.aborted === true;

@@ -49,6 +49,7 @@ import type {
   CreateUseCaseInput, DraftSpecResult, HandoffInput, HandoffResult, UseCase, UseCaseDetail, UseCasePatch, UseCaseSourceRef,
 } from '../types/useCases';
 import type { PodcastPrepStatus } from '../types/podcastPrep';
+import type { DiscoverPicksResponse } from '../types/discoverPicks';
 import { requestCompletionNotifications } from '../chat/completionNotification';
 import type { PodcastEpisode, ScriptCard } from '../types/podcastEpisodes';
 import type { WorkContent, WorkContentPatch } from '../types/workContent';
@@ -2461,6 +2462,14 @@ export class KnowledgeHubApi {
   }
 
   // ── Morning briefing ────────────────────────────────────────────────────────
+
+  async getDiscoverPicks(): Promise<ApiResponse<DiscoverPicksResponse>> {
+    return (await this.client.get<ApiResponse<DiscoverPicksResponse>>('/api/today/discover-picks')).data;
+  }
+
+  async refreshDiscoverPicks(): Promise<ApiResponse<DiscoverPicksResponse>> {
+    return (await this.client.post<ApiResponse<DiscoverPicksResponse>>('/api/today/discover-picks/refresh', {}, { timeout: 120_000 })).data;
+  }
 
   async getPodcastPrep(): Promise<ApiResponse<PodcastPrepStatus>> {
     return (await this.client.get<ApiResponse<PodcastPrepStatus>>('/api/today/podcast-prep')).data;

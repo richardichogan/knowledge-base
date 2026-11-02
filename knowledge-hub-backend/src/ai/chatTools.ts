@@ -17,6 +17,7 @@
 
 import { validateNoteEdits, checkEditsAgainstNote, noteHeadings } from './noteEdits.js';
 import { JOB_TOOL, executeJobTool } from './jobTools.js';
+import { getDiscoverPicks, refreshDiscoverPicks } from '../services/discoverPicks.js';
 import { PUBLISHING_TOOL, executePublishingTool } from './publishingTools.js';
 import { executeDesignTool, type DesignTurnState } from './designTools.js';
 import { executePodcastTool, type PodcastTurnState } from './podcastTools.js';
@@ -95,6 +96,16 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
     ...WORK_CONTENT_TOOLS,
     JOB_TOOL,
     PUBLISHING_TOOL,
+    { type: 'function', function: {
+      name: 'read_discover_picks',
+      description: 'Read the "Worth posting today" list on Today: the three unposted to-review or saved Discover articles Athena chose for a LinkedIn or Bluesky post, each with id, title, source, URL, state and suggested angle, plus when they were chosen. Articles posted or moved since are already removed. Use search tools with the article id or title for full article text.',
+      parameters: { type: 'object', properties: {}, additionalProperties: false },
+    } },
+    { type: 'function', function: {
+      name: 'refresh_discover_picks',
+      description: 'Choose today\'s three "Worth posting today" Discover articles again and save them to Today (replaces the current list). Internal only: nothing is drafted or posted. Returns the new picks.',
+      parameters: { type: 'object', properties: {}, additionalProperties: false },
+    } },
     {
       type: 'function',
       function: {
@@ -910,6 +921,8 @@ export async function executeToolCall(
   if (name === 'read_knowledge_health') return executeHealthTool(db, args,
     Boolean(turn.strictProjectId || turn.retrievalScope && Object.keys(turn.retrievalScope.filter).length > 0));
   if (name === 'manage_scheduled_jobs') return executeJobTool(db, args, turn.sessionId);
+  if (name === 'read_discover_picks') return (await getDiscoverPicks(db)) ?? { picks: [], note: 'No picks have been chosen yet.' };
+  if (name === 'refresh_discover_picks') { await refreshDiscoverPicks(db, 'athena'); return getDiscoverPicks(db); }
   if (name === 'manage_publishing_feeds') return executePublishingTool(db, args, turn.sessionId);
   if (AGENT_TOOL_NAMES.has(name)) return executeAgentTool(db, name, args, turn);
   if (WORK_TOOL_NAMES.has(name)) {

@@ -23,6 +23,7 @@ import { parseWeeklyPackage } from './weeklyPackage.js';
 import { editorialServices } from '../publishing/editorial.js';
 import { PUBLISH_LIMITS } from '../publishing/contracts.js';
 import { ValidationError } from '../types/errors.js';
+import { refreshDiscoverPicks } from '../services/discoverPicks.js';
 
 export class UnconfirmedDelivery extends Error {}
 const WEEKLY_SOCIAL_TOKENS = 2_000;
@@ -156,6 +157,14 @@ export async function executeRun(db: Pool, run: JobRun, lease: string, delivery:
           return result;
         });
       }
+    } else if (run.definition.kind === 'discover-picks') {
+      if (run.preview) run.artifacts = { message: 'Preview only: Athena would choose three unposted Discover articles worth posting today and save them to Today.' };
+      else await step(db, run, lease, 'discover-picks', async () => {
+        const result = await refreshDiscoverPicks(db, 'job');
+        run.artifacts.picks = result.picks.map(p => ({ id: p.id, title: p.title, angle: p.angle }));
+        run.artifacts.message = result.note ?? `Chose ${result.picks.length} Discover articles worth posting today.`;
+        return run.artifacts.picks;
+      });
     } else if (run.definition.kind === 'm365-import') {
       if (run.preview) run.artifacts = { message: 'Preview only: the selected desktop will ingest the report for the scheduled date when available.', deviceId: run.definition.deviceId, folder: run.definition.inputFolder };
       else { run.status = 'waiting-file'; return; }
