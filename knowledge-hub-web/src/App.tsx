@@ -18,7 +18,6 @@ import React from 'react';
 import { BrowserRouter, Route, Routes, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Theme } from '@carbon/react';
 import { AppShell } from './components/AppShell';
-import { AthenaJobNotice } from './components/athena/AthenaJobNotice';
 import { AgentJobFeed } from './services/agentJobStore';
 import { SignInGate } from './components/SignInGate';
 import { MuralCallback } from './components/MuralIntegration';
@@ -110,7 +109,6 @@ const App: React.FC = () => {
             <ChatLinkReceiver />
             <DesktopCommandReceiver />
             <DocumentTitleSync />
-            <AthenaJobNotice />
             <AgentJobFeed />
             <BlogJobHost />
             <GlobalContextMenuProvider>

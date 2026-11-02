@@ -68,6 +68,16 @@
     border-color: var(--cds-support-warning);
   }
 }
+.kh-header__dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--kh-accent);
+  box-shadow: 0 0 0 2px var(--cds-background);
+}
 .kh-nav-menu__attention {
   width: 6px;
   height: 6px;

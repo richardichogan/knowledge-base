@@ -7,7 +7,7 @@
  */
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { api } from './api';
-import { announceAthenaJob } from '../components/athena/AthenaJobNotice';
+import { announceAthenaJob } from './jobUpdates';
 import { assignmentStatusLabel, isActiveAgentJob, type AgentJob, type AssignmentNotice } from '../types/agentJobs';
 import { requireApiData } from './apiError';
 

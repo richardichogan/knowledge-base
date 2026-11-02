@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { announceAthenaJob } from '../../components/athena/AthenaJobNotice';
+import { announceAthenaJob } from '../../services/jobUpdates';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import { describeApiError, requireApiData } from '../../services/apiError';

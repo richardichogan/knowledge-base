@@ -10,6 +10,7 @@ import { specialistLink } from '../../navigation/specialistLink';
 import { runStatusLabel } from '../jobs/jobPresentation';
 import type { JobRun, ManagedJob } from '../../types/jobs';
 import { confirmDialog } from '../../services/appDialogs';
+import { markJobUpdatesSeen, useJobUpdates } from '../../services/jobUpdates';
 
 const ASSIGNMENTS_KEY = ['background-work-assignments'];
 const stageLabels: Record<string, string> = {
@@ -26,6 +27,9 @@ export const BackgroundWork: React.FC = () => {
   const [busy, setBusy] = useState<{ id: string; action: 'cancel' | 'resume' } | null>(null);
   const [actionError, setActionError] = useState<{ id: string; message: string } | null>(null);
   const live = useBackgroundJobs();
+  const updates = useJobUpdates();
+  const unseen = updates.filter(update => !update.seen).length;
+  useEffect(() => { if (open) markJobUpdatesSeen(); }, [open, updates]);
   const recent = useQuery({
     queryKey: ['background-work'],
     queryFn: async () => requireApiData(await api.listRecentAgentJobs()),
@@ -106,17 +110,27 @@ export const BackgroundWork: React.FC = () => {
   const activeCount = active.length + activeAssignments.length;
   const attentionCount = waitingAssignments.length;
   const detail = [activeCount ? `${activeCount} running or queued` : '', attentionCount ? `${attentionCount} paused for attention` : ''].filter(Boolean).join(', ');
-  const label = detail ? `Background work: ${detail}` : 'Background work';
+  const status = [detail, unseen ? `${unseen} new ${unseen === 1 ? 'update' : 'updates'}` : ''].filter(Boolean).join(', ');
+  const label = status ? `Background work: ${status}` : 'Background work';
   return <>
     <button type="button" ref={triggerRef} className={`kh-header__utility${open ? ' kh-header__utility--active' : ''}`}
       title={label} aria-label={label} aria-expanded={open} aria-controls={open ? 'kh-background-work' : undefined}
       onClick={() => { setOpen(value => !value); }}>
       <Settings size={20} aria-hidden="true" />
       {activeCount > 0 && <span className="kh-header__badge" aria-hidden="true">{activeCount > 99 ? '99+' : activeCount}</span>}
+      {unseen > 0 && <span className="kh-header__dot" aria-hidden="true" />}
     </button>
     {open && <div id="kh-background-work" ref={panelRef} className="kh-background-work" role="region" aria-label="Background work">
     <h2>Background work{detail ? ` · ${detail}` : ' · recent results'}</h2>
-    <p>You can move between screens while specialists work. Completed work opens from here or its notification.</p>
+    <p>You can move between screens while specialists work. Finished and failed work is listed here.</p>
+    <h3>Recent updates</h3>
+    {!updates.length && <p>No recent updates.</p>}
+    <ul className="kh-background-work__list">{updates.slice(0, 8).map(update => <li key={update.id}>
+      <div><strong>{update.title}</strong><span className={`kh-background-work__state kh-background-work__state--${update.ok ? 'done' : 'failed'}`}>{update.ok ? 'Completed' : 'Failed'}</span></div>
+      <p>{update.body}</p>
+      <p>{new Date(update.at).toLocaleString('en-GB')}</p>
+      {update.url !== '/' && <Link to={specialistLink(update.url, window.location.href)} onClick={() => { setOpen(false); }}>Open</Link>}
+    </li>)}</ul>
     <h3>Daily Insights import</h3>
     {imports.isPending && <p role="status">Loading import status...</p>}
     {imports.isError && <p role="alert">{describeApiError(imports.error)} <button type="button" className="kh-btn-ghost" onClick={() => { void imports.refetch(); }}>Retry</button></p>}
