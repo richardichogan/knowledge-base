@@ -7,12 +7,46 @@ import { getKnowledgeHealth, parseHealthQuery, type KnowledgeHealth } from '../h
 import type { ApiSuccess } from '../types/apiResponse.js';
 import { getSemanticStatus, type SemanticStatus } from '../services/semantic/status.js';
 import { readMonitoringConfig } from '../services/semantic/monitoring.js';
+import { evaluateSavedTrace, listHealthTraces, listTraceEvaluations, readTraceSpans } from '../health/traceReview.js';
+import { ValidationError } from '../types/errors.js';
 
 export const knowledgeHealthRouter = Router();
 
 function queryText(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
+
+function diagnosticResponse(res: Response, next: NextFunction, read: () => Promise<unknown>): void {
+  void read().then(data => { res.json({ success: true, data }); }).catch(next);
+}
+
+knowledgeHealthRouter.get('/traces', (req, res, next): void => {
+  diagnosticResponse(res, next, () => listHealthTraces(getDb(), parseHealthQuery({
+    from: queryText(req.query['from']), to: queryText(req.query['to']), environment: queryText(req.query['environment']),
+    feature: queryText(req.query['feature']), persona: queryText(req.query['persona']), deployment: queryText(req.query['deployment']),
+  }), req.query['offset']));
+});
+
+knowledgeHealthRouter.get('/traces/:traceId/spans', (req, res, next): void => {
+  diagnosticResponse(res, next, () => readTraceSpans(getDb(), req.query['sessionId'], req.params['traceId'], req.query['offset']));
+});
+
+knowledgeHealthRouter.get('/traces/:traceId/evaluations', (req, res, next): void => {
+  diagnosticResponse(res, next, () => listTraceEvaluations(getDb(), req.query['sessionId'], req.params['traceId']));
+});
+
+knowledgeHealthRouter.post('/traces/:traceId/evaluations', (req, res, next): void => {
+  diagnosticResponse(res, next, async () => {
+    const body: unknown = req.body;
+    if (!body || typeof body !== 'object' || !('method' in body) || !('sessionId' in body)) {
+      throw new ValidationError('Supply a diagnostic session and evaluation method.');
+    }
+    if (body.method === 'model' && (!('confirmModel' in body) || body.confirmModel !== true)) {
+      throw new ValidationError('Model review incurs a model call. Confirm this explicitly before running it.');
+    }
+    return evaluateSavedTrace(getDb(), body.sessionId, req.params['traceId'], body.method);
+  });
+});
 
 /**
  * GET /api/health/knowledge?from=YYYY-MM-DD&to=YYYY-MM-DD&environment=prod&feature=&persona=&deployment=

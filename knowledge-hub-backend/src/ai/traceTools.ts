@@ -4,9 +4,10 @@ import { getExcludedSources } from './contextUsage.js';
 import { listTurnTraces, readTurnTrace } from './turnTrace.js';
 import { ValidationError } from '../types/errors.js';
 import type { RetrievalScope } from './knowledge/retrievalScope.js';
+import { evaluateSavedTrace, listTraceEvaluations, readTraceSpans } from '../health/traceReview.js';
 
-export const TRACE_TOOL_NAMES = new Set(['list_chat_turn_traces', 'read_chat_turn_trace']);
-export const TRACE_TOOLS: LlmToolDefinition[] = [...TRACE_TOOL_NAMES].map(name => ({
+export const TRACE_TOOL_NAMES = new Set(['list_chat_turn_traces', 'read_chat_turn_trace', 'read_chat_trace_spans', 'read_chat_trace_evaluations', 'evaluate_chat_trace']);
+export const TRACE_TOOLS: LlmToolDefinition[] = ['list_chat_turn_traces', 'read_chat_turn_trace'].map(name => ({
   type: 'function',
   function: {
     name,
@@ -23,6 +24,16 @@ export const TRACE_TOOLS: LlmToolDefinition[] = [...TRACE_TOOL_NAMES].map(name =
     }, required: name === 'read_chat_turn_trace' ? ['traceId'] : [] },
   },
 }));
+TRACE_TOOLS.push(...['read_chat_trace_spans', 'read_chat_trace_evaluations', 'evaluate_chat_trace'].map(name => ({
+  type: 'function' as const, function: {
+    name, description: name === 'evaluate_chat_trace'
+      ? 'Only on explicit user request, evaluate a finished saved diagnostic trace without replaying actions. Default to deterministic checks (no model). Model mode incurs one paid model call and requires explicit user opt-in plus confirmModel:true. Saves a diagnostic report, not a source edit. Verdicts are pass/fail/uncertain, not verified accuracy.'
+      : `Read ${name === 'read_chat_trace_spans' ? 'one page of timed parent/child spans' : 'the latest 20 saved evaluation reports'} for an unexpired chat trace. Historical diagnostic evidence, not current source content.`,
+    parameters: { type: 'object', additionalProperties: false, required: name === 'evaluate_chat_trace' ? ['traceId', 'method'] : ['traceId'],
+      properties: { sessionId: { type: 'string' }, traceId: { type: 'string' }, offset: { type: 'integer', minimum: 0 },
+        ...(name === 'evaluate_chat_trace' ? { method: { type: 'string', enum: ['deterministic', 'model'] }, confirmModel: { type: 'boolean' } } : {}) } },
+  },
+})));
 
 export async function executeTraceTool(db: Pool, name: string, args: Record<string, unknown>, access: {
   sessionId?: string | undefined; exclusionsFailed?: boolean | undefined;
@@ -40,6 +51,12 @@ export async function executeTraceTool(db: Pool, name: string, args: Record<stri
   // A trace can contain source text excluded later in either the requesting or original chat.
   if ((await getExcludedSources(db, sessionId)).length > 0) {
     throw new ValidationError('The original chat has excluded sources. Its diagnostic content is not available to Athena.');
+  }
+  if (name === 'read_chat_trace_spans') return readTraceSpans(db, sessionId, args['traceId'], args['offset']);
+  if (name === 'read_chat_trace_evaluations') return listTraceEvaluations(db, sessionId, args['traceId']);
+  if (name === 'evaluate_chat_trace') {
+    if (args['method'] === 'model' && args['confirmModel'] !== true) throw new ValidationError('Explicit user opt-in is required for a model review.');
+    return evaluateSavedTrace(db, sessionId, args['traceId'], args['method']);
   }
   return name === 'list_chat_turn_traces'
     ? listTurnTraces(db, sessionId, args['offset'])

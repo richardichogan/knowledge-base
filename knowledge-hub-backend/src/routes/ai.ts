@@ -36,7 +36,7 @@ import type { AiModel, ChatPageContext, WriteActionType, WriteActionPayload } fr
 import type { PodcastTurnState } from '../ai/podcastTools.js';
 import { getDesign } from '../designs/designStore.js';
 import type { DesignTurnState } from '../ai/designTools.js';
-import { linkTraceMessage, listTurnTraces, readTurnTrace, recordTurnTrace, withTurnTrace } from '../ai/turnTrace.js';
+import { linkTraceMessage, linkTraceSession, listTurnTraces, readTurnTrace, recordTurnTrace, withTurnTrace, withTurnSpan } from '../ai/turnTrace.js';
 
 const router = Router();
 const MAX_MENTION_QUERY_CHARS = 200;
@@ -118,9 +118,10 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   const effectiveSessionId = providedSessionId ?? randomUUID();
   let pageContext = requestedPageContext;
   const db = getDb();
-  const fullHistory = await getOrCreateSessionHistory(db, effectiveSessionId);
   return withTurnTrace(db, effectiveSessionId, { message, uiContext: reqBody['uiContext'], requestedPageContext, noteId, projectId, model,
     persona: requestedPersona, outputsPanel, screenReview }, hooks.signal, async () => {
+  const fullHistory = await withTurnSpan('chat.load_session', 'context', () => getOrCreateSessionHistory(db, effectiveSessionId));
+  await linkTraceSession(effectiveSessionId);
   await recordTurnTrace('context.ui', { uiContext: reqBody['uiContext'] ?? null, modelPageContextSupplied: requestedPageContext !== undefined });
   if (screenReview !== undefined && message !== undefined) {
     const mode = screenReview.mode === 'focus' ? 'focus' : 'journey';
@@ -283,7 +284,8 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
       ? `${documentMarker}\n${message}`
       : message;
   hooks.signal?.throwIfAborted();
-  const { assistantMessageId } = await appendTurn(db, effectiveSessionId, historyMessage, reply, { persona, sources, contextUsed });
+  const { assistantMessageId } = await withTurnSpan('chat.persist', 'persistence', () =>
+    appendTurn(db, effectiveSessionId, historyMessage, reply, { persona, sources, contextUsed }));
   await linkTraceMessage(assistantMessageId);
   await recordTurnTrace('reply.saved', { assistantMessageId, contextUsed });
   if (audit.row !== undefined) {

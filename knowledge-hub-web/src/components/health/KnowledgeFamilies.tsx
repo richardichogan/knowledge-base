@@ -1,5 +1,6 @@
 import React from 'react';
 import { InlineNotification } from '@carbon/react';
+import { HealthDataTable } from './HealthDataTable';
 import type { HealthFamilies, HealthSection } from '../../services/api';
 import {
   countCell, errorSummary, extractionSummary, FAMILY_STATE_LABEL, SEMANTIC_STATE_LABEL, stateTone,
@@ -33,16 +34,14 @@ export const KnowledgeFamilies: React.FC<{ section: HealthSection<HealthFamilies
         {semantic.message} A connected provider does not mean everything is indexed. Eligible counts are not recorded, so no coverage
         percentage is shown.
       </p>
-      <div className="kh-health__table-wrap" tabIndex={0} role="region" aria-label="Knowledge coverage by record family">
-        <table className="kh-health__table kh-health__table--families">
-          <thead>
+      <HealthDataTable label="Knowledge coverage by record family" className="kh-health__table--families"
+          headers={
             <tr>
               <th>Family</th><th>State</th><th>Capabilities</th><th>Indexed</th><th>Eligible</th><th>Pending</th><th>Failed</th>
-              <th>Extraction</th><th>Last indexed</th><th>Errors</th>
+              <th>Extraction</th><th>Last indexed</th><th>Last successful source check</th><th>Errors</th>
             </tr>
-          </thead>
-          <tbody>
-            {families.map((family) => (
+          }
+          rows={families.map((family) => (
               <tr key={family.kind}>
                 <td><strong>{family.kind}</strong><div className="kh-health__note">{family.reason}</div></td>
                 <td><span className={`kh-health__state kh-health__state--${stateTone(family.state)}`}>{FAMILY_STATE_LABEL[family.state]}</span></td>
@@ -53,12 +52,10 @@ export const KnowledgeFamilies: React.FC<{ section: HealthSection<HealthFamilies
                 <td>{countCell(family.counts.failed, number.format)}</td>
                 <td>{extractionSummary(family, number.format)}</td>
                 <td>{family.sources.length === 0 ? 'Read live' : when(family.lastIndexedAt)}</td>
+                <td>{family.sources.length === 0 ? 'Read live' : family.lastSuccessfulSyncAt === null ? 'Not measured in recent runs' : when(family.lastSuccessfulSyncAt)}</td>
                 <td>{errorSummary(family)}</td>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            ))} />
     </>
   );
 };

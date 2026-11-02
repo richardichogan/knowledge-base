@@ -17,6 +17,10 @@ async function fixtureDb(): Promise<PGlite> {
   }
   await db.exec('CREATE TABLE agent_jobs(id UUID PRIMARY KEY)');
   await db.exec(await readFile(new URL('../src/db/migrations/117_ai_workflow_attribution.sql', import.meta.url), 'utf8'));
+  await db.exec('CREATE TABLE ai_chat_sessions(id UUID PRIMARY KEY); CREATE TABLE ai_chat_messages(id BIGSERIAL PRIMARY KEY)');
+  for (const file of ['134_ai_turn_traces.sql', '135_health_measurements.sql']) {
+    await db.exec(await readFile(new URL(`../src/db/migrations/${file}`, import.meta.url), 'utf8'));
+  }
   await db.exec(`CREATE TABLE content_items (id SERIAL PRIMARY KEY, source TEXT, indexed_at TIMESTAMPTZ, relevance_explanation TEXT, body TEXT NOT NULL DEFAULT '');`);
   return db;
 }
@@ -48,6 +52,51 @@ test('workflow health separates completion from review and preserves unknown leg
     const filtered = await getKnowledgeHealth(db as unknown as Pool, parseHealthQuery({ from: '2026-03-10', to: '2026-03-10', deployment: 'other' }));
     assert.ok(filtered.workflows.available);
     assert.equal(filtered.workflows.data.totals.runs, 0);
+  } finally { await db.close(); }
+});
+
+test('measurement coverage separates missing capture, unfinished work, runtime and unreviewed content', async () => {
+  const db = await fixtureDb();
+  try {
+    const now = new Date();
+    const day = now.toISOString().slice(0, 10);
+    await db.query(`INSERT INTO ai_turn_measurements(id,environment,persona,status,trace_started,capture_complete,signals)
+      VALUES ('00000000-0000-4000-8000-000000000011','prod','general','completed',true,true,
+        '{"contextObserved":true,"pageContentSupplied":true,"completeReads":0,"partialReads":1,"replySaved":true,"modelErrors":0,"toolErrors":1,"transportRetries":2}'),
+      ('00000000-0000-4000-8000-000000000012','prod','general','failed',false,false,NULL),
+      ('00000000-0000-4000-8000-000000000013','prod','general','running',false,false,NULL),
+      ('00000000-0000-4000-8000-000000000014','dev','general','completed',true,true,NULL)`);
+    const health = await getKnowledgeHealth(db as unknown as Pool, parseHealthQuery({ from: day, to: day, environment: 'prod' }), now);
+    assert.ok(health.measurements.available);
+    const data = health.measurements.data;
+    assert.equal(data.accepted, 3);
+    assert.equal(data.finished, 2);
+    assert.equal(data.captureComplete, 1);
+    assert.equal(data.missingTraces, 1);
+    assert.equal(data.unfinished, 1);
+    assert.equal(data.completedAfterErrors, 1);
+    assert.equal(data.partialReadTurns, 1);
+    assert.equal(data.correctness, 'unreviewed');
+    assert.equal(data.evaluated.unreviewed, 2);
+    const filtered = await getKnowledgeHealth(db as unknown as Pool, parseHealthQuery({ from: day, to: day, deployment: 'gpt-a' }), now);
+    assert.equal(filtered.measurements.available, false, 'unknown per-deployment denominator must not show zero');
+    await db.exec('DROP TABLE ai_turn_measurements');
+    const missing = await getKnowledgeHealth(db as unknown as Pool, parseHealthQuery({ from: day, to: day }), now);
+    assert.equal(missing.measurements.available, false);
+    assert.equal(missing.usage.available, true);
+  } finally { await db.close(); }
+});
+
+test('source history excludes the other runtime and explicitly preserves unknown legacy provenance', async () => {
+  const db = await fixtureDb();
+  try {
+    await db.query(`INSERT INTO sync_runs(id,status,environment) VALUES
+      ('00000000-0000-4000-8000-000000000021','succeeded','prod'),
+      ('00000000-0000-4000-8000-000000000022','succeeded','dev'),
+      ('00000000-0000-4000-8000-000000000023','succeeded',NULL)`);
+    const health = await getKnowledgeHealth(db as unknown as Pool, parseHealthQuery({ environment: 'prod' }));
+    assert.ok(health.syncRuns.available);
+    assert.deepEqual(health.syncRuns.data.runs.map(run => run.environment).sort(), ['prod', null].sort());
   } finally { await db.close(); }
 });
 

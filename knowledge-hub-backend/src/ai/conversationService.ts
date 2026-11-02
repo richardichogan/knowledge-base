@@ -50,7 +50,7 @@ import { findDiagramContext, DIAGRAM_READING_GUIDANCE } from '../services/diagra
 import type { MapChangeProposal } from './mapEdits.js';
 import { LOCAL_FILE_TOOLS, localFilesPrompt, type LocalFileWriteProposal, type LocalFolder } from './localFiles.js';
 import { ukClock } from '../sync/ukClock.js';
-import { recordTurnTrace, setTraceProject, withTurnTrace } from './turnTrace.js';
+import { recordTurnTrace, setTraceProject, withTurnTrace, withTurnSpan } from './turnTrace.js';
 
 const RAG_USED_LIMIT = 10;
 const TOOL_ERROR_LOG_CHARS = 400;
@@ -200,7 +200,7 @@ async function conversationTurn(
       return null;
     })
     : null;
-  const context = await buildAiContext(db, userMessage, history, sessionId, persona);
+  const context = await withTurnSpan('context.build', 'context', () => buildAiContext(db, userMessage, history, sessionId, persona));
   hooks.signal?.throwIfAborted();
   // "Don't use this" items stay out of auto-retrieval and search results for this chat.
   let exclusionsFailed = false;
@@ -609,12 +609,14 @@ The Monday launch and weekday quote posts over two weeks are authored in Show No
             }
           }
           const execute = async (argumentsJson: string): Promise<unknown> => {
+            return withTurnSpan(call.function.name, 'tool', async () => {
             await recordTurnTrace('tool.execution', { callId: call.id, name: call.function.name, arguments: parseToolArgs(argumentsJson),
               retrievalScope, strictProjectId, excludedIds: [...excluded] });
             hooks.validateToolCall?.(call.function.name, parseToolArgs(argumentsJson));
             return filterExcluded(
               await executeToolCall(db, call.function.name, argumentsJson, activeProjectId ?? undefined, { sessionId, userMessage, ...toolContext, workforceRequestId, retrievalScope, retrievalAudit, excludedIds: excluded, exclusionsFailed, strictProjectId, signal: hooks.signal, mapAliases: mapOutlineResult?.aliases, mapCanvas: openMap ?? undefined, readOnly: hooks.readOnlyTools === true }),
               excluded);
+            }, { callId: call.id });
           };
           const args = parseToolArgs(toolArguments);
           const wholeRead = wholeReadRequested && sessionId !== undefined;

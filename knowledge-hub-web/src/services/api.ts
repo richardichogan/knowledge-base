@@ -226,11 +226,35 @@ export interface HealthUsageTotals {
   totalTokens: number; avgLatencyMs: number | null;
 }
 export interface HealthWorkflowData {
+  outcomes?: { ready: number; notRecorded: number; retryAttempts: number; withoutJobIdentity: number };
   attributedCalls: number; unattributedCalls: number; rowsTruncated: boolean;
   totals: { runs: number; completed: number; failed: number; unfinished: number; reviewBlocked: number; delivered: number };
   runs: Array<{ id: string; feature: string; purpose: string; attempt: number; status: string; outcome: string | null;
     startedAt: string; finishedAt: string | null; durationMs: number | null; calls: number; tokens: number | null; unmeasuredCalls: number }>;
   stages: Array<{ runId: string; stage: string; calls: number; tokens: number | null; failures: number; durationMs: number }>;
+}
+export interface HealthTurnMeasurements {
+  firstRecordedAt: string | null; retentionDays: number;
+  accepted: number; finished: number; captureComplete: number; missingTraces: number; incompleteCaptures: number;
+  unfinished: number; signalsMeasured: number; uiObserved: number; contextObserved: number; pageContentSupplied: number;
+  sourceReadTurns: number; partialReadTurns: number; unavailableReadTurns: number; noObservedSourceTurns: number;
+  repliesSaved: number; failed: number; interrupted: number; completedAfterErrors: number;
+  transportRetries: number; modelErrors: number; toolErrors: number; correctness: 'unreviewed';
+  evaluated: { deterministic: number; model: number; unreviewed: number };
+  daily: Array<{ day: string; accepted: number; complete: number; failed: number }>; note: string;
+}
+export interface HealthTrace {
+  id: string; session_id: string; environment: string; started_at: string; finished_at: string | null;
+  status: string; capture_complete: boolean;
+}
+export interface HealthSpan {
+  id: string; parent_id: string | null; name: string; kind: string; started_at: string;
+  finished_at: string | null; status: string; duration_ms: number | null; attributes: unknown;
+}
+export interface HealthEvaluation {
+  id: string; method: 'deterministic' | 'model'; version: string; model: string | null; environment: string;
+  status: string; created_at: string;
+  report: { checks: Array<{ criterion: string; verdict: 'pass' | 'fail' | 'uncertain'; reason: string; evidenceSequences: number[] }>; note: string } | null;
 }
 export interface KnowledgeHealth {
   generatedAt: string;
@@ -245,11 +269,16 @@ export interface KnowledgeHealth {
     firstRecordedAt: string | null;
   }>;
   syncRuns: HealthSection<{
-    runs: Array<{ id: string; status: string; startedAt: string; finishedAt: string | null; sources: Array<{ source: string; indexed: number; errors: number;
+    runs: Array<{ id: string; status: string; startedAt: string; finishedAt: string | null; environment?: string | null; sources: Array<{ source: string; indexed: number; errors: number;
       failures?: Array<{ target: string; code: string; action: string }> }> }>;
-    jobs: Array<{ job: string; period: string; status: string; startedAt: string; finishedAt: string | null }>;
+    jobs: Array<{ job: string; period: string; status: string; startedAt: string; finishedAt: string | null; environment?: string | null }>;
   }>;
   workflows?: HealthSection<HealthWorkflowData>;
+  measurements?: HealthSection<HealthTurnMeasurements>;
+  reliability?: HealthSection<{
+    daily: Array<{ day: string; calls: number; failures: number }>;
+    features: Array<{ feature: string; calls: number; failures: number }>;
+  }>;
   index: HealthSection<{
     sources: Array<{ source: string; items: number; lastIndexedAt: string | null }>;
     scoring: { discoveredArticles: number; unscored: number };
@@ -289,7 +318,7 @@ export interface HealthFamilies {
   families: HealthFamily[];
   semantic: {
     state: HealthSemanticState; providerConfigured: boolean; message: string;
-    work: { measured: boolean; pending: number | null; failed: number | null; done: number | null };
+    work: { measured: boolean; pending: number | null; failed: number | null; done: number | null; oldestPendingAt?: string | null; oldestFailedAt?: string | null };
   };
   orchestrationEnabled: boolean;
   decisionTablesMeasured: boolean;
@@ -903,6 +932,22 @@ export class KnowledgeHubApi {
   async getKnowledgeHealth(params: KnowledgeHealthParams): Promise<ApiResponse<KnowledgeHealth>> {
     const r = await this.client.get<ApiResponse<KnowledgeHealth>>('/api/health/knowledge', { params });
     return r.data;
+  }
+
+  async listHealthTraces(params: KnowledgeHealthParams, offset = 0): Promise<ApiResponse<{ items: HealthTrace[]; nextOffset: number | null }>> {
+    return (await this.client.get<ApiResponse<{ items: HealthTrace[]; nextOffset: number | null }>>('/api/health/traces', { params: { ...params, offset } })).data;
+  }
+  async getHealthTraceSpans(trace: HealthTrace, offset = 0): Promise<ApiResponse<{ items: HealthSpan[]; nextOffset: number | null }>> {
+    return (await this.client.get<ApiResponse<{ items: HealthSpan[]; nextOffset: number | null }>>(
+      `/api/health/traces/${encodeURIComponent(trace.id)}/spans`, { params: { sessionId: trace.session_id, offset } })).data;
+  }
+  async getHealthTraceEvaluations(trace: HealthTrace): Promise<ApiResponse<HealthEvaluation[]>> {
+    return (await this.client.get<ApiResponse<HealthEvaluation[]>>(`/api/health/traces/${encodeURIComponent(trace.id)}/evaluations`,
+      { params: { sessionId: trace.session_id } })).data;
+  }
+  async evaluateHealthTrace(trace: HealthTrace, method: 'deterministic' | 'model', confirmModel = false): Promise<ApiResponse<HealthEvaluation>> {
+    return (await this.client.post<ApiResponse<HealthEvaluation>>(`/api/health/traces/${encodeURIComponent(trace.id)}/evaluations`,
+      { sessionId: trace.session_id, method, confirmModel }, { timeout: 150_000 })).data;
   }
 
   async getSources(): Promise<ApiResponse<SourceStatus[]>> {

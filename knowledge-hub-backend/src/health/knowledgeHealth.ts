@@ -7,6 +7,8 @@ import type { Pool } from 'pg';
 import { ValidationError } from '../types/errors.js';
 import { CONTENT_SOURCE_DISPOSITIONS, KNOWLEDGE_FAMILIES, type Availability } from '../ai/knowledge/manifest.js';
 import type { SyncFailure } from '../sync/sourceDiagnostics.js';
+import { readTurnMeasurements, type TurnMeasurementHealth } from './turnMeasurements.js';
+import { readReliability, type ReliabilityHealth } from './reliability.js';
 
 export const HEALTH_MAX_DAYS = 90;
 export const HEALTH_DEFAULT_DAYS = 7;
@@ -70,9 +72,10 @@ export interface SyncRunSummary {
   status: string;
   startedAt: string;
   finishedAt: string | null;
+  environment: string | null;
   sources: Array<{ source: string; indexed: number; errors: number; failures: SyncFailure[] }>;
 }
-export interface JobClaimSummary { job: string; period: string; status: string; startedAt: string; finishedAt: string | null }
+export interface JobClaimSummary { job: string; period: string; status: string; startedAt: string; finishedAt: string | null; environment: string | null }
 export interface IndexSection {
   sources: Array<{ source: string; items: number; lastIndexedAt: string | null }>;
   scoring: { discoveredArticles: number; unscored: number };
@@ -98,7 +101,7 @@ export interface FamilyHealth {
   errorCategories: ErrorCategory[];
 }
 export type SemanticState = 'not-configured' | 'coverage-not-measured' | 'pending-work' | 'temporarily-unavailable' | 'up-to-date';
-export interface IndexingWork { measured: boolean; pending: MeasuredCount; failed: MeasuredCount; done: MeasuredCount }
+export interface IndexingWork { measured: boolean; pending: MeasuredCount; failed: MeasuredCount; done: MeasuredCount; oldestPendingAt?: string | null; oldestFailedAt?: string | null }
 export interface SemanticStatus { state: SemanticState; providerConfigured: boolean; message: string; work: IndexingWork }
 export interface FamiliesSection {
   families: FamilyHealth[];
@@ -120,9 +123,12 @@ export interface KnowledgeHealth {
   turnReview: Section<TurnReviewSection>;
   retrievalQuality: Section<RetrievalQuality>;
   workflows: Section<WorkflowHealth>;
+  measurements: Section<TurnMeasurementHealth>;
+  reliability: Section<ReliabilityHealth>;
 }
 
 export interface WorkflowHealth {
+  outcomes: { ready: number; notRecorded: number; retryAttempts: number; withoutJobIdentity: number };
   attributedCalls: number;
   unattributedCalls: number;
   rowsTruncated: boolean;
@@ -149,7 +155,11 @@ async function workflowSection(db: Pool, filters: HealthFilters, start: string, 
     db.query<Record<string, unknown>>(`SELECT COUNT(*)::int runs,COUNT(*) FILTER(WHERE status='completed')::int completed,
       COUNT(*) FILTER(WHERE status='failed')::int failed,COUNT(*) FILTER(WHERE status IN ('running','interrupted'))::int unfinished,
       COUNT(*) FILTER(WHERE outcome='review-blocked')::int blocked,
-      COUNT(*) FILTER(WHERE outcome IN ('published','saved-to-blog'))::int delivered FROM ai_workflow_runs r WHERE ${runWhere}`, params),
+      COUNT(*) FILTER(WHERE outcome IN ('published','saved-to-blog'))::int delivered,
+      COUNT(*) FILTER(WHERE outcome='ready')::int ready,
+      COUNT(*) FILTER(WHERE status='completed' AND outcome IS NULL)::int not_recorded,
+      COUNT(*) FILTER(WHERE attempt>1)::int retries,
+      COUNT(*) FILTER(WHERE job_id IS NULL)::int no_job FROM ai_workflow_runs r WHERE ${runWhere}`, params),
     db.query<Record<string, unknown>>(`SELECT r.*,EXTRACT(EPOCH FROM (r.finished_at-r.started_at))*1000 AS duration_ms,
       (SELECT COUNT(*)::int FROM ai_usage_log u WHERE u.workflow_run_id=r.id AND ${usageWhere}) AS calls,
       (SELECT SUM(prompt_tokens+completion_tokens) FILTER(WHERE usage_known) FROM ai_usage_log u WHERE u.workflow_run_id=r.id AND ${usageWhere}) AS tokens,
@@ -169,6 +179,7 @@ async function workflowSection(db: Pool, filters: HealthFilters, start: string, 
     GROUP BY workflow_run_id,stage ORDER BY workflow_run_id,stage LIMIT 200`, [...params, selected.map(r => String(r.id))]);
   const total = totals.rows[0] ?? {};
   return {
+    outcomes: { ready: num(total.ready), notRecorded: num(total.not_recorded), retryAttempts: num(total.retries), withoutJobIdentity: num(total.no_job) },
     attributedCalls: num(coverage.rows[0]?.attributed), unattributedCalls: num(coverage.rows[0]?.unattributed),
     rowsTruncated: runs.rows.length > USAGE_ROW_LIMIT,
     totals: { runs: num(total.runs), completed: num(total.completed), failed: num(total.failed),
@@ -364,24 +375,27 @@ async function usageSection(db: Pool, filters: HealthFilters, start: string, end
 
 const iso = (value: unknown): string | null => (value === null || value === undefined ? null : new Date(value as Date).toISOString());
 
-async function syncSection(db: Pool): Promise<{ runs: SyncRunSummary[]; jobs: JobClaimSummary[] }> {
+async function syncSection(db: Pool, filters: HealthFilters): Promise<{ runs: SyncRunSummary[]; jobs: JobClaimSummary[] }> {
   const [runs, jobs] = await Promise.all([
-    db.query(`SELECT id, status, started_at, finished_at, results FROM sync_runs ORDER BY started_at DESC, id DESC LIMIT ${RUN_LIMIT}`),
-    db.query(`SELECT job, period, status, started_at, finished_at FROM scheduled_job_claims ORDER BY started_at DESC LIMIT ${RUN_LIMIT}`),
+    db.query(`SELECT id, status, started_at, finished_at, results,environment FROM sync_runs
+      WHERE environment=$1 OR environment IS NULL ORDER BY started_at DESC, id DESC LIMIT ${RUN_LIMIT}`, [filters.environment]),
+    db.query(`SELECT job, period, status, started_at, finished_at,environment FROM scheduled_job_claims
+      WHERE environment=$1 OR environment IS NULL ORDER BY started_at DESC LIMIT ${RUN_LIMIT}`, [filters.environment]),
   ]);
   return {
     runs: runs.rows.map((row) => {
-      const record = row as { id: string; status: string; started_at: Date; finished_at: Date | null; results: unknown };
+      const record = row as { id: string; status: string; started_at: Date; finished_at: Date | null; results: unknown; environment: string | null };
       const results = Array.isArray(record.results) ? record.results as Array<Record<string, unknown>> : [];
       return {
         id: String(record.id), status: record.status, startedAt: iso(record.started_at) ?? '', finishedAt: iso(record.finished_at),
+        environment: record.environment,
         sources: results.map((result) => ({ source: String(result['source'] ?? 'unknown'), indexed: num(result['indexed']), errors: num(result['errors']),
           failures: safeSyncFailures(result['failures']) })),
       };
     }),
     jobs: jobs.rows.map((row) => {
-      const record = row as { job: string; period: string; status: string; started_at: Date; finished_at: Date | null };
-      return { job: record.job, period: record.period, status: record.status, startedAt: iso(record.started_at) ?? '', finishedAt: iso(record.finished_at) };
+      const record = row as { job: string; period: string; status: string; started_at: Date; finished_at: Date | null; environment: string | null };
+      return { job: record.job, period: record.period, status: record.status, startedAt: iso(record.started_at) ?? '', finishedAt: iso(record.finished_at), environment: record.environment };
     }),
   };
 }
@@ -466,11 +480,14 @@ async function indexingWork(db: Pool): Promise<IndexingWork> {
   try {
     const table = await presentTable(db, INDEXING_WORK_TABLES);
     if (table === null) return unmeasured;
-    const rows = await db.query(`SELECT status, COUNT(*)::int AS total FROM ${table} GROUP BY status LIMIT 20`);
+    const rows = await db.query<{ status: string; total: number; oldest_at: Date | string | null }>(`SELECT status, COUNT(*)::int AS total, MIN((to_jsonb(w)->>'updated_at')::timestamptz) oldest_at FROM ${table} w GROUP BY status LIMIT 20`);
     const sum = (statuses: Set<string>): number => rows.rows
       .filter((row) => statuses.has(String((row as { status: unknown }).status).toLowerCase()))
       .reduce((total: number, row) => total + num((row as { total: unknown }).total), 0);
-    return { measured: true, pending: sum(PENDING_STATUSES), failed: sum(FAILED_STATUSES), done: sum(DONE_STATUSES) };
+    const oldest = (statuses: Set<string>): string | null => rows.rows
+      .filter(row => statuses.has(String(row.status))).map(row => iso(row.oldest_at)).filter((at): at is string => at !== null).sort()[0] ?? null;
+    return { measured: true, pending: sum(PENDING_STATUSES), failed: sum(FAILED_STATUSES), done: sum(DONE_STATUSES),
+      oldestPendingAt: oldest(PENDING_STATUSES), oldestFailedAt: oldest(FAILED_STATUSES) };
   } catch {
     return unmeasured;
   }
@@ -524,6 +541,7 @@ async function familiesSection(db: Pool, options: KnowledgeHealthOptions): Promi
   }
   // Latest run that mentioned a source decides whether that source is currently erroring.
   const latestErrors = new Map<string, boolean>();
+  const successfulSources = new Map<string, string>();
   const latestSyncKeys = new Set<string>();
   let lastSuccessfulSyncAt: string | null = null;
   const failedRunCategories = new Set<string>();
@@ -533,6 +551,12 @@ async function familiesSection(db: Pool, options: KnowledgeHealthOptions): Promi
     if (r.status === 'failed') failedRunCategories.add('sync-run-failed');
     for (const result of Array.isArray(r.results) ? r.results as Array<Record<string, unknown>> : []) {
       const key = String(result['source'] ?? '');
+      if (r.finished_at !== null && ['succeeded', 'partial', 'completed'].includes(r.status) && num(result['errors']) === 0) {
+        const checkedAt = iso(r.finished_at)!;
+        for (const source of SYNC_CONTENT_SOURCES[key] ?? [key]) {
+          if (!successfulSources.has(source)) successfulSources.set(source, checkedAt);
+        }
+      }
       if (key !== '' && !latestSyncKeys.has(key)) {
         latestSyncKeys.add(key);
         for (const source of SYNC_CONTENT_SOURCES[key] ?? [key]) {
@@ -555,7 +579,8 @@ async function familiesSection(db: Pool, options: KnowledgeHealthOptions): Promi
       // Eligible and per-family pending/failed are not recorded anywhere, so they are reported as not measured.
       counts: { eligible: null, indexed: measured ? items : null, pending: null, failed: null },
       extraction: measured ? { fullText: items - sum((s) => s.metadataOnly) - sum((s) => s.atCap), metadataOnly: sum((s) => s.metadataOnly), atIngestionCap: sum((s) => s.atCap) } : null,
-      lastIndexedAt, lastSuccessfulSyncAt: measured ? lastSuccessfulSyncAt : null,
+      lastIndexedAt, lastSuccessfulSyncAt: measured
+        ? sources.map(source => successfulSources.get(source)).filter((at): at is string => at !== undefined).sort().pop() ?? null : null,
       errorCategories: [...(errored ? ['sync-errors' as const] : []), ...(measured && failedRunCategories.size > 0 ? ['sync-run-failed' as const] : [])],
     };
   });
@@ -581,7 +606,7 @@ export async function getKnowledgeHealth(
   const end = new Date(dayStart(filters.to) + DAY_MS).toISOString();
   const [usage, syncRuns, index, families, turnReview, retrievalQuality] = await Promise.all([
     guarded(() => usageSection(db, filters, start, end)),
-    guarded(() => syncSection(db)),
+    guarded(() => syncSection(db, filters)),
     guarded(() => indexSection(db)),
     guarded(() => familiesSection(db, options)),
     guarded(() => turnReviewSection(db, filters)),
@@ -591,5 +616,11 @@ export async function getKnowledgeHealth(
   ]);
   // Keep the new aggregation from increasing the existing page's peak pool demand.
   const workflows = await guarded(() => workflowSection(db, filters, start, end));
-  return { generatedAt: now.toISOString(), filters, windowStart: start, windowEnd: end, usage, syncRuns, index, families, turnReview, retrievalQuality, workflows };
+  const reliability = await guarded(() => readReliability(db, filters, start, end));
+  const measurements: Section<TurnMeasurementHealth> = filters.deployment !== null
+    ? { available: false, message: 'Turn capture has no reliable per-provider-deployment denominator. Clear the deployment filter.' }
+    : filters.feature !== null && filters.feature !== 'chat'
+      ? { available: false, message: 'Turn measurements cover chat only. Select chat or all features.' }
+      : await guarded(() => readTurnMeasurements(db, filters, start, end));
+  return { generatedAt: now.toISOString(), filters, windowStart: start, windowEnd: end, usage, syncRuns, index, families, turnReview, retrievalQuality, workflows, measurements, reliability };
 }

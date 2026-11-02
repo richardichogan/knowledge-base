@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
 import { withAiWorkflow } from '../ai/aiWorkflow.js';
 import type { SyncFailure } from './sourceDiagnostics.js';
+import { env } from '../config/env.js';
 
 export type SyncRunStatus = 'running' | 'succeeded' | 'partial' | 'failed' | 'interrupted';
 export interface SourceRunResult {
@@ -25,8 +26,8 @@ function fromRow(row: RunRow): SyncRun {
 }
 export async function createSyncRun(db: Pool, claimKey?: string): Promise<SyncRun | null> {
   const { rows } = await db.query<RunRow>(
-    `INSERT INTO sync_runs (id, claim_key, status) VALUES ($1,$2,'running')
-     ON CONFLICT DO NOTHING RETURNING *`, [randomUUID(), claimKey ?? null]);
+    `INSERT INTO sync_runs (id, claim_key, status, environment) VALUES ($1,$2,'running',$3)
+     ON CONFLICT DO NOTHING RETURNING *`, [randomUUID(), claimKey ?? null, env.isDevelopment ? 'dev' : 'prod']);
   return rows[0] === undefined ? null : fromRow(rows[0]);
 }
 export async function getSyncRun(db: Pool, id: string): Promise<SyncRun | null> {
@@ -48,15 +49,18 @@ export async function recordSyncProgress(db: Pool, id: string, results: SourceRu
   [id, JSON.stringify(results), status]);
 }
 export async function recoverInterruptedWork(db: Pool): Promise<void> {
-  await db.query("UPDATE sync_runs SET status = 'interrupted', finished_at = NOW() WHERE status = 'running'");
-  await db.query("UPDATE scheduled_job_claims SET status = 'interrupted', finished_at = NOW() WHERE status = 'running'");
+  const environment = env.isDevelopment ? 'dev' : 'prod';
+  await db.query(`UPDATE sync_runs SET status = 'interrupted', finished_at = NOW()
+    WHERE status = 'running' AND (environment=$1 OR ($1='prod' AND environment IS NULL))`, [environment]);
+  await db.query(`UPDATE scheduled_job_claims SET status = 'interrupted', finished_at = NOW()
+    WHERE status = 'running' AND (environment=$1 OR ($1='prod' AND environment IS NULL))`, [environment]);
   await db.query(`UPDATE ai_chat_sessions SET pending_turn = pending_turn || '{"status":"interrupted"}'::jsonb
     WHERE pending_turn IS NOT NULL`);
 }
 export async function runClaimedJob(db: Pool, job: string, period: string, run: () => Promise<unknown>): Promise<boolean> {
   const { rows } = await db.query(
-    `INSERT INTO scheduled_job_claims (job,period,status) VALUES ($1,$2,'running')
-     ON CONFLICT DO NOTHING RETURNING job`, [job, period]);
+    `INSERT INTO scheduled_job_claims (job,period,status,environment) VALUES ($1,$2,'running',$3)
+     ON CONFLICT DO NOTHING RETURNING job`, [job, period, env.isDevelopment ? 'dev' : 'prod']);
   if (rows.length === 0) return false;
   try {
     await withAiWorkflow(db, { feature: job, purpose: 'scheduled' }, run);

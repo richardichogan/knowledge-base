@@ -2,6 +2,34 @@
 
 **Status:** Validated
 
+**Section 7: Health dashboard and diagnostic measurement release proof (2026-11-02):**
+- User requested deploy, merge and push after approving the graphical dashboard.
+  Existing application-only AZCLI targets: kh-prod-api-vnet and kh-prod-web,
+  rg-knowledge-hub-prod, Alliance Tenant Reporting. Backend v284 advances to v285.
+- git fetch origin and git merge origin/main completed, already current at 69a6784.
+  Both tsc --noEmit checks and production builds passed. Lint non-regression:
+  backend 545 existing violations / baseline 623; frontend 22 / baseline 41.
+  Diagnostic query rows, evaluator evidence arrays and request bodies now use
+  explicit types/guards; no baseline suppression or dependency change.
+- Full isolated frontend suite passed 328 checks. Full backend suite was run once
+  and stopped after its known parent-runner stall without a complete summary;
+  it is not reported as passing. Direct credential-isolated execution of all
+  six affected tracing, Health, runtime, readonly, context and catalogue files
+  passed 70/70. Prior full baseline is reused only for unchanged code.
+- Desktop inspection confirms enlarged rings, common caption/action baselines,
+  flush-left links and evenly spaced measurement indicators. Live page inspection
+  confirms the new usage action selects AI usage and focuses detailed data.
+  Chart rows/bars expand with available height while preserving minimum sizes.
+- Migration 135 is additive, already applied to the shared production database;
+  the unchanged Dockerfile includes tracked SQL migrations. No infrastructure,
+  RBAC, policy, identity, secret or Desktop change, so provisioning/template/
+  what-if steps are not applicable. Existing Azure target/authentication reads passed.
+- Bulk indexing remains enabled following the earlier explicit user request:
+  143 pending records drained, one exhausted failed record left untouched.
+  No paid evaluation, manual retry/backfill or publication is commissioned by release.
+- Evidence: health-release-{backend-tests,affected,web-tests,web-build}.log
+  in the session artifacts. Unrelated .impeccable cache/critique files are excluded.
+
 **Release execution (2026-11-01, readiness and context tracing):**
 - Application commit f34f9630730ee4ce344d47a45f3268c61e623346 pushed to main
   and richardichogan-local-development; both remote refs confirmed identical.

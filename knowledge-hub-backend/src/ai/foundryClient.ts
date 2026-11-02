@@ -14,7 +14,7 @@ import { STATUS_CODES } from 'node:http';
 import { reviewContextTokens } from './knowledge/reviewContext.js';
 import { currentAgentAttempt } from '../agents/attempt.js';
 import { beginAssignmentModelCall, type AssignmentModelCall } from '../agents/workforce/modelBudget.js';
-import { recordTurnTrace, traceModelCall } from './turnTrace.js';
+import { recordTurnTrace, traceModelCall, withTurnSpan } from './turnTrace.js';
 
 const DEFAULT_CHAT_TEMPERATURE = 0.7;
 const AI_RESPONSE_HEADERS_TIMEOUT_MS = 30_000;
@@ -52,7 +52,9 @@ async function fetchModelStream(
       controller.abort(new Error('The model endpoint did not send response headers within 30 seconds'));
     }, AI_RESPONSE_HEADERS_TIMEOUT_MS);
     try {
-      const response = await fetch(url, { ...init, signal: AbortSignal.any([signal, controller.signal, ...(budget ? [budget.signal] : [])]) });
+      const response = await withTurnSpan('model.response_headers', 'transport', () =>
+        fetch(url, { ...init, signal: AbortSignal.any([signal, controller.signal, ...(budget ? [budget.signal] : [])]) }),
+      { attempt: attempt + 1, streaming: true });
       clearTimeout(headersTimeout);
       return { response, budget };
     } catch (error) {

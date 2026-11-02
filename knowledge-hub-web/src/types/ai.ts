@@ -19,7 +19,7 @@ export interface ChatTurnTraceList {
 }
 export interface ChatTurnTraceEventPage {
   trace: Pick<ChatTurnTraceSummary, 'id' | 'status' | 'capture_complete'>;
-  event: { sequence: number; kind: string; createdAt: string; format: 'json'; offset: number; totalChars: number; content: string } | null;
+  event: { sequence: number; kind: string; spanId?: string | null; createdAt: string; format: 'json'; offset: number; totalChars: number; content: string } | null;
   nextSequence: number | null; nextOffset: number | null;
 }
 

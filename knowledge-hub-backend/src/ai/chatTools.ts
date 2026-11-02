@@ -74,6 +74,7 @@ import { REVIEW_DECISIONS_DEFINITION, REVIEW_DECISIONS_TOOL, executeReviewDecisi
 import { searchPastChats, readPastChat, PAST_CHAT_SEARCH_DEFAULT_LIMIT, PAST_CHAT_SEARCH_MAX_LIMIT, PAST_CHAT_READ_DEFAULT_MESSAGES } from './chatSessionStore.js';
 import { prepareAutomaticTaskAssistance } from '../work/taskAssistanceQueue.js';
 import { TRACE_TOOLS, TRACE_TOOL_NAMES, executeTraceTool } from './traceTools.js';
+import { HEALTH_TOOL, executeHealthTool } from './healthTools.js';
 /** Cap on how much note text (including image vision analysis) we hand to the model per result. */
 const NOTE_CONTENT_MAX_CHARS = 6000;
 const DIAGRAM_SEARCH_PREVIEW_CHARS = 1000;
@@ -90,6 +91,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
   const tavilyTools = await getTavilyMcpTools();
   return [
     ...TRACE_TOOLS,
+    HEALTH_TOOL,
     ...WORK_CONTENT_TOOLS,
     JOB_TOOL,
     PUBLISHING_TOOL,
@@ -905,6 +907,8 @@ export async function executeToolCall(
       ? { ...args, projectId: activeProjectId }
       : args;
   if (TRACE_TOOL_NAMES.has(name)) return executeTraceTool(db, name, args, turn);
+  if (name === 'read_knowledge_health') return executeHealthTool(db, args,
+    Boolean(turn.strictProjectId || turn.retrievalScope && Object.keys(turn.retrievalScope.filter).length > 0));
   if (name === 'manage_scheduled_jobs') return executeJobTool(db, args, turn.sessionId);
   if (name === 'manage_publishing_feeds') return executePublishingTool(db, args, turn.sessionId);
   if (AGENT_TOOL_NAMES.has(name)) return executeAgentTool(db, name, args, turn);
