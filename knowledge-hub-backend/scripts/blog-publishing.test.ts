@@ -77,6 +77,15 @@ test('editorial style patterns never prevent article or quick-take delivery', ()
   }
 });
 
+test('weekly publication preserves citation punctuation and does not reimpose a style gate after editorial approval', () => {
+  const content = '<p>In plain terms, Microsoft updated Azure.</p><p><a href="https://example.com/identity">AI agents are coming—are your identity controls prepared?</a></p>';
+  const post = parsePublishBody({ ...fields, postType: 'weekly', status: 'published', title: 'Microsoft – the weekly updates', content });
+  assert.equal(post.content, content);
+  assert.equal(post.title, 'Microsoft – the weekly updates');
+  assert.throws(() => parsePublishBody({ ...fields, postType: 'weekly', content: '' }), /required to publish/);
+  assert.throws(() => parsePublishBody({ ...fields, postType: 'weekly', slug: 'Invalid Slug' }), /Slug/);
+});
+
 test('publication preserves reviewed punctuation and treats quick-take layout and length as editorial advice', () => {
   const content = `<h2>Context</h2><p>${'word '.repeat(605)}A judgement — with context.</p>`;
   const post = parsePublishBody({ ...fields, postType: 'quick', title: 'A'.repeat(65), content,

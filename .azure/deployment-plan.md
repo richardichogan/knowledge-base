@@ -2,6 +2,63 @@
 
 **Status:** Validated
 
+**Section 7: Diagram recovery and proportionate weekly publication gate (2026-11-02):**
+- User approved cosmetic weekly findings as advisory with substantive safeguards
+  retained, and explicitly requested deployment of the pending changes.
+- git fetch origin / git merge origin/main: already current at b8399067.
+  Shared packed-refs lock maintenance warning remains; no lock was removed.
+- Both npx tsc --noEmit checks and production builds passed. Frontend lint
+  non-regression: 22 existing / baseline 41; backend: 545 / baseline 623.
+- Reused the completed full release suites below for unchanged code. New
+  credential-isolated affected coverage: 116/117 passed initially; final
+  publisher path still blocked style, so weekly delivery now preserves reviewed
+  punctuation and does not reimpose cosmetic gating. Corrected managed-jobs
+  and publishing regressions passed 39/39. No full-suite rerun.
+- Diagram coverage includes transactional pre-removal snapshots, failed snapshot
+  rollback, stable-ID replacement, ordinary edits, restart draft roundtrips,
+  separate accounts/tabs, late acknowledgements and sign-out cleanup.
+  Browser/restart and real Athena tool-operation checks were not run.
+- Additive migration 137 marks recovery versions separately from the manual
+  version allowance. Docker includes all SQL migrations and startup migration.
+- Authenticated Azure reads confirm Alliance Tenant Reporting
+  (c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28), kh-prod-api-vnet v285 and
+  kh-prod-web in rg-knowledge-hub-prod. Existing AZCLI app-only deployment
+  targets, subscription and hosting remain approved; advance backend to v286.
+  No infra, RBAC, identity, dependency or secret changes; provisioning,
+  templates/what-if and new environment creation are not applicable.
+- Existing user publication approval remains required. Deployment does not
+  approve, retry or publish the held weekly run. No Desktop/teleprompter release.
+- Evidence: recovery-policy-{affected,corrected,web-build,backend-build}.log in
+  session files. Exclude unrelated DESIGN.md and .impeccable cache.
+
+**Section 7: Think email visibility, task editing and spellcheck release proof (2026-11-02):**
+- User requested deployment of pending web/backend changes. Fetch and merge of
+  origin/main completed at 00ef80b5; remote main independently confirmed.
+  Existing shared packed-refs lock caused a maintenance warning; it was not removed.
+- Both npx tsc --noEmit checks and production builds passed. Lint non-regression:
+  backend 545 existing violations / baseline 623; frontend 22 / baseline 41.
+- Full isolated frontend suite passed 347 checks. Full backend suite completed
+  once: 944/947 passed. The three knowledge-context failures counted diagnostic
+  writes as source mutations. Aligned only those assertions with the existing
+  readonly diagnostic-table exception; corrected context and additional weekly
+  repair coverage passed 10/10. No full-suite rerun.
+- New email-list regression passed within the backend release suite, including
+  direct reads, manual email preservation, generated hiding, search/count/page
+  consistency, recovery and idempotent additive migration 136.
+- Azure device-code MFA completed. Authenticated reads confirm v285 and the
+  existing kh-prod-api-vnet / kh-prod-web targets in rg-knowledge-hub-prod,
+  Alliance Tenant Reporting. Release advances backend to v286.
+- Existing AZCLI application-only recipe retained. No infrastructure, RBAC,
+  identity, secret or dependency changes; provisioning/template/what-if and
+  environment creation are not applicable. Docker includes lockfile, assets,
+  all SQL migrations and normal startup migration execution.
+- Includes approved future podcast order and weekly digest repair, shared
+  specialist concurrency four, modal-safe spelling, inline task editing/back
+  navigation and task email Think-list visibility. No existing campaign
+  rescheduling, manual send/retry or Desktop/teleprompter release.
+- Evidence: think-release-{backend-tests,web-tests,affected,web-build}.log in
+  session artifacts. Unrelated DESIGN.md and .impeccable cache remain excluded.
+
 **Release execution (2026-11-02, operational Health dashboard):**
 - Application commit de7c843e16b88c3737176dbc74c3bff3c0159951 pushed to main
   and richardichogan-local-development; both remote refs confirmed identical.

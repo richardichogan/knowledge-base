@@ -60,7 +60,7 @@ test('weekly accuracy and voice checks start together and settle before saving',
         chat: async system => {
           if (system.includes('Perform the accuracy')) { started.push('accuracy'); await accuracy; }
           else { started.push('voice'); assert.equal(saved, false); release(); }
-          return { outcome: 'pass', findings: [] };
+          return { outcome: 'pass', findings: [], advisory: [] };
         },
       });
     assert.equal(passed, true);
@@ -68,7 +68,7 @@ test('weekly accuracy and voice checks start together and settle before saving',
   } finally { await pg.close(); }
 });
 
-test('weekly editorial checks repair only the flagged passage and re-review the exact outgoing package', async () => {
+test('weekly cosmetic findings pass without repairs and preserve the exact outgoing package', async () => {
   const { pg, db } = await fixture();
   try {
     const content = 'In plain terms, Microsoft updated Azure.\n\nRead [the source](https://example.com/source).';
@@ -77,36 +77,58 @@ test('weekly editorial checks repair only the flagged passage and re-review the 
       slug: 'azure-update', imagePrompt: 'An Azure illustration.', featuredImageUrl: 'None available, use the image prompt',
       linkedin: 'Microsoft updated Azure.', twitterCopy: 'Microsoft updated Azure.', postType: 'weekly', status: 'published' };
     const markdown = String(materializeWeeklyPackage(packageData).markdown);
-    const saved: Array<{ content: Record<string, unknown>; outcome: string }> = [];
+    const saved: Array<{ content: Record<string, unknown>; outcome: string; advisory?: string[] }> = [];
     const calls: string[] = [];
     const passed = await reviewWeeklyJob(db, { blog: packageData, markdown, sources: [{ title: 'Azure update', summary: 'Microsoft updated Azure.' }], slackText: 'Microsoft updated Azure.' },
-      'Preserve links.', async (value, review) => { saved.push({ content: value, outcome: review.outcome }); }, {
+      'Preserve links.', async (value, review) => { saved.push({ content: value, outcome: review.outcome, advisory: review.advisory }); }, {
         preferences: async () => 'Use British English.',
         chat: async (system, input, _tokens, schema) => {
           calls.push(schema.name);
           assert.match(system, /Preserve links/);
-          if (schema.name === 'editorial_passage_edits') return { edits: [{ field: 'bodyMarkdown',
-            before: 'In plain terms, Microsoft updated Azure.', after: 'Microsoft updated Azure.' }] };
+          assert.notEqual(schema.name, 'editorial_passage_edits');
+          assert.match(system, /Cosmetic wording, punctuation/);
           assert.ok(input && typeof input === 'object' && 'content' in input);
-          const reviewInput = input as { previousReview?: unknown; content?: unknown; repairedPassages?: unknown[] };
-          if (system.includes('Perform the voice') && reviewInput.previousReview) {
-            assert.equal(reviewInput.content, undefined);
-            assert.ok(reviewInput.repairedPassages?.length);
-            assert.deepEqual(reviewInput.repairedPassages, [
-              { field: 'bodyMarkdown', before: 'In plain terms, Microsoft', after: 'Microsoft' },
-            ]);
-          }
-          return { outcome: 'pass', findings: [] };
+          return { outcome: 'pass', findings: [], advisory: ['Optional phrasing preference.'] };
         },
       });
     assert.equal(passed, true);
-    assert.deepEqual(calls, ['editorial_review', 'editorial_review', 'editorial_passage_edits', 'editorial_review', 'editorial_review']);
-    assert.deepEqual(saved.map(item => item.outcome), ['revise', 'pass']);
+    assert.deepEqual(calls, ['editorial_review', 'editorial_review']);
+    assert.deepEqual(saved.map(item => item.outcome), ['pass']);
     assert.equal(saved[0]!.content.bodyMarkdown, content);
-    assert.equal(saved[1]!.content.content, '<p>Microsoft updated Azure.</p>\n<p>Read <a href="https://example.com/source">the source</a>.</p>\n');
-    assert.equal(saved[1]!.content.slackText, 'Microsoft updated Azure.');
-    assert.deepEqual(saved[1]!.content.tags, ['Azure']);
-    assert.equal(saved[1]!.content.markdown, markdown.replace('In plain terms, ', ''));
+    assert.equal(saved[0]!.content.slackText, 'Microsoft updated Azure.');
+    assert.deepEqual(saved[0]!.content.tags, ['Azure']);
+    assert.equal(saved[0]!.content.markdown, markdown);
+    assert.ok(saved[0]!.advisory?.some(finding => finding.includes('bodyMarkdown')));
+  } finally { await pg.close(); }
+});
+test('weekly source-title punctuation and Slack dash findings are advisory, not publication blockers', async () => {
+  const { pg, db } = await fixture();
+  try {
+    const markdown = '[AI agents are coming, are your identity controls prepared?](https://example.com/identity)';
+    const slackText = 'Azure – the weekly updates.';
+    let saves = 0;
+    const passed = await reviewWeeklyJob(db, {
+      markdown, slackText, sources: [{ title: 'AI agents are coming—are your identity controls prepared?', url: 'https://example.com/identity' }],
+    }, '', async (content, review) => {
+      saves++;
+      assert.equal(content.content, markdown);
+      assert.equal(content.slackText, slackText);
+      assert.equal(review.outcome, 'pass');
+      assert.deepEqual(review.accuracy, []);
+      assert.deepEqual(review.voice, []);
+      assert.ok(review.style.some(finding => finding.startsWith('slackText:')));
+      assert.ok(review.advisory?.includes('Citation punctuation differs without changing the source or meaning.'));
+    }, {
+      preferences: async () => '',
+      chat: async (system, _input, _tokens, schema) => {
+        assert.notEqual(schema.name, 'editorial_passage_edits');
+        assert.match(system, /punctuation-only differences/);
+        assert.match(system, /Reclassify previous cosmetic findings as advisory/);
+        return { outcome: 'pass', findings: [], advisory: ['Citation punctuation differs without changing the source or meaning.'] };
+      },
+    });
+    assert.equal(passed, true);
+    assert.equal(saves, 1);
   } finally { await pg.close(); }
 });
 test('weekly editorial repairs an overlength blog teaser before approval, leaving the article intact', async () => {
@@ -129,7 +151,7 @@ test('weekly editorial repairs an overlength blog teaser before approval, leavin
             assert.ok(system.includes(`${blueskyCopyAllowance(link)} graphemes`));
             return { edits: [{ field: 'bluesky', before: original, after: revised }] };
           }
-          return { outcome: 'pass', findings: [] };
+          return { outcome: 'pass', findings: [], advisory: [] };
         },
       });
     assert.equal(passed, true);
@@ -150,7 +172,7 @@ test('weekly editorial hold retains draft and findings without attempting a rewr
     const passed = await reviewWeeklyJob(db, { markdown: 'Microsoft updated Azure.', sources: [] }, '',
       async (content, review) => { assert.equal(content.content, 'Microsoft updated Azure.'); outcome = review.outcome; }, {
         preferences: async () => '',
-        chat: async () => { calls++; return { outcome: 'hold', findings: ['The source does not establish availability.'] }; },
+        chat: async () => { calls++; return { outcome: 'hold', findings: ['The source does not establish availability.'], advisory: [] }; },
       });
     assert.equal(passed, false);
     assert.equal(calls, 2);
@@ -166,7 +188,7 @@ test('weekly editorial stops after two passage repair rounds', async () => {
       async (_content, review) => { outcomes.push(review.outcome); }, {
         preferences: async () => '',
         chat: async (_system, input, _tokens, schema) => {
-          if (schema.name !== 'editorial_passage_edits') return { outcome: 'revise', findings: ['Clarify the saved passage.'] };
+          if (schema.name !== 'editorial_passage_edits') return { outcome: 'revise', findings: ['The saved passage makes an unsupported availability claim.'], advisory: [] };
           const content = (input as { content: { content: string } }).content.content;
           return { edits: [{ field: 'content', before: content, after: `Repaired wording ${++repairs}.` }] };
         },
@@ -186,7 +208,7 @@ test('weekly voice findings remain blocking after the first repair', async () =>
         if (schema.name === 'editorial_passage_edits') return { edits: [{ field: 'content',
           before: (input as { content: { content: string } }).content.content, after: `Edited wording ${++repairs}.` }] };
         return system.includes('Perform the voice')
-          ? { outcome: 'revise', findings: ['Invented personal experience.'] } : { outcome: 'pass', findings: [] };
+          ? { outcome: 'revise', findings: ['Invented personal experience.'], advisory: [] } : { outcome: 'pass', findings: [], advisory: [] };
       },
     });
     assert.equal(passed, false);
@@ -207,8 +229,8 @@ test('rejected no-op repairs are recorded and only genuine subsequent reviews ca
               edits: [{ field: 'content', before: 'Original wording.', after: 'Original wording.' }],
             };
             return ++reviews <= 2 || remainsInvalid
-              ? { outcome: 'revise', findings: ['Review the saved wording.'] }
-              : { outcome: 'pass', findings: [] };
+              ? { outcome: 'revise', findings: ['An unsupported factual claim remains.'], advisory: [] }
+              : { outcome: 'pass', findings: [], advisory: [] };
           },
         });
       assert.equal(passed, !remainsInvalid);
@@ -240,8 +262,8 @@ test('weekly contradictory reviewer decisions require a corrected agent response
         chat: async (_system, input) => {
           calls++;
           return (input as { contractError?: string }).contractError
-            ? { outcome: 'pass', findings: [] }
-            : { outcome: 'pass', findings: ['The previous issue is resolved.'] };
+            ? { outcome: 'pass', findings: [], advisory: [] }
+            : { outcome: 'pass', findings: ['The previous issue is resolved.'], advisory: [] };
         },
       });
     assert.equal(passed, true);

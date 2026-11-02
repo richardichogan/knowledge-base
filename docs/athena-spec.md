@@ -924,6 +924,46 @@ status-change notes with paging and existing project/exclusion boundaries.
 
 ## 4. Core objects
 
+The weekly Microsoft roundup's editorial gate blocks unsupported or materially
+misleading claims, invented personal experience, incorrect links, missing
+required content and publishing-platform validation failures. Punctuation,
+dash style, source-title punctuation differences that preserve meaning and URL,
+and other wording/presentation preferences are retained as advisory findings;
+they do not fail the review, trigger repair loops or prevent approval.
+Passage-only repairs address substantive blockers, not cosmetic preferences.
+The existing user approval and external-delivery safeguards remain unchanged.
+
+### Diagram save protection
+
+Before any save removes a shape or connector (including Athena writes and
+replacement IDs), the shared save transaction preserves the entire previous
+diagram document as an automatic recovery version. If that snapshot cannot be
+written, the save rolls back. Recovery versions appear in the existing Versions
+panel, are not trimmed with the 50 rolling revisions, and do not consume the
+100 manually named-version allowance. They remain until explicitly deleted.
+Snapshots preserve the diagram document and embedded metadata, not independent
+note relationships that were removed with an element.
+
+The diagram editor also stores account-, diagram- and editor-specific local
+drafts before debounce/network saves, including unfinished label text. On
+reopening, the user explicitly chooses a draft, keeps the saved diagram, or
+confirms discarding a draft. Recovery retains its original base revision:
+server changes produce a conflict, never an automatic overwrite. Independent
+tabs use independent keys; late save acknowledgements clear only the exact
+draft submitted, not newer writing. Save failures remain visible until a
+successful save. Local-storage failures explicitly warn that restart recovery
+is unavailable; a successful server save is still possible.
+
+Local drafts survive browser/device restarts, but belong to that browser's
+site origin and signed-in account: development ports/hosts and production do
+not share them. Signing out clears drafts with the existing note/work draft
+cleanup. Clearing browser/site data, private browsing and device loss can
+remove local drafts; they are not a substitute for server snapshots.
+Athena can read saved recovery versions through `read_diagram_versions`,
+with bounded listings/document pages and existing source/project boundaries.
+Local recovery must be resolved before editor save-dependent actions; Athena
+does not claim unsaved local writing is already in the saved diagram.
+
 - **Project:** the scope most other objects belong to. It carries the context Athena reloads on every turn.
 - **Note:** a rich document in Think. It can be versioned, tagged, published to GitHub, or turned into a Build spec.
 - **Spark:** a captured idea with its source. Sparks cluster into **themes**, which can become a note, canvas, project or blog post.

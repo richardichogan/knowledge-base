@@ -20,7 +20,7 @@ import { collectIds, resolveAnswer, stripUnseenIds } from './knowledge/citations
 import { TurnBudget, TRANSCRIPT_REVIEW_BUDGET, DETERMINISTIC_TOOLS, budgetLimitation, finalizeEvidenceAnswer, isDeterministicResultComplete, isKnowledgeOrchestrationEnabled } from './knowledge/budgets.js';
 
 const DISCOVERY_TOOLS = new Set(['search_diagrams', 'search_knowledge_base', 'search_library', 'search_past_chats', 'search_knowledge_graph']);
-const RETRIEVAL_TOOLS = new Set([...DISCOVERY_TOOLS, 'read_diagram', 'read_past_chat', 'read_output', 'traverse_relationships', 'read_knowledge_record', ...STRUCTURED_TOOL_NAMES]);
+const RETRIEVAL_TOOLS = new Set([...DISCOVERY_TOOLS, 'read_diagram', 'read_diagram_versions', 'read_past_chat', 'read_output', 'traverse_relationships', 'read_knowledge_record', ...STRUCTURED_TOOL_NAMES]);
 import { STRUCTURED_TOOL_NAMES } from './knowledge/structuredTools.js';
 import { buildOutputsBlock } from './chatOutputs.js';
 import { buildDecisionsBlock } from './chatDecisions.js';
