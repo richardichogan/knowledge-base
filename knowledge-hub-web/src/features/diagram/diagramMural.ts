@@ -5,7 +5,7 @@ import { footnoteAnchor, footnoteBlock, footnotesOf, keyLayout, legendRows, FOOT
 import { descriptionPlainText } from './diagramDescription';
 import { DIAGRAM_CALLOUTS } from './diagramCallouts';
 import { aiStepSummary } from './diagramAiFlowBadges';
-import { diagramTextLayout } from './diagramText';
+import { diagramShapeText, diagramTextLayout } from './diagramText';
 
 const colour = (value: string): string => {
   if (value === 'none' || value === 'transparent' || !value) return '#FFFFFF00';
@@ -61,6 +61,7 @@ export async function diagramMural(doc: DiagramDocument, assets: ReadonlyMap<str
       parentId: null, fill: '#FFFFFF00', stroke: '#FFFFFF00', strokeWidth: 1, dotted: false, textColor: '#161616FF', fontSize, align: 'left' });
   };
   const images = new Map<string, string>();
+  const footnoteTargets = new Set(footnotesOf(doc).map(footnote => footnote.targetId));
   for (const n of renderOrder(doc.nodes)) {
     if (n.kind === 'line') {
       const points = linePoints(n).map(point);
@@ -70,7 +71,7 @@ export async function diagramMural(doc: DiagramDocument, assets: ReadonlyMap<str
       continue;
     }
     const isArea = n.kind === 'container' || n.kind === 'swimlane';
-    let text = descriptionPlainText(n.label);
+    let text = descriptionPlainText(diagramShapeText(n, footnoteTargets.has(n.id)));
     if (n.calloutType) text = `${DIAGRAM_CALLOUTS[n.calloutType].label}: ${text}`;
     if (n.lane?.owner) text += `\n${n.lane.owner}`;
     const object: MuralObject = { id: n.id, type: isArea ? 'area' : n.kind === 'text' ? 'textbox' : 'shape',
@@ -88,7 +89,7 @@ export async function diagramMural(doc: DiagramDocument, assets: ReadonlyMap<str
     objects.push(object);
     if (n.kind === 'text') object.height = Math.max(object.height, textHeight(text, object.width, n.fontSize));
     if (isArea && text.trim()) {
-      const layout = diagramTextLayout({ ...n, label: text });
+      const layout = diagramTextLayout({ ...n, label: text, description: '' });
       const width = Math.max(1, layout.rotation ? n.height - 16 : n.width - 20);
       const height = textHeight(layout.lines.join('\n'), width, n.fontSize);
       const x = layout.x - (layout.anchor === 'middle' ? width / 2 : layout.anchor === 'end' ? width : 0);

@@ -15,7 +15,7 @@
  */
 import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { diagramTextLayout } from './diagramText';
+import { diagramImageCaptionHeight, diagramTextLayout, diagramTitleSource } from './diagramText';
 import { calloutLayout, DIAGRAM_CALLOUTS } from './diagramCallouts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { isAxiosError } from 'axios';
@@ -148,7 +148,7 @@ function captionHeight(n: Pick<DiagramNode, 'fontSize'>): number {
 
 /** The box the picture itself occupies inside an image node (above its caption). */
 function imageBox(n: DiagramNode): Rect {
-  const cap = n.label.trim() === '' ? 0 : captionHeight(n);
+  const cap = diagramImageCaptionHeight(n);
   return { x: n.x + 4, y: n.y + 4, width: Math.max(1, n.width - 8), height: Math.max(1, n.height - cap - 8) };
 }
 
@@ -2426,6 +2426,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, recovered, 
               {display.edges.filter((edge) => edge.behind === true).map(renderEdge)}
               {ordered.map((n) => (
                 <NodeShape key={n.id} node={n} shadowId={`${markerBase}-shadow`} asset={n.assetId === null ? undefined : assets[n.assetId]} selected={selNodeSet.has(n.id)} editing={editing?.kind === 'node' && editing.id === n.id}
+                  footnoted={footnotes.some(footnote => footnote.targetId === n.id)}
                   dimmed={n.kind !== 'line' && keyDim(n.stroke)} hiddenCount={display.hiddenCount.get(n.id) ?? 0}
                   lineJumpPath={lineJumps.paths.get(n.id)} lineMask={lineJumps.masks.has(n.id) ? `url(#${markerBase}-jump-${n.id})` : undefined} aiFlow={isAiFlow} />
               ))}
@@ -3199,7 +3200,10 @@ function DiagramProperties({ item, kind, titleLimit, aiFlow, onIconChange, onRes
         onChange={(value) => { onAlignmentChange({ textVerticalAlign: value }); }} />
       </>}
     </div>}
-    <p className="dg-properties__hint">{'kind' in item && item.kind === 'line' ? 'Title and description are saved but not displayed on the line.' : 'Title is shown on the diagram. Description is saved with this item but not displayed on the drawing.'} Changes save automatically.</p>
+    <p className="dg-properties__hint">{'kind' in item
+      ? item.kind === 'line' ? 'Title and description are saved but not displayed on the line.'
+        : 'Title is bold by default. Description appears below it with one blank line, or in Notes when a footnote is added. Text wraps and clips within the existing shape.'
+      : 'Title is shown on the connector. Add a footnote to show its description in Notes.'} Changes save automatically.</p>
   </div>;
 }
 
@@ -3234,13 +3238,13 @@ function TextLines({ lines, source, cx, cy, fontSize, color, anchorX, anchor = '
   );
 }
 
-interface NodeShapeProps { node: DiagramNode; shadowId: string; asset: AssetState | undefined; selected: boolean; editing: boolean; dimmed?: boolean; hiddenCount?: number; lineJumpPath?: string | undefined; lineMask?: string | undefined; aiFlow?: boolean }
+interface NodeShapeProps { node: DiagramNode; shadowId: string; asset: AssetState | undefined; selected: boolean; editing: boolean; footnoted?: boolean; dimmed?: boolean; hiddenCount?: number; lineJumpPath?: string | undefined; lineMask?: string | undefined; aiFlow?: boolean }
 
-const NodeShape = React.memo(function NodeShape({ node: n, shadowId, asset, selected, editing, dimmed = false, hiddenCount = 0, lineJumpPath, lineMask, aiFlow = false }: NodeShapeProps): React.ReactElement {
+const NodeShape = React.memo(function NodeShape({ node, shadowId, asset, selected, editing, footnoted = false, dimmed = false, hiddenCount = 0, lineJumpPath, lineMask, aiFlow = false }: NodeShapeProps): React.ReactElement {
+  const textClipId = useId();
+  const n = footnoted ? { ...node, description: '' } : node;
   const { x, y, width: w, height: h, fontSize: fs } = n;
   const { fill, stroke, textColor: color } = diagramEditorNodeColours(n);
-  const cx = x + w / 2;
-  const cy = y + h / 2;
   const source = editing ? '' : n.label;
   const label = descriptionPlainText(source);
   const border = { strokeDasharray: diagramBorderDash(n), strokeLinecap: n.strokeStyle === 'dotted' ? 'round' as const : 'butt' as const };
@@ -3249,7 +3253,6 @@ const NodeShape = React.memo(function NodeShape({ node: n, shadowId, asset, sele
   const radius = diagramNodeRadius(n);
   let body: React.ReactNode;
   let text: React.ReactNode = null;
-  const maxLines = (avail: number): number => Math.max(1, Math.floor(avail / (fs * 1.25)));
   switch (n.kind) {
     case 'line': {
       const [start, end] = linePoints(n);
@@ -3267,28 +3270,22 @@ const NodeShape = React.memo(function NodeShape({ node: n, shadowId, asset, sele
       break;
     case 'arrow': {
       body = <path {...common} strokeLinejoin="round" d={arrowShapePath(n, n.arrowDirection)} />;
-      const layout = diagramTextLayout({ ...n, label: source });
-      text = <TextLines source={source} lines={layout.lines} cx={layout.x} cy={layout.y} anchor={layout.anchor} fontSize={fs} color={color} />;
       break;
     }
     case 'process':
       body = <rect {...common} x={x} y={y} width={w} height={h} rx={radius} />;
-      text = <TextLines source={source} lines={wrapText(label, w - 16, fs, maxLines(h - 8))} cx={cx} cy={cy} fontSize={fs} color={color} />;
       break;
     case 'decision':
       body = <path {...common} d={decisionShapePath(n)} />;
-      text = <TextLines source={source} lines={wrapText(label, w * 0.62, fs, maxLines(h * 0.6))} cx={cx} cy={cy} fontSize={fs} color={color} />;
       break;
     case 'hexagon':
       body = <path {...common} strokeLinejoin="round" d={hexagonShapePath(n)} />;
       break;
     case 'terminator':
       body = <rect {...common} x={x} y={y} width={w} height={h} rx={Math.min(h, w) / 2} />;
-      text = <TextLines source={source} lines={wrapText(label, w - h * 0.6, fs, maxLines(h - 8))} cx={cx} cy={cy} fontSize={fs} color={color} />;
       break;
     case 'text':
       body = <rect {...common} x={x} y={y} width={w} height={h} rx={radius} />;
-      text = <TextLines source={source} lines={wrapText(label, w - 8, fs, maxLines(h))} cx={cx} cy={cy} fontSize={fs} color={color} />;
       break;
     case 'image': {
       const box = imageBox(n);
@@ -3305,10 +3302,6 @@ const NodeShape = React.memo(function NodeShape({ node: n, shadowId, asset, sele
         );
       }
       body = <>{<rect {...common} x={x} y={y} width={w} height={h} rx={4} />}{picture}</>;
-      if (label.trim() !== '') {
-        const capH = captionHeight(n);
-        text = <TextLines source={source} lines={wrapText(label, w - 4, fs, 1)} cx={cx} cy={y + h - capH / 2 - 2} fontSize={fs} color={color} />;
-      }
       break;
     }
     case 'container':
@@ -3321,8 +3314,6 @@ const NodeShape = React.memo(function NodeShape({ node: n, shadowId, asset, sele
       break;
     case 'swimlane': {
       const owner = aiFlow ? aiLaneOwnerLayout(n) : null;
-      const bandX = x + SWIMLANE_HEADER / 2 + (owner?.titleShift ?? 0);
-      const lines = wrapText(label, h - 16, fs, 1);
       body = (
         <>
           <rect {...common} x={x} y={y} width={w} height={h} />
@@ -3333,16 +3324,16 @@ const NodeShape = React.memo(function NodeShape({ node: n, shadowId, asset, sele
           )}
         </>
       );
-      text = lines.length === 0 ? null : (
-        <text className="dg-node__label" x={bandX} y={cy} fontSize={fs} fill={color} textAnchor="middle" dominantBaseline="central" fontWeight={600} transform={`rotate(-90 ${bandX} ${cy})`}>{styledTspans(source, lines)[0]}</text>
-      );
       break;
     }
   }
   const callout = calloutLayout(n);
-  if (n.kind !== 'line' && (role !== null || callout !== null || n.kind === 'container' || n.kind === 'document' || n.kind === 'hexagon' || n.textAlign !== undefined || n.textVerticalAlign !== undefined)) {
-    const layout = diagramTextLayout({ ...n, label: source }, role);
-    text = <TextLines source={source} lines={layout.lines} cx={layout.x} cy={layout.y} anchor={layout.anchor} fontSize={fs} color={color} weight={layout.weight} />;
+  if (n.kind !== 'line') {
+    const layout = diagramTextLayout({ ...n, label: source, description: editing ? '' : n.description ?? '' }, role);
+    const titleShift = aiFlow && n.kind === 'swimlane' ? aiLaneOwnerLayout(n)?.titleShift ?? 0 : 0;
+    text = <g transform={titleShift ? `translate(${titleShift} 0)` : undefined}><g transform={layout.rotation}>
+      <TextLines source={layout.source} lines={layout.lines} cx={layout.x} cy={layout.y} anchor={layout.anchor} fontSize={fs} color={color} weight={layout.weight} />
+    </g></g>;
   }
   const collapsible = n.kind === 'container' || n.kind === 'swimlane';
   const collapsed = collapsible && n.collapsed === true;
@@ -3350,7 +3341,7 @@ const NodeShape = React.memo(function NodeShape({ node: n, shadowId, asset, sele
   if (collapsed) {
     const badge = hiddenCount > 0 ? `+${hiddenCount}` : '';
     body = <rect {...common} x={x} y={y} width={w} height={h} rx={radius} />;
-    text = <TextLines source={source} lines={wrapText(label, Math.max(20, w - 76), fs, 1)} cx={x + 30} cy={y + h / 2} anchor="start" fontSize={fs} color={color} weight={600} />;
+    text = <TextLines source={diagramTitleSource(source)} lines={wrapText(label, Math.max(20, w - 76), fs, 1)} cx={x + 30} cy={y + h / 2} anchor="start" fontSize={fs} color={color} weight={400} />;
     extra = badge === '' ? null : (
       <g className="dg-collapse-badge" pointerEvents="none">
         <rect x={x + w - 44} y={y + h / 2 - 9} width={36} height={18} rx={9} />
@@ -3372,8 +3363,10 @@ const NodeShape = React.memo(function NodeShape({ node: n, shadowId, asset, sele
   const cls = ['dg-node', `dg-node--${n.kind}`, n.stroke === 'none' ? 'dg-node--borderless' : '', selected ? 'dg-node--selected' : '', dimmed ? 'dg-node--dimmed' : '', collapsed ? 'dg-node--collapsed' : ''].filter(Boolean).join(' ');
   return (
     <g className={cls} data-dg="node" data-id={n.id}>
+      <title>{[descriptionPlainText(node.label), descriptionPlainText(node.description ?? '')].filter(Boolean).join('\n\n')}</title>
+      <defs><clipPath id={textClipId}><rect x={x} y={y} width={w} height={h} /></clipPath></defs>
       <g filter={diagramNodeShadow(n) ? `url(#${shadowId})` : undefined}>{body}</g>
-      {text}
+      <g clipPath={`url(#${textClipId})`}>{text}</g>
       {role !== null && <DiagramRoleBadge layout={role} />}
       {callout !== null && <g className="dg-callout" data-callout-type={callout.type} pointerEvents="none">
         <title>{callout.label} callout</title>

@@ -175,7 +175,7 @@ const diagramNodeSchema = {
   properties: {
     key: { type: 'string', description: 'Short handle used by connectors in this call (defaults to the label).' },
     label: { type: 'string' },
-    description: { type: 'string', description: 'Longer explanation; shown when a footnote marker is added.' },
+    description: { type: 'string', description: 'Explanation shown inside the shape below its bold-default title, separated by one blank line. When footnote is true, the description goes to the Notes panel instead. Existing shape sizes stay unchanged; text wraps and clips.' },
     kind: { type: 'string', enum: [...NODE_KINDS] },
     colour: { type: 'string', enum: COLOUR_NAMES, description: 'Border/fill colour. Use colours consistently by meaning and name them in the legend. In an AI flow, leave it out so the step type sets the colour.' },
     footnote: { type: 'boolean', description: 'Add a numbered footnote marker showing the description.' },

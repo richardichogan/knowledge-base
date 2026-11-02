@@ -935,6 +935,19 @@ The existing user approval and external-delivery safeguards remain unchanged.
 
 ### Diagram save protection
 
+Existing and new shape titles render bold by default, without rewriting stored
+titles or overriding explicit Markdown formatting. A shape's description appears
+below its title with one blank line between them. Adding a footnote uses the
+existing Notes panel instead of repeating the description inside the shape;
+removing it restores the in-shape description. This follows the saved footnote
+selection even when the Notes panel is temporarily hidden. Shape dimensions,
+positions, editors and properties controls are unchanged: text wraps and clips
+to the available area. Full descriptions remain saved and editable through
+Properties and Athena's existing diagram read/write tools. Lines and connector
+labels retain their existing behaviour. SVG/PNG and draw.io carry the same
+title/description distinction; Mural retains its existing plain-text native
+export, including the blank-line separation and footnote selection.
+
 Before any save removes a shape or connector (including Athena writes and
 replacement IDs), the shared save transaction preserves the entire previous
 diagram document as an automatic recovery version. If that snapshot cannot be

@@ -3,7 +3,7 @@ import { createElement } from 'react';
 import { DiagramRoleBadge, diagramRoleLayout, type DiagramRoleLayout } from './DiagramRoleBadge';
 import { diagramEditorNodeColours, diagramEdgeAppearance, diagramNodeRadius, diagramNodeShadow, diagramNodeStrokeWidth, DIAGRAM_SHADOWS } from './diagramTheme';
 import { collapseView, footnoteAnchor, footnoteBlock, footnotesOf, keyLayout, legendRows, FOOTNOTE_RADIUS, NOTE_FONT, NOTE_HEADING_FONT } from './diagramAnnotations';
-import { diagramTextLayout } from './diagramText';
+import { diagramImageCaptionHeight, diagramTextLayout } from './diagramText';
 import { descriptionPlainText, styledLines } from './diagramMarkdown';
 import { calloutLayout } from './diagramCallouts';
 import { diagramDrawioXml } from './diagramDrawio';
@@ -48,7 +48,7 @@ function textLines(lines: string[], x: number, y: number, fontSize: number, colo
 
 function nodeText(node: DiagramNode, titleShift = 0, role?: DiagramRoleLayout | null): string {
   const layout = diagramTextLayout(node, role);
-  const text = textLines(layout.lines, layout.x, layout.y, node.fontSize, node.textColor, layout.anchor, layout.weight, node.label);
+  const text = textLines(layout.lines, layout.x, layout.y, node.fontSize, node.textColor, layout.anchor, layout.weight, layout.source);
   const rotated = layout.rotation ? `<g transform="${layout.rotation}">${text}</g>` : text;
   return titleShift !== 0 && layout.rotation ? `<g transform="translate(${titleShift} 0)">${rotated}</g>` : rotated;
 }
@@ -129,10 +129,12 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
     `<mask id="${maskIds.get(id)}" maskUnits="userSpaceOnUse" x="${bounds.x}" y="${bounds.y}" width="${width}" height="${height}"><rect x="${bounds.x}" y="${bounds.y}" width="${width}" height="${height}" fill="white"/>${masks.map(mask => `<path d="${mask.d}" fill="none" stroke="black" stroke-width="${mask.width}"/>`).join('')}</mask>`);
   const embedded = new Map<string, string>();
   const aiFlow = isAiFlowDoc(source);
+  const footnoteTargets = new Set(footnotesOf(source).map(footnote => footnote.targetId));
   const roleSvgs = new Map<string, string>();
   if (document.nodes.some(node => diagramRoleLayout(node, aiFlow) !== null)) {
     const { renderToStaticMarkup } = await import('react-dom/server');
-    for (const node of document.nodes) {
+    for (const stored of document.nodes) {
+      const node = footnoteTargets.has(stored.id) ? { ...stored, description: '' } : stored;
       const layout = diagramRoleLayout(node, aiFlow);
       if (layout !== null) roleSvgs.set(node.id, renderToStaticMarkup(createElement(DiagramRoleBadge, { layout })));
     }
@@ -148,8 +150,8 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
       embedded.set(node.assetId, await readDataUrl(asset));
     }
   }
-  const nodes = renderOrder(document.nodes).map((stored) => {
-    const node = { ...stored, ...diagramEditorNodeColours(stored) };
+  const nodes = renderOrder(document.nodes).map((stored, index) => {
+    const node = { ...stored, ...diagramEditorNodeColours(stored), description: footnoteTargets.has(stored.id) ? '' : stored.description ?? '' };
     const role = diagramRoleLayout(node, aiFlow);
     const strokeWidth = diagramNodeStrokeWidth(stored);
     const dash = diagramBorderDash(node);
@@ -176,7 +178,7 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
     }
     if (diagramNodeShadow(stored)) shape = `<g filter="url(#diagram-shadow)">${shape}</g>`;
     if (node.assetId !== null && embedded.has(node.assetId)) {
-      const captionHeight = node.label.trim() ? Math.round(node.fontSize * 1.3 + 10) : 0;
+      const captionHeight = diagramImageCaptionHeight(node);
       shape += `<image x="${node.x + 4}" y="${node.y + 4}" width="${Math.max(1, node.width - 8)}" height="${Math.max(1, node.height - captionHeight - 8)}" preserveAspectRatio="xMidYMid meet" href="${escapeXml(embedded.get(node.assetId) ?? '')}"/>`;
     }
     if (view.hiddenCount.has(node.id)) {
@@ -189,7 +191,9 @@ async function buildSvg(source: DiagramDocument, assets: Map<string, Blob>, back
     const finding = aiFindings.get(node.id);
     const chips = aiFlow ? aiStepChips(node, finding !== undefined, node.header !== undefined || (role?.label ?? null) !== null).map(chipSvg).join('') : '';
     const findingMark = finding === undefined ? '' : findingSvg(aiFindingAnchor(node), finding);
-    return `<g>${shape}${node.kind === 'line' ? '' : nodeText(node, shifted, role)}${roleSvgs.get(node.id) ?? ''}${ownerSvg}${calloutHeader(node)}${chips}${findingMark}</g>`;
+    const clipId = `diagram-node-text-${index}`;
+    const text = node.kind === 'line' ? '' : `<defs><clipPath id="${clipId}"><rect x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}"/></clipPath></defs><g clip-path="url(#${clipId})">${nodeText(node, shifted, role)}</g>`;
+    return `<g>${shape}${text}${roleSvgs.get(node.id) ?? ''}${ownerSvg}${calloutHeader(node)}${chips}${findingMark}</g>`;
   });
   const shadow = `<filter id="diagram-shadow" x="-20%" y="-30%" width="140%" height="180%">${DIAGRAM_SHADOWS.map(s => `<feDropShadow dx="${s.dx}" dy="${s.dy}" stdDeviation="${s.stdDeviation}" flood-color="${s.floodColor}" flood-opacity="${s.floodOpacity}"/>`).join('')}</filter>`;
   const definitions: string[] = [...maskDefinitions, shadow];
