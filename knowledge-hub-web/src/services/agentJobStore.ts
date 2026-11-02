@@ -7,7 +7,7 @@
  */
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { api } from './api';
-import { announceAthenaJob, clearAthenaJobProgress, updateAthenaJobProgress } from '../components/athena/AthenaJobNotice';
+import { announceAthenaJob } from '../components/athena/AthenaJobNotice';
 import { assignmentStatusLabel, isActiveAgentJob, type AgentJob, type AssignmentNotice } from '../types/agentJobs';
 import { requireApiData } from './apiError';
 
@@ -81,10 +81,6 @@ function receive(job: AgentJob): void {
   const previous = jobs.get(job.id);
   jobs.set(job.id, job);
   changed();
-  if (isActiveAgentJob(job)) {
-    updateAthenaJobProgress(job.id, `${job.specialistName} ${job.status === 'queued' ? 'is queued' : 'is working'}`, job.progress[job.progress.length - 1] ?? 'You can leave this screen. Athena will notify you when the work finishes.');
-  }
-  if (!isActiveAgentJob(job)) clearAthenaJobProgress(job.id);
   if (isActiveAgentJob(job) || (previous && previous.status === job.status)) return;
   for (const listener of finishListeners) listener(job);
   if (job.conversationId) window.dispatchEvent(new CustomEvent('athena-conversation-updated', { detail: { sessionId: job.conversationId } }));
