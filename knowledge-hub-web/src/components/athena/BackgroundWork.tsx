@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Time } from '@carbon/icons-react';
+import { Settings } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import { describeApiError, requireApiData } from '../../services/apiError';
 import { useBackgroundJobs } from '../../services/agentJobStore';
@@ -105,15 +105,14 @@ export const BackgroundWork: React.FC = () => {
   }, [open]);
   const activeCount = active.length + activeAssignments.length;
   const attentionCount = waitingAssignments.length;
-  const count = activeCount + attentionCount;
   const detail = [activeCount ? `${activeCount} running or queued` : '', attentionCount ? `${attentionCount} paused for attention` : ''].filter(Boolean).join(', ');
   const label = detail ? `Background work: ${detail}` : 'Background work';
   return <>
     <button type="button" ref={triggerRef} className={`kh-header__utility${open ? ' kh-header__utility--active' : ''}`}
       title={label} aria-label={label} aria-expanded={open} aria-controls={open ? 'kh-background-work' : undefined}
       onClick={() => { setOpen(value => !value); }}>
-      <Time size={20} aria-hidden="true" />
-      {count > 0 && <span className="kh-header__badge" aria-hidden="true">{count > 99 ? '99+' : count}</span>}
+      <Settings size={20} aria-hidden="true" />
+      {activeCount > 0 && <span className="kh-header__badge" aria-hidden="true">{activeCount > 99 ? '99+' : activeCount}</span>}
     </button>
     {open && <div id="kh-background-work" ref={panelRef} className="kh-background-work" role="region" aria-label="Background work">
     <h2>Background work{detail ? ` · ${detail}` : ' · recent results'}</h2>
