@@ -139,15 +139,19 @@ function Overview({ title }: { title: string }): React.ReactElement {
 }
 function MetadataFixture(): React.ReactElement {
   const { setAthenaContext } = useAthenaContext();
+  const [noteId, setNoteId] = useState('fixture-note');
   useEffect(() => {
     setAthenaContext({ type: 'note', id: 'fixture-note', title: 'Fixture note', detail: 'Note context preserved' });
     return () => { setAthenaContext(null); };
   }, [setAthenaContext]);
-  return <div className="notes-page"><h1>Think note fixture</h1><div className="notes-root">
-    <MetadataPanel doc={{ id: 'fixture-note', title: 'Fixture note', contentType: 'note',
+  return <div className="notes-page"><h1>Think note fixture</h1>
+    <button type="button" className="kb-import-btn" id="switch-fixture-note"
+      onClick={() => { setNoteId(id => id === 'fixture-note' ? 'other-fixture-note' : 'fixture-note'); }}>Switch fixture note</button>
+    <div className="notes-root">
+    <MetadataPanel doc={{ id: noteId, title: 'Fixture note', contentType: 'note',
       contentJson: '[]', createdAt: '2026-10-04T10:00:00Z', updatedAt: '2026-10-04T10:00:00Z' }}
       contentType="note" onContentTypeChange={() => undefined} projectId="" projects={[]} onProjectChange={() => undefined}
-      taxonomyTagIds={[]} appliedTags={[]} autoTagIds={[]} noteId="fixture-note" onTagIdsChange={() => undefined}
+      taxonomyTagIds={[]} appliedTags={[]} autoTagIds={[]} noteId={noteId} onTagIdsChange={() => undefined}
       wordCount={0} readingTime={0} blockCount={0} ghStatus="not-pushed" ghDotColor="grey"
       githubPath={undefined} onPushToGitHub={() => undefined}
       githubError="" githubBusy={false} onCheckGitHub={() => undefined}
@@ -688,6 +692,15 @@ export async function runNavigationChecks(): Promise<string[]> {
       && selector('#think-side-tab-athena').getAttribute('aria-selected') === 'true');
     check(selector('#navigation-probe').dataset.context === 'Note context preserved', 'Metadata rail retains note context');
     check(document.querySelector('.ai-float-panel') === null, 'Header must not duplicate embedded conversation');
+    selector<HTMLButtonElement>('#think-side-tab-connections').click();
+    for (let index = 0; index < 4; index++) {
+      selector<HTMLButtonElement>('#switch-fixture-note').click();
+      const expectedSeed = index % 2 === 0 ? 'note:other-fixture-note' : 'note:fixture-note';
+      await waitFor(() => document.querySelector('.note-mini-graph__heading a')?.getAttribute('href')
+        === `/graph?seed=${encodeURIComponent(expectedSeed)}`);
+      check(document.querySelectorAll('#think-side-panel-connections .note-mini-graph').length === 1,
+        'Switching notes retains exactly one graph for the active note');
+    }
     await go('/library');
     await waitFor(() => document.querySelector('.docs-list-item') !== null);
     selector<HTMLButtonElement>('.docs-list-item').click();

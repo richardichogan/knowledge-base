@@ -62,7 +62,7 @@ function setInput(input: HTMLInputElement, value: string): void {
 }
 async function runAtlasChecks(): Promise<string[]> {
   await customElements.whenDefined('atlas-graph'); await wait(100);
-  const graphElement = document.querySelector<TestElement>('atlas-graph')!;
+  let graphElement = document.querySelector<TestElement>('atlas-graph')!;
   assert(graphElement?.nodes.length, 'Real custom element has data');
   if (compact) {
     assert(graphElement.getAttribute('scope') === 'note:root', 'Compact root scope');
@@ -77,7 +77,17 @@ async function runAtlasChecks(): Promise<string[]> {
   await wait(100);
   assert(graphElement.isVis(graphElement.nodes.find(n => n.id === 'note:root')!), 'Company focus retains linked note');
   assert(document.querySelector('.atlas__connections')?.textContent?.includes('Microsoft strategy'), 'Inspector shows company relationship');
-  findButton('Show everything')!.click(); await wait(80);
+  findButton('Explore from here')!.click(); await wait(100);
+  assert(graphElement.getAttribute('scope') === 'company:microsoft', 'Exploring a record opens its focused graph');
+  assert(!findButton('Whole atlas'), 'Focused graph has no separate atlas button');
+  findButton('Graph')!.click(); await wait(100);
+  assert(graphElement.getAttribute('scope') === '', 'Graph clears record focus even when already in graph view');
+  findButton('Back')!.click(); await wait(100);
+  assert(graphElement.getAttribute('scope') === 'company:microsoft', 'Back restores the previous record focus');
+  findButton('Relationships')!.click(); await wait(80);
+  findButton('Graph')!.click(); await wait(100);
+  graphElement = document.querySelector<TestElement>('atlas-graph')!;
+  assert(graphElement.getAttribute('scope') === '', 'Switching from relationships to Graph also clears record focus');
   const target = graphElement.nodes.find(n => n.id === 'person:a')!;
   const neighbour = graphElement.nodes.find(n => n.id === 'note:bridge')!;
   const [x, y] = graphElement.S(target), rect = graphElement.cv.getBoundingClientRect();

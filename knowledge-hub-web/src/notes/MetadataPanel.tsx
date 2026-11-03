@@ -439,8 +439,8 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
 
         {tab === 'connections' && (
           <div role="tabpanel" id="think-side-panel-connections" aria-labelledby="think-side-tab-connections" className="notes-meta-tabpanel">
-            <NoteMiniGraph key={noteId} noteId={noteId} />
-            <EntityLinks key={noteId} source={{ type: 'note', id: noteId }} />
+            <NoteMiniGraph key={`graph:${noteId}`} noteId={noteId} />
+            <EntityLinks key={`links:${noteId}`} source={{ type: 'note', id: noteId }} />
             <NoteBacklinks noteId={noteId} />
             <UnlinkedMentions noteId={noteId} />
             <ConnectionsPanel refId={doc.id} refType="note" headerless />

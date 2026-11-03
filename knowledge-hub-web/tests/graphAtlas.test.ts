@@ -95,6 +95,13 @@ test('note connections use the shared interactive renderer and retain all loaded
   assert.ok(twoHops.nodes.every(n => n.id !== inferred.id && n.id !== 'note:unrelated'));
 });
 
+test('Think graph and linked records have distinct per-note reconciliation keys', () => {
+  const panel = readFileSync(new URL('../src/notes/MetadataPanel.tsx', import.meta.url), 'utf8');
+  assert.match(panel, /<NoteMiniGraph key=\{`graph:\$\{noteId\}`\} noteId=\{noteId\}/);
+  assert.match(panel, /<EntityLinks key=\{`links:\$\{noteId\}`\}/);
+  assert.doesNotMatch(panel, /<(?:NoteMiniGraph|EntityLinks) key=\{noteId\}/);
+});
+
 test('graph controls are labelled icons and graph navigation has no 3D option', () => {
   const renderer = readFileSync(new URL('../src/components/graph/AtlasForceMap.tsx', import.meta.url), 'utf8');
   for (const label of ['Zoom in', 'Zoom out', 'Fit graph', 'Reflow graph']) {

@@ -2,6 +2,18 @@
 
 **Status:** Validated
 
+**Section 7: Graph controls and duplicate preview release validation (2026-11-03):**
+- Frontend-only release: remove Whole atlas, let Graph clear record focus,
+  preserve Back navigation, and give Think graph/link siblings distinct keys.
+- Fetch/merge confirmed main is current. Both app `npx tsc --noEmit` checks
+  passed; frontend `npm run build` and full `npm run -s test:isolated` passed.
+  Graph/navigation browser fixture coverage was updated but not executed.
+- Existing production account and kh-prod-web target verified through Azure CLI.
+  No backend, migration, infrastructure, RBAC, dependency or Desktop changes.
+  Prior unchanged backend release validation is reused.
+- Evidence: graph-release-tests.log and graph-release-build.log in session files.
+  Unrelated DESIGN.md and .impeccable cache edits are excluded.
+
 **Section 7: Think canvas project grouping release validation (2026-11-03):**
 - Frontend-only release: Think Canvas groups top-level canvases by project,
   alphabetizes project groups, shows unassigned canvases under General, and

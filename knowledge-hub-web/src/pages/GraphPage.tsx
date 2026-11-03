@@ -77,9 +77,11 @@ export const GraphPage: React.FC = () => {
         {!!history.length && <button className="kh-btn-ghost" onClick={() => {
           setParams(history.at(-1) ? { seed: history.at(-1)! } : {}); setHistory(h => h.slice(0, -1)); reset();
         }}>Back</button>}
-        {seed && <button className="kh-btn-ghost" onClick={() => { start(null); }}>Whole atlas</button>}
         <nav className="atlas__modes" aria-label="Graph view">{(['map', 'list'] as const).map(value => <button key={value}
-          aria-pressed={mode === value} onClick={() => { setMode(value); }}>{value === 'map' ? 'Graph' : 'Relationships'}</button>)}</nav>
+          aria-pressed={mode === value} onClick={() => {
+            setMode(value);
+            if (value === 'map' && seed) start(null);
+          }}>{value === 'map' ? 'Graph' : 'Relationships'}</button>)}</nav>
         <button className="atlas__panel-toggle" aria-expanded={inspectorOpen} aria-controls="atlas-inspector"
           title={inspectorOpen ? 'Hide the Athena panel' : 'Ask Athena and see details'} onClick={() => { setInspectorOpen(!inspectorOpen); }}>
           {inspectorOpen ? <SidePanelClose size={16} /> : <SidePanelOpen size={16} />}<span>Athena</span></button>
