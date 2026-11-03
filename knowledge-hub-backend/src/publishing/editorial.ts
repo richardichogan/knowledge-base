@@ -18,7 +18,8 @@ import { destinationAccount } from './delivery.js';
 import { getLinkedInMember } from '../integrations/social/linkedin.js';
 import { applyEditorialEdits } from './passageEdits.js';
 import { REVIEW_CONTEXT_RESERVE, textTokens } from '../ai/knowledge/reviewContext.js';
-import { withAiStage, withAiWorkflow } from '../ai/aiWorkflow.js';
+import { aiWorkflowAttribution, withAiStage, withAiWorkflow } from '../ai/aiWorkflow.js';
+import { recordPublishingDraft } from '../ai/aiLedger.js';
 export { applyEditorialEdits } from './passageEdits.js';
 
 export interface EditorialServices {
@@ -337,6 +338,7 @@ ${preferences}`,
   }
 }
 export async function editDraft(db: Pool, id: string, version: unknown, value: unknown, actor: string, account?: { id: string; name?: string }, editorialRevision = false): Promise<void> {
+  let saved: Record<string, unknown> | undefined;
   await transaction(db, async c => {
     if (editorialRevision) {
       await c.query('SELECT id FROM publishing_topics WHERE id=(SELECT topic_id FROM publishing_drafts WHERE id=$1) FOR NO KEY UPDATE', [id]);
@@ -365,7 +367,9 @@ export async function editDraft(db: Pool, id: string, version: unknown, value: u
       reason='Blog changed; hook must be reviewed and approved again.' WHERE topic_id=$1 AND destination IN ('linkedin','bluesky') AND variant='blog'
       AND (NOT $2::boolean OR (approval='pending' AND NOT held))`, [d.topicId, editorialRevision]);
     await event(c, d.topicId, actor, 'draft-edited', { draftId: id, version: next });
+    saved = content;
   });
+  if (saved) recordPublishingDraft(db, id, saved, editorialRevision || aiWorkflowAttribution() !== undefined);
 }
 export async function assessTopic(db: Pool, topic: Topic, service = editorialServices): Promise<void> {
   return withAiWorkflow(db, { feature: 'discovery-editorial-assessment', purpose: 'scheduled' },

@@ -8,6 +8,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
+      // Carbon's font-face rules use webpack-style `~@ibm/plex` URLs.
+      '~@ibm': fileURLToPath(new URL('./node_modules/@ibm', import.meta.url)),
     },
   },
   // In production VITE_API_URL is set to the deployed backend URL in the .env build.

@@ -271,7 +271,7 @@ export function createManualBlogExecutor(db: Pool, capabilities: BlogDomainCapab
         return { row, previous, sources };
       });
       signal.throwIfAborted();
-      const client = getFoundryClient('blog-specialist');
+      const client = getFoundryClient(definition.profile);
       if (definition.key === 'research') {
         if (!loaded.sources || loaded.previous) throw new ValidationError('The research step has invalid inputs.');
         const researched = await researchManualBlog(loaded.sources, client);

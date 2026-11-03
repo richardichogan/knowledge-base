@@ -200,10 +200,10 @@ registerSpecialist({
       if (input['mode'] === 'recheck') {
         progress('Grounding your perspective and anonymising relevant experience');
         setAiWorkflowStage('author-context');
-        const authorContext = await buildBlogAuthorContext(db, draft.title, getFoundryClient('blog-specialist'));
+        const authorContext = await buildBlogAuthorContext(db, draft.title, getFoundryClient('blog-research'));
         progress('Checking official product documentation for the edited draft');
         setAiWorkflowStage('source-research');
-        const researched = await researchBlogEvidence(evidence, getFoundryClient('blog-specialist'), undefined, draft);
+        const researched = await researchBlogEvidence(evidence, getFoundryClient('blog-research'), undefined, draft);
         await save(draft, JSON.stringify({ ...JSON.parse(researched) as Record<string, unknown>, authorContext }));
         await record('sourceResearch', (JSON.parse(researched) as Record<string, unknown>)['research']);
         await record('authorContext', {

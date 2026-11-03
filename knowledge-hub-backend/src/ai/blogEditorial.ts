@@ -382,7 +382,7 @@ async function reviewParagraphs(
 export async function recheckParagraphUnits(
   original: BlogDraft, draft: BlogDraft, evidence: string,
   stages: Array<{ stage: string; result: unknown }>,
-  client: Pick<FoundryClient, 'chat'> = getFoundryClient('blog-specialist'),
+  client: Pick<FoundryClient, 'chat'> = getFoundryClient('blog-verification'),
   voiceSamples: BlogVoiceSample[] = [], draftSignature?: string,
   onResult?: (result: Record<string, unknown>) => Promise<void>,
   progress?: (current: number, total: number) => void,
@@ -923,7 +923,7 @@ async function review(
 
 /** Recheck is read-only: it never rewrites the user's edits. */
 export async function verifyBlogDraft(
-  draft: BlogDraft, evidence: string, client: Pick<FoundryClient, 'chat'> = getFoundryClient('blog-specialist'),
+  draft: BlogDraft, evidence: string, client: Pick<FoundryClient, 'chat'> = getFoundryClient('blog-verification'),
   voiceSamples: BlogVoiceSample[] = [], record?: BlogStageRecorder,
   concerns: string[] = [],
 ): Promise<BlogVerification> {

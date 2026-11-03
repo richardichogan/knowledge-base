@@ -253,7 +253,7 @@ export interface SavedMemory {
   scopeValue: string | null;
 }
 
-export type MemoryScopeType = 'global' | 'persona' | 'project' | 'output';
+export type MemoryScopeType = 'global' | 'persona' | 'project' | 'output' | 'agent';
 export type MemoryStatus = 'active' | 'paused' | 'suggested' | 'dismissed';
 
 /** Athena's learned memory (Memory page). */
@@ -264,7 +264,7 @@ export interface AthenaMemory {
   scopeType: MemoryScopeType;
   scopeValue: string | null;
   status: MemoryStatus;
-  origin: 'chat' | 'feedback' | 'weekly' | 'manual' | 'profile-import';
+  origin: 'chat' | 'feedback' | 'weekly' | 'manual' | 'profile-import' | 'agent-review';
   sourceExcerpt: string | null;
   lastAppliedAt: string | null;
   createdAt: string;

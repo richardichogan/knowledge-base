@@ -1,4 +1,5 @@
 import type { Pool } from 'pg';
+import { recordAiAuthoredNote } from './aiLedger.js';
 import { randomUUID } from 'node:crypto';
 import type { LlmToolDefinition } from './foundryClient.js';
 import { getDesign, requiredText } from '../designs/designStore.js';
@@ -245,7 +246,7 @@ export async function executeDesignTool(db: Pool, name: string, owner: string, a
     access.signal?.throwIfAborted();
     await client.query('COMMIT');
   } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
-  for (const note of notes) scheduleNoteIndexing(db, note);
+  for (const note of notes) { scheduleNoteIndexing(db, note); recordAiAuthoredNote(db, note.id, note.content); }
   for (const id of publish) scheduleGitHubPublish(db, id);
   state.changedNoteIds.push(...writes.map(write => write.id));
   delete state.read;

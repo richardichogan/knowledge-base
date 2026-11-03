@@ -76,6 +76,7 @@ import { REVIEW_DECISIONS_DEFINITION, REVIEW_DECISIONS_TOOL, executeReviewDecisi
 import { searchPastChats, readPastChat, PAST_CHAT_SEARCH_DEFAULT_LIMIT, PAST_CHAT_SEARCH_MAX_LIMIT, PAST_CHAT_READ_DEFAULT_MESSAGES } from './chatSessionStore.js';
 import { prepareAutomaticTaskAssistance } from '../work/taskAssistanceQueue.js';
 import { TRACE_TOOLS, TRACE_TOOL_NAMES, executeTraceTool } from './traceTools.js';
+import { LEDGER_TOOLS, LEDGER_TOOL_NAMES, executeLedgerTool } from './ledgerTools.js';
 import { HEALTH_TOOL, executeHealthTool } from './healthTools.js';
 import { BUILD_TOOL_NAMES, executeBuildTool, type BuildTurnState } from './buildTools.js';
 import { USE_CASE_TOOL_NAMES, executeUseCaseTool, type UseCaseTurnState } from './useCaseTools.js';
@@ -97,6 +98,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
   const tavilyTools = await getTavilyMcpTools();
   return [
     ...TRACE_TOOLS,
+    ...LEDGER_TOOLS,
     HEALTH_TOOL,
     ...WORK_CONTENT_TOOLS,
     JOB_TOOL,
@@ -600,11 +602,12 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
             instruction: { type: 'string', description: 'The standing instruction, imperative and self-contained.' },
             scope: {
               type: 'string',
-              enum: ['global', 'persona', 'project', 'output'],
+              enum: ['global', 'persona', 'project', 'output', 'agent'],
               description: "'global' = everywhere; 'persona' = one persona (general, brainstorming, copilot_coach, blog_post, demo_designer, podcast_prep, podcast_show_notes, web_designer); " +
-                "'project' = one project id; 'output' = one kind of output (e.g. 'blog post', 'newsletter', 'task summary', 'meeting notes').",
+                "'project' = one project id; 'output' = one kind of output (e.g. 'blog post', 'newsletter', 'task summary', 'meeting notes'); " +
+                "'agent' = a lesson for one background agent's own prompts (agent id, e.g. 'task-researcher'), not Athena's chat.",
             },
-            scopeValue: { type: 'string', description: "Persona id, project id, or output type. Omit for 'global'." },
+            scopeValue: { type: 'string', description: "Persona id, project id, output type or named agent id (iris, calliope, momus, echo, daedalus, ariadne, themis, hephaestus, argus, metis, socrates). Omit for 'global'." },
           },
           required: ['instruction', 'scope'],
         },
@@ -941,6 +944,7 @@ export async function executeToolCall(
       ? { ...args, projectId: activeProjectId }
       : args;
   if (TRACE_TOOL_NAMES.has(name)) return executeTraceTool(db, name, args, turn);
+  if (LEDGER_TOOL_NAMES.has(name)) return executeLedgerTool(db, name, args, turn);
   if (name === 'read_knowledge_health') return executeHealthTool(db, args,
     Boolean(turn.strictProjectId || turn.retrievalScope && Object.keys(turn.retrievalScope.filter).length > 0));
   if (name === 'manage_scheduled_jobs') return executeJobTool(db, args, turn.sessionId);
@@ -1883,7 +1887,7 @@ async function rememberInstruction(db: Pool, args: Record<string, unknown>, sess
   const instruction = typeof args['instruction'] === 'string' ? args['instruction'].trim() : '';
   if (instruction === '') return { error: 'instruction required' };
   const scopeRaw = typeof args['scope'] === 'string' ? args['scope'] : 'global';
-  const scope = (['global', 'persona', 'project', 'output'] as const).find((s) => s === scopeRaw) ?? 'global';
+  const scope = (['global', 'persona', 'project', 'output', 'agent'] as const).find((s) => s === scopeRaw) ?? 'global';
   const scopeValue = typeof args['scopeValue'] === 'string' ? args['scopeValue'].trim() : '';
   if (scope !== 'global' && scopeValue === '') return { error: `scopeValue required for scope "${scope}"` };
   const memory = await createMemory(db, {

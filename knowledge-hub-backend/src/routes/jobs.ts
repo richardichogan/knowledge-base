@@ -1,4 +1,5 @@
 import { Router, type RequestHandler } from 'express';
+import { recordAiDecision } from '../ai/aiLedger.js';
 import { randomUUID } from 'node:crypto';
 import { getDb as defaultGetDb } from '../db/db.js';
 import type { Pool } from 'pg';
@@ -65,6 +66,7 @@ jobsRouter.post('/proposals/:id/confirm', route(async req => {
     }
     else throw new ValidationError('Unknown proposal operation.');
     await db.query("UPDATE managed_job_proposals SET status='confirmed' WHERE id=$1", [id]);
+    recordAiDecision(db, { kind: 'confirm', agent: 'athena', targetType: 'job-proposal', targetId: id, details: { proposal: p } });
     return result;
   } catch (error) {
     await db.query("UPDATE managed_job_proposals SET status='failed' WHERE id=$1", [id]);
@@ -72,7 +74,9 @@ jobsRouter.post('/proposals/:id/confirm', route(async req => {
   }
 }));
 jobsRouter.post('/proposals/:id/reject', route(async req => {
-  await getDb().query("UPDATE managed_job_proposals SET status='rejected' WHERE id=$1 AND status='pending'", [uuid(req.params.id)]);
+  const rejected = await getDb().query<{ payload: Record<string, unknown> }>(
+    "UPDATE managed_job_proposals SET status='rejected' WHERE id=$1 AND status='pending' RETURNING payload", [uuid(req.params.id)]);
+  if (rejected.rows[0]) recordAiDecision(getDb(), { kind: 'reject', agent: 'athena', targetType: 'job-proposal', targetId: uuid(req.params.id), details: { proposal: rejected.rows[0].payload } });
   return { rejected: true };
 }));
 jobsRouter.post('/', route(req => {

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { recordAiAuthoredNote } from '../ai/aiLedger.js';
 import type { Pool, PoolClient } from 'pg';
 import type { Note } from '../types/index.js';
 import { ConflictError, NotFoundError, ValidationError } from '../types/index.js';
@@ -95,6 +96,7 @@ export async function writeNote(db: Pool, id: string, input: NoteWrite): Promise
     const result = await writeNoteInTransaction(client, id, input);
     await client.query('COMMIT');
     if (result.publish) scheduleGitHubPublish(db, id);
+    recordAiAuthoredNote(db, id, result.note.content);
     return result.note;
   } catch (err) {
     await client.query('ROLLBACK');

@@ -15,6 +15,8 @@ import { reviewContextTokens } from './knowledge/reviewContext.js';
 import { currentAgentAttempt } from '../agents/attempt.js';
 import { beginAssignmentModelCall, type AssignmentModelCall } from '../agents/workforce/modelBudget.js';
 import { recordTurnTrace, traceModelCall, withTurnSpan } from './turnTrace.js';
+import { agentLessonsBlock } from './agentLessons.js';
+import { currentAgent } from './aiLedger.js';
 
 const DEFAULT_CHAT_TEMPERATURE = 0.7;
 const AI_RESPONSE_HEADERS_TIMEOUT_MS = 30_000;
@@ -169,6 +171,11 @@ export class FoundryClient {
     });
   }
 
+  /** Every model call is traced in the turn and recorded permanently in the learning ledger. */
+  private traced<T>(deployment: string, api: string, body: unknown, run: () => Promise<T>): Promise<T> {
+    return traceModelCall(this.feature, deployment, api, body, run, this.context);
+  }
+
   public reviewContextTokens(model: AiModel, route?: ModelRoute): number {
     return reviewContextTokens(route?.deployment ?? this.getDeployment(model));
   }
@@ -260,6 +267,7 @@ export class FoundryClient {
       }
       return this.chat('light', messages, maxTokens, timeoutMs, callerSignal);
     }
+    messages = await withAgentLessons(this.feature, messages);
     const deployment = env.AZURE_OPENAI_DEPLOYMENT_SCREEN_READ ?? 'gpt-5.4';
     const startedAt = Date.now();
     const timeout = AbortSignal.timeout(timeoutMs);
@@ -279,7 +287,7 @@ export class FoundryClient {
       } as const;
       budget = await beginAssignmentModelCall(JSON.parse(options.body), maxTokens);
       const boundedOptions = budget ? { ...options, signal: AbortSignal.any([signal, budget.signal]) } : options;
-      const data = await traceModelCall(this.feature, deployment, 'chat', JSON.parse(options.body), async () => {
+      const data = await this.traced(deployment, 'chat', JSON.parse(options.body), async () => {
       if (timeoutMs > NATIVE_FETCH_HEADERS_TIMEOUT_MS) {
         // Native fetch has a separate five-minute headers deadline; AbortSignal alone cannot extend it.
         const result = await requestHttp(url, { ...boundedOptions, headersTimeout: timeoutMs, bodyTimeout: timeoutMs });
@@ -391,6 +399,7 @@ export class FoundryClient {
     if (currentAgentAttempt()?.assignmentId && extras.builtInTools?.length) {
       throw new ValidationError('This assignment has no approved budget for provider-managed tool execution.');
     }
+    messages = await withAgentLessons(this.feature, messages);
     const deployment = route?.deployment ?? this.getDeployment(model);
     const { endpoint, apiKey } = this.getConnection(model);
     const viaResponses = model === 'reasoning' && (route?.api ?? env.AZURE_OPENAI_GPT54_API) === 'responses';
@@ -407,7 +416,7 @@ export class FoundryClient {
           stream: true,
           stream_options: { include_usage: true },
         };
-    return traceModelCall(this.feature, deployment, viaResponses ? 'responses' : 'chat', body, async () => {
+    return this.traced(deployment, viaResponses ? 'responses' : 'chat', body, async () => {
     const timeout = AbortSignal.timeout(timeoutMs);
 
     let response: Response;
@@ -530,6 +539,7 @@ export class FoundryClient {
     route?: ModelRoute,
   ): Promise<ChatCompletionResponse> {
     signal = attemptSignal(signal);
+    messages = await withAgentLessons(this.feature, messages);
     const startedAt = Date.now();
     const deployment = route?.deployment ?? this.getDeployment(model);
     const api = model === 'reasoning' && (route?.api ?? env.AZURE_OPENAI_GPT54_API) === 'responses' ? 'responses' : 'chat';
@@ -582,7 +592,7 @@ export class FoundryClient {
       ...(tools !== undefined && tools.length > 0 && { tools, tool_choice: toolChoice }),
     };
 
-    return traceModelCall(this.feature, deployment, 'chat', body, async () => {
+    return this.traced(deployment, 'chat', body, async () => {
     let response: Response;
     try {
       response = await fetch(url, {
@@ -641,7 +651,7 @@ export class FoundryClient {
       ...responsesBody(deployment, messages, tools, maxTokens, toolChoice),
       ...(jsonSchema ? { text: { format: { type: 'json_schema', ...jsonSchema, strict: true } } } : {}),
     };
-    return traceModelCall(this.feature, deployment, 'responses', body, async () => {
+    return this.traced(deployment, 'responses', body, async () => {
     let response: Response;
     try {
       response = await fetch(`${endpoint}/openai/v1/responses`, {
@@ -721,6 +731,16 @@ function streamError(model: AiModel, err: unknown, timeoutMs: number, signal: Ab
 }
 
 /** Chat-completions messages and tools translated into a Responses API request body. */
+/** Adds the agent's approved lessons after its leading system instructions. */
+async function withAgentLessons<T extends ConversationMessage[] | LlmMessage[]>(feature: string, messages: T): Promise<T> {
+  const block = await agentLessonsBlock(currentAgent(feature));
+  if (block === '') return messages;
+  const list = messages as Array<{ role: string }>;
+  let at = 0;
+  while (at < list.length && list[at]!.role === 'system') at++;
+  return [...list.slice(0, at), { role: 'system', content: block }, ...list.slice(at)] as T;
+}
+
 function responsesBody(
   deployment: string,
   messages: ConversationMessage[] | LlmMessage[],

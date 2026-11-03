@@ -8,6 +8,7 @@
 
 import { env } from '../config/env.js';
 import { recordAiUsage, tokenUsageFrom, type TokenUsage } from './aiUsage.js';
+import { recordAiInteraction } from './aiLedger.js';
 import { AI_REQUEST_TIMEOUT_MS } from '../config/constants.js';
 
 const EMBEDDING_DEPLOYMENT = 'text-embedding-3-small';
@@ -48,11 +49,15 @@ export async function embedBatch(texts: string[], signal?: AbortSignal): Promise
       return embedding;
     });
     recordAiUsage({ feature: 'embeddings', slot: 'embeddings', deployment: EMBEDDING_DEPLOYMENT, api: 'chat', durationMs: Date.now() - startedAt, ok: true, ...usage });
+    // Inputs are kept in full; vectors are not, as they carry no decision to learn from.
+    recordAiInteraction({ feature: 'embeddings', deployment: EMBEDDING_DEPLOYMENT, api: 'embeddings', request: { input: texts },
+      response: { vectors: vectors.length, dimensions: vectors[0]?.length ?? 0, usage: data.usage }, durationMs: Date.now() - startedAt });
     return vectors;
   } catch (error) {
     recordAiUsage({ feature: 'embeddings', slot: 'embeddings', deployment: EMBEDDING_DEPLOYMENT, api: 'chat',
       durationMs: Date.now() - startedAt, ok: false,
       error: signal?.aborted ? 'Cancelled: embedding request stopped' : error instanceof Error ? error.message : String(error), ...usage });
+    recordAiInteraction({ feature: 'embeddings', deployment: EMBEDDING_DEPLOYMENT, api: 'embeddings', request: { input: texts }, error, durationMs: Date.now() - startedAt });
     throw error;
   }
 }

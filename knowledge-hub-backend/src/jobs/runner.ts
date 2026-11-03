@@ -3,6 +3,7 @@ import { env } from '../config/env.js';
 import { getFoundryClient } from '../ai/foundryClient.js';
 import { prepareWeeklyMicrosoftDigest } from '../ai/weeklyMicrosoftDigest.js';
 import { createNoteRecord, scheduleNoteIndexing } from '../routes/notes.js';
+import { recordAiAuthoredNote } from '../ai/aiLedger.js';
 import { textToBlocks } from '../ai/markdownToNoteBlocks.js';
 import { blogLinkForCopyBudget, parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
 import { BLOG_PACKAGE_RULES } from '../ai/blogHouseStyle.js';
@@ -11,7 +12,7 @@ import { getLinkedInMember, postToLinkedIn, LinkedInPostUnconfirmedError } from 
 import { runTier1Sync, isSyncInProgress, type OrchestratorResult } from '../sync/syncOrchestrator.js';
 import { isConnectionCheckInProgress } from '../sync/connectionWork.js';
 import { searchKnowledge, createDbSearchBackends } from '../services/knowledge/search.js';
-import { audit, getJob, leaseRun, persistRun, releaseRun, scheduleDueJobs } from './store.js';
+import { audit, getJob, jobAgent, leaseRun, persistRun, releaseRun, scheduleDueJobs } from './store.js';
 import type { JobRun } from './contracts.js';
 import { object, text, JOB_LIMITS } from './contracts.js';
 import { MS_PER_MINUTE } from '../config/constants.js';
@@ -217,6 +218,7 @@ export async function executeRun(db: Pool, run: JobRun, lease: string, delivery:
         const note = await createNoteRecord(db, { content: JSON.stringify({ title: run.definition.name, contentType: run.definition.outputs.includes('blog') ? 'blog' : 'note',
           contentJson: JSON.stringify(textToBlocks(text(run.artifacts.markdown, 'generated output', JOB_LIMITS.markdown))) }), tags: ['scheduled-job'], projectId: run.definition.kind === 'weekly-microsoft' ? 'microsoft-cloud-blog' : 'ibm-thought-leadership' }, run.id);
         scheduleNoteIndexing(db, note);
+        recordAiAuthoredNote(db, note.id, note.content, jobAgent(run.definition.kind));
         return { noteId: note.id, url: `/think?noteId=${note.id}` };
       });
       if (run.definition.kind === 'weekly-microsoft') await step(db, run, lease, 'chat', async () => {

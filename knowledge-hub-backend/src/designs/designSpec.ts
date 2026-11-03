@@ -4,6 +4,7 @@
  * a missing spec is created and linked to the Design.
  */
 import type { Pool } from 'pg';
+import { currentAgent, recordAiAuthoredNote } from '../ai/aiLedger.js';
 import { currentAgentAttempt, lockAgentAttempt } from '../agents/attempt.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { getDesign } from './designStore.js';
@@ -287,5 +288,6 @@ async function writeDesignSpecInner(db: Pool, designId: string, replace: boolean
     await lockAgentAttempt(client);
     await client.query('COMMIT');
   } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
+  for (const note of notes) recordAiAuthoredNote(db, note.id, note.content, currentAgent() ?? 'design');
   return { noteId, title, created: !spec, notes, publish };
 }

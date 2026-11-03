@@ -16,9 +16,9 @@
 import type { Pool } from 'pg';
 
 export type MemoryKind = 'instruction' | 'example' | 'profile';
-export type MemoryScopeType = 'global' | 'persona' | 'project' | 'output';
+export type MemoryScopeType = 'global' | 'persona' | 'project' | 'output' | 'agent';
 export type MemoryStatus = 'active' | 'paused' | 'suggested' | 'dismissed';
-export type MemoryOrigin = 'chat' | 'feedback' | 'weekly' | 'manual' | 'profile-import';
+export type MemoryOrigin = 'chat' | 'feedback' | 'weekly' | 'manual' | 'profile-import' | 'agent-review';
 
 export interface AthenaMemory {
   id: string;

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { recordAiAuthoredNote } from '../ai/aiLedger.js';
 import type { Pool, PoolClient } from 'pg';
 import { env } from '../config/env.js';
 import { textToBlocks } from '../ai/markdownToNoteBlocks.js';
@@ -266,6 +267,7 @@ export async function createWorkContent(db: Pool, type: WorkContentType, input: 
   } finally { client.release(); }
   const saved = await createdNote(db, id);
   scheduleNoteIndexing(db, saved);
+  recordAiAuthoredNote(db, saved.id, saved.content);
   return getWorkContent(db, id);
 }
 async function createdNote(db: Pool, id: string): Promise<Note> {

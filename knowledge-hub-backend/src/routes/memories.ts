@@ -10,6 +10,7 @@
  */
 
 import { Router } from 'express';
+import { recordAiDecision } from '../ai/aiLedger.js';
 import type { Request, Response, NextFunction } from 'express';
 import { getDb } from '../db/db.js';
 import { HTTP_STATUS } from '../config/constants.js';
@@ -19,7 +20,7 @@ import { createMemory, deleteMemory, listMemories, updateMemory } from '../ai/at
 import type { AthenaMemory, MemoryScopeType, MemoryStatus } from '../ai/athenaMemory.js';
 import { draftInstructionFromFeedback } from '../ai/memorySuggestions.js';
 
-const SCOPES: readonly MemoryScopeType[] = ['global', 'persona', 'project', 'output'];
+const SCOPES: readonly MemoryScopeType[] = ['global', 'persona', 'project', 'output', 'agent'];
 const STATUSES: readonly MemoryStatus[] = ['active', 'paused', 'suggested', 'dismissed'];
 const EXAMPLE_MAX_CHARS = 8_000;
 
@@ -125,6 +126,8 @@ memoriesRouter.post('/feedback', (req: Request, res: Response, next: NextFunctio
          VALUES ($1, $2, $3, $4, $5, $6)`,
         [session, rating, note || null, personaId, reply.slice(0, 1_000) || null, memory?.id ?? null],
       );
+      recordAiDecision(db, { kind: rating === 'up' ? 'thumbs-up' : 'thumbs-down', agent: 'athena', targetType: 'chat-reply',
+        targetId: session ?? 'unknown', sessionId: session, note, aiContent: reply || null, details: { persona: personaId, memoryId: memory?.id ?? null } });
       const body: ApiSuccess<{ memory: AthenaMemory | null }> = { success: true, data: { memory } };
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) { next(err); }

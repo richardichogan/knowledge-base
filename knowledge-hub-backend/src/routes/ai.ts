@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { recordAiDecision } from '../ai/aiLedger.js';
 import { markSharedLink } from '../integrations/discovery/projectFit.js';
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
@@ -916,6 +917,7 @@ router.post('/actions/:proposalId/confirm', (req: Request, res: Response, next: 
     try {
       const { proposalId } = req.params as { proposalId: string };
       await confirmWriteAction(proposalId);
+      recordAiDecision(getDb(), { kind: 'confirm', agent: 'athena', targetType: 'write-action', targetId: proposalId });
       const body: ApiSuccess<{ proposalId: string }> = {
         success: true,
         data: { proposalId },
@@ -935,6 +937,7 @@ router.post('/actions/:proposalId/cancel', (req: Request, res: Response, next: N
     try {
       const { proposalId } = req.params as { proposalId: string };
       cancelWriteAction(proposalId);
+      recordAiDecision(getDb(), { kind: 'cancel', agent: 'athena', targetType: 'write-action', targetId: proposalId });
       const body: ApiSuccess<{ proposalId: string }> = {
         success: true,
         data: { proposalId },

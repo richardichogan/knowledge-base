@@ -24,12 +24,32 @@ const SCOPE_TITLES: Record<MemoryScopeType, string> = {
   persona: 'Per persona',
   project: 'Per project',
   output: 'Per kind of output',
+  agent: 'Per agent (lessons from reviewing its work)',
 };
+
+/** The named workforce agents; mirrors WORKFORCE_ROLES in the backend. */
+const AGENTS: ReadonlyArray<{ id: string; label: string }> = [
+  { id: 'athena', label: 'Athena — Orchestrator' },
+  { id: 'iris', label: 'Iris — Researcher' },
+  { id: 'calliope', label: 'Calliope — Author' },
+  { id: 'momus', label: 'Momus — Editorial critic' },
+  { id: 'echo', label: 'Echo — Podcast producer' },
+  { id: 'daedalus', label: 'Daedalus — Product architect' },
+  { id: 'ariadne', label: 'Ariadne — Visual designer' },
+  { id: 'themis', label: 'Themis — Verifier' },
+  { id: 'hephaestus', label: 'Hephaestus — Build coordinator' },
+  { id: 'argus', label: 'Argus — Intelligence analyst' },
+  { id: 'metis', label: 'Metis — Work analyst' },
+  { id: 'socrates', label: 'Socrates — Learning tutor' },
+];
+const agentName = (id: string | null): string => AGENTS.find((a) => a.id === id)?.label ?? (id ?? '').replace(/[-_]+/g, ' ');
+const ATHENA_FILTER = '__athena';
 
 function scopeLabel(m: Pick<AthenaMemory, 'scopeType' | 'scopeValue'>, projects: Array<{ id: string; name: string }> = []): string {
   if (m.scopeType === 'global') return 'Everywhere';
   if (m.scopeType === 'persona') return PERSONAS.find((p) => p.id === m.scopeValue)?.label ?? m.scopeValue ?? '';
   if (m.scopeType === 'output') return `When producing: ${m.scopeValue ?? ''}`;
+  if (m.scopeType === 'agent') return `Agent: ${agentName(m.scopeValue)}`;
   return `Project: ${projects.find((project) => project.id === m.scopeValue)?.name ?? m.scopeValue ?? ''}`;
 }
 
@@ -39,7 +59,7 @@ function when(iso: string | null): string {
 }
 
 const ORIGIN_LABEL: Record<AthenaMemory['origin'], string> = {
-  chat: 'from chat', feedback: 'from your 👎 feedback', weekly: 'from the weekly review', manual: 'added here', 'profile-import': 'imported',
+  chat: 'from chat', feedback: 'from your 👎 feedback', weekly: 'from the weekly review', manual: 'added here', 'profile-import': 'imported', 'agent-review': 'from the weekly agent review',
 };
 
 /** Scope picker used when adding or editing an instruction. */
@@ -57,6 +77,7 @@ const ScopeFields: React.FC<{ scopeType: MemoryScopeType; scopeValue: string; di
       <option value="persona">One persona</option>
       <option value="project">One project</option>
       <option value="output">One kind of output</option>
+      <option value="agent">One agent</option>
     </select>
     {scopeType === 'persona' && (
       <select className="memory-select" disabled={disabled} value={scopeValue} aria-label="Persona" onChange={(e) => { onChange(scopeType, e.target.value); }}>
@@ -73,6 +94,13 @@ const ScopeFields: React.FC<{ scopeType: MemoryScopeType; scopeValue: string; di
         Could not load projects. <button type="button" className="kb-import-btn" onClick={() => { void refetch(); }}>Retry</button>
       </div>}
     </div>}
+    {scopeType === 'agent' && (
+      <select className="memory-select" disabled={disabled} value={scopeValue} aria-label="Agent" onChange={(e) => { onChange(scopeType, e.target.value); }}>
+        <option value="">Choose…</option>
+        {AGENTS.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+        {scopeValue !== '' && !AGENTS.some((a) => a.id === scopeValue) && <option value={scopeValue}>{agentName(scopeValue)}</option>}
+      </select>
+    )}
     {scopeType === 'output' && (
       <input className="memory-input memory-input--short" disabled={disabled} value={scopeValue} aria-label="Kind of output"
         placeholder="e.g. blog post" onChange={(e) => { onChange(scopeType, e.target.value); }} />
@@ -121,6 +149,7 @@ export const MemoryPage: React.FC<{ embedded?: boolean }> = ({ embedded = false 
   });
   const refresh = (): void => { void qc.invalidateQueries({ queryKey: ['memories'] }); };
   const [adding, setAdding] = useState(false);
+  const [agentFilter, setAgentFilter] = useState('');
   const [newItem, setNewItem] = useState({ content: '', scopeType: 'global' as MemoryScopeType, scopeValue: '' });
   const profile = memories.find((m) => m.kind === 'profile');
   const [profileDraft, setProfileDraft] = useState<string | null>(null);
@@ -146,10 +175,14 @@ export const MemoryPage: React.FC<{ embedded?: boolean }> = ({ embedded = false 
     }
   };
 
-  const suggestions = memories.filter((m) => m.status === 'suggested');
-  const instructions = memories.filter((m) => m.kind === 'instruction' && (m.status === 'active' || m.status === 'paused'));
+  const agents = useMemo(() => [...new Set(memories.filter((m) => m.scopeType === 'agent' && m.status !== 'dismissed' && m.scopeValue && m.scopeValue !== 'athena')
+    .map((m) => m.scopeValue ?? ''))].sort(), [memories]);
+  const matchesAgent = (m: AthenaMemory): boolean => agentFilter === ''
+    || (agentFilter === ATHENA_FILTER ? m.scopeType !== 'agent' || m.scopeValue === 'athena' : m.scopeType === 'agent' && m.scopeValue === agentFilter);
+  const suggestions = memories.filter((m) => m.status === 'suggested' && matchesAgent(m));
+  const instructions = memories.filter((m) => m.kind === 'instruction' && (m.status === 'active' || m.status === 'paused') && matchesAgent(m));
   const examples = memories.filter((m) => m.kind === 'example' && m.status === 'active');
-  const byScope = useMemo(() => (['global', 'persona', 'project', 'output'] as MemoryScopeType[])
+  const byScope = useMemo(() => (['global', 'persona', 'project', 'output', 'agent'] as MemoryScopeType[])
     .map((scope) => ({ scope, items: instructions.filter((m) => m.scopeType === scope) }))
     .filter((g) => g.items.length > 0), [instructions]);
 
@@ -176,6 +209,16 @@ export const MemoryPage: React.FC<{ embedded?: boolean }> = ({ embedded = false 
         <button type="button" className="kb-import-btn" onClick={() => { void refetch(); }}>Retry</button>
       </div>}
       {actionError !== null && <InlineNotification className="memory-notice" kind="error" title="Change was not saved" subtitle={actionError} lowContrast hideCloseButton />}
+
+      {agents.length > 0 && (
+        <div className="memory-row">
+          <select className="memory-select" value={agentFilter} aria-label="Show memory for" onChange={(e) => { setAgentFilter(e.target.value); }}>
+            <option value="">All agents</option>
+            <option value={ATHENA_FILTER}>Athena</option>
+            {agents.map((a) => <option key={a} value={a}>{agentName(a)}</option>)}
+          </select>
+        </div>
+      )}
 
       {adding && (
         <section className="memory-section memory-add">

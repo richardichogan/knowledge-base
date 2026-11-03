@@ -285,7 +285,7 @@ export function getAssetToolDefinitions(): LlmToolDefinition[] {
         legend: legendSchema,
       }, ['title', 'nodes']),
     fn('update_diagram',
-      'For small explicit edits only. Redraws, matching an image and substantial layout changes belong to Daedalus (hand_off_to_specialist); never approximate its groups with a flat list of boxes. ' +
+      'For small explicit edits only. Redraws, matching an image and substantial layout changes belong to Ariadne (hand_off_to_specialist); never approximate its groups with a flat list of boxes. ' +
       'Changes a saved diagram (find it with search_diagrams/read_diagram): add shapes and connectors, relabel/recolour/describe shapes, remove shapes, set the legend or rename it. Earlier versions stay in its history. ' +
       'For AI flow diagrams it can also add lanes, move steps between lanes, set step, agent, control and connector metadata, and re-run the swimlane layout (it re-runs automatically when lanes or steps are added or moved).',
       {

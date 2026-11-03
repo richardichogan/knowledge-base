@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { recordAiDecision } from '../ai/aiLedger.js';
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import { getDb } from '../db/db.js';
 import { HTTP_STATUS } from '../config/constants.js';
@@ -48,7 +49,9 @@ reviewPacketsRouter.patch('/:id/packets/:packetId/items/:position', wrap(async (
 }));
 
 reviewPacketsRouter.post('/:id/packets/:packetId/approve', wrap(async (req, res) => {
-  send(res, await approvePacket(getDb(), param(req, 'id'), param(req, 'packetId'), body(req)['acknowledgeStale']));
+  const packet = await approvePacket(getDb(), param(req, 'id'), param(req, 'packetId'), body(req)['acknowledgeStale']);
+  recordAiDecision(getDb(), { kind: 'approve', targetType: 'review-packet', targetId: param(req, 'packetId'), details: { projectId: param(req, 'id') } });
+  send(res, packet);
 }));
 
 reviewPacketsRouter.delete('/:id/packets/:packetId', wrap(async (req, res) => {

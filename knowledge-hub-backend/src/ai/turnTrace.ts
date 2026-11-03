@@ -6,6 +6,7 @@ import { NotFoundError, ValidationError } from '../types/errors.js';
 import { connectionCredentials, credentialValue } from '../config/credentialValues.js';
 import { beginTurnMeasurement, finishTurnMeasurement, newTurnMeasurement, observeTurnMeasurement, type TurnMeasurement } from './turnMeasurement.js';
 import { withAiWorkflow } from './aiWorkflow.js';
+import { recordAiInteraction } from './aiLedger.js';
 
 interface TraceContext {
   id: string; db: Pool; sequence: number; closed: boolean; complete: boolean; started: boolean; signals: TurnMeasurement; signal: AbortSignal | undefined;
@@ -189,16 +190,29 @@ export async function setTraceProject(projectId: string | null): Promise<void> {
 
 export async function traceModelCall<T>(
   feature: string, deployment: string, api: string, body: unknown, run: () => Promise<T>,
+  context: { persona?: string | undefined; sessionId?: string | undefined } = {},
 ): Promise<T> {
-  if (!activeTrace.getStore()) return run();
+  const startedAt = Date.now();
+  const ledger = (outcome: { response?: unknown; error?: unknown }): void => {
+    recordAiInteraction({ feature, deployment, api, request: body, ...outcome, durationMs: Date.now() - startedAt, ...context });
+  };
+  if (!activeTrace.getStore()) {
+    try {
+      const result = await run();
+      ledger({ response: result });
+      return result;
+    } catch (error) { ledger({ error }); throw error; }
+  }
   const callId = randomUUID();
   return withTurnSpan(feature, 'model', async () => {
   await recordTurnTrace('model.request', { callId, feature, deployment, api, body });
   try {
     const result = await run();
+    ledger({ response: result });
     await recordTurnTrace('model.response', { callId, result });
     return result;
   } catch (error) {
+    ledger({ error });
     await recordTurnTrace('model.error', { callId, message: error instanceof Error ? error.message : String(error) });
     throw error;
   }

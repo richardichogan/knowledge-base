@@ -1,4 +1,5 @@
 import { Router, type RequestHandler } from 'express';
+import { recordAiDecision } from '../ai/aiLedger.js';
 import type { Pool } from 'pg';
 import { getDb as defaultGetDb } from '../db/db.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
@@ -93,6 +94,7 @@ export function createPublishingRouter(getDb: () => Pool = defaultGetDb): Router
   router.post('/drafts/:id/discard', route(async req => {
     publishingProduction();
     await discardDraft(getDb(), uuid(req.params.id), object(object(req.body).versions), actor(req));
+    recordAiDecision(getDb(), { kind: 'discard', targetType: 'publishing-draft', targetId: uuid(req.params.id) });
     return { discarded: true };
   }));
   const schedule = async (): Promise<(ScheduledPost | ScheduledPodcastPost)[]> => {
@@ -118,6 +120,7 @@ export function createPublishingRouter(getDb: () => Pool = defaultGetDb): Router
   router.post('/topics/:id/approve', route(async req => {
     publishingProduction(); const b = object(req.body); const versions = object(b.versions);
     await approvePackage(getDb(), uuid(req.params.id), { blog: versions.blog, linkedin: versions.linkedin }, actor(req));
+    recordAiDecision(getDb(), { kind: 'approve', agent: 'discover-editorial', targetType: 'publishing-topic', targetId: uuid(req.params.id), details: { versions } });
     await refreshSchedule(getDb());
     return { saved: true };
   }));
@@ -128,9 +131,12 @@ export function createPublishingRouter(getDb: () => Pool = defaultGetDb): Router
         WHERE id=$1 AND state IN ('held','rejected') AND NOT EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=$1) RETURNING id`, [id]);
       if (!changed.rowCount) throw new ValidationError('Only held topics without drafts can be reassessed; edit existing drafts instead.');
       await event(getDb(), id, actor(req), 'reassessment-requested', {});
+      recordAiDecision(getDb(), { kind: 'reassess', agent: 'discovery-editorial-assessment', targetType: 'publishing-topic', targetId: id });
     } else {
       if (!['hold', 'reject'].includes(String(b.action))) throw new ValidationError('Choose hold, reject or reassess.');
-      await holdTopic(getDb(), id, b.action === 'reject', actor(req), text(b.reason ?? '', 'reason', PUBLISH_LIMITS.maxGuidance));
+      const reason = text(b.reason ?? '', 'reason', PUBLISH_LIMITS.maxGuidance);
+      await holdTopic(getDb(), id, b.action === 'reject', actor(req), reason);
+      recordAiDecision(getDb(), { kind: String(b.action), agent: 'discovery-editorial-assessment', targetType: 'publishing-topic', targetId: id, note: reason });
     }
     await refreshSchedule(getDb());
     return topicDetail(getDb(), id);
@@ -143,7 +149,9 @@ export function createPublishingRouter(getDb: () => Pool = defaultGetDb): Router
     publishingProduction(); const b = object(req.body); const id = uuid(req.params.id);
     if (!['approve', 'reject', 'hold', 'resume'].includes(String(b.action))) throw new ValidationError('Unknown draft decision.');
     const action = b.action as 'approve' | 'reject' | 'hold' | 'resume';
-    await decideDraft(getDb(), id, b.version, action, actor(req), text(b.reason ?? '', 'reason', PUBLISH_LIMITS.maxGuidance));
+    const reason = text(b.reason ?? '', 'reason', PUBLISH_LIMITS.maxGuidance);
+    await decideDraft(getDb(), id, b.version, action, actor(req), reason);
+    recordAiDecision(getDb(), { kind: action, targetType: 'publishing-draft', targetId: id, note: reason, details: { version: b.version } });
     if (action === 'resume') {
       await getDb().query("UPDATE publishing_topics SET state='ready',error=NULL WHERE id=(SELECT topic_id FROM publishing_drafts WHERE id=$1) AND state='held'", [id]);
     }

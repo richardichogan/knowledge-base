@@ -6,6 +6,7 @@
 
 import { env } from '../config/env.js';
 import { recordAiUsage, tokenUsageFrom, type TokenUsage } from '../ai/aiUsage.js';
+import { recordAiInteraction } from '../ai/aiLedger.js';
 
 interface VisionResponse {
   choices: Array<{ message: { content: string }; finish_reason?: string }>;
@@ -13,11 +14,14 @@ interface VisionResponse {
 }
 const MAX_VISION_ERROR_CHARS = 300;
 
-async function requestVision(feature: string, slot: string, deployment: string, request: () => Promise<Response>): Promise<VisionResponse> {
+async function requestVision(feature: string, slot: string, deployment: string, url: string, init: RequestInit & { body: string }): Promise<VisionResponse> {
   const startedAt = Date.now();
   let usage: TokenUsage | undefined;
+  const ledger = (outcome: { response?: unknown; error?: unknown }): void => {
+    recordAiInteraction({ feature, deployment, api: 'chat', request: JSON.parse(init.body) as unknown, ...outcome, durationMs: Date.now() - startedAt });
+  };
   try {
-    const response = await request();
+    const response = await fetch(url, init);
     if (!response.ok) throw new Error(`Vision request failed: ${response.status} ${(await response.text()).slice(0, MAX_VISION_ERROR_CHARS)}`);
     const data = await response.json() as VisionResponse;
     usage = tokenUsageFrom(data.usage);
@@ -28,10 +32,12 @@ async function requestVision(feature: string, slot: string, deployment: string, 
     const truncated = choice.finish_reason === 'length';
     recordAiUsage({ feature, slot, deployment, api: 'chat', durationMs: Date.now() - startedAt,
       ok: !truncated, error: truncated ? 'Vision response was truncated' : undefined, ...usage });
+    ledger({ response: data });
     return data;
   } catch (error) {
     recordAiUsage({ feature, slot, deployment, api: 'chat', durationMs: Date.now() - startedAt,
       ok: false, error: error instanceof Error ? error.message : String(error), ...usage });
+    ledger({ error });
     throw error;
   }
 }
@@ -65,7 +71,7 @@ export async function analyzeImageWithVision(
 
     // Use Azure OpenAI REST API directly to avoid SDK version issues
     const data = await requestVision('image-description', 'standard', env.AZURE_OPENAI_DEPLOYMENT_GPT4O,
-      () => fetch(`${env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${env.AZURE_OPENAI_DEPLOYMENT_GPT4O}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`, {
+      `${env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${env.AZURE_OPENAI_DEPLOYMENT_GPT4O}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`, {
       method: 'POST',
       headers: {
         'api-key': apiKey,
@@ -101,7 +107,7 @@ export async function analyzeImageWithVision(
         max_completion_tokens: 3000,
       }),
       signal: AbortSignal.timeout(SCREEN_READ_TIMEOUT_MS),
-    }));
+    });
     const content = data.choices?.[0]?.message?.content;
 
     if (!content || typeof content !== 'string') {
@@ -127,7 +133,7 @@ const SCREEN_READ_TIMEOUT_MS = 75_000;
 async function readScreenForDesignReview(imageBuffer: Buffer, mimeType: string, userQuestion?: string): Promise<string> {
   const deployment = env.AZURE_OPENAI_DEPLOYMENT_SCREEN_READ ?? env.AZURE_OPENAI_DEPLOYMENT_GPT54;
   const data = await requestVision('screen-read', 'bulk', deployment,
-    () => fetch(`${env.AZURE_OPENAI_ENDPOINT_GPT54}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`, {
+    `${env.AZURE_OPENAI_ENDPOINT_GPT54}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`, {
     method: 'POST',
     headers: { 'api-key': env.AZURE_OPENAI_API_KEY_GPT54 ?? '', 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -163,7 +169,7 @@ async function readScreenForDesignReview(imageBuffer: Buffer, mimeType: string, 
       max_completion_tokens: 8000,
     }),
     signal: AbortSignal.timeout(SCREEN_READ_TIMEOUT_MS),
-  }));
+  });
   const content = data.choices?.[0]?.message?.content ?? '';
   return content !== '' && data.choices[0]?.finish_reason === 'length' ? `${content}\n\n${CUT_OFF_NOTE}` : content;
 }
@@ -217,12 +223,12 @@ export async function reviewScreensWithVision(
   try {
     const deployment = env.AZURE_OPENAI_DEPLOYMENT_SCREEN_READ ?? env.AZURE_OPENAI_DEPLOYMENT_GPT54;
     const data = await requestVision('screen-review', 'bulk', deployment,
-      () => fetch(`${env.AZURE_OPENAI_ENDPOINT_GPT54}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`, {
+      `${env.AZURE_OPENAI_ENDPOINT_GPT54}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`, {
       method: 'POST',
       headers: { 'api-key': env.AZURE_OPENAI_API_KEY_GPT54 ?? '', 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages: [{ role: 'user', content }], max_completion_tokens: 10_000 }),
       signal: AbortSignal.timeout(SCREEN_REVIEW_TIMEOUT_MS),
-    }));
+    });
     const text = data.choices[0]!.message.content;
     return data.choices[0]!.finish_reason === 'length' ? `${text}\n\n${CUT_OFF_NOTE}` : text;
   } catch (err) {

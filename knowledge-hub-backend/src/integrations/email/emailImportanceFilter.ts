@@ -11,6 +11,7 @@
 
 import { env } from '../../config/env.js';
 import { recordAiUsage, tokenUsageFrom, type TokenUsage } from '../../ai/aiUsage.js';
+import { recordAiInteraction } from '../../ai/aiLedger.js';
 import { HTTP_STATUS } from '../../config/constants.js';
 
 interface EmailMeta {
@@ -58,18 +59,20 @@ Index corresponds to the number before each email. Include ALL emails in your re
 
   const t0 = Date.now();
   let usage: TokenUsage | undefined;
+  const requestBody = {
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: `Rate these ${batch.length} emails:\n\n${emailList}` },
+    ],
+    temperature: 0,
+    max_completion_tokens: 500,
+  };
+  let reply: unknown;
   try {
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
-      body: JSON.stringify({
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Rate these ${batch.length} emails:\n\n${emailList}` },
-        ],
-        temperature: 0,
-        max_completion_tokens: 500,
-      }),
+      body: JSON.stringify(requestBody),
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!response.ok) {
@@ -83,6 +86,7 @@ Index corresponds to the number before each email. Include ALL emails in your re
       choices: Array<{ message: { content: string }; finish_reason?: string }>;
       usage?: Record<string, unknown>;
     };
+    reply = data;
     usage = tokenUsageFrom(data.usage);
     if (data.choices[0]?.finish_reason !== 'stop') throw new Error('Email classification was incomplete or refused');
     const content = data.choices[0]?.message?.content ?? '';
@@ -100,10 +104,12 @@ Index corresponds to the number before each email. Include ALL emails in your re
     }
     if (scores.some(score => score === 0)) throw new Error('Email classification omitted emails');
     recordAiUsage({ feature: 'email-importance', slot: 'light', deployment, api: 'chat', durationMs: Date.now() - t0, ok: true, ...usage });
+    recordAiInteraction({ feature: 'email-importance', deployment, api: 'chat', request: requestBody, response: reply, durationMs: Date.now() - t0 });
     return scores;
   } catch (error) {
     recordAiUsage({ feature: 'email-importance', slot: 'light', deployment, api: 'chat',
       durationMs: Date.now() - t0, ok: false, error: error instanceof Error ? error.message : String(error), ...usage });
+    recordAiInteraction({ feature: 'email-importance', deployment, api: 'chat', request: requestBody, response: reply, error, durationMs: Date.now() - t0 });
     throw error;
   }
 }

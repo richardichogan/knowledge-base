@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { recordAiDecision } from '../ai/aiLedger.js';
 import type { Pool, PoolClient } from 'pg';
 import { ConflictError as BaseConflictError, NotFoundError, ValidationError } from '../types/errors.js';
 import { object, text, JOB_LIMITS, parseJob, readyToEnable, withRunDiagnostics, type JobRun, type ManagedJob } from './contracts.js';
@@ -142,6 +143,10 @@ export async function persistRun(db: Pool, run: JobRun, lease: string): Promise<
 export async function releaseRun(db: Pool, id: string, lease: string): Promise<void> {
   await db.query('UPDATE managed_job_runs SET lease=NULL,lease_until=NULL WHERE id=$1 AND lease=$2', [id, lease]);
 }
+/** The agent whose output a managed job run delivers, for the learning ledger. */
+export function jobAgent(kind: string): string {
+  return kind === 'weekly-microsoft' ? 'weekly-job-editorial' : 'scheduled-prompt';
+}
 export async function decideRun(db: Pool, id: string, approve: boolean, actor: string): Promise<void> {
   const c = await db.connect();
   try {
@@ -157,6 +162,9 @@ export async function decideRun(db: Pool, id: string, approve: boolean, actor: s
     if (!r.rowCount) throw new ConflictError('This decision was already handled.');
     await audit(c, run.jobId, id, actor, approve ? 'approved' : 'rejected', { revision: run.revision });
     await c.query('COMMIT');
+    recordAiDecision(db, { kind: approve ? 'approve' : 'reject', agent: jobAgent(run.definition.kind), targetType: 'job-run', targetId: id,
+      aiContent: typeof run.artifacts.markdown === 'string' ? run.artifacts.markdown : null,
+      details: { jobId: run.jobId, jobName: run.definition.name, jobKind: run.definition.kind, actor } });
   } catch (error) { await c.query('ROLLBACK'); throw error; } finally { c.release(); }
 }
 export async function retryRun(db: Pool, id: string, actor: string): Promise<void> {

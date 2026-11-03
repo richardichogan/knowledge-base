@@ -1,4 +1,5 @@
 import { Router, type Request, type RequestHandler } from 'express';
+import { recordAiDecision } from '../ai/aiLedger.js';
 import type { Pool } from 'pg';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { object } from '../jobs/contracts.js';
@@ -25,7 +26,10 @@ export function createPodcastCampaignRouter(getDb: () => Pool): Router {
   });
   router.put('/:id/posts/:postId', route(req => {
     const body = object(req.body);
-    return saveRecordingTeaserCopy(getDb(), uuid(req.params.id), body.revision, uuid(req.params.postId), body.copy, actor(req));
+    const saved = saveRecordingTeaserCopy(getDb(), uuid(req.params.id), body.revision, uuid(req.params.postId), body.copy, actor(req));
+    void saved.then(() => recordAiDecision(getDb(), { kind: 'edit', agent: 'podcast-copy-fitting', targetType: 'podcast-post', targetId: uuid(req.params.postId),
+      finalContent: typeof body.copy === 'string' ? body.copy : JSON.stringify(body.copy), details: { campaignId: uuid(req.params.id) } }), () => undefined);
+    return saved;
   }));
   router.put('/:id/posts/:postId/image', route(req => {
     const body = object(req.body);
@@ -45,7 +49,10 @@ export function createPodcastCampaignRouter(getDb: () => Pool): Router {
   }));
   router.post('/:id/decision', route(req => {
     const body = object(req.body);
-    return decidePodcastCampaign(getDb(), uuid(req.params.id), body.revision, body.action, actor(req));
+    const decided = decidePodcastCampaign(getDb(), uuid(req.params.id), body.revision, body.action, actor(req));
+    void decided.then(() => recordAiDecision(getDb(), { kind: String(body.action), agent: 'podcast-copy-fitting', targetType: 'podcast-campaign',
+      targetId: uuid(req.params.id) }), () => undefined);
+    return decided;
   }));
   router.post('/:id/review', route(req => {
     const body = object(req.body);

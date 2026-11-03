@@ -4,6 +4,7 @@
  * tool; the user can edit them (a new version Athena then builds on).
  */
 import type { Pool, PoolClient } from 'pg';
+import { currentAgent, recordAiAuthored, recordUserEdit } from './aiLedger.js';
 import { getFoundryClient } from './foundryClient.js';
 import { validateImagineDemoBrief } from './imagineDemoBriefSkill.js';
 
@@ -114,6 +115,8 @@ export async function saveOutputVersion(
       [id, content, input.author, input.note?.trim() || null],
     );
     if (!transactionClient) await client.query('COMMIT');
+    if (input.author === 'athena') recordAiAuthored(db, 'chat-output', id, content, currentAgent() ?? 'athena');
+    else recordUserEdit(db, 'chat-output', id, content);
     return { id, version: next.rows[0]!.version, title };
   } catch (err) {
     if (!transactionClient) await client.query('ROLLBACK');

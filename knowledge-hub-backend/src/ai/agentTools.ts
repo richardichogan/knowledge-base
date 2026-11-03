@@ -36,12 +36,12 @@ export function agentToolDefinitions(): LlmToolDefinition[] {
           type: 'object',
           properties: {
             specialist: { type: 'string', enum: specialists.map((s) => s.id) },
-            subjectId: { type: 'string', description: 'ID of what to work on. Omit to use the open Design/diagram. For a new Daedalus diagram use new:<current-chat-session-UUID>.' },
+            subjectId: { type: 'string', description: 'ID of what to work on. Omit to use the open Design/diagram. For a new Ariadne diagram use new:<current-chat-session-UUID>.' },
             instruction: { type: 'string', description: 'Optional direction for the specialist, e.g. what the Blueprint should emphasise.' },
             length: { type: 'string', enum: ['short', 'long'], description: 'For the blog writer: short is Quick take, long is Article. Ask which before starting.' },
-            revision: { type: 'integer', minimum: 0, description: 'Exact current diagram revision from read_diagram for Daedalus, or episode revision from read_podcast_script. Never guess or reuse an earlier revision.' },
-            referenceDiagramIds: { type: 'array', maxItems: 3, items: { type: 'string' }, description: 'Daedalus: selected saved diagrams to use as layout examples, not business content. Otherwise suitable permitted examples are retrieved.' },
-            screenIds: { type: 'array', maxItems: 2, items: { type: 'string' }, description: 'Daedalus: reference screenshot IDs from this chat’s Screens context. The specialist receives the actual images.' },
+            revision: { type: 'integer', minimum: 0, description: 'Exact current diagram revision from read_diagram for Ariadne, or episode revision from read_podcast_script. Never guess or reuse an earlier revision.' },
+            referenceDiagramIds: { type: 'array', maxItems: 3, items: { type: 'string' }, description: 'Ariadne: selected saved diagrams to use as layout examples, not business content. Otherwise suitable permitted examples are retrieved.' },
+            screenIds: { type: 'array', maxItems: 2, items: { type: 'string' }, description: 'Ariadne: reference screenshot IDs from this chat’s Screens context. The specialist receives the actual images.' },
             confirmed: { type: 'boolean', description: 'He agreed to a plan that replaces existing work.' },
           },
           required: ['specialist'],
@@ -52,7 +52,7 @@ export function agentToolDefinitions(): LlmToolDefinition[] {
       type: 'function',
       function: {
         name: 'apply_diagram_candidate',
-        description: 'Apply a completed Daedalus candidate to its original diagram only after the user explicitly approves that replacement. Read both current revisions first. If the original changed since generation, generate a fresh candidate instead. Keeps a recovery snapshot and the separate candidate.',
+        description: 'Apply a completed Ariadne candidate to its original diagram only after the user explicitly approves that replacement. Read both current revisions first. If the original changed since generation, generate a fresh candidate instead. Keeps a recovery snapshot and the separate candidate.',
         parameters: {
           type: 'object', additionalProperties: false,
           properties: {

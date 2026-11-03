@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { recordPublishingDraft } from '../ai/aiLedger.js';
 import type { Pool, PoolClient } from 'pg';
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
 import { cleanUrl } from '../integrations/discovery/feedReader.js';
@@ -140,13 +141,16 @@ export async function intake(db: Pool): Promise<void> {
 }
 export async function saveDraft(db: Pool, topicId: string, destination: Draft['destination'], variant: Draft['variant'],
   content: Record<string, unknown>, expiresAt: string, distinct: boolean): Promise<void> {
+  let createdId: string | undefined;
   await transaction(db, async c => {
     const draft = await c.query<{ id: string; version: number }>(`INSERT INTO publishing_drafts(topic_id,destination,variant,content,expires_at,distinct_argument)
       VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(topic_id,destination) DO NOTHING RETURNING id,version`,
     [topicId, destination, variant, JSON.stringify(content), expiresAt, distinct]);
     const d = draft.rows[0];
     if (d) await c.query('INSERT INTO publishing_versions(draft_id,version,content) VALUES($1,$2,$3)', [d.id, d.version, JSON.stringify(content)]);
+    createdId = d?.id;
   });
+  if (createdId !== undefined) recordPublishingDraft(db, createdId, content, true);
 }
 function assertApprovable(d: Draft): void {
   const complete = (d.destination === 'blog' ? ['title', 'summary', 'content'] : ['copy'])

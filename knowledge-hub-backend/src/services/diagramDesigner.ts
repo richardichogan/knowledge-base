@@ -111,19 +111,19 @@ export const DIAGRAM_PLAN_TOOL: LlmToolDefinition = {
 };
 
 function object(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ValidationError('Daedalus returned an invalid object.');
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ValidationError('Ariadne returned an invalid object.');
   return value as Record<string, unknown>;
 }
 function text(value: unknown, max = MAX_PLAN_TEXT): string {
-  if (typeof value !== 'string' || value.length > max) throw new ValidationError('Daedalus returned missing or oversized text.');
+  if (typeof value !== 'string' || value.length > max) throw new ValidationError('Ariadne returned missing or oversized text.');
   return value;
 }
 function list(value: unknown, max: number): unknown[] {
-  if (!Array.isArray(value) || value.length > max) throw new ValidationError('Daedalus returned an invalid or oversized list.');
+  if (!Array.isArray(value) || value.length > max) throw new ValidationError('Ariadne returned an invalid or oversized list.');
   return value;
 }
 function choice<T extends string>(value: unknown, choices: readonly T[]): T {
-  if (typeof value !== 'string' || !choices.includes(value as T)) throw new ValidationError('Daedalus returned an unsupported shape, colour or connector role.');
+  if (typeof value !== 'string' || !choices.includes(value as T)) throw new ValidationError('Ariadne returned an unsupported shape, colour or connector role.');
   return value as T;
 }
 
@@ -133,7 +133,7 @@ export function parseDiagramPlan(value: unknown): DiagramPlan {
     const n = object(item);
     const position = (name: string): number => {
       const v = n[name];
-      if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > MAX_GRID) throw new ValidationError('Daedalus returned an invalid grid position.');
+      if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > MAX_GRID) throw new ValidationError('Ariadne returned an invalid grid position.');
       return v;
     };
     return {
@@ -144,23 +144,23 @@ export function parseDiagramPlan(value: unknown): DiagramPlan {
     };
   });
   if (!nodes.length || nodes.some(n => !n.key.trim() || !n.label.trim()) || new Set(nodes.map(n => n.key)).size !== nodes.length) {
-    throw new ValidationError('Daedalus must supply nonempty shapes with unique keys.');
+    throw new ValidationError('Ariadne must supply nonempty shapes with unique keys.');
   }
   const byKey = new Map(nodes.map(n => [n.key, n]));
   const slots = new Set<string>();
   const originals = new Set<string>();
   for (const n of nodes) {
     const slot = JSON.stringify([n.parent, n.row, n.column]);
-    if (slots.has(slot)) throw new ValidationError(`Daedalus put two sibling shapes in the same grid cell: ${n.label}.`);
+    if (slots.has(slot)) throw new ValidationError(`Ariadne put two sibling shapes in the same grid cell: ${n.label}.`);
     slots.add(slot);
-    if (n.originalId && originals.has(n.originalId)) throw new ValidationError('Daedalus reused an original shape more than once.');
+    if (n.originalId && originals.has(n.originalId)) throw new ValidationError('Ariadne reused an original shape more than once.');
     if (n.originalId) originals.add(n.originalId);
     const seen = new Set([n.key]);
     let parent = n.parent;
     while (parent !== null) {
       const p = byKey.get(parent);
       if (!p || !['container', 'swimlane'].includes(p.kind) || seen.has(parent) || seen.size > MAX_DEPTH) {
-        throw new ValidationError('Daedalus returned a missing, cyclic or excessively nested container.');
+        throw new ValidationError('Ariadne returned a missing, cyclic or excessively nested container.');
       }
       seen.add(parent);
       parent = p.parent;
@@ -170,11 +170,11 @@ export function parseDiagramPlan(value: unknown): DiagramPlan {
     const e = object(item);
     const from = text(e['from']);
     const to = text(e['to']);
-    if (!byKey.has(from) || !byKey.has(to)) throw new ValidationError('Daedalus returned a connector to a missing shape.');
+    if (!byKey.has(from) || !byKey.has(to)) throw new ValidationError('Ariadne returned a connector to a missing shape.');
     return { from, to, label: text(e['label'], MAX_EDGE_LABEL), role: choice(e['role'], ['primary', 'supporting', 'feedback'] as const) };
   });
   const title = text(raw['title'], MAX_TITLE).trim();
-  if (!title) throw new ValidationError('Daedalus must supply a diagram title.');
+  if (!title) throw new ValidationError('Ariadne must supply a diagram title.');
   return {
     title, description: text(raw['description']),
     nodes, edges,
@@ -230,7 +230,7 @@ function route(a: DiagramPoint, b: DiagramPoint, obstacles: Rect[]): DiagramPoin
       queue.push(next);
     }
   }
-  if (!previous.has(end)) throw new ValidationError('Daedalus could not route a connector without crossing a shape. More separation is needed.');
+  if (!previous.has(end)) throw new ValidationError('Ariadne could not route a connector without crossing a shape. More separation is needed.');
   const path: DiagramPoint[] = [];
   for (let at = end; at !== -1; at = previous.get(at)!) path.unshift(point(at));
   return path.filter((p, i) => i === 0 || i === path.length - 1
@@ -243,8 +243,8 @@ export function buildDesignedDiagram(plan: DiagramPlan, original = emptyDiagram(
   const ids = new Set<string>();
   for (const spec of plan.nodes) {
     const existing = spec.originalId === null ? undefined : original.nodes.find(n => n.id === spec.originalId);
-    if (spec.originalId && !existing) throw new ValidationError('Daedalus referenced a shape outside the source diagram.');
-    if (spec.kind === 'image' && existing?.kind !== 'image') throw new ValidationError('Daedalus can preserve source images, not invent new image assets.');
+    if (spec.originalId && !existing) throw new ValidationError('Ariadne referenced a shape outside the source diagram.');
+    if (spec.kind === 'image' && existing?.kind !== 'image') throw new ValidationError('Ariadne can preserve source images, not invent new image assets.');
     const colour = COLOURS[spec.colour];
     const longest = Math.max(...spec.label.split('\n').map(line => line.length));
     const width = Math.min(MAX_TEXT_WIDTH, Math.max(MIN_WIDTH, longest * CHAR_WIDTH + PAD * BOTH_SIDES));

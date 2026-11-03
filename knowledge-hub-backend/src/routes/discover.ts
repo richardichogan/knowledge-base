@@ -1,4 +1,5 @@
 import { CONTENT_FORMATS, formatFitSql, isContentFormat, type ContentFormat, type FormatFit } from '../integrations/cms/formatFit.js';
+import { recordAiDecision } from '../ai/aiLedger.js';
 import { Router } from 'express';
 import { positiveInteger } from '../utils/queryValidation.js';
 import type { Request, Response, NextFunction } from 'express';
@@ -600,6 +601,8 @@ discoverRouter.put('/:id/feedback', (req: Request, res: Response, next: NextFunc
         res.status(HTTP_STATUS.NOT_FOUND).json({ success: false, error: { code: 'NOT_FOUND', message: 'Item not found' } });
         return;
       }
+      recordAiDecision(getDb(), { kind: vote === null ? 'feedback-cleared' : vote === 'up' ? 'thumbs-up' : 'thumbs-down', agent: 'discover-picks',
+        targetType: 'discovered-article', targetId: String(req.params['id']), details: { workflowState: row.workflow_state } });
       res.json({ success: true, data: { feedbackVote: vote, workflowState: row.workflow_state } });
     } catch (err) {
       next(err);

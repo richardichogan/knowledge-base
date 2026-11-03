@@ -1,4 +1,5 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
+import { recordAiDecision } from '../ai/aiLedger.js';
 import { getDb } from '../db/db.js';
 import { KnowledgeHubError, ValidationError } from '../types/errors.js';
 import { assetDesigns, attachAsset, detachAsset, getDesign, listDesigns, requiredText, searchAssets, selectDesignAsset, setSpecificationType } from '../designs/designStore.js';
@@ -58,7 +59,11 @@ designsRouter.post('/:id/readiness/repairs', wrap(async req => pageReadiness(awa
 designsRouter.post('/:id/readiness/repairs/:proposalId/resolve', wrap(req => {
   const input = body(req);
   if (typeof input['accept'] !== 'boolean') throw new ValidationError('Choose Apply or Discard.');
-  return resolveReadinessRepair(getDb(), id(req), requiredText(req.params['proposalId'], 'Repair ID', MAX_ID_LENGTH), input['accept']);
+  const repairId = requiredText(req.params['proposalId'], 'Repair ID', MAX_ID_LENGTH);
+  const resolved = resolveReadinessRepair(getDb(), id(req), repairId, input['accept']);
+  void resolved.then(() => recordAiDecision(getDb(), { kind: input['accept'] === true ? 'accept' : 'discard', agent: 'design-readiness-repair',
+    targetType: 'design-repair', targetId: repairId, details: { designId: id(req) } }), () => undefined);
+  return resolved;
 }));
 // One Blueprint run per design and instruction: other tabs that ask while it runs join it instead of paying for a duplicate.
 type ArtifactRun = { result: ReturnType<typeof generateArtifact>; progress: string[]; listeners: Set<(message: string) => void> };
@@ -123,6 +128,8 @@ designsRouter.post('/:id/proposals/:proposalId/resolve', wrap(async req => {
   const input = body(req);
   if (typeof input['accept'] !== 'boolean') throw new ValidationError('Choose Accept or Discard.');
   const result = await resolveProposal(getDb(), id(req), requiredText(req.params['proposalId'], 'Proposal ID', MAX_ID_LENGTH), input['accept']);
+  recordAiDecision(getDb(), { kind: input['accept'] === true ? 'accept' : 'discard', agent: 'design-feedback', targetType: 'design-proposal',
+    targetId: String(req.params['proposalId']), details: { designId: id(req) } });
   await reindex(result.noteIds);
   return result;
 }));

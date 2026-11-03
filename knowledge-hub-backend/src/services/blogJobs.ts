@@ -103,7 +103,7 @@ export async function evaluateBlogRecheck(
   if (!hasArticleContent(draft)) throw new ValidationError('The blog draft must contain article text.');
   const stages = [...(checkpoint.stages ?? [])];
   const draftSignature = signature(post);
-  const client = getFoundryClient('blog-specialist');
+  const client = getFoundryClient('blog-verification');
   const paragraph = checkpoint.originalDraft
     ? await recheckParagraphUnits(checkpoint.originalDraft, draft, checkpoint.evidence, stages, client, checkpoint.voiceSamples, draftSignature,
       async result => {

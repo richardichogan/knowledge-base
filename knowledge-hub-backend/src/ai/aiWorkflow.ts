@@ -5,13 +5,13 @@ import { env } from '../config/env.js';
 
 type Outcome = 'ready' | 'review-blocked' | 'published' | 'saved-to-blog';
 type Purpose = 'user' | 'scheduled' | 'diagnostic';
-interface WorkflowContext { id: string; stage: string; purpose: Purpose; result: { outcome: Outcome | null } }
+interface WorkflowContext { id: string; feature: string; stage: string; purpose: Purpose; result: { outcome: Outcome | null } }
 const context = new AsyncLocalStorage<WorkflowContext>();
 const MAX_STAGE_CHARS = 120;
 
-export function aiWorkflowAttribution(): { workflowRunId: string; stage: string; purpose: Purpose } | undefined {
+export function aiWorkflowAttribution(): { workflowRunId: string; feature: string; stage: string; purpose: Purpose } | undefined {
   const current = context.getStore();
-  return current ? { workflowRunId: current.id, stage: current.stage, purpose: current.purpose } : undefined;
+  return current ? { workflowRunId: current.id, feature: current.feature, stage: current.stage, purpose: current.purpose } : undefined;
 }
 
 export function setAiWorkflowStage(stage: string): void {
@@ -36,7 +36,7 @@ export async function withAiWorkflow<T>(
 ): Promise<T> {
   // Direct entry points also serve specialists; keep all nested calls in the same attempt.
   if (context.getStore() && !options.independent) return withAiStage(options.feature, run);
-  const current: WorkflowContext = { id: randomUUID(), stage: options.feature, purpose: options.purpose ?? 'user', result: { outcome: null } };
+  const current: WorkflowContext = { id: randomUUID(), feature: options.feature, stage: options.feature, purpose: options.purpose ?? 'user', result: { outcome: null } };
   try {
     await db.query(`INSERT INTO ai_workflow_runs(id,environment,feature,purpose,job_id,attempt,status)
     VALUES($1,$2,$3,$4,$5,$6,'running')`,

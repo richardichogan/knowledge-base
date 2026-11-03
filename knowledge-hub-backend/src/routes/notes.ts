@@ -24,6 +24,7 @@ import { kickIndexingWork } from '../services/knowledge/indexingWorkRunner.js';
 import { HTTP_STATUS, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, NOTE_TITLE_MAX_LENGTH, NOTE_SUMMARY_MAX_LENGTH } from '../config/constants.js';
 import type { ApiSuccess, PaginatedList, Note, CreateNoteInput, ContentItem } from '../types/index.js';
 import { ValidationError, NotFoundError } from '../types/index.js';
+import { recordAiAuthoredNote, recordUserNoteEdit } from '../ai/aiLedger.js';
 import { writeNote, listNoteVersions, getNoteVersion, parseWriting, writingFingerprint, restoreArchivedNote } from '../services/noteVersionService.js';
 import { DESIGN_NOTE_MEMBERSHIPS_SQL } from '../designs/designStore.js';
 import { checkPublication, listRepositoryFolders, listWritableRepositories, publicationRow, publicationView, publishNote, remoteNote, scheduleGitHubPublish, startPublication } from '../services/noteGitHubService.js';
@@ -738,6 +739,7 @@ export async function createNoteRecord(
     console.error('[notes] Failed to sync new note to timeline:', e);
   });
   queueAutoTag(db, 'note', note.id); // tagged once it has settled
+  recordAiAuthoredNote(db, note.id, note.content);
   // Upsert graph node so the note appears in the connections graph immediately (fire-and-forget)
   void (async (): Promise<void> => {
     try {
@@ -917,6 +919,7 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
 
       const body: ApiSuccess<Note> = { success: true, data: note };
       res.status(HTTP_STATUS.OK).json(body);
+      recordUserNoteEdit(db, note.id, note.content);
       // Re-index once edits settle, not on every autosave.
       scheduleNoteIndexing(db, note);
     } catch (err) {

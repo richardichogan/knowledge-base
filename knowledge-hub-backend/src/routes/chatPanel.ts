@@ -31,6 +31,7 @@
  * POST   /export/xlsx                         { filename?, sheets: [{ name, rows }] } → .xlsx download
  */
 import express, { Router } from 'express';
+import { recordAiDecision } from '../ai/aiLedger.js';
 import type { Request, Response, NextFunction } from 'express';
 import { getDb } from '../db/db.js';
 import { listOutputs, getOutput, saveOutputVersion, renameOutput, deleteOutput } from '../ai/chatOutputs.js';
@@ -154,6 +155,8 @@ router.patch('/decisions/:decisionId', route(async (req, res) => {
     status: isStatus(status) ? status : undefined,
     text: typeof text === 'string' ? text : undefined,
   });
+  recordAiDecision(getDb(), { kind: typeof text === 'string' ? 'edit' : `mark-${String(status)}`, agent: 'athena', targetType: 'chat-decision',
+    targetId: param(req, 'decisionId'), finalContent: typeof text === 'string' ? text : null });
   ok(res, { updated: true });
 }));
 
@@ -292,6 +295,8 @@ router.post('/alternates/:alternateId/use', route(async (req, res) => {
   );
   await replaceMessageContent(db, alt.message_id, alt.content);
   await db.query(`DELETE FROM chat_alternates WHERE id = $1`, [param(req, 'alternateId')]);
+  recordAiDecision(db, { kind: 'prefer-alternate', agent: 'athena', targetType: 'chat-message', targetId: alt.message_id,
+    sessionId: alt.session_id, aiContent: alt.current, finalContent: alt.content });
   ok(res, { messageId: alt.message_id, content: alt.content });
 }));
 
@@ -304,6 +309,8 @@ router.get('/session/:sessionId/exclusions', route(async (req, res) => {
 router.post('/session/:sessionId/exclusions', route(async (req, res) => {
   const { id, kind, title, url } = req.body as { id?: unknown; kind?: unknown; title?: unknown; url?: unknown };
   if (typeof id !== 'string' || id === '') throw new ValidationError('id required', { id: 'required' });
+  recordAiDecision(getDb(), { kind: 'exclude-source', agent: 'athena', targetType: 'chat-session', targetId: param(req, 'sessionId'),
+    sessionId: param(req, 'sessionId'), details: { sourceId: id, kind, title, url } });
   ok(res, await excludeSource(getDb(), param(req, 'sessionId'), {
     id, kind: typeof kind === 'string' ? kind : 'item', title: typeof title === 'string' ? title : 'Untitled', url: typeof url === 'string' ? url : null,
   }));

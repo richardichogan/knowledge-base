@@ -1,4 +1,5 @@
 import { runWeeklyMemoryReview } from '../ai/memorySuggestions.js';
+import { runAgentLessonReview } from '../ai/agentLessons.js';
 import { runDueWatchlists } from '../services/discoverWatchlists.js';
 import { MS_PER_MINUTE, MS_PER_HOUR, INITIAL_SYNC_DELAY_MS } from '../config/constants.js';
 import { getDb } from '../db/db.js';
@@ -145,6 +146,10 @@ export function startSyncScheduler(): void {
         void runClaimedJob(db, 'memory-review', reviewWeek, () => runWeeklyMemoryReview(db))
           .then((ran) => { console.warn(`[Scheduler] Weekly memory review claimed: ${ran.toString()}`); })
           .catch((err: unknown) => { console.error('[Scheduler] Weekly memory review failed:', err instanceof Error ? err.message : String(err)); });
+        // Per-agent lessons from recorded approvals, rejections, amendments and edits.
+        void runClaimedJob(db, 'agent-lesson-review', reviewWeek, () => runAgentLessonReview(db))
+          .then((ran) => { console.warn(`[Scheduler] Weekly agent lesson review claimed: ${ran.toString()}`); })
+          .catch((err: unknown) => { console.error('[Scheduler] Weekly agent lesson review failed:', err instanceof Error ? err.message : String(err)); });
       }
 
       // Connection-only pass: never starts source sync or search indexing.
