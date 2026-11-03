@@ -34,7 +34,8 @@ import type { DiagramType } from '../features/diagram/diagramTypes';
 import { diagramLocation, readThinkLocation } from './thinkLocation';
 import '../features/diagram/diagramIntegration.scss';
 import { DataNotice } from '../components/DataNotice';
-import { canvasHierarchy } from '../features/canvas/canvasHierarchy';
+import { canvasGroupsByProject } from '../features/canvas/canvasGroups';
+import { useProjects } from '../hooks/useProjects';
 import { PageHeader } from '../components/PageHeader';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useDesktopCommand } from '../services/desktopCommands';
@@ -203,6 +204,9 @@ export const NotesPage: React.FC = () => {
     enabled: mode === 'canvas',
     staleTime: 30_000,
   });
+  const { data: projects = [] } = useProjects();
+  const projectNames = new Map(projects.map((project) => [project.id, project.name]));
+  const canvasGroups = canvasGroupsByProject(canvases, projectNames);
 
   useEffect(() => {
     const location = readThinkLocation(searchParams);
@@ -829,47 +833,52 @@ export const NotesPage: React.FC = () => {
               ) : (
                 <div className="notes-list">
                   {canvasListError && <p className="mm-canvas-error" role="alert">Could not load canvases. <button type="button" onClick={() => { void queryClient.invalidateQueries({ queryKey: ['canvases'] }); }}>Retry</button></p>}
-                  {canvasHierarchy(canvases).map(({ canvas: c, depth, parentTitle }) => (
-                    <div
-                      key={c.id}
-                      className={`notes-list-item${depth > 0 ? ' notes-list-item--nested' : ''}${selectedCanvasId === c.id ? ' notes-list-item--active' : ''}`}
-                      style={{ '--canvas-depth': Math.min(depth, 4) } as React.CSSProperties}
-                      aria-label={parentTitle === null ? c.title : `${c.title}, detail diagram under ${parentTitle}`}
-                      role="button"
-                      tabIndex={0}
-                      data-ctx-title={c.title}
-                      data-ctx-type="note"
-                      onClick={() => { setSelectedCanvasId(c.id); setMobilePane('editor'); }}
-                      onKeyDown={(e) => {
-                        if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
-                        e.preventDefault(); setSelectedCanvasId(c.id); setMobilePane('editor');
-                      }}
-                    >
-                      <button
-                        className="notes-list-item__delete"
-                        title="Delete canvas"
-                        aria-label={`Delete canvas ${c.title}`}
-                        onClick={(e) => { e.stopPropagation(); void handleDeleteCanvas(c.id, c.title); }}
-                      >
-                        <TrashCan size={14} />
-                      </button>
-                      <p className="notes-list-item-title">{c.title}</p>
-                      {parentTitle !== null && <p className="notes-list-item-preview mm-list-parent" title={parentTitle}>
-                        Detail of {c.parentShapeLabel?.trim() || parentTitle}
-                      </p>}
-                      {c.linkedNotes.length > 0 && (
-                        <p className="notes-list-item-preview mm-list-notes">↳ {c.linkedNotes.map((n) => n.title).join(', ')}</p>
-                      )}
-                      <div className="notes-list-item-bottom">
-                        <span className="mm-canvas-type">{c.canvasType === 'diagram' ? 'Diagram' : 'Brainstorm'}</span>
-                        <span className="notes-list-item-date">
-                          {new Date(c.updatedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                        </span>
-                      </div>
+                  {canvasGroups.map((group) => (
+                    <div key={group.key} className="notes-group">
+                      <p className="notes-group__label">{group.label}</p>
+                      {group.canvases.map((c) => (
+                        <div
+                          key={c.id}
+                          className={`notes-list-item${selectedCanvasId === c.id ? ' notes-list-item--active' : ''}`}
+                          aria-label={c.title}
+                          role="button"
+                          tabIndex={0}
+                          data-ctx-title={c.title}
+                          data-ctx-type="note"
+                          onClick={() => { setSelectedCanvasId(c.id); setMobilePane('editor'); }}
+                          onKeyDown={(e) => {
+                            if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
+                            e.preventDefault(); setSelectedCanvasId(c.id); setMobilePane('editor');
+                          }}
+                        >
+                          <button
+                            className="notes-list-item__delete"
+                            title="Delete canvas"
+                            aria-label={`Delete canvas ${c.title}`}
+                            onClick={(e) => { e.stopPropagation(); void handleDeleteCanvas(c.id, c.title); }}
+                          >
+                            <TrashCan size={14} />
+                          </button>
+                          <p className="notes-list-item-title">{c.title}</p>
+                          {c.linkedNotes.length > 0 && (
+                            <p className="notes-list-item-preview mm-list-notes">↳ {c.linkedNotes.map((n) => n.title).join(', ')}</p>
+                          )}
+                          <div className="notes-list-item-bottom">
+                            <span className="mm-canvas-type">{c.canvasType === 'diagram' ? 'Diagram' : 'Brainstorm'}</span>
+                            <span className="notes-list-item-date">
+                              {new Date(c.updatedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   ))}
-                  {canvases.length === 0 && (
-                    <p className="notes-list-empty">No canvases yet. Start one here, or use “Canvas” on any note.</p>
+                  {canvasGroups.length === 0 && (
+                    <p className="notes-list-empty">
+                      {canvases.length === 0
+                        ? 'No canvases yet. Start one here, or use “Canvas” on any note.'
+                        : 'No top-level canvases yet. Subdiagrams are accessed from their parent canvas.'}
+                    </p>
                   )}
                 </div>
               )}

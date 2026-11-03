@@ -2,6 +2,18 @@
 
 **Status:** Validated
 
+**Section 7: Think canvas project grouping release validation (2026-11-03):**
+- Frontend-only release: Think Canvas groups top-level canvases by project,
+  alphabetizes project groups, shows unassigned canvases under General, and
+  omits subdiagrams as standalone rows. No backend or infrastructure changes.
+- `git diff --check` passed. Frontend `npm run typecheck` and `npm run build`
+  passed; focused canvas grouping tests passed 2/2. Backend `npx tsc --noEmit`
+  passed. Browser-only navigation coverage was updated but not run.
+- Azure CLI authentication confirmed `Alliance Tenant Reporting`
+  (c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28). Existing resource targets and
+  frontend-only deployment path are unchanged; no Bicep, provisioning,
+  Container App image, migration, identity, secret or dependency changes.
+
 **Section 7: Metis Daily Insights import and Discover dialog release validation (2026-11-03):**
 - Release scope includes asynchronous Metis processing for M365 Daily Insights,
   additive staging migration 139, one-time Discover Socials URL-trigger cleanup,

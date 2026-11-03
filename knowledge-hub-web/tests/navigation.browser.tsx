@@ -644,18 +644,13 @@ export async function runNavigationChecks(): Promise<string[]> {
     modeButton!.click();
     await waitFor(() => modeButton!.getAttribute('aria-selected') === 'true');
     if (mode === 'Canvas') {
-      await waitFor(() => document.querySelectorAll('.notes-list-item').length === 2);
+      await waitFor(() => document.querySelectorAll('.notes-list-item').length === 1);
       const rows = [...document.querySelectorAll<HTMLElement>('.notes-list-item')];
       check(rows[0]!.textContent!.includes('Imagine Agentic Build & Run Model')
-        && rows[1]!.textContent!.includes('Observability - detail'), 'Parent precedes recently edited detail diagram');
-      check(rows[1]!.classList.contains('notes-list-item--nested')
-        && parseFloat(getComputedStyle(rows[1]!).paddingLeft) > parseFloat(getComputedStyle(rows[0]!).paddingLeft),
-      'Detail diagram is visually indented beneath its parent');
-      check(rows[1]!.querySelector('.mm-list-parent')!.textContent!.includes('Observability'),
-        'Detail row identifies its owning shape');
-      check(rows[1]!.getAttribute('aria-label')!.includes('under Imagine Agentic Build & Run Model'),
-        'Parent relationship is accessible');
-      check(rows[1]!.scrollWidth <= rows[1]!.clientWidth, 'Nested row fits the narrow canvas list');
+        && !rows[0]!.textContent!.includes('Observability - detail'),
+      'Canvas list shows the parent but omits its subdiagram');
+      check(document.querySelector('.notes-group__label')?.textContent === 'General',
+        'Canvases without a project are grouped under General');
       const recycle = document.querySelector<HTMLButtonElement>('.notes-recycle-launch')!;
       check(recycle !== null && (mobile ? recycle.textContent?.trim() === 'Recycle bin' : true), 'Canvas recycle bin launcher is available');
     }

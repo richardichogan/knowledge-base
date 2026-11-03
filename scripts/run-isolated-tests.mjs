@@ -48,7 +48,7 @@ const tests = frontend ? [
   '../knowledge-hub-web/tests/diagramMural.test.ts',
   '../knowledge-hub-web/tests/diagramLineJumps.test.ts',
   '../knowledge-hub-web/tests/diagramAiFlow.test.ts',
-  '../knowledge-hub-web/tests/canvasHierarchy.test.ts',
+  '../knowledge-hub-web/tests/canvasGroups.test.ts',
   '../knowledge-hub-web/tests/note-filename.test.ts',
   '../knowledge-hub-web/tests/planInsights.test.ts',
   '../knowledge-hub-web/tests/syncPolling.test.ts',
