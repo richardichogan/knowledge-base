@@ -26,8 +26,8 @@ after(closeDb);
 
 function usage(t: TestContext): unknown[][] {
   const rows: unknown[][] = [];
-  t.mock.method(db, 'query', async (_sql: string, values: unknown[]) => {
-    rows.push(values);
+  t.mock.method(db, 'query', async (sql: string, values: unknown[]) => {
+    if (sql.includes('INSERT INTO ai_usage_log')) rows.push(values);
     return { rows: [], rowCount: 0 };
   });
   return rows;

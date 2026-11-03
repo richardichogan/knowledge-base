@@ -22,6 +22,8 @@ import { AiError, ConflictError, NotFoundError, ValidationError } from '../types
 import { taskAssistanceSignature as signature } from './taskAgentActivity.js';
 import { latestTaskDirection, parseTaskAssistanceReview, requireCurrentTaskDirection, requireTaskAssistanceReady, taskAssistanceContext } from './taskAssistanceContract.js';
 
+const JSON_INDENT = 2;
+
 const MAX_DIRECTION = 3000;
 const MAX_PROPOSALS = 6;
 const RESEARCH_ROUNDS = 16;
@@ -387,7 +389,7 @@ export async function approveTaskAssistance(db: Pool, taskId: string, ownerId: s
   await requireCurrentTaskDirection(db, taskId, ownerId, row.direction);
   await db.query('UPDATE task_assistance SET approved_at=COALESCE(approved_at,now()) WHERE id=$1', [id]);
   recordAiDecision(db, { kind: 'approve', agent: 'task-assistance-assessment', targetType: 'task', targetId: taskId,
-    aiContent: JSON.stringify(proposal, null, 2), details: { proposalId: id, capability: proposal.kind } });
+    aiContent: JSON.stringify(proposal, null, JSON_INDENT), details: { proposalId: id, capability: proposal.kind } });
   return handOff(db, { specialist: proposal.kind === 'research' ? 'task-researcher' : proposal.kind === 'email' ? 'task-email-drafter' : 'task-preparation-assistant',
     subjectId: taskId, input: { proposalId: id }, requestedBy: 'app', confirmed: true });
 }
