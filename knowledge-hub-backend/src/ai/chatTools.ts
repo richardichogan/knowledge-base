@@ -77,6 +77,8 @@ import { searchPastChats, readPastChat, PAST_CHAT_SEARCH_DEFAULT_LIMIT, PAST_CHA
 import { prepareAutomaticTaskAssistance } from '../work/taskAssistanceQueue.js';
 import { TRACE_TOOLS, TRACE_TOOL_NAMES, executeTraceTool } from './traceTools.js';
 import { HEALTH_TOOL, executeHealthTool } from './healthTools.js';
+import { BUILD_TOOL_NAMES, executeBuildTool, type BuildTurnState } from './buildTools.js';
+import { USE_CASE_TOOL_NAMES, executeUseCaseTool, type UseCaseTurnState } from './useCaseTools.js';
 /** Cap on how much note text (including image vision analysis) we hand to the model per result. */
 const NOTE_CONTENT_MAX_CHARS = 6000;
 const DIAGRAM_SEARCH_PREVIEW_CHARS = 1000;
@@ -909,6 +911,8 @@ export async function executeToolCall(
     sessionId?: string | undefined; noteId?: string | undefined; designOwner?: string | undefined; designState?: DesignTurnState; noteEdits?: NoteEditProposal[];
     podcastOwner?: string | undefined; podcastState?: PodcastTurnState;
     workState?: WorkTurnState | undefined;
+    buildSpecId?: string | undefined; buildState?: BuildTurnState;
+    useCaseId?: string | undefined; useCaseState?: UseCaseTurnState;
     taskStatusChanges?: TaskStatusProposal[];
     allowStructuralNoteEdits?: boolean | undefined;
     retrievalScope?: RetrievalScope | undefined; retrievalAudit?: RetrievalAudit | undefined;
@@ -950,6 +954,42 @@ export async function executeToolCall(
     catch (error) {
       console.error('[Work content chat] Operation failed:', error);
       return { error: error instanceof Error ? error.message : 'The work-content operation failed. No completion is confirmed.' };
+    }
+  }
+  if (BUILD_TOOL_NAMES.has(name)) {
+    if (turn.retrievalScope && Object.keys(turn.retrievalScope.filter).length > 0) {
+      return { error: 'Build tools do not support this enforced collection filter.', code: 'scope_mismatch' };
+    }
+    if (!turn.buildState) return { error: 'Open the selected Build spec before using Build tools.' };
+    try {
+      return await executeBuildTool(db, name, args, {
+        retrievalFiltered: false,
+        ...(turn.buildSpecId ? { selectedSpecId: turn.buildSpecId } : {}),
+        ...(turn.strictProjectId !== undefined ? { strictProjectId: turn.strictProjectId } : {}),
+        ...(turn.excludedIds ? { excludedIds: turn.excludedIds } : {}),
+        ...(turn.readOnly !== undefined ? { readOnly: turn.readOnly } : {}),
+      }, turn.buildState);
+    } catch (error) {
+      console.error('[Build chat] Spec operation failed:', error);
+      return { error: error instanceof Error ? error.message : 'The Build operation failed. No completion is confirmed.' };
+    }
+  }
+  if (USE_CASE_TOOL_NAMES.has(name)) {
+    if (turn.retrievalScope && Object.keys(turn.retrievalScope.filter).length > 0) {
+      return { error: 'Use case tools do not support this enforced collection filter.', code: 'scope_mismatch' };
+    }
+    if (!turn.useCaseState) return { error: 'Open the selected Think use case before using its tools.' };
+    try {
+      return await executeUseCaseTool(db, name, args, {
+        retrievalFiltered: false,
+        ...(turn.useCaseId ? { selectedUseCaseId: turn.useCaseId } : {}),
+        ...(turn.strictProjectId !== undefined ? { strictProjectId: turn.strictProjectId } : {}),
+        ...(turn.excludedIds ? { excludedIds: turn.excludedIds } : {}),
+        ...(turn.readOnly !== undefined ? { readOnly: turn.readOnly } : {}),
+      }, turn.useCaseState);
+    } catch (error) {
+      console.error('[Use case chat] Operation failed:', error);
+      return { error: error instanceof Error ? error.message : 'The use case operation failed. No completion is confirmed.' };
     }
   }
 

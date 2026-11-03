@@ -22,6 +22,8 @@ export interface AthenaPageContext {
   workContent?: import('../types/workContent').WorkContent;
   podcastEpisodeId?: string;
   podcastTab?: string;
+  buildSpecId?: string;
+  useCaseId?: string;
   /** e.g. "content-item", "task", "note", "spark", "document" */
   type: string;
   /** Display title shown in the panel header and splash */

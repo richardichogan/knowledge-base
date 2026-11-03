@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { DiscoverItem } from '../src/services/api';
 import {
-  buildTodayModel, readTodayTasks, relativeTime, safeHref, todayContext, todayChangesSince, TODAY_LIMITS, workDate,
+  buildTodayModel, readTodayTasks, relativeTime, safeHref, todayContext, todayChangesSince, todayItemDate, TODAY_LIMITS, workDate,
   type TodayInputs, type TodayTask,
 } from '../src/services/todayViewModel';
 
@@ -29,6 +29,24 @@ test('semantic priority outranks source order; no due date does not invent urgen
   assert.equal(model.attention.find((i) => i.taskId === 'today')?.tone, 'warning');
   assert.equal(model.attention.find((i) => i.taskId === 'overdue')?.tone, 'danger');
   assert.equal(JSON.parse(todayContext(model)).attention.length, TODAY_LIMITS.attention);
+});
+
+test('Today distinguishes deadlines from task activity timestamps', () => {
+  const model = buildTodayModel(inputs({ tasks: [
+    task('overdue', { dueDate: '2026-10-03' }),
+    task('today', { dueDate: '2026-10-04' }),
+    task('future', { dueDate: '2026-10-05' }),
+    task('undated', { priority: 'high' }),
+  ] }), now, since);
+  const label = (id: string): string => todayItemDate(model.attention.find(item => item.taskId === id)!, now);
+  assert.equal(label('overdue'), 'Overdue since Sat 3 Oct');
+  assert.equal(label('today'), 'Due today');
+  assert.equal(label('future'), 'Due Mon 5 Oct');
+  assert.equal(label('undated'), 'Plan');
+  assert.equal(todayItemDate(model.changes[0]!, now), 'Just now');
+  const overdue = model.attention.find(item => item.taskId === 'overdue')!;
+  assert.equal(todayItemDate({ ...overdue, date: 'invalid' }, now), 'Date unavailable');
+  assert.equal(todayItemDate({ ...overdue, date: '2026-99-99' }, now), 'Due date unavailable');
 });
 
 test('reopening Today retains at least 24 hours of changes and preserves older visit boundaries', () => {

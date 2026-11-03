@@ -11,6 +11,22 @@ import { GitHubAgentClient } from '../src/build/githubAgents.js';
 import type { BuildSpec, BuildTask, TaskStatus } from '../src/build/buildStore.js';
 import { updateSpec } from '../src/build/buildStore.js';
 import { getDb } from '../src/db/db.js';
+import { BUILD_CHAT_TOOLS } from '../src/ai/buildTools.js';
+import { USE_CASE_CHAT_TOOLS } from '../src/ai/useCaseTools.js';
+
+test('Build and Use Case Athena tools expose bounded reading and safe content-only edits', () => {
+  const buildNames = BUILD_CHAT_TOOLS.map(tool => tool.function.name);
+  assert.deepEqual(buildNames, ['read_build_spec', 'read_build_tasks', 'read_build_task', 'read_build_events', 'update_build_spec']);
+  const buildUpdate = BUILD_CHAT_TOOLS.find(tool => tool.function.name === 'update_build_spec')!.function;
+  assert.ok('expectedRevision' in buildUpdate.parameters.properties);
+  assert.ok(!('status' in buildUpdate.parameters.properties));
+  assert.ok(!('action' in buildUpdate.parameters.properties));
+
+  assert.deepEqual(USE_CASE_CHAT_TOOLS.map(tool => tool.function.name), ['read_use_case', 'update_use_case']);
+  const useCaseUpdate = USE_CASE_CHAT_TOOLS.find(tool => tool.function.name === 'update_use_case')!.function;
+  assert.deepEqual(useCaseUpdate.parameters.required, ['summary', 'expectedSummary']);
+  assert.deepEqual(Object.keys(useCaseUpdate.parameters.properties), ['summary', 'expectedSummary']);
+});
 
 // ── validateTaskGraph ──────────────────────────────────────────────────────
 

@@ -61,6 +61,21 @@
   }
 }
 
+// Plan: title on the first row, controls below at narrow widths. Must match the
+// shell header chain above (0,5,0) to override its fixed height and nowrap.
+@media (max-width: 1100px) {
+  .kh-shell__page > :has(> .page-header.kh-page-header) > .page-header.kh-page-header.plan-page-header {
+    height: auto;
+    flex-wrap: wrap;
+
+    > .page-title-group,
+    > .kh-page-header__actions {
+      flex: 1 1 100%;
+      max-width: 100%;
+    }
+  }
+}
+
 .kh-page-header__actions {
   flex: 0 1 auto;
   gap: 0.5rem;
@@ -90,6 +105,8 @@
 
 @media (max-width: 1100px) {
   .plan-root .kh-page-header__actions {
+    flex-wrap: wrap;
+
     .plan-action-label { display: none; }
     > button { padding-inline: 10px; }
     .plan-view-btn { padding-inline: 10px; }
@@ -1000,6 +1017,37 @@ dialog.kh-workspace-panel--overlay {
 .kh-task-detail__meta {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
   margin-bottom: 12px; color: var(--cds-text-secondary); font-size: var(--kh-text-meta);
+}
+.kb-focus__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--cds-spacing-05);
+}
+.kh-uc-editor-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.dc-article-search {
+  flex: 1 1 200px;
+  max-width: 320px;
+}
+.dc-article-search .build-input:hover {
+  border-color: var(--cds-border-strong-01);
+}
+.dc-article-search .build-input:focus-visible {
+  outline: 2px solid var(--cds-focus);
+  outline-offset: -2px;
+}
+.kh-task-detail__identity-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+  > .kh-task-detail__back { margin: 0 0 0 auto; }
 }
 .kh-task-detail__tags { margin-bottom: 16px; }
 .kh-task-detail__body {

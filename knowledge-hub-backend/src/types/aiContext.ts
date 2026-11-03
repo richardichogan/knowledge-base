@@ -40,6 +40,8 @@ export interface ChatPageContext {
   workContent?: WorkContent;
   podcastEpisodeId?: string;
   podcastTab?: string;
+  buildSpecId?: string;
+  useCaseId?: string;
   /** Original document/canvas currently active inside a Design conversation. */
   id?: string;
   /** e.g. "note", "canvas", "document", "content-item" */

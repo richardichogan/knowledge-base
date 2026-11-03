@@ -62,6 +62,12 @@ const MORE_TABS: TabDef[] = [
 
 const STATE_TABS: TabDef[] = [...PRIMARY_TABS, ...MORE_TABS];
 
+const RETENTION_GUIDANCE: Partial<Record<ActiveTab, string>> = {
+  saved: 'Saved articles stay here; automatic age-based archiving skips them.',
+  shelved: 'Some low-scoring articles are set aside from For you and remain searchable by Athena.',
+  archived: 'Dismissed articles and unacted articles aged out after 7 days if low-scoring, or 14 days otherwise.',
+};
+
 function formatDate(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -410,6 +416,14 @@ export const DiscoverPage: React.FC = () => {
   const isWatchlists = activeTab === 'watchlists';
   const isParking = activeTab === 'parking-lot';
   const isForYou = activeTab === 'to-review';
+  const [articleSearch, setArticleSearch] = useState('');
+  const [searchTitle, setSearchTitle] = useState('');
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSearchTitle(articleSearch.trim()); setPage(1); setActiveItemId(null); setSelectedIds(new Set());
+    }, 250);
+    return () => { window.clearTimeout(timer); };
+  }, [articleSearch, setPage]);
   const [interestsOpen, setInterestsOpen] = useState(false);
   const [publishingOpen, setPublishingOpen] = useState(() => new URLSearchParams(window.location.search).get('publishing') === '1');
   const isCfps  = activeTab === 'cfps';
@@ -428,9 +442,9 @@ export const DiscoverPage: React.FC = () => {
   }
 
   const feedQuery = useQuery({
-    queryKey: ['discover', isParking ? 'parking-lot' : workflowState, page],
-    queryFn: async () => requireApiSuccess(await (isParking ? api.getDiscoverParkingLot(page, PAGE_SIZE)
-      : api.getDiscoverFeed(workflowState, undefined, page, isForYou && page === 1 ? 100 : PAGE_SIZE, undefined, 'weighted'))),
+    queryKey: ['discover', isParking ? 'parking-lot' : workflowState, page, searchTitle],
+    queryFn: async () => requireApiSuccess(await (isParking ? api.getDiscoverParkingLot(page, PAGE_SIZE, searchTitle || undefined)
+      : api.getDiscoverFeed(workflowState, undefined, page, PAGE_SIZE, searchTitle || undefined, 'weighted'))),
     enabled: !isInbox && !isCfps && !isWatchlists,
     staleTime: 60_000,
   });
@@ -450,7 +464,7 @@ export const DiscoverPage: React.FC = () => {
   });
 
   const briefingQuery = useQuery({
-    queryKey: ['discover', 'to-review', 1],
+    queryKey: ['discover', 'briefing', 'to-review'],
     queryFn: async () => requireApiSuccess(await api.getDiscoverFeed('to-review', undefined, 1, 100, undefined, 'weighted')),
     staleTime: 60_000,
     enabled: isForYou,
@@ -523,7 +537,7 @@ export const DiscoverPage: React.FC = () => {
     if (!isForYou || !briefingQuery.data?.success) return null;
     return buildBriefing(briefingQuery.data.data.items, since, (id) => flatTags.find((t) => t.id === id)?.name);
   }, [isForYou, briefingQuery.data, since, flatTags]);
-  const showBriefing = briefing !== null && page === 1;
+  const showBriefing = briefing !== null && page === 1 && searchTitle === '' && articleSearch.trim() === '';
   const attentionIds = useMemo(() => new Set(showBriefing ? [...briefing.standouts, ...briefing.alsoRelevant].map((i) => i.id) : []), [showBriefing, briefing]);
 
   const items = useMemo<DiscoverItem[]>(() =>
@@ -535,6 +549,7 @@ export const DiscoverPage: React.FC = () => {
   const activeCfp = cfps.find(item => item.id === activeItemId) ?? cfps[0];
   const total: number =
     feedQuery.data?.success ? feedQuery.data.data.total : 0;
+  const emailTotal = emailQuery.data?.success ? emailQuery.data.data.total : 0;
   useEffect(() => {
     if (isParking && feedQuery.isSuccess && page > 1 && items.length === 0) {
       setPage(Math.max(1, Math.ceil(total / PAGE_SIZE)));
@@ -564,7 +579,10 @@ export const DiscoverPage: React.FC = () => {
     }}>
       <PageHeader title="Discover" subtitle={isWatchlists ? 'Purpose-led monitoring · private, versioned comparisons' : isCfps
               ? `${(cfpQuery.data?.success ? cfpQuery.data.data : []).length} CFPs to review`
-              : feedQuery.isLoading ? 'Loading…' : `${total} article${total !== 1 ? 's' : ''} · ${activeTabDef?.label ?? ''}`} actions={
+              : isInbox
+                ? emailQuery.isLoading ? 'Loading emails…'
+                  : `${emailTotal} email${emailTotal !== 1 ? 's' : ''} · Inbox`
+                : feedQuery.isLoading ? 'Loading…' : `${total} article${total !== 1 ? 's' : ''} · ${activeTabDef?.label ?? ''}`} actions={
         <><button type="button" className="dc-sources-toggle" onClick={() => setInterestsOpen(true)}>Interests</button>
         <button type="button" className="dc-sources-toggle" aria-expanded={sourcesOpen} onClick={() => { setSourcesOpen((o) => !o); }}>
           {sourcesOpen ? 'Hide sources' : 'Sources'}
@@ -598,7 +616,17 @@ export const DiscoverPage: React.FC = () => {
             {MORE_TABS.map((tab) => <option key={tab.key} value={tab.key}>{tab.label}</option>)}
           </select>
         </div>
+        {RETENTION_GUIDANCE[activeTab] && (
+          <p className="dc-retention-guidance" aria-live="polite" aria-atomic="true">
+            {RETENTION_GUIDANCE[activeTab]}
+          </p>
+        )}
         {!isInbox && !isCfps && !isWatchlists && <div className="kh-triage-tools">
+          <label className="dc-article-search">
+            <span className="kh-uc-visually-hidden">Search article titles in this list</span>
+            <input type="search" className="build-input" maxLength={256} placeholder="Search article titles…" value={articleSearch}
+              onChange={event => { setArticleSearch(event.target.value); }} />
+          </label>
           <span title="Save/archive shortcuts do not apply to published or blog items.">J/K move · O open · S save · A archive</span>
           {selectedIds.size > 0 && <>
             <span>{selectedIds.size} selected</span>
@@ -648,7 +676,7 @@ export const DiscoverPage: React.FC = () => {
         </div>}
         <ReviewWorkspace storageKey="discover" label="Discovery" athenaEnabled={!publishingOpen}
         context={exploreLive ? { type: 'discover item', title: exploreLive.title, id: exploreLive.id,
-          detail: `Discover view: ${activeTabDef?.label ?? 'Discover'}.${showBriefing ? ` Current briefing: ${JSON.stringify({ assessed: briefing.assessed, relevantCount: briefing.relevantCount, standoutIds: briefing.standouts.map(item => item.id), busiest: briefing.busiest, quiet: briefing.quiet, fallback: briefing.fallback })}.` : ''} Selected saved article and assessment (not necessarily full source text):\n${JSON.stringify(exploreLive)}\nUse saved-content retrieval for the full source. Respect contentBasis and evidence limitations.` }
+          detail: `Discover view: ${activeTabDef?.label ?? 'Discover'}. Title search: ${JSON.stringify(searchTitle)}; page ${page}, ${total} matching articles.${showBriefing ? ` Current briefing: ${JSON.stringify({ assessed: briefing.assessed, relevantCount: briefing.relevantCount, standoutIds: briefing.standouts.map(item => item.id), busiest: briefing.busiest, quiet: briefing.quiet, fallback: briefing.fallback })}.` : ''} Selected saved article and assessment (not necessarily full source text):\n${JSON.stringify(exploreLive)}\nUse saved-content retrieval for the full source. Respect contentBasis and evidence limitations.` }
           : { type: 'discover', title: activeTabDef?.label ?? 'Discover', detail: 'No article selected in this view.' }}
         detail={exploreLive ? <DiscoverExplore key={exploreLive.id} embedded item={exploreLive}
           tagNames={(exploreLive.taxonomyTagIds ?? []).map(id => flatTags.find(tag => tag.id === id)?.name).filter((name): name is string => name !== undefined)}

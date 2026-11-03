@@ -2218,9 +2218,9 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  async getDiscoverParkingLot(page = 1, pageSize = 25): Promise<ApiResponse<{ items: DiscoverItem[]; total: number; page: number; pageSize: number }>> {
+  async getDiscoverParkingLot(page = 1, pageSize = 25, title?: string): Promise<ApiResponse<{ items: DiscoverItem[]; total: number; page: number; pageSize: number }>> {
     return (await this.client.get<ApiResponse<{ items: DiscoverItem[]; total: number; page: number; pageSize: number }>>(
-      '/api/discover/parking-lot', { params: { page, pageSize } },
+      '/api/discover/parking-lot', { params: { page, pageSize, title } },
     )).data;
   }
 

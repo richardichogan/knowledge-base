@@ -37,6 +37,7 @@ import { createSpecFromNote } from '../build/specFromNote.js';
 import { decomposeSpec, validateTaskGraph, type TaskDraft } from '../build/decompose.js';
 import { BUILD_AGENTS, getAgentGitHub, type BuildAgent } from '../build/githubAgents.js';
 import { ensureWorkBranch, mergeFinalPullRequest, runSpecLocked } from '../build/buildRunner.js';
+import { editBuildSpec } from '../build/buildSpecService.js';
 import type { BuildSpec, BuildTask } from '../build/buildStore.js';
 
 export const buildRouter = Router();
@@ -48,7 +49,6 @@ const MAX_TITLE_CHARS = 200;
 const MAX_FIELD_CHARS = 500;
 const MAX_PARALLEL_LIMIT = 5;
 const MIN_SPEC_CHARS = 40;
-const EDITABLE_SPEC_STATUSES: readonly store.SpecStatus[] = ['draft', 'decomposed', 'paused', 'failed', 'done'];
 const DECOMPOSABLE_STATUSES: readonly store.SpecStatus[] = ['draft', 'decomposed', 'failed'];
 
 type Handler = (req: Request, res: Response) => Promise<void>;
@@ -180,46 +180,8 @@ buildRouter.get('/specs/:id', handle(async (req, res) => {
 }));
 
 buildRouter.patch('/specs/:id', handle(async (req, res) => {
-  const spec = await requireSpec(param(req, 'id'));
-  assertStatus(spec, EDITABLE_SPEC_STATUSES, 'edit');
-  const b = body(req);
-  const patch: Partial<BuildSpec> = {};
-  const title = str(b['title'], 'title', { max: 200 });
-  if (title !== undefined) {
-    if (title === '') throw new ValidationError('title is required', { title: 'required' });
-    patch.title = title;
-  }
-  const md = str(b['specMarkdown'], 'specMarkdown', { max: MAX_SPEC_CHARS });
-  if (md !== undefined) patch.specMarkdown = md;
-  const expectedMarkdown = b['expectedSpecMarkdown'];
-  if (expectedMarkdown !== undefined && (typeof expectedMarkdown !== 'string' || expectedMarkdown.length > MAX_SPEC_CHARS || md === undefined)) {
-    throw new ValidationError('A reviewed spec needs its original Markdown and a replacement.');
-  }
-  const repo = repoOf(b['repo'], false);
-  if (repo !== undefined) patch.repo = repo;
-  const branch = branchOf(b['baseBranch']);
-  if (branch !== undefined) patch.baseBranch = branch;
-  const uwb = boolOf(b['useWorkBranch'], 'useWorkBranch');
-  if (uwb !== undefined) patch.useWorkBranch = uwb;
-  const lockedByWorkBranch = spec.workBranch !== null && (
-    (patch.repo !== undefined && patch.repo !== spec.repo)
-    || (patch.baseBranch !== undefined && patch.baseBranch !== spec.baseBranch)
-    || (patch.useWorkBranch !== undefined && patch.useWorkBranch !== spec.useWorkBranch));
-  if (lockedByWorkBranch) {
-    throw new ConflictError(`The build already works on ${spec.workBranch ?? ''} — repo and branches can't change now`,
-      'BUILD_SPEC_BRANCH_LOCKED', { workBranch: spec.workBranch ?? '' });
-  }
-  const mp = maxParallelOf(b['maxParallel']);
-  if (mp !== undefined) patch.maxParallel = mp;
-  const am = boolOf(b['autoMerge'], 'autoMerge');
-  if (am !== undefined) patch.autoMerge = am;
-  if ('projectId' in b) patch.projectId = str(b['projectId'], 'projectId', { max: 100 }) || null;
-  const updated = await store.updateSpec(spec.id, patch, getDb(),
-    typeof expectedMarkdown === 'string' ? { markdown: expectedMarkdown, status: spec.status } : undefined);
-  if (updated === null && expectedMarkdown !== undefined) {
-    throw new ConflictError('The saved spec or build status changed. Your draft is retained; reload and review the current source before saving.', 'BUILD_SPEC_REVIEW_CONFLICT');
-  }
-  await sendSpec(res, spec.id);
+  const updated = await editBuildSpec(param(req, 'id'), body(req));
+  res.json({ success: true, data: updated });
 }));
 
 buildRouter.delete('/specs/:id', handle(async (req, res) => {

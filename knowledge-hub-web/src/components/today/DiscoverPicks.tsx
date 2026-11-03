@@ -34,7 +34,7 @@ export function useDiscoverPicks() {
 }
 
 export function chosenLabel(generatedAt: string): string {
-  return new Date(generatedAt).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  return new Date(generatedAt).toLocaleString('en-GB', { timeZone: 'Europe/London', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 export function draftHref(pick: DiscoverPick, format: 'linkedin' | 'short'): string {

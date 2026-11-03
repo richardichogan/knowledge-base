@@ -35,6 +35,8 @@ export interface ChatPageContext {
   workContent?: import('./workContent').WorkContent;
   podcastEpisodeId?: string;
   podcastTab?: string;
+  buildSpecId?: string;
+  useCaseId?: string;
   /** e.g. "content-item", "task", "note", "spark", "document" */
   type: string;
   title: string;
@@ -291,6 +293,8 @@ export interface ChatResponse {
   workChanged?: { noteIds: string[] };
   podcastChanged?: { noteId: string };
   designChanged?: { parentNoteId: string; noteIds: string[] };
+  buildChanged?: { specId: string };
+  useCaseChanged?: { useCaseId: string };
   reply: string;
   sessionId: string;
   persona?: AthenaPersona;

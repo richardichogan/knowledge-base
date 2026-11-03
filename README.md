@@ -55,14 +55,14 @@ and cause rather than reporting only `fetch failed`.
 
 Technical spec and use-case notes offer **MD / HTML** views. MD keeps the
 existing document editor; HTML is a sanitized, formatted review view generated
-from the current document, including unsaved edits. Build specs (new and existing)
+from the current document, including unsaved edits. Existing Build specs
 and Use Case summaries offer the same switch; linked specs open in Think with
 both views. Switching views does not save, convert or duplicate the source.
 Other note types are unchanged. Select a passage in HTML, describe the change,
 and ask Athena for a bounded proposal. Before/after source text is shown for
 explicit acceptance or discard; changed sources invalidate stale proposals.
 Think accepts into the live editor with its existing history and autosave
-protection; Build accepts into the draft (Save/Create is still required); Use Case
+protection; Build accepts into the draft (Save is still required); Use Case
 summary acceptance saves through its existing update action. Reviewed Build saves
 and summary acceptance reject concurrent source changes rather than overwriting
 them, retaining the local draft on failure. Think selections

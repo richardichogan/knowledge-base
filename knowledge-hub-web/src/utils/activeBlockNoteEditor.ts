@@ -152,6 +152,8 @@ let designChatBridge: { owner: string; prepare: () => Promise<(changed: boolean)
 let podcastChatBridge: { owner: string; prepare: () => Promise<(changed: boolean) => Promise<void>> } | null = null;
 let workChatBridge: { owner: string; prepare: () => Promise<(changed: boolean) => Promise<void>> } | null = null;
 let taskChatBridge: { owner: string; prepare: () => Promise<(changed: boolean) => Promise<void>> } | null = null;
+let buildChatBridge: { owner: string; prepare: () => Promise<(changed: boolean) => Promise<void>> } | null = null;
+let useCaseChatBridge: { owner: string; prepare: () => Promise<(changed: boolean) => Promise<void>> } | null = null;
 let diagramChatBridge: { owner: string; prepare: () => Promise<(changed: boolean) => Promise<void>> } | null = null;
 
 export function setDiagramChatBridge(owner: string, prepare: () => Promise<(changed: boolean) => Promise<void>>): () => void {
@@ -172,6 +174,28 @@ export function setTaskChatBridge(owner: string, prepare: () => Promise<(changed
 
 export async function prepareTaskChat(owner: string): Promise<((changed: boolean) => Promise<void>) | undefined> {
   return taskChatBridge?.owner === owner ? taskChatBridge.prepare() : undefined;
+}
+
+export function setBuildChatBridge(owner: string, prepare: () => Promise<(changed: boolean) => Promise<void>>): () => void {
+  const bridge = { owner, prepare };
+  buildChatBridge = bridge;
+  return () => { if (buildChatBridge === bridge) buildChatBridge = null; };
+}
+
+export async function prepareBuildChat(owner: string): Promise<(changed: boolean) => Promise<void>> {
+  if (buildChatBridge?.owner !== owner) throw new Error('Reopen the selected Build spec before asking Athena to edit it.');
+  return buildChatBridge.prepare();
+}
+
+export function setUseCaseChatBridge(owner: string, prepare: () => Promise<(changed: boolean) => Promise<void>>): () => void {
+  const bridge = { owner, prepare };
+  useCaseChatBridge = bridge;
+  return () => { if (useCaseChatBridge === bridge) useCaseChatBridge = null; };
+}
+
+export async function prepareUseCaseChat(owner: string): Promise<(changed: boolean) => Promise<void>> {
+  if (useCaseChatBridge?.owner !== owner) throw new Error('Reopen the selected Think use case before asking Athena to edit it.');
+  return useCaseChatBridge.prepare();
 }
 
 export function setWorkChatBridge(owner: string, prepare: () => Promise<(changed: boolean) => Promise<void>>): () => void {

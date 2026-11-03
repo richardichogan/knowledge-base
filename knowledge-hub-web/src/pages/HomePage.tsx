@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, Renew } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { useTodayBrief, requireTodayData } from '../services/useTodayBrief';
-import { TODAY_LIMITS, relativeTime, todayContext, type TodayItem } from '../services/todayViewModel';
+import { TODAY_LIMITS, todayItemDate, todayContext, type TodayItem } from '../services/todayViewModel';
 import { useAthenaContext } from '../context/AthenaContext';
 import { PodcastPrepCard, usePodcastPrep } from '../components/today/PodcastPrepCard';
 import { ReviewWorkspace, ReviewItem } from '../components/ReviewWorkspace';
@@ -85,9 +85,7 @@ function WorkItem({ item, ask, compact = false }: {
       </div>
       <h3>{item.title}</h3>
       <p className="today-brief__reason">{item.reason}</p>
-      <p className="today-brief__meta">{item.source}{item.date ? ` · ${item.date.length === 10
-        ? `Due ${new Date(`${item.date}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}`
-        : relativeTime(item.date)}` : ''}</p>
+      <p className="today-brief__meta">{item.source}{item.date ? ` · ${todayItemDate(item)}` : ''}</p>
       <div className="today-brief__actions">
         {item.clusterId
           ? <button type="button" className="today-brief__primary" disabled={mutation.isPending} onClick={() => { mutation.mutate(); }}>{mutation.isPending ? 'Creating...' : 'Create outline note'}</button>
@@ -122,9 +120,11 @@ export const HomePage: React.FC = () => {
   const visibleAttention = model.attention.slice(0, TODAY_LIMITS.attention);
   const visibleChanges = expandedChanges ? model.changes : model.changes.slice(0, TODAY_LIMITS.changes);
   const workItems = [...visibleAttention, ...visibleChanges, ...model.continuing, ...model.exploration];
-  const selectedPick = discoverPicks.picks.find(pick => `pick:${pick.id}` === selectedId);
-  const selection = selectedId === 'today-meetings' || selectedId === 'today-podcast' || selectedPick ? selectedId
-    : workItems.find(item => item.id === selectedId)?.id ?? workItems[0]?.id ?? 'today-podcast';
+  const selection = selectedId === 'today-meetings' || selectedId === 'today-podcast'
+    || discoverPicks.picks.some(pick => `pick:${pick.id}` === selectedId) ? selectedId
+    : workItems.find(item => item.id === selectedId)?.id
+      ?? (discoverPicks.picks[0] ? `pick:${discoverPicks.picks[0].id}` : workItems[0]?.id ?? 'today-podcast');
+  const selectedPick = discoverPicks.picks.find(pick => `pick:${pick.id}` === selection);
   const selected = workItems.find(item => item.id === selection);
   const selectedSection = selected && (visibleAttention.includes(selected) ? 'Needs your attention'
     : visibleChanges.includes(selected) ? 'What changed' : model.continuing.includes(selected) ? 'Continue working' : 'Worth exploring');
@@ -138,9 +138,13 @@ export const HomePage: React.FC = () => {
   } : selection === 'today-podcast' ? { type: 'podcast preparation', title: 'Podcast preparation',
     detail: `Current saved podcast preparation and job state:\n${JSON.stringify(podcast.data ?? null)}\n${podcast.isError ? 'Podcast preparation failed to load.' : ''}\n\nDaily brief:\n${context}` }
     : { type: 'today', title: 'Meeting preparation', detail: `Meeting preparation selected. Calendar records will be provided when retrieved.\n\nDaily brief:\n${context}` };
-  const renderItem = (item: TodayItem): React.ReactElement => <ReviewItem key={item.id} title={item.title}
-    selected={selection === item.id} meta={[item.project, item.type, item.status, item.date ? relativeTime(item.date) : item.source].filter(Boolean).join(' · ')}
-    description={item.reason} onSelect={() => { setSelectedId(item.id); }} />;
+  const renderItem = (item: TodayItem): React.ReactElement => {
+    const dateLabel = todayItemDate(item, brief.now);
+    const status = item.status && !dateLabel.startsWith(item.status) ? item.status : undefined;
+    return <ReviewItem key={item.id} title={item.title}
+      selected={selection === item.id} meta={[item.project, item.type, status, dateLabel].filter(Boolean).join(' · ')}
+      description={item.reason} onSelect={() => { setSelectedId(item.id); }} />;
+  };
   const attentionLoading = sectionQueries.attention.some(({ query }) => query.isPending);
   const partial = sectionQueries.attention.some(({ query }) => query.isError);
   const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', hour: '2-digit', hour12: false }).format(brief.now));
@@ -148,12 +152,8 @@ export const HomePage: React.FC = () => {
   return (
     <main className="page-root today-brief kh-review-page">
       <PageHeader title="Today" className="today-brief__header" subtitle={<>{greeting}, Richard. {attentionLoading ? 'Checking what needs your attention...'
-            : visibleAttention.length > 0 ? `${visibleAttention.length} ${visibleAttention.length === 1 ? 'thing needs' : 'things need'} your attention${partial ? ' in the available sources' : ''}.`
-              : partial ? 'Some sources are unavailable. Review the notices below.' : 'Nothing urgent in the available recent sources. Make space for your next piece of work.'}</>} actions={
-        <button type="button" className="today-brief__quiet" disabled={brief.refreshing} onClick={() => { void brief.refresh(); }}>
-          <Renew size={16} /> {brief.refreshing ? 'Refreshing...' : 'Refresh'}
-        </button>
-      } />
+            : model.attention.length > 0 ? `${model.attention.length} ${model.attention.length === 1 ? 'thing needs' : 'things need'} your attention${partial ? ' in the available sources' : ''}.${model.attention.length > visibleAttention.length ? ` Showing the first ${visibleAttention.length}.` : ''}`
+              : partial ? 'Some sources are unavailable. Review the notices below.' : 'Nothing urgent in the available recent sources. Make space for your next piece of work.'}</>} />
       <div className="today-brief__briefing-meta">
         <span>Changes since {new Date(brief.since).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
       </div>
@@ -163,7 +163,7 @@ export const HomePage: React.FC = () => {
         detail={selectedPick ? <><h2 className="kh-review-detail-heading">Worth posting today</h2>
           <DiscoverPickDetail key={selectedPick.id} pick={selectedPick} onAsk={() => { openAthena('Help me shape a social post from this article using the suggested angle.', selectedContext); }} /></>
           : selected ? <><h2 className="kh-review-detail-heading">{selectedSection}</h2>
-          {selected.taskId ? <TaskDetail key={selected.taskId} taskId={selected.taskId} />
+          {selected.taskId ? <TaskDetail key={selected.taskId} taskId={selected.taskId} presentation="today" />
             : <WorkItem key={selected.id} item={selected} ask={item => { ask('Help me work out the next step for this item.', item); }} />}</>
           : selection === 'today-meetings' ? <UpcomingMeetings projects={brief.projects.data ?? []} />
             : <PodcastPrepCard />}
@@ -171,13 +171,14 @@ export const HomePage: React.FC = () => {
         <section className="today-brief__picks" aria-labelledby="today-picks">
           <div className="today-brief__section-heading"><h2 id="today-picks">Worth posting today</h2>
             <button type="button" className="today-brief__quiet" disabled={discoverPicks.refresh.isPending} onClick={() => { discoverPicks.refresh.mutate(); }}>
-              <Renew size={16} /> {discoverPicks.refresh.isPending ? 'Choosing...' : 'Refresh'}
+              <Renew size={16} /> {discoverPicks.refresh.isPending ? 'Choosing...' : 'Choose new picks'}
             </button></div>
+          <p className="today-brief__meta">Choosing new picks replaces the saved recommendations.</p>
           {discoverPicks.saved && <p className="today-brief__meta">Chosen {chosenLabel(discoverPicks.saved.generatedAt)}{discoverPicks.saved.removed > 0 ? ` · ${discoverPicks.saved.removed} since posted or moved` : ''}</p>}
           {discoverPicks.refresh.isPending && <p className="today-brief__meta" role="status">Athena is choosing three articles worth posting...</p>}
           {discoverPicks.refresh.isError && <p className="today-brief__error" role="alert">{refreshError(discoverPicks.refresh.error)}</p>}
           <SectionState queries={[{ name: 'Posting picks', query: discoverPicks.query }]} hasItems={discoverPicks.picks.length > 0}
-            empty={discoverPicks.saved?.note ?? (discoverPicks.saved ? 'All of today\'s picks have been posted or moved. Refresh for more.' : 'No picks yet. Refresh to choose three articles worth posting today.')} />
+            empty={discoverPicks.saved?.note ?? (discoverPicks.saved ? 'All of today\'s picks have been posted or moved. Choose new picks for more.' : 'No picks yet. Choose new picks to select three articles worth posting today.')} />
           {discoverPicks.picks.map(pick => <ReviewItem key={pick.id} title={pick.title}
             selected={selection === `pick:${pick.id}`} meta={[pick.source, pick.workflowState === 'saved' ? 'Saved' : 'To review'].filter(Boolean).join(' · ')}
             description={pick.angle} onSelect={() => { setSelectedId(`pick:${pick.id}`); }} />)}

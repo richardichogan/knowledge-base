@@ -10,12 +10,14 @@ import { ConnectionsPanel } from '../../components/connections/ConnectionsPanel'
 import { TaskActivitySection, TaskEditor, TaskNoteText, type TaskEditorInput } from '../../pages/TasksPage';
 import { taskAthenaPrompt } from './taskInsights';
 import type { PlanTask } from '../../types/task';
-import { ArrowLeft, Launch } from '@carbon/icons-react';
+import { ArrowLeft, ArrowRight, Launch } from '@carbon/icons-react';
 import { EntityChip, IdentityChip, identitiesFor, useIdentity } from '../../identity';
 import { confirmDialog } from '../../services/appDialogs';
 import { setTaskChatBridge } from '../../utils/activeBlockNoteEditor';
 
-export function TaskDetail({ taskId, onBackToPlan }: { taskId: string; onBackToPlan?: () => void }): React.ReactElement {
+export function TaskDetail({ taskId, onBackToPlan, presentation = 'plan' }: {
+  taskId: string; onBackToPlan?: () => void; presentation?: 'plan' | 'today';
+}): React.ReactElement {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { projects } = useProjects();
@@ -79,8 +81,8 @@ export function TaskDetail({ taskId, onBackToPlan }: { taskId: string; onBackToP
         title: 'Leave task editor?', confirmLabel: 'Discard edits', tone: 'danger',
       })) return;
       if (onBackToPlan) onBackToPlan();
-      else navigate('/plan');
-    })(); }}><ArrowLeft size={16} />Back to Plan</button>;
+      else navigate(presentation === 'today' ? `/plan?taskId=${encodeURIComponent(taskId)}` : '/plan');
+    })(); }}>{presentation === 'today' ? <>View in Plan<ArrowRight size={16} /></> : <><ArrowLeft size={16} />Back to Plan</>}</button>;
   const task = detail.data?.task;
   if (!task) return <div className="kh-task-detail">
     {backToPlan}
@@ -98,9 +100,13 @@ export function TaskDetail({ taskId, onBackToPlan }: { taskId: string; onBackToP
   const refreshWithResult = Boolean(latest?.resultNoteId) && visibleJobs.length === 0;
   return <article className="kh-task-detail">
     <header className="kh-task-detail__header">
-      {backToPlan}
-      <div className="kh-task-detail__meta">
+      {presentation === 'plan' && backToPlan}
+      {presentation === 'today' && <div className="kh-task-detail__identity-row">
         <EntityChip projectId={task.projectId} fallbackLabel={project} size="md" />
+        {backToPlan}
+      </div>}
+      <div className="kh-task-detail__meta">
+        {presentation === 'plan' && <EntityChip projectId={task.projectId} fallbackLabel={project} size="md" />}
         <span>{task.status === 'in-progress' ? 'In progress' : task.status.charAt(0).toUpperCase() + task.status.slice(1)} · {task.priority} priority{task.dueDate ? ` · Due ${task.dueDate}` : ''}</span>
       </div>
       <h2>{task.title}</h2>

@@ -31,6 +31,7 @@ import { DataNotice } from '../components/DataNotice';
 import type { ApiSuccess, PaginatedList } from '../types/apiResponse';
 import { TaskDetail } from '../features/plan/TaskDetail';
 import { ReviewWorkspace, ReviewItem } from '../components/ReviewWorkspace';
+import { confirmDialog } from '../services/appDialogs';
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -1120,7 +1121,13 @@ export const TasksPage: React.FC<{
   const askAthenaAbout = selectTask;
 
   const deleteMutation = useMutation({
-    mutationFn: async (id: string) => requireApiData(await api.deleteTask(id)),
+    mutationFn: async (id: string) => {
+      const task = tasks.find(item => item.id === id);
+      if (!await confirmDialog(`Delete "${task?.title ?? 'this task'}"? This cannot be undone.`, {
+        title: 'Delete task', confirmLabel: 'Delete task', tone: 'danger',
+      })) return;
+      return requireApiData(await api.deleteTask(id));
+    },
     onSuccess: () => { setSaveError(null); void queryClient.invalidateQueries({ queryKey: ['tasks'] }); },
     onError: (error) => { setSaveError(describeApiError(error)); },
     onSettled: (_data, _error, id) => { finishTaskAction(id); },
@@ -1165,6 +1172,12 @@ export const TasksPage: React.FC<{
       />
 
       {view === 'focus' && (
+        <>
+        <div className="kb-focus__actions">
+          <button type="button" className="kb-import-btn" onClick={() => { setEditTask(null); setAddStatus('backlog'); setModalOpen(true); }}>
+            <Add size={16} /> Add task
+          </button>
+        </div>
         <FocusView
           tasks={scopedTasks}
           busyIds={busyTaskIds}
@@ -1173,6 +1186,7 @@ export const TasksPage: React.FC<{
           onEdit={selectTask}
           onAskAthena={askAthenaAbout}
         />
+        </>
       )}
 
       {view === 'board' && <div className="kb-board">

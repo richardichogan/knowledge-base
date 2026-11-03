@@ -47,6 +47,9 @@ import { AppDialog } from '../components/AppDialog';
 import { NoteEditorHost } from './NoteEditorHost';
 import { slidePanels } from '../utils/panelTransition';
 import { requestPassageNavigation } from './passageNavigation';
+import { CreateUseCaseDialog } from '../features/useCases/CreateUseCaseDialog';
+import { UseCaseDetailPanel } from '../features/useCases/UseCaseDetailPanel';
+import { useUseCase } from '../hooks/useUseCases';
 
 const NoteEditor = deferredView('Note editor', async () => ({ default: (await import('./NoteEditor')).NoteEditor }));
 const CanvasEditor = deferredView('Brainstorm', async () => ({ default: (await import('../features/canvas/CanvasEditor')).CanvasEditor }));
@@ -84,6 +87,9 @@ const IMAGE_DESCRIPTION_MAX_CHARS = 2_500;
 export const NotesPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
+  const useCaseId = searchParams.get('useCase');
+  const useCaseQuery = useUseCase(useCaseId);
+  const requestedCreation = searchParams.get('new');
   const [sparksAthenaBusy, setSparksAthenaBusy] = useState(false);
   const [sparksPrompt, setSparksPrompt] = useState<{ prompt: string; sequence: number } | undefined>(undefined);
   const [selectedId,       setSelectedId]       = useState<string | null>(null);
@@ -281,11 +287,11 @@ export const NotesPage: React.FC = () => {
     }
   }
 
-  async function handleCreateNote(): Promise<boolean> {
+  async function handleCreateNote(contentType: 'note' | 'spec' = 'note'): Promise<boolean> {
     if (creatingNoteRef.current) return false;
     creatingNoteRef.current = true;
     try {
-      const doc = await createNote({ title: 'Untitled', contentType: 'note', contentJson: '[]' });
+      const doc = await createNote({ title: contentType === 'spec' ? 'Untitled spec' : 'Untitled', contentType, contentJson: '[]' });
       if (doc !== null) {
         setSelectedDesign(null);
         await queryClient.invalidateQueries({ queryKey: ['notes-list'] });
@@ -305,6 +311,12 @@ export const NotesPage: React.FC = () => {
       creatingNoteRef.current = false;
     }
   }
+
+  useEffect(() => {
+    if (requestedCreation === 'spec') void handleCreateNote('spec');
+    // The creation guard prevents duplicate writes; successful creation consumes the URL request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedCreation]);
 
   useDesktopCommand('new-note', async () => {
     if (!await handleCreateNote()) throw new Error('Could not create a note. Check Think before retrying.');
@@ -552,6 +564,12 @@ export const NotesPage: React.FC = () => {
   const noteProjectId = mode === 'notes' && !parentOpen ? openDoc?.projectId ?? null : null;
 
   useEffect(() => {
+    if (useCaseId !== null) {
+      setAthenaContext({ type: 'use-case', id: useCaseId, title: useCaseQuery.data?.title ?? 'Use case',
+        detail: useCaseQuery.data ? `Think use case and saved sources:\n${JSON.stringify(useCaseQuery.data)}`
+          : `Use case content has not been retrieved.${useCaseQuery.error ? ` Retrieval failed: ${describeApiError(useCaseQuery.error)}` : ''} Use saved-content retrieval before answering.` });
+      return () => { setAthenaContext(null); };
+    }
     if (parentOpen) return undefined;
     if (mode === 'notes' && !parentOpen && openDoc !== null) {
       // Give Athena the note's actual text, not just its title/type — otherwise
@@ -624,7 +642,7 @@ export const NotesPage: React.FC = () => {
     // nothing changed, which would otherwise refire this effect (and the image
     // lookup fetch inside it) in a tight loop on a timer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, parentOpen, noteId, noteContentJson, noteTitle, noteContentType, noteProjectId, setAthenaContext]);
+  }, [mode, parentOpen, noteId, noteContentJson, noteTitle, noteContentType, noteProjectId, setAthenaContext, useCaseId, useCaseQuery.data, useCaseQuery.error]);
 
   return (
     <div className="notes-page" role="main" data-view={mode} data-active-pane={mode === 'sparks' ? 'editor' : mobilePane}>
@@ -666,9 +684,21 @@ export const NotesPage: React.FC = () => {
                 key={key}
                 type="button"
                 role="tab"
+                id={`think-tab-${key}`}
+                aria-controls="think-workspace"
+                tabIndex={mode === key ? 0 : -1}
                 aria-selected={mode === key}
                 className={`plan-view-btn${mode === key ? ' plan-view-btn--active' : ''}`}
                 onClick={() => { setSearchParams(key === 'sparks' ? { view: 'sparks' } : {}, { replace: true }); setSelectedDesign(null); setMode(key); setMobilePane('list'); }}
+                onKeyDown={event => {
+                  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                  event.preventDefault();
+                  const index = VIEW_MODES.findIndex(view => view.key === key);
+                  const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? VIEW_MODES.length - 1
+                    : (index + (event.key === 'ArrowRight' ? 1 : -1) + VIEW_MODES.length) % VIEW_MODES.length;
+                  document.getElementById(`think-tab-${VIEW_MODES[nextIndex]!.key}`)?.click();
+                  document.getElementById(`think-tab-${VIEW_MODES[nextIndex]!.key}`)?.focus();
+                }}
               >
                 <Icon size={16} />
                 {label}
@@ -710,7 +740,7 @@ export const NotesPage: React.FC = () => {
         role="alert">{refreshMessage}</p>}
       {mode === 'notes' && isError && !isFetchNextPageError && <DataNotice title="Note list is unavailable. Your open note is unchanged." error={listError} onRetry={() => { void refetch(); }} />}
       {canvasError !== null && <p className="mm-canvas-error" role="alert">{canvasError}</p>}
-      <div className="notes-root">
+      <div className="notes-root" id="think-workspace" role="tabpanel" aria-labelledby={`think-tab-${mode}`}>
         {/* ── Left panel ── */}
         {mode === 'sparks' ? null : listCollapsed && !mobile ? (
           // Collapsed rail. Search and "+" both expand the list rather than
@@ -768,7 +798,7 @@ export const NotesPage: React.FC = () => {
 
           {mode === 'notes' && (
             <NoteList
-              showTools={false}
+              showTools
               notes={notes}
               selectedId={selectedDesign ?? selectedEpisode ?? selectedId}
               onSelect={(id) => { setMobilePane('editor'); void handleSelectNote(id); }}
@@ -810,11 +840,15 @@ export const NotesPage: React.FC = () => {
                       data-ctx-title={c.title}
                       data-ctx-type="note"
                       onClick={() => { setSelectedCanvasId(c.id); setMobilePane('editor'); }}
-                      onKeyDown={(e) => { if (e.key === 'Enter') { setSelectedCanvasId(c.id); setMobilePane('editor'); } }}
+                      onKeyDown={(e) => {
+                        if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
+                        e.preventDefault(); setSelectedCanvasId(c.id); setMobilePane('editor');
+                      }}
                     >
                       <button
                         className="notes-list-item__delete"
                         title="Delete canvas"
+                        aria-label={`Delete canvas ${c.title}`}
                         onClick={(e) => { e.stopPropagation(); void handleDeleteCanvas(c.id, c.title); }}
                       >
                         <TrashCan size={14} />
@@ -910,7 +944,15 @@ export const NotesPage: React.FC = () => {
             </NoteEditorHost>
           </div>
         )}
+        {useCaseId !== null && <SideTabsPanel key={useCaseId} storageKey="think-use-case" label="Use case properties"
+        selectTab={{ id: 'details', seq: 1 }}
+        defaultTab="details" width={SPARKS_SIDE_WIDTH} tabs={[{ id: 'details', label: 'Use case',
+          content: <UseCaseDetailPanel id={useCaseId} onClosed={() => { setSearchParams({}, { replace: true }); }} /> }]} />}
       </div>
+
+      {requestedCreation === 'use-case' && <CreateUseCaseDialog initialProjectId={searchParams.get('project')}
+        onClose={() => { const next = new URLSearchParams(searchParams); next.delete('new'); next.delete('project'); setSearchParams(next, { replace: true }); }}
+        onCreated={created => { setMode('notes'); setSearchParams({ useCase: created.id }, { replace: true }); }} />}
 
       {!!parentChoices.length && <AppDialog title="Choose the Design" onClose={() => { setParentChoices([]); }}
         actions={<button type="button" className="kh-btn-ghost" onClick={() => { setParentChoices([]); }}>Cancel</button>}>

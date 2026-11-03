@@ -85,7 +85,7 @@ export const PlanPage: React.FC = () => {
 
   return (
     <div className="plan-root" role="main">
-      <PageHeader title="Plan" actions={<>
+      <PageHeader title="Plan" className="plan-page-header" actions={<>
           {(
             <>
               <Select id="plan-filter-project" labelText="Filter by project" hideLabel size="sm"

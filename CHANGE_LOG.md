@@ -2,6 +2,35 @@
 
 ---
 
+## Main workspace clarity and safety
+
+Today opens the first posting pick, falling back to the highest-priority attention
+item. Its attention count includes items beyond the five-row preview; pick angles
+stay compact in the list and complete in the detail. Chosen times include a London
+calendar date. The redundant header refresh is removed and Today task details show
+**View in Plan** beside the project chip.
+
+Discover distinguishes email counts from article counts, explains retention
+states and searches article titles across the selected server-paginated list,
+including the parking lot. Search results do not include the unrelated briefing.
+Plan's header wraps on narrow desktops, Focus offers the existing task creator
+and permanent task deletion requires confirmation.
+
+Think restores its established search, sorting, grouping, density and preview
+controls. Its view tabs support arrow/Home/End navigation and canvas rows support
+Space without intercepting nested delete controls. Plan's **New use case** opens
+the same creator in Think, with existing use case properties retained there;
+Plan remains the progress tracker. Build's **New spec** opens a normal Spec note
+in Think; its existing **Send to Build** workflow remains the handoff.
+
+Build separates unavailable data from loading and empty states, offers retry,
+protects unsaved drafts during navigation, and supplies Athena with the selected
+spec, settings, tasks and events. Athena reads and edits use the same domain
+services and source-conflict checks as the normal editors, reconcile the editor
+afterward, and cannot bypass execution or merge approval.
+
+---
+
 ## Use cases: ideas → specs → build
 
 New **Plan → Use cases** view tracks an idea for an Imagine demo, the Imagine platform or another product

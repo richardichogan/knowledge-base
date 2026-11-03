@@ -1,7 +1,7 @@
 /**
  * UseCaseLauncher — the "→ Use case" action wherever an idea lives (Discover, Sparks,
  * Think notes, canvases). Opens CreateUseCaseDialog seeded with the item, then confirms
- * in place with a link to Plan so triage is not interrupted.
+ * in place with a link to Think so triage is not interrupted.
  */
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -19,7 +19,7 @@ export interface UseCaseLaunch {
 }
 
 export function hrefForUseCase(id: string): string {
-  return `/plan?view=use-cases&useCase=${encodeURIComponent(id)}`;
+  return `/think?useCase=${encodeURIComponent(id)}`;
 }
 
 export const UseCaseLauncher: React.FC<{ launch: UseCaseLaunch; onClose: () => void }> = ({ launch, onClose }) => {
@@ -29,7 +29,7 @@ export const UseCaseLauncher: React.FC<{ launch: UseCaseLaunch; onClose: () => v
     return (
       <AppDialog key="done" title="Use case saved" onClose={onClose} actions={<>
         <button type="button" className="kh-btn-ghost" onClick={onClose} data-dialog-autofocus>Done</button>
-        <Link className="kh-btn-accent" to={hrefForUseCase(done.id)} onClick={onClose}>Open in Plan</Link>
+        <Link className="kh-btn-accent" to={hrefForUseCase(done.id)} onClick={onClose}>Open in Think</Link>
       </>}>
         <p className="kh-uc-handoff__lead">
           {launch.sourceLabel} is in <strong>{done.title}</strong> ({done.sources.length === 1 ? '1 source' : `${done.sources.length.toString()} sources`}).

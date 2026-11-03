@@ -2,7 +2,9 @@
  * UseCaseDetailPanel — the side-panel body for one use case: edit it, see where it came
  * from, draft its spec, hand it off, track PRs and close it.
  */
-import React, { useEffect, useId, useState } from 'react';
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { setUseCaseChatBridge } from '../../utils/activeBlockNoteEditor';
 import { Close, DocumentAdd, Launch, Send, TrashCan } from '@carbon/icons-react';
 import { Link } from 'react-router-dom';
 import { useProjects } from '../../hooks/useProjects';
@@ -25,13 +27,25 @@ const REPO_RE = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
 
 /** A text field that saves on blur (or Enter for single-line) when the value changed. */
 const BlurField: React.FC<{
-  id: string; label: string; value: string; onSave: (v: string) => void; multiline?: boolean; placeholder?: string;
+  id: string; label: string; value: string; onSave: (v: string, expectedValue: string) => void; multiline?: boolean; placeholder?: string;
+  onDirtyChange: (id: string, dirty: boolean) => void;
   validate?: (v: string) => string | null; className?: string; maxLength: number;
-}> = ({ id, label, value, onSave, multiline = false, placeholder, validate, className = '', maxLength }) => {
+}> = ({ id, label, value, onSave, onDirtyChange, multiline = false, placeholder, validate, className = '', maxLength }) => {
   const [draft, setDraft] = useState(value);
-  useEffect(() => { setDraft(value); }, [value]);
+  const base = useRef(value);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  useEffect(() => {
+    if (draftRef.current === base.current || draftRef.current === value) {
+      base.current = value; setDraft(value);
+    }
+  }, [value]);
+  useEffect(() => {
+    onDirtyChange(id, draft !== value);
+    return () => { onDirtyChange(id, false); };
+  }, [id, draft, value, onDirtyChange]);
   const error = validate?.(draft.trim()) ?? null;
-  const commit = (): void => { if (draft.trim() !== value && error === null) onSave(draft.trim()); };
+  const commit = (): void => { if (draft.trim() !== value && error === null) onSave(draft.trim(), base.current); };
   const common = {
     id, value: draft, placeholder, maxLength, 'aria-invalid': error !== null,
     onBlur: commit,
@@ -43,7 +57,7 @@ const BlurField: React.FC<{
       {multiline
         ? <textarea {...common} rows={4} className={`kh-uc-input kh-uc-input--area ${className}`} />
         : <input {...common} className={`kh-uc-input ${className}`}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } if (e.key === 'Escape') setDraft(value); }} />}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } if (e.key === 'Escape') { base.current = value; setDraft(value); } }} />}
       {error !== null && draft.trim() !== value && <span className="kh-uc-error">{error}</span>}
     </label>
   );
@@ -58,6 +72,13 @@ export const UseCaseDetailPanel: React.FC<{ id: string; onClosed: () => void }> 
 
 const Detail: React.FC<{ useCase: UseCaseDetail; onClosed: () => void }> = ({ useCase, onClosed }) => {
   const fid = useId();
+  const qc = useQueryClient();
+  const dirtyFields = useRef(new Set<string>());
+  const markDirty = useCallback((id: string, dirty: boolean): void => {
+    if (dirty) dirtyFields.current.add(id); else dirtyFields.current.delete(id);
+  }, []);
+  const [chatBusy, setChatBusy] = useState(false);
+  const [viewError, setViewError] = useState<string | null>(null);
   const { data: projects = [] } = useProjects();
   const update = useUpdateUseCase();
   const draft = useDraftUseCaseSpec();
@@ -69,6 +90,19 @@ const Detail: React.FC<{ useCase: UseCaseDetail; onClosed: () => void }> = ({ us
   const [linkUrl, setLinkUrl] = useState('');
   const [view, setView] = useState<DocumentViewMode>('md');
   const [reviewPending, setReviewPending] = useState(false);
+  const pendingRef = useRef(false);
+  pendingRef.current = reviewPending || linkUrl.trim() !== '' || update.isPending || draft.isPending
+    || removeSource.isPending || addLink.isPending || removeLink.isPending || del.isPending;
+  useEffect(() => setUseCaseChatBridge(useCase.id, async () => {
+    if (dirtyFields.current.size > 0 || pendingRef.current) {
+      throw new Error('Save or cancel the pending use case edits before asking Athena to edit this use case.');
+    }
+    setChatBusy(true);
+    return async () => {
+      try { await qc.invalidateQueries({ queryKey: ['use-cases'] }); }
+      finally { setChatBusy(false); }
+    };
+  }), [useCase.id, qc]);
 
   const patch = (p: UseCasePatch): void => { update.mutate({ id: useCase.id, patch: p }); };
   const redraft = async (): Promise<void> => {
@@ -89,13 +123,20 @@ const Detail: React.FC<{ useCase: UseCaseDetail; onClosed: () => void }> = ({ us
 
   return (
     <div className="kh-uc-panel">
+      <fieldset className="kh-uc-editor-fields" disabled={chatBusy}>
       <div className="kh-uc-panel__head">
         <span className={`kh-uc-stage kh-uc-stage--${useCase.stage}`}>{STAGE_LABELS[useCase.stage]}</span>
         <span className="kh-uc-panel__meta">Updated {sinceLabel(useCase.updatedAt)}{sinceLabel(useCase.updatedAt) === 'today' ? '' : ' ago'}</span>
       </div>
       <Link className="kh-uc-link" to={`/think?design=${encodeURIComponent(useCase.id)}`}>Open Design</Link>
 
-      <DocumentViewToggle value={view} onChange={setView} pendingReview={reviewPending} />
+      {viewError !== null && <p className="kh-uc-error" role="alert">{viewError}</p>}
+      <DocumentViewToggle value={view} onChange={next => {
+        if (dirtyFields.current.size > 0 || update.isPending) {
+          setViewError('Finish saving the fields before switching views. Your current edits have been kept.'); return;
+        }
+        setViewError(null); setView(next);
+      }} pendingReview={reviewPending} />
       {view === 'html' ? <>
         <h2 className="kh-uc-panel__title">{useCase.title}</h2>
         <DocumentReview source={useCase.summary} version={useCase.summary} disabled={update.isPending} onPendingChange={setReviewPending}
@@ -107,9 +148,11 @@ const Detail: React.FC<{ useCase: UseCaseDetail; onClosed: () => void }> = ({ us
         </DocumentReview>
       </> : <>
       <BlurField id={`${fid}-title`} label="Title" value={useCase.title} maxLength={200} className="kh-uc-input--title"
+        onDirtyChange={markDirty}
         validate={(v) => (v === '' ? 'A title is required.' : null)} onSave={(title) => { patch({ title }); }} />
       <BlurField id={`${fid}-summary`} label="Summary" value={useCase.summary} maxLength={4000} multiline
-        placeholder="What is the idea, and who is it for?" onSave={(summary) => { patch({ summary }); }} />
+        onDirtyChange={markDirty}
+        placeholder="What is the idea, and who is it for?" onSave={(summary, expectedSummary) => { patch({ summary, expectedSummary }); }} />
       </>}
 
       <div className="kh-uc-panel__grid">
@@ -138,6 +181,7 @@ const Detail: React.FC<{ useCase: UseCaseDetail; onClosed: () => void }> = ({ us
           </select>
         </label>
         <BlurField id={`${fid}-repo`} label="Repository" value={useCase.repo ?? ''} maxLength={200} placeholder="owner/name"
+          onDirtyChange={markDirty}
           validate={(v) => (v === '' || REPO_RE.test(v) ? null : 'Use owner/name.')} onSave={(repo) => { patch({ repo: repo || null }); }} />
       </div>
 
@@ -233,6 +277,7 @@ const Detail: React.FC<{ useCase: UseCaseDetail; onClosed: () => void }> = ({ us
         </button>
       </div>
 
+      </fieldset>
       {handoffOpen && <HandoffDialog useCase={useCase} onClose={() => { setHandoffOpen(false); }} />}
     </div>
   );

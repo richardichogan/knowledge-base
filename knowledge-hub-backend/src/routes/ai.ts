@@ -36,6 +36,8 @@ import type { AiModel, ChatPageContext, WriteActionType, WriteActionPayload } fr
 import type { PodcastTurnState } from '../ai/podcastTools.js';
 import { getDesign } from '../designs/designStore.js';
 import type { DesignTurnState } from '../ai/designTools.js';
+import type { BuildTurnState } from '../ai/buildTools.js';
+import type { UseCaseTurnState } from '../ai/useCaseTools.js';
 import { linkTraceMessage, linkTraceSession, listTurnTraces, readTurnTrace, recordTurnTrace, withTurnTrace, withTurnSpan } from '../ai/turnTrace.js';
 
 const router = Router();
@@ -72,6 +74,8 @@ export interface ChatTurnResult {
   workChanged?: { noteIds: string[] };
   podcastChanged?: { noteId: string };
   designChanged?: { parentNoteId: string; noteIds: string[] };
+  buildChanged?: { specId: string };
+  useCaseChanged?: { useCaseId: string };
   reply: string;
   sessionId: string;
   persona: string;
@@ -209,6 +213,12 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   const podcastState: PodcastTurnState = { readCardIds: new Set(), changed: false };
   const designState: DesignTurnState = { changedNoteIds: [] };
   const workState: WorkTurnState = { reads: new Map(), changedNoteIds: [] };
+  const buildSpecId = pageContext?.type === 'build-spec' && typeof pageContext.buildSpecId === 'string'
+    ? pageContext.buildSpecId : undefined;
+  const buildState: BuildTurnState = { taskReads: new Map(), changed: false };
+  const useCaseId = pageContext?.type === 'use-case'
+    ? (typeof pageContext.useCaseId === 'string' ? pageContext.useCaseId : pageContext.id) : undefined;
+  const useCaseState: UseCaseTurnState = { changed: false };
   const workCandidate = pageContext?.workContentId ?? (pageContext?.type === 'note' ? pageContext.id : undefined);
   if (!openNoteId && typeof workCandidate === 'string' && /^[0-9a-f-]{36}$/i.test(workCandidate)) {
     const candidate = (await db.query<{ type: string }>("SELECT note_list_metadata(content)->>'contentType' AS type FROM notes WHERE id=$1 AND status='active'", [workCandidate])).rows[0];
@@ -249,7 +259,8 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   const modelReply = await handleConversationTurn(
     db, modelHistory, message, effectiveModel, persona, effectiveSessionId, alreadyHeld ? undefined : pageContext,
     (toolName) => { toolsUsed.add(toolName); },
-    { userId, noteId: openNoteId, designOwner, designState, podcastOwner, podcastState, workState, taskStatusChanges, noteEdits, mapChanges, localFolders, localFileWrites },
+    { userId, noteId: openNoteId, designOwner, designState, podcastOwner, podcastState, workState,
+      buildSpecId, buildState, useCaseId, useCaseState, taskStatusChanges, noteEdits, mapChanges, localFolders, localFileWrites },
     { ...hooks, contextUsed, onAudit: (row) => { audit.row = row; } },
   );
   hooks.signal?.throwIfAborted();
@@ -342,6 +353,8 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
       ...(designOwner && designState.changedNoteIds.length > 0 ? { designChanged: { parentNoteId: designOwner, noteIds: [...new Set(designState.changedNoteIds)] } } : {}),
       ...(podcastOwner && podcastState.changed ? { podcastChanged: { noteId: podcastOwner } } : {}),
       ...(workState.changedNoteIds.length ? { workChanged: { noteIds: [...new Set(workState.changedNoteIds)] } } : {}),
+      ...(buildState.changed && buildSpecId ? { buildChanged: { specId: buildSpecId } } : {}),
+      ...(useCaseState.changed && useCaseId ? { useCaseChanged: { useCaseId } } : {}),
   };
   });
 }

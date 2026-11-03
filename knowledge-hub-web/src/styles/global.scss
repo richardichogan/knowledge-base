@@ -7979,6 +7979,14 @@ body.kh-pane-resizing {
   > .dc-tabs { flex-basis: 100%; }
 }
 
+.dc-retention-guidance {
+  flex: 0 0 100%;
+  margin: 0;
+  color: var(--cds-text-secondary);
+  font-size: var(--kh-text-meta);
+  line-height: 1.5;
+}
+
 .dc-format-picker {
   display: flex;
   flex-wrap: nowrap;

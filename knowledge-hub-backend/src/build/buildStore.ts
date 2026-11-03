@@ -224,7 +224,8 @@ export async function listAwaitingFinalMergeIds(db: Db = getDb()): Promise<strin
 }
 
 export async function updateSpec(id: string, patch: Partial<BuildSpec>, db: Db = getDb(),
-  expected?: { markdown: string; status: BuildSpec['status'] }): Promise<BuildSpec | null> {
+  expected?: { markdown: string; status: BuildSpec['status']; fields?: Pick<BuildSpec,
+    'title' | 'specMarkdown' | 'repo' | 'baseBranch' | 'useWorkBranch' | 'status' | 'maxParallel' | 'autoMerge'> }): Promise<BuildSpec | null> {
   const sets: string[] = [];
   const values: unknown[] = [];
   for (const [key, column] of Object.entries(SPEC_COLUMNS)) {
@@ -236,6 +237,14 @@ export async function updateSpec(id: string, patch: Partial<BuildSpec>, db: Db =
   if (expected !== undefined) {
     values.push(expected.markdown, expected.status);
     where += ` AND spec_markdown = $${values.length - 1} AND status = $${values.length}`;
+    if (expected.fields !== undefined) {
+      const expectedColumns = ['title', 'specMarkdown', 'repo', 'baseBranch', 'useWorkBranch', 'status', 'maxParallel', 'autoMerge'] as const;
+      for (const key of expectedColumns) {
+        const column = SPEC_COLUMNS[key]!;
+        values.push(expected.fields[key]);
+        where += ` AND ${column} = $${values.length}`;
+      }
+    }
   }
   const { rows } = await db.query<Row>(
     `UPDATE build_specs SET ${sets.join(', ')}, updated_at = NOW() WHERE ${where} RETURNING *`, values,
@@ -304,9 +313,9 @@ export async function addEvent(
   );
 }
 
-export async function listEvents(specId: string, limit = DEFAULT_EVENT_LIMIT, db: Db = getDb()): Promise<BuildEvent[]> {
+export async function listEvents(specId: string, limit = DEFAULT_EVENT_LIMIT, db: Db = getDb(), offset = 0): Promise<BuildEvent[]> {
   const { rows } = await db.query<Row>(
-    'SELECT * FROM build_events WHERE spec_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2', [specId, limit],
+    'SELECT * FROM build_events WHERE spec_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2 OFFSET $3', [specId, limit, offset],
   );
   return rows.map((r) => ({
     id: String(r['id']),
@@ -317,6 +326,21 @@ export async function listEvents(specId: string, limit = DEFAULT_EVENT_LIMIT, db
     payload: (r['payload'] as Record<string, unknown> | null) ?? {},
     createdAt: iso(r['created_at']) ?? '',
   }));
+}
+
+export async function countEvents(specId: string, db: Db = getDb()): Promise<number> {
+  const { rows } = await db.query<{ count: number }>('SELECT COUNT(*)::int AS count FROM build_events WHERE spec_id = $1', [specId]);
+  return rows[0]?.count ?? 0;
+}
+
+export async function listTaskPage(specId: string, limit: number, offset: number, db: Db = getDb()): Promise<BuildTask[]> {
+  const { rows } = await db.query<Row>('SELECT * FROM build_tasks WHERE spec_id = $1 ORDER BY seq LIMIT $2 OFFSET $3', [specId, limit, offset]);
+  return rows.map(toTask);
+}
+
+export async function countTasks(specId: string, db: Db = getDb()): Promise<number> {
+  const { rows } = await db.query<{ count: number }>('SELECT COUNT(*)::int AS count FROM build_tasks WHERE spec_id = $1', [specId]);
+  return rows[0]?.count ?? 0;
 }
 
 export async function listRunningSpecIds(db: Db = getDb()): Promise<string[]> {

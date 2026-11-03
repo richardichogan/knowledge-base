@@ -2,6 +2,30 @@
 
 **Status:** Validated
 
+**Section 7: Main workspace release validation (2026-11-03):**
+- Existing application-only AZCLI deployment targets retained: Alliance Tenant
+  Reporting, backend kh-prod-api-vnet / cad79107555facr in UK South, frontend
+  kh-prod-web in West Europe, rg-knowledge-hub-prod. Live identity remains None;
+  no provisioning, template, policy, RBAC or managed-identity changes.
+- `git fetch origin` and `git merge origin/main --no-edit`: already up to date.
+  Both app `npx --no-install tsc --noEmit` commands passed.
+- Both full `npm run -s test:isolated` release commands ran once. Frontend passed.
+  Backend passed 919/920; spark-grounding aborted with a Rosetta native runtime
+  branch error. Only that file was rerun credential-isolated and passed.
+- Frontend `npm run build` and backend `npm run build` passed. Docker uses the
+  existing lockfile, compiles the same backend and copies schema/migrations.
+- Three new lint findings were fixed narrowly (stable event fallback and named
+  limits). Both app typechecks and lint non-regression checks then passed;
+  affected Build regressions and both final production builds passed.
+- No new dependencies, secrets, automatic local delivery or Desktop changes.
+  Local servers remain development-mode with production content.
+- Local browser confirmed the Build empty state and Think creation guidance.
+  Further browser actions timed out; actual Athena mutations against shared
+  production content were not performed. Editor/tool persistence is covered by
+  domain checks and release regressions, not claimed as a live mutation check.
+- Evidence: workspace-release-{web-tests,web-build,api-tests,api-build,
+  spark-rerun,web-lint,api-lint}.log in session files.
+
 **Section 7: Athena reliability and pending application release proof (2026-11-02):**
 - User explicitly requested deployment and selected all pending application fixes:
   Athena capability/action evidence, editor reconciliation, Daedalus candidates,

@@ -9,7 +9,7 @@ import type { PaneWidthOptions } from '../../hooks/usePersistedState';
 import { useUseCases } from '../../hooks/useUseCases';
 import { describeApiError } from '../../services/apiError';
 import { PRODUCT_KINDS, PRODUCT_KIND_LABELS, STAGE_LABELS, USE_CASE_STAGES } from '../../types/useCases';
-import { CreateUseCaseDialog } from './CreateUseCaseDialog';
+import { useNavigate } from 'react-router-dom';
 import { UseCaseDetailPanel } from './UseCaseDetailPanel';
 import { filterUseCases, groupByProduct, isStalled, sinceLabel, type KindFilter, type StageFilter } from './useCaseView';
 
@@ -22,7 +22,8 @@ export const UseCasesView: React.FC<{ filterProject: string; selectId?: string |
   const [kind, setKind] = useState<KindFilter>('all');
   const [selected, setSelected] = useState<string | null>(null);
   const [openSeq, setOpenSeq] = useState(0);
-  const [creating, setCreating] = useState(false);
+  const navigate = useNavigate();
+  const startUseCase = (): void => { navigate(`/think?new=use-case${filterProject ? `&project=${encodeURIComponent(filterProject)}` : ''}`); };
 
   const select = (id: string): void => { setSelected(id); setOpenSeq((n) => n + 1); };
   useEffect(() => { if (selectId !== null) { setStage('all'); select(selectId); } }, [selectId]);
@@ -48,7 +49,7 @@ export const UseCasesView: React.FC<{ filterProject: string; selectId?: string |
             {PRODUCT_KINDS.map((k) => <option key={k} value={k}>{PRODUCT_KIND_LABELS[k]}</option>)}
           </select>
           <span className="kh-uc-toolbar__count" aria-live="polite">{visible.length} of {useCases.length}</span>
-          <button type="button" className="kh-btn-accent kh-uc-toolbar__new" onClick={() => { setCreating(true); }}>
+          <button type="button" className="kh-btn-accent kh-uc-toolbar__new" onClick={startUseCase}>
             <Add size={16} /> New use case
           </button>
         </div>
@@ -62,9 +63,9 @@ export const UseCasesView: React.FC<{ filterProject: string; selectId?: string |
               <h2 className="kh-uc-empty__title">Turn an idea into something you can build</h2>
               <p className="kh-uc-empty__body">
                 A use case gathers what you have found (Discover items, Sparks, notes and diagrams) into a spec,
-                then hands it to GitHub Copilot or Athena Build. Start one here, or with “→ Use case” wherever the idea lives.
+                then hands it to GitHub Copilot or Athena Build. Create and develop it in Think; track its progress here.
               </p>
-              <button type="button" className="kh-btn-accent" onClick={() => { setCreating(true); }}><Add size={16} /> New use case</button>
+              <button type="button" className="kh-btn-accent" onClick={startUseCase}><Add size={16} /> New use case</button>
             </> : <>
               <h2 className="kh-uc-empty__title">Nothing matches these filters</h2>
               {filtered && <button type="button" className="kh-btn-ghost" onClick={() => { setStage('active'); setKind('all'); }}>Show all open use cases</button>}
@@ -105,8 +106,6 @@ export const UseCasesView: React.FC<{ filterProject: string; selectId?: string |
           tabs={[{ id: 'details', label: 'Use case', content: <UseCaseDetailPanel id={selected} onClosed={() => { setSelected(null); }} /> }]} />
       )}
 
-      {creating && <CreateUseCaseDialog initialProjectId={filterProject || null} onClose={() => { setCreating(false); }}
-        onCreated={(created) => { setCreating(false); select(created.id); }} />}
     </div>
   );
 };

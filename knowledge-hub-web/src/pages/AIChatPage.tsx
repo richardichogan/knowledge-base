@@ -16,7 +16,7 @@ import {
 } from '@carbon/react';
 import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, Menu, Idea, Notebook, Copy, View, Document as DocumentIcon, Compare } from '@carbon/icons-react';
 import { api } from '../services/api';
-import { prepareDesignChat, prepareDiagramChat, preparePodcastChat, prepareTaskChat, prepareWorkChat } from '../utils/activeBlockNoteEditor';
+import { prepareBuildChat, prepareDesignChat, prepareDiagramChat, preparePodcastChat, prepareTaskChat, prepareUseCaseChat, prepareWorkChat } from '../utils/activeBlockNoteEditor';
 import { authSession } from '../services/authSession';
 import { describeApiError, requireApiData } from '../services/apiError';
 import { confirmDialog, alertDialog } from '../services/appDialogs';
@@ -872,6 +872,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           if (ctx?.workContentId) finishDesign = await prepareWorkChat(ctx.workContentId);
           else if (ctx?.podcastEpisodeId) finishDesign = await preparePodcastChat(ctx.podcastEpisodeId);
           else if (ctx?.type === 'task' && ctx.id) finishDesign = await prepareTaskChat(ctx.id);
+          else if (ctx?.buildSpecId) finishDesign = await prepareBuildChat(ctx.buildSpecId);
+          else if (ctx?.type === 'use-case' && (ctx.useCaseId ?? ctx.id)) finishDesign = await prepareUseCaseChat((ctx.useCaseId ?? ctx.id)!);
           else if (ctx?.conversationId && isNoteLinkedPanel) finishDesign = await prepareDesignChat(ctx.conversationId);
         }
         // In Athena Desktop, Athena may read and propose changes to the folders he chose on this PC.
@@ -902,7 +904,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           handlers,
           signal,
         );
-        if (result.success) designChanged = result.data.designChanged !== undefined || result.data.podcastChanged !== undefined || result.data.workChanged !== undefined;
+        if (result.success) designChanged = result.data.designChanged !== undefined || result.data.podcastChanged !== undefined
+          || result.data.workChanged !== undefined || result.data.buildChanged !== undefined || result.data.useCaseChanged !== undefined;
         if (result.success) {
           const remaining = ATHENA_MIN_THINK_MS - (Date.now() - startedAt);
           if (remaining > 0) await new Promise<void>(resolve => { window.setTimeout(resolve, remaining); });

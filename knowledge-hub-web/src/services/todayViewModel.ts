@@ -87,6 +87,19 @@ export function relativeTime(iso: string, now = new Date()): string {
   return days === 1 ? 'Yesterday' : `${days} days ago`;
 }
 
+export function todayItemDate(item: TodayItem, now = new Date()): string {
+  if (!item.date) return item.source;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(item.date)) return relativeTime(item.date, now);
+  const date = new Date(`${item.date}T12:00:00Z`);
+  if (!Number.isFinite(date.getTime())) return 'Due date unavailable';
+  const today = workDate(now);
+  if (item.date === today) return 'Due today';
+  const label = date.toLocaleDateString('en-GB', {
+    timeZone: 'Europe/London', weekday: 'short', day: 'numeric', month: 'short',
+  });
+  return item.date < today ? `Overdue since ${label}` : `Due ${label}`;
+}
+
 function activityDate(event: ContentItemSummary): string {
   const updatedAt = event.metadata?.['updatedAt'];
   return typeof updatedAt === 'string' && Number.isFinite(Date.parse(updatedAt)) ? updatedAt : event.publishedAt;
