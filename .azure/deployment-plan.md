@@ -2,6 +2,24 @@
 
 **Status:** Validated
 
+**Section 7: Note-loading hang hotfix validation (2026-11-03):**
+- Frontend-only hotfix: remove post-render code spellcheck DOM mutations and
+  apply exclusions through the editor schema before insertion. Saved note
+  62dffe4c-a9a4-4996-9119-3e768f140f3a is unchanged.
+- Fetch/merge confirms main and HEAD at 01a7777a. Both application
+  `npx tsc --noEmit` checks passed. An isolated HEAD snapshot with only the
+  three note-rendering source/fixture changes passed `npm run build` and the
+  full frontend `npm run -s test:isolated` (306 main plus auxiliary checks).
+  The code-rich browser fixture was updated but not executed; resolution in
+  the user's Electron session is not yet verified.
+- Existing Alliance Tenant Reporting subscription and kh-prod-web target
+  verified through authenticated Azure CLI reads. No backend, infrastructure,
+  RBAC, migration, dependency or Desktop changes; unchanged backend release
+  validation is reused. No provisioning or new environment is required.
+- Pending task deduplication and assignment/activity changes, DESIGN.md and
+  the Impeccable cache are excluded from this urgent hotfix release.
+- Evidence: note-hang-tests.log and note-hang-build.log in session files.
+
 **Section 7: Graph controls and duplicate preview release validation (2026-11-03):**
 - Frontend-only release: remove Whole atlas, let Graph clear record focus,
   preserve Back navigation, and give Think graph/link siblings distinct keys.

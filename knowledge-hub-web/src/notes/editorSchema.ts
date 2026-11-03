@@ -1,4 +1,4 @@
-import { BlockNoteSchema, createCodeBlockSpec, defaultBlockSpecs, defaultInlineContentSpecs, defaultStyleSpecs, type BlockSpec } from '@blocknote/core';
+import { BlockNoteSchema, createBlockSpec, createCodeBlockSpec, createStyleSpecFromTipTapMark, defaultBlockSpecs, defaultInlineContentSpecs, defaultStyleSpecs, type BlockSpec } from '@blocknote/core';
 import { codeBlockOptions } from '@blocknote/code-block';
 import { entityMentionSpec, noteMentionSpec } from './EntityMention';
 import { passageTagStyles } from './passageTags';
@@ -9,6 +9,19 @@ type HeadingProps = Omit<typeof defaultBlockSpecs.heading.config.propSchema, 'is
   isToggleable: NonNullable<typeof defaultBlockSpecs.heading.config.propSchema.isToggleable>;
 };
 const headingSpec = defaultBlockSpecs.heading as BlockSpec<'heading', HeadingProps, 'inline'>;
+const codeBlockSpec = createCodeBlockSpec(codeBlockOptions);
+// Set this before mounting: mutating code marks afterwards feeds ProseMirror's DOM observer.
+const codeStyleSpec = createStyleSpecFromTipTapMark(
+  defaultStyleSpecs.code.implementation.mark.configure({ HTMLAttributes: { spellcheck: 'false' } }), 'boolean',
+);
+const codeBlockWithSpelling = createBlockSpec(codeBlockSpec.config, {
+  ...codeBlockSpec.implementation,
+  render(...args) {
+    const rendered = codeBlockSpec.implementation.render.call(this, ...args);
+    rendered.contentDOM?.setAttribute('spellcheck', 'false');
+    return rendered;
+  },
+}, codeBlockSpec.extensions)();
 // Default BlockNote schema with the codeBlock spec swapped for one with shiki
 // syntax highlighting and the full supported-language list from
 // @blocknote/code-block.
@@ -16,12 +29,12 @@ export const editorSchema = BlockNoteSchema.create({
   blockSpecs: {
     ...defaultBlockSpecs,
     heading: headingSpec,
-    codeBlock: createCodeBlockSpec(codeBlockOptions),
+    codeBlock: codeBlockWithSpelling,
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,
     noteMention: noteMentionSpec,
     entityMention: entityMentionSpec,
   },
-  styleSpecs: { ...defaultStyleSpecs, ...passageTagStyles },
+  styleSpecs: { ...defaultStyleSpecs, code: codeStyleSpec, ...passageTagStyles },
 });
