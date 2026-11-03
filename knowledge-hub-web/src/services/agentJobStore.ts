@@ -10,6 +10,7 @@ import { api } from './api';
 import { announceAthenaJob } from './jobUpdates';
 import { assignmentStatusLabel, isActiveAgentJob, type AgentJob, type AssignmentNotice } from '../types/agentJobs';
 import { requireApiData } from './apiError';
+import { useQueryClient } from '@tanstack/react-query';
 
 const RETRY_MIN_MS = 2_000;
 const RETRY_MAX_MS = 30_000;
@@ -81,6 +82,12 @@ function receive(job: AgentJob): void {
   const previous = jobs.get(job.id);
   jobs.set(job.id, job);
   changed();
+  if (job.subjectType === 'task' && (previous?.status !== job.status
+    || previous.progress.at(-1) !== job.progress.at(-1))) {
+    window.dispatchEvent(new CustomEvent('athena-task-job-updated', {
+      detail: { taskId: job.subjectId, statusChanged: previous?.status !== job.status },
+    }));
+  }
   if (isActiveAgentJob(job) || (previous && previous.status === job.status)) return;
   for (const listener of finishListeners) listener(job);
   if (job.subjectType === 'daily-insights-import') {
@@ -182,6 +189,22 @@ export function useAgentJobFinished(subjectId: string | undefined, onFinished: (
 
 /** Keeps the job stream open for the signed-in app so finished work is announced on any page. */
 export function AgentJobFeed(): null {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    const refresh = (event: Event): void => {
+      const { taskId, statusChanged } = (event as CustomEvent<{ taskId: string; statusChanged: boolean }>).detail;
+      for (const key of ['task-assistance', 'task-notes', 'task-links']) {
+        void queryClient.invalidateQueries({ queryKey: [key, taskId] });
+      }
+      if (statusChanged) {
+        for (const key of ['tasks', 'today', 'today-tasks', 'at-risk-tasks', 'notes-list']) {
+          void queryClient.invalidateQueries({ queryKey: [key] });
+        }
+      }
+    };
+    window.addEventListener('athena-task-job-updated', refresh);
+    return () => { window.removeEventListener('athena-task-job-updated', refresh); };
+  }, [queryClient]);
   useEffect(() => holdAgentJobFeed(), []);
   return null;
 }

@@ -16,6 +16,17 @@ export interface DailyTask {
   due: string | null;
   dueText: string;
   source: string;
+  existingTaskId?: string;
+  duplicateReason?: string;
+}
+export interface ExistingDailyTask {
+  id: string;
+  title: string;
+  body: string | null;
+  status: string;
+  archived: boolean;
+  project_id: string | null;
+  due_date: string | null;
 }
 export interface DailyMeeting { start: string; end: string; title: string; flag: string }
 export interface DailyInsights {

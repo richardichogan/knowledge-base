@@ -7,7 +7,10 @@ export interface TaskAssistanceProposal {
     kind: 'research' | 'email' | 'support';
     summary: string; approach: string; output: string;
     questions: string[]; humanDecisions: string[]; publicQueries: string[];
+    outputFormat?: 'note' | 'docx';
+    sourceRequired?: boolean;
   };
+  direction?: string;
   approved: boolean;
   resultNoteId: string | null;
   stale: boolean;

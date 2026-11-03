@@ -10,7 +10,7 @@ import { extractDailyInsights } from '../../services/dailyInsightsExtraction.js'
 registerSpecialist({
   id: dailyInsightsImportSpecialist.id,
   name: 'Metis — Work Analyst',
-  description: 'Processes staged M365 Daily Insights reports. Imports only clearly supported actions assigned to Richard, collapses repeated actions, and reports ambiguous candidates without creating tasks. Task, diary, and knowledge persistence remains deterministic and revision-safe.',
+  description: 'Processes staged M365 Daily Insights reports. Imports only clearly supported actions assigned to Richard, compares actions with every task status including completed and rejected/archived work, and reports ambiguous candidates without creating tasks. Task, diary, and knowledge persistence remains deterministic and revision-safe.',
   subjectType: dailyInsightsImportSpecialist.subjectType,
   resolveSubject: resolveDailyInsightsImport,
   parseInput: parseDailyInsightsImportInput,
@@ -22,8 +22,8 @@ registerSpecialist({
     context.signal.throwIfAborted();
     context.progress(`Reviewing the ${staged.date} briefing for high-confidence actions and supported diary entries.`);
     const result = await captureDailyInsights(context.db, staged.filename, staged.report, staged.sourcePath,
-      staged.sourceModifiedAt.toISOString(), async (filename, report) =>
-        extractDailyInsights(filename, report, context.signal));
+      staged.sourceModifiedAt.toISOString(), async (filename, report, _signal, existingTasks) =>
+        extractDailyInsights(filename, report, context.signal, existingTasks));
     context.signal.throwIfAborted();
     await deleteStagedDailyInsightsImport(context.db, staged.id);
     const taskCount = result.tasksCreated + result.tasksUpdated;

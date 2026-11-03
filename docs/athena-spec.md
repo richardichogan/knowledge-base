@@ -58,6 +58,9 @@ dialog. Passwords, tokens, addresses, identifiers, paths and raw code/HTML field
 are excluded, including code inside rich notes. Explicit spellcheck opt-outs also
 apply to Athena's own suggestions. Corrections use the existing editor input and
 save paths, without adding a separate content store or changing Athena access.
+Code spellcheck exclusions are applied by the editor schema before DOM insertion,
+not by an observer rewriting live editor elements. This keeps generated drafts
+with many inline-code placeholders from repeatedly triggering editor DOM repair.
 
 ### Retrieval meanings and boundaries
 
@@ -857,6 +860,18 @@ condition if the task is saved but its assessment cannot be queued.
 
 **Help me** remains available to assess existing tasks or reassess with new
 direction. This is an intent assessment, not a keyword trigger.
+Leaving direction blank retains that owner's latest nonempty direction across
+the task's full proposal history, including after a failed attempt or an older
+blank reassessment. New nonempty direction replaces it only in a new proposal.
+Assessment includes bounded, attributed task activity, including source pointers
+and user corrections. The effective direction is displayed with the proposal
+before approval; assistant progress is not user authorization.
+Clipped or older activity remains available through the existing paged
+`read_task_activity` tool, restricted to the approved task; it does not count
+as reading the original document.
+Approval, execution and final persistence reject a proposal that omitted or no
+longer matches the owner's latest explicit direction. Old instructions are never
+silently added to already-approved work; it must be reassessed and approved.
 Review, investigate, look at, think about, validate and compare may indicate
 research; missing information is not a reason to create an unrelated email.
 The saved proposal explains the work, expected result, missing information,
@@ -875,8 +890,42 @@ New direction requires a new assessment so you review the actual work and public
 queries being approved. Active-job duplication, ownership, privacy, current-task
 snapshot checks and explicit approval remain protected.
 
+Word requests produce the actual revised document in a separate native Think
+note, not an email template, writing instructions or a preparation checklist.
+The existing **Export as Word (.docx)** action downloads it; no automatic download,
+OneDrive write, new editor or download control is introduced. Originals stay
+unchanged. New proposals explicitly record output format and whether original
+source content is required. Existing proposals remain readable.
+
+Execution preloads internal discovery/read tools as well as approved public
+search tools. Existing-content work must search for and read its actual source
+even without an attached task link; a Daily Insights summary, title, failed read,
+search preview or unrelated record is not a substitute. Research, email and
+support results undergo one bounded readiness review against the approved
+proposal, confirmed direction and bounded excerpts from successful reads before
+a result note or completion receipt is saved. The review rejects mismatched
+deliverables and placeholder-only content; required source reads are also
+enforced independently of the model's verdict. Missing source or fulfillment
+fails explicitly, leaves the task open and produces no success-shaped result.
+Unknown recipients and genuine human decisions may still be labelled for review
+when the core deliverable is substantive. Research formatting resumption reuses
+a source/fulfillment-reviewed checkpoint; older checkpoints must retrieve and
+review evidence again rather than bypass the gate. The review is an additional
+bounded model call, not a claim that generated content is infallible.
+Returning an already-saved result explicitly says no new work or readiness review
+was performed, rather than recertifying a legacy draft as complete.
+
 **Approve and start** commissions a durable specialist job against the saved,
-owner-bound proposal and task snapshot. Iris reads actual sources and returns
+owner-bound proposal and task snapshot. Assigning execution to Athena or a task
+specialist moves the task to **In progress**, clears an obsolete waiting-on value,
+and records the assignment in its timestamped activity in the same transaction
+as queueing the job. The approved snapshot is advanced only for that system-owned
+transition; subsequent user edits still invalidate stale work. Assessment alone
+does not move the task. Repeated handoffs do not repeat the assignment entry.
+Start, progress, retained-work waits, blockers and the result are appended to
+activity with specialist/job attribution; live job updates refresh Plan, Today
+and task activity without requiring navigation away and back.
+Iris reads actual sources and returns
 source-backed Think findings using the proposal UUID as its database chat-session
 identity. Failed jobs are retried explicitly, not automatically after a code fix.
 
@@ -901,7 +950,8 @@ prevent stale attempts from applying their results; retries reuse saved results.
 Email assistance creates a copyable draft in a linked Think note, with a
 **Copy email draft** action on the task. It does not send mail or mark it Sent.
 Research does not overwrite existing diagrams or turn findings into approved
-architecture. Neither route changes task status, deadlines or waiting state.
+architecture. Execution assignment changes status as described above; completion,
+failure and progress do not automatically move it again or change its deadlines.
 Ready for review means the assistant finished its preparatory work, not that
 Richard completed the task. Casual Athena discussion does not approve execution.
 

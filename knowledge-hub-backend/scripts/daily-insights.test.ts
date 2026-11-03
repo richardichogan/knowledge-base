@@ -145,9 +145,9 @@ function extraction() {
     tasksComplete: true, meetingsComplete: true, knowledgeComplete: true, warnings: [],
     tasks: [
       { title: 'Review the draft', project: 'IMAGINE', owner: 'Richard Hogan (as reviewer)', richardAssignee: 'Richard Hogan', confidence: 'high',
-        dueText: '20 Oct 2026', source: 'Email from Joel', evidenceLines: [4] },
+        dueText: '20 Oct 2026', source: 'Email from Joel', evidenceLines: [4], existingTaskId: null, duplicateReason: null },
       { title: 'Prepare the demo', project: 'IMAGINE', owner: 'Colleague (Richard Hogan is informed)', richardAssignee: null, confidence: 'high',
-        dueText: 'This week', source: 'Team email', evidenceLines: [5] },
+        dueText: 'This week', source: 'Team email', evidenceLines: [5], existingTaskId: null, duplicateReason: null },
     ],
     meetings: [{ title: 'Project review', start: '09:45', end: '10:15', flag: '', evidenceLines: [2] }],
   };
@@ -166,6 +166,12 @@ test('AI extraction handles semantic prose without Markdown contracts and retain
   assert.equal(parsed.meetings.length, 1);
   assert.equal(parsed.knowledge, semanticKnowledge);
   assert.match(parsed.warnings.join(), /Not assigned to Richard/);
+});
+
+test('Metis passes the complete saved task history into its cancellation-aware extraction', () => {
+  const specialist = readFileSync(new URL('../src/agents/specialists/metis.ts', import.meta.url), 'utf8');
+  assert.match(specialist, /async \(filename, report, _signal, existingTasks\)/);
+  assert.match(specialist, /extractDailyInsights\(filename, report, context\.signal, existingTasks\)/);
 });
 
 test('invalid source references request one AI correction before saving', async context => {
@@ -369,6 +375,89 @@ test('matches existing manual task regardless of punctuation and does not overwr
     assert.equal(result.tasksPreserved, 1);
     assert.equal((await db.query("SELECT * FROM tasks WHERE body='Manual content' AND status='completed'")).rows.length, 1);
   } finally { await db.close(); }
+});
+
+test('semantic duplicate review includes every column, completed work and rejected or archived tasks without changing originals', async context => {
+  const states = ['inbox', 'backlog', 'in-progress', 'waiting', 'completed'];
+  for (const status of states) {
+    for (const archived of [false, true]) {
+      const { db, pool } = await fixture();
+      const id = 'existing-action';
+      try {
+        await db.query(`INSERT INTO tasks(id,title,body,status,archived,project_id,priority)
+          VALUES ($1,'Read Joel proposal and return review comments','Email from Joel: draft review',$2,$3,'ibm-msft-practice','high')`,
+        [id, status, archived]);
+        const before = (await db.query('SELECT * FROM tasks')).rows;
+        const mock = context.mock.method(FoundryClient.prototype, 'chatBulk', async (messages: { content: string }[]) => {
+          const prompt = messages.map(message => message.content).join('\n');
+          assert.ok(prompt.includes(JSON.stringify(status)));
+          assert.ok(prompt.includes(`"archived":${archived}`));
+          assert.match(prompt, /Email from Joel: draft review/);
+          assert.match(prompt, /ALL columns\/statuses/);
+          assert.match(prompt, /genuinely different follow-up/);
+          return JSON.stringify({ ...extraction(), tasks: [{
+            ...extraction().tasks[0], existingTaskId: id,
+            duplicateReason: 'Same review of the draft requested by Joel; only the title and project label changed.',
+          }] });
+        });
+        const result = await captureReport(pool, filename, semanticReport, 'fixture');
+        assert.equal(result.tasksCreated, 0, `${status}, archived=${archived}`);
+        assert.equal(result.tasksPreserved, 1);
+        assert.deepEqual((await db.query('SELECT * FROM tasks')).rows, before);
+        const tracked = await db.query<{ task_id: string; snapshot: unknown; source_detail: { duplicateReason: string } }>(
+          'SELECT task_id,snapshot,source_detail FROM daily_insights_tasks');
+        assert.equal(tracked.rows[0]?.task_id, id);
+        assert.equal(tracked.rows[0]?.snapshot, null);
+        assert.match(tracked.rows[0]?.source_detail.duplicateReason ?? '', /Same review/);
+        mock.mock.restore();
+      } finally { await db.close(); }
+    }
+  }
+});
+
+test('duplicate review retains genuinely different follow-up actions on the same topic', async context => {
+  const { db, pool } = await fixture();
+  try {
+    await db.exec(`INSERT INTO tasks(id,title,body,status,archived)
+      VALUES ('prior','Send Joel the draft','Email from Joel','completed',true)`);
+    context.mock.method(FoundryClient.prototype, 'chatBulk', async () => JSON.stringify(extraction()));
+    const result = await captureReport(pool, filename, semanticReport, 'fixture');
+    assert.equal(result.tasksCreated, 1);
+    assert.equal((await db.query('SELECT * FROM tasks')).rows.length, 2);
+    assert.equal((await db.query("SELECT status FROM tasks WHERE id='prior'")).rows[0]?.['status'], 'completed');
+  } finally { await db.close(); }
+});
+
+test('unknown semantic matches fail explicitly and never suppress or create work', async context => {
+  const { db, pool } = await fixture();
+  context.mock.method(FoundryClient.prototype, 'chatBulk', async () => JSON.stringify({
+    ...extraction(), tasks: [{ ...extraction().tasks[0], existingTaskId: 'invented-id', duplicateReason: 'Unverified match' }],
+  }));
+  try {
+    await assert.rejects(captureReport(pool, filename, semanticReport, 'fixture'), /unknown saved task/);
+    assert.equal((await db.query('SELECT * FROM tasks')).rows.length, 0);
+    assert.equal((await db.query('SELECT * FROM daily_insights_reports')).rows.length, 0);
+  } finally { await db.close(); }
+});
+
+test('task changes while AI reads history abort capture rather than using a stale duplicate review', async () => {
+  const { db, pool } = await fixture();
+  try {
+    const extract = async (file: string, text: string) => {
+      await db.exec("INSERT INTO tasks(title,status) VALUES ('Review the draft','waiting')");
+      return validateDailyExtraction(file, text, extraction());
+    };
+    await assert.rejects(captureReport(pool, filename, semanticReport, 'fixture', undefined, extract), /Task history changed/);
+    assert.equal((await db.query('SELECT * FROM tasks')).rows.length, 1);
+    assert.equal((await db.query('SELECT * FROM daily_insights_reports')).rows.length, 0);
+  } finally { await db.close(); }
+});
+
+test('duplicate history is never silently truncated when the combined context exceeds its budget', async () => {
+  await assert.rejects(extractDailyInsights(filename, semanticReport, undefined, [{
+    id: 'large-task', title: 'Existing task', body: 'x'.repeat(400_000), status: 'completed',
+    archived: true, project_id: null, due_date: null,
+  }]), /complete task history exceed/);
 });
 
 test('keeps manual calendar imports and only reconciles its own day on correction', async () => {

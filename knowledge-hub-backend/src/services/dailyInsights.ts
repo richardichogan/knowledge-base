@@ -1,5 +1,5 @@
 import type { Pool, PoolClient } from 'pg';
-import { digest, normaliseIdentity, londonTime, type DailyInsights } from './dailyInsightsParser.js';
+import { digest, normaliseIdentity, londonTime, type DailyInsights, type ExistingDailyTask } from './dailyInsightsParser.js';
 import { dailyReportDate, extractDailyInsights } from './dailyInsightsExtraction.js';
 
 const MEETING_ID_CHARS = 20;
@@ -24,8 +24,14 @@ async function putContent(db: PoolClient, source: string, id: string, title: str
   [source, id, title, body, date, JSON.stringify(metadata)]);
 }
 
-type ReportExtractor = (filename: string, text: string) => Promise<DailyInsights>;
+type ReportExtractor = (filename: string, text: string, signal?: AbortSignal,
+  existingTasks?: readonly ExistingDailyTask[]) => Promise<DailyInsights>;
 const captures = new WeakMap<Pool, Map<string, Promise<DailyInsightsResult>>>();
+
+async function readTaskHistory(client: PoolClient): Promise<ExistingDailyTask[]> {
+  return (await client.query<ExistingDailyTask>(`SELECT id::text,title,body,status,archived,project_id,
+    to_char(due_date,'YYYY-MM-DD') AS due_date FROM tasks ORDER BY id`)).rows;
+}
 
 export function captureDailyInsights(db: Pool, filename: string, text: string, sourcePath: string, sourceModifiedAt?: string,
   extract: ReportExtractor = extractDailyInsights): Promise<DailyInsightsResult> {
@@ -46,14 +52,16 @@ async function capture(db: Pool, filename: string, text: string, sourcePath: str
   const hash = digest(text);
   const check = await db.connect();
   let cached: boolean;
+  let taskHistory: ExistingDailyTask[] = [];
   try {
     const receipt = await check.query<{ content_hash: string; source_modified_at: Date | null }>(
       'SELECT content_hash, source_modified_at FROM daily_insights_reports WHERE report_date=$1', [date]);
     const prior = receipt.rows[0];
     cached = prior !== undefined && (prior.content_hash === hash || (sourceModifiedAt !== undefined
       && prior.source_modified_at !== null && new Date(prior.source_modified_at).getTime() > new Date(sourceModifiedAt).getTime()));
+    if (!cached) taskHistory = await readTaskHistory(check);
   } finally { check.release(); }
-  const parsed = cached ? null : await extract(filename, text);
+  const parsed = cached ? null : await extract(filename, text, undefined, taskHistory);
   const client = await db.connect();
   try {
     await client.query('BEGIN');
@@ -73,11 +81,20 @@ async function capture(db: Pool, filename: string, text: string, sourcePath: str
       return { ...previous.result, unchanged: true };
     }
     if (parsed === null) throw new Error('Daily Insights report changed during capture; retry to extract the current report');
+    if (parsed.tasks.length > 0) {
+      // Model review happens outside the transaction; prevent a concurrent task
+      // creation or edit from invalidating the history used for deduplication.
+      await client.query('LOCK TABLE tasks IN SHARE ROW EXCLUSIVE MODE');
+      if (JSON.stringify(await readTaskHistory(client)) !== JSON.stringify(taskHistory)) {
+        throw new Error('Task history changed during Daily Insights duplicate review; retry the import against current tasks. No changes saved.');
+      }
+    }
     const result: DailyInsightsResult = {
       date: parsed.date, knowledgeDate: parsed.knowledgeDate, tasksCreated: 0, tasksUpdated: 0,
       tasksPreserved: 0, meetings: parsed.meetings.length, warnings: [...parsed.warnings], unchanged: false,
     };
     const projects = await client.query<{ id: string; name: string }>('SELECT id, name FROM projects');
+    const matchingTasks = [...taskHistory];
     for (const task of parsed.tasks) {
       const project = projects.rows.find(p => normaliseIdentity(p.name) === normaliseIdentity(task.project)
         || normaliseIdentity(p.id) === normaliseIdentity(task.project))?.id ?? null;
@@ -102,13 +119,18 @@ async function capture(db: Pool, filename: string, text: string, sourcePath: str
       let owned = prior?.snapshot != null;
       if (prior === undefined) {
         // Match manual/pre-existing tasks too, regardless of completion/archive state.
-        const existing = await client.query<{ id: string }>(`SELECT id FROM tasks
-          WHERE trim(regexp_replace(lower(title), '[^[:alnum:]]+', ' ', 'g'))=$1 LIMIT 1`, [normaliseIdentity(task.title)]);
-        taskId = existing.rows[0]?.id ?? null;
+        const existing = matchingTasks.find(saved => normaliseIdentity(saved.title) === normaliseIdentity(task.title));
+        taskId = existing?.id ?? task.existingTaskId ?? null;
+        if (taskId !== null && !matchingTasks.some(saved => saved.id === taskId)) {
+          throw new Error('Daily Insights duplicate match no longer identifies a saved task; no changes saved');
+        }
         if (taskId === null) {
           const made = await client.query<{ id: string }>(`INSERT INTO tasks (title, body, status, project_id, due_date, tags, priority)
             VALUES ($1,$2,'inbox',$3,$4,'{daily-insights}','normal') RETURNING id`, [task.title, body, project, task.due]);
           taskId = made.rows[0]?.id ?? null;
+          if (taskId !== null) matchingTasks.push({
+            id: taskId, title: task.title, body, status: 'inbox', archived: false, project_id: project, due_date: task.due,
+          });
           owned = true;
           result.tasksCreated++;
         } else result.tasksPreserved++;

@@ -66,6 +66,12 @@ correction attempt; there is no regex-parser fallback.
 - Tasks deduplicate across reports. Completed, archived, deleted, manually
   created and user-edited tasks are preserved; removing an action from a report
   does not delete a task.
+- Metis compares proposed actions with the complete saved task history across
+  all columns, statuses and projects, including archived/rejected Inbox items.
+  Reworded copies of the same action link to the original without reopening or
+  overwriting it; genuinely different follow-ups remain separate. Matching uses
+  the action and source context, not title equality alone. A changed task history
+  during review fails explicitly for retry, rather than saving a stale match.
 - Meeting times use Europe/London (BST/GMT); free-time rows aren't meetings.
   Yesterday's knowledge is saved as a dated Library Markdown document, retaining
   source provenance. The original local files are **never deleted**.

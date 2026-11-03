@@ -2,6 +2,35 @@
 
 **Status:** Validated
 
+**Section 7: Task execution, assignment/activity and duplicate-task release validation (2026-11-03 14:15 UTC):**
+- User requested deployment of the completed pending task fixes. Existing AZCLI
+  application-only targets retained: Alliance Tenant Reporting
+  (c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28), kh-prod-api-vnet and cad79107555facr,
+  kh-prod-web, rg-knowledge-hub-prod. No infrastructure or environment changes.
+- `git fetch origin` / `git merge origin/main`: already current. Shared
+  packed-refs maintenance lock warning left untouched.
+- Both app `npx tsc --noEmit` checks and production builds passed. Full isolated
+  release suites ran once: backend 1033/1033; frontend 306/306 main plus all
+  auxiliary bundles passed. One unnecessary boolean assertion was removed for
+  lint; final backend typecheck/build and lint non-regression passed (544
+  existing / baseline 623). Frontend lint passed (22 existing / baseline 41).
+- Covers all-status Daily Insights deduplication, atomic execution assignment
+  and task activity, retained owner direction, approved-output/source review,
+  and separate Think documents with existing Word export. Original sources
+  and the failed task/draft are not rewritten or rerun by deployment.
+- Authenticated Azure CLI reads confirm API v293 and ready revision
+  kh-prod-api-vnet--0000290, identity None, and existing Static Web App hostname.
+  Azure MCP returned no subscriptions; CLI target reads succeeded. Advance
+  backend image to v294. Existing registry credentials remain unchanged.
+- Docker includes the lockfile, TypeScript build and startup schema/migrations.
+  No dependency, migration, secret, identity, RBAC or Desktop source changes.
+  Provisioning, Bicep/what-if and AcrPull changes are not applicable to this
+  application-only release. No local browser launch or live Athena mutation.
+- Scope excludes unrelated DESIGN.md and .impeccable cache changes. The
+  Background work panel redesign is not part of this deployment.
+- Evidence: task-repair-{api-tests,web-tests,api-lint,web-lint,web-build}.log
+  in session files. Existing user approval and local-delivery safeguards remain.
+
 **Section 7: Note-loading hang hotfix validation (2026-11-03):**
 - Frontend-only hotfix: remove post-render code spellcheck DOM mutations and
   apply exclusions through the editor schema before insertion. Saved note

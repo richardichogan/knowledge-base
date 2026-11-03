@@ -444,6 +444,8 @@ const ACTIVITY_ACTIONS: Record<string, string> = {
   'status-changed': 'Status changed', 'note-added': 'Note added', 'research-refreshed': 'Research refreshed',
   'research-prepared': 'Research prepared', 'email-drafted': 'Email draft prepared',
   'task-prepared': 'Task preparation ready', 'email-sent-confirmed': 'Email sending confirmed', 'file-linked': 'File linked',
+  'agent-assigned': 'Assigned to agent', 'agent-progress': 'Agent progress',
+  'agent-waiting': 'Agent work pending', 'agent-blocked': 'Agent work blocked', 'agent-finished': 'Agent result ready',
 };
 const STATUS_LABELS: Record<string, string> = {
   inbox: 'Inbox', backlog: 'Backlog', 'in-progress': 'In progress', waiting: 'Waiting', completed: 'Completed',

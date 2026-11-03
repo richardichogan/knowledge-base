@@ -135,7 +135,7 @@ export function TaskDetail({ taskId, onBackToPlan, presentation = 'plan' }: {
       <label className="kh-task-detail__field">Direction or clarification <span>(optional)</span>
         <textarea value={direction} maxLength={3000} disabled={busy || editing} rows={3}
           onChange={event => { setDirection(event.target.value); }}
-          placeholder="What should she look at, compare or prepare?" />
+          placeholder="What should she look at, compare or prepare? Leave blank to keep your last direction." />
       </label>
       <button type="button" className="dc-explore__primary" disabled={busy || editing}
         onClick={() => { assess.mutate(); }}>{assess.isPending ? 'Assessing what Athena can do...' : latest ? 'Reassess with this direction' : 'Help me'}</button>
@@ -144,11 +144,13 @@ export function TaskDetail({ taskId, onBackToPlan, presentation = 'plan' }: {
       {automaticHelpError && <DataNotice title="Task saved; help proposal needs attention" error={automaticHelpError} />}
       {detail.isError && <DataNotice title="Assistance status could not refresh" error={detail.error} onRetry={() => { void detail.refetch(); }} />}
       {latest && <div className="kh-task-detail__proposal" aria-live="polite">
-        <h4>{latest.proposal.kind === 'research' ? 'Iris · Research proposal' : latest.proposal.kind === 'email' ? 'Hermes · Email draft proposal' : 'Task preparation proposal'}</h4>
+        <h4>{latest.proposal.outputFormat === 'docx' ? 'Document proposal' : latest.proposal.kind === 'research' ? 'Iris · Research proposal' : latest.proposal.kind === 'email' ? 'Hermes · Email draft proposal' : 'Task preparation proposal'}</h4>
         <p>{latest.proposal.summary}</p>
         <dl className="dc-project-fits kh-task-detail__proposal-facts">
+          {latest.direction && <div><dt>Your direction</dt><dd>{latest.direction}</dd></div>}
           <div><dt>Proposed work</dt><dd>{latest.proposal.approach}</dd></div>
           <div><dt>Result for your review</dt><dd>{latest.proposal.output}</dd></div>
+          {latest.proposal.outputFormat === 'docx' && <div><dt>Word download</dt><dd>Open the result in Think and choose Export as Word (.docx). The original source stays unchanged.</dd></div>}
         </dl>
         {latest.proposal.publicQueries.length > 0 && <><h4>Public searches to approve</h4><p>Only these exact queries can be sent to external search providers.</p>
           <ul>{latest.proposal.publicQueries.map(query => <li key={query}>{query}</li>)}</ul></>}

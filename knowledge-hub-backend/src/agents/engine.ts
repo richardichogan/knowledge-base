@@ -22,6 +22,8 @@ import { withAgentAttempt } from './attempt.js';
 import { AGENT_HEARTBEAT_MS, AGENT_LEASE_MS, AGENT_MAX_ATTEMPTS, AGENT_PROTOCOL_VERSION, contentSignature } from './workforce/contracts.js';
 import { claimConfiguredAssignment, recoverConfiguredAssignments, runConfiguredAssignment } from './workforce/dispatcher.js';
 import { deliverAssignmentNotices } from './workforce/notices.js';
+import { assignTaskAgent, recordTaskAgentActivity } from '../work/taskAgentActivity.js';
+import { syncTaskToTimeline, type Task } from '../routes/tasks.js';
 
 export type AgentJobStatus = 'queued' | 'running' | 'done' | 'failed';
 
@@ -179,6 +181,7 @@ export async function handOff(db: Pool, request: HandOffRequest): Promise<HandOf
 
   const client = await db.connect();
   const created: JobRow[] = [];
+  let assignedTask: Task | undefined;
   try {
     await client.query('BEGIN');
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`agent-subject:${specialist.subjectType}:${subject.id}`]);
@@ -238,6 +241,7 @@ export async function handOff(db: Pool, request: HandOffRequest): Promise<HandOf
     created.push(await insertJob(client, {
       specialist: specialist.id, subjectType: specialist.subjectType, subject, input, dependsOn: previous, isStep: false, request, pool,
     }));
+    assignedTask = await assignTaskAgent(client, created[created.length - 1]!, specialist.name, input['proposalId']);
     await client.query('COMMIT');
   } catch (error) {
     try { await client.query('ROLLBACK'); }
@@ -246,6 +250,7 @@ export async function handOff(db: Pool, request: HandOffRequest): Promise<HandOf
   } finally {
     client.release();
   }
+  if (assignedTask) await syncTaskToTimeline(db, assignedTask);
   const jobs = created.map(emit);
   wakeWorker();
   return { status: 'queued', job: jobs[jobs.length - 1]!, steps: jobs.slice(0, -1) };
@@ -343,14 +348,20 @@ async function recoverExpiredJobs(db: Pool): Promise<void> {
         AND NOT (specialist='task-researcher' AND input ? 'researchFormattingCheckpoint') RETURNING *`,
     [workerPool(), AGENT_MAX_ATTEMPTS, AGENT_PROTOCOL_VERSION],
   );
-  for (const row of failed.rows) await finish(db, row);
+  for (const row of failed.rows) {
+    await saveTaskJobOutcome(db, row);
+    await finish(db, row);
+  }
   const recovered = await db.query<JobRow>(
     `UPDATE agent_jobs SET status='queued',lease_owner=NULL,lease_until=NULL,updated_at=clock_timestamp()
       WHERE worker_pool=$1 AND assignment_id IS NULL AND protocol_version<=$2 AND status='running'
         AND (lease_until IS NULL OR lease_until<=clock_timestamp()) RETURNING *`,
     [workerPool(), AGENT_PROTOCOL_VERSION],
   );
-  for (const row of recovered.rows) emit(row);
+  for (const row of recovered.rows) {
+    await saveTaskJobOutcome(db, row);
+    emit(row);
+  }
 }
 
 /** Fails jobs whose prerequisite failed, so a handoff never waits forever. */
@@ -367,23 +378,51 @@ async function failBlockedJobs(db: Pool): Promise<void> {
     const name = getSpecialist(row.blocker)?.name ?? 'An earlier step';
     const message = `It could not start because ${name} did not finish. ${row.blocker_error ?? ''}`.trim();
     const { rows: updated } = await db.query<JobRow>(`UPDATE agent_jobs SET error = $2 WHERE id = $1 RETURNING *`, [row.id, message]);
-    await finish(db, updated[0] ?? row);
+    const outcome = updated[0] ?? row;
+    await saveTaskJobOutcome(db, outcome);
+    await finish(db, outcome);
   }
 }
 
 const RECORD_ATTEMPTS = 4;
 const RECORD_BACKOFF_MS = 2_000;
 
+async function taskJobOutcome(client: PoolClient, row: JobRow): Promise<void> {
+  const summary = typeof row.result?.['summary'] === 'string' ? row.result['summary'] : '';
+  await recordTaskAgentActivity(client, row, getSpecialist(row.specialist)?.name ?? row.specialist,
+    row.status === 'failed' ? 'agent-blocked' : row.status === 'done' ? 'agent-finished' : 'agent-waiting',
+    row.status === 'failed' ? `Work could not finish: ${row.error ?? 'Unknown error'}. No task completion was recorded by this agent.`
+      : row.status === 'done' ? `${summary || 'Assigned work finished.'} Task completion remains your decision.`
+        : summary || 'Work is queued to resume. No task status was changed.');
+}
+
+async function saveTaskJobOutcome(db: Pool, row: JobRow): Promise<void> {
+  if (row.subject_type !== 'task' || row.specialist === 'task-assistance-assessor') return;
+  const client = await db.connect();
+  try { await taskJobOutcome(client, row); }
+  finally { client.release(); }
+}
+
 /** Writes a job's outcome, retrying briefly so a database blip doesn't lose finished work. */
 async function record(db: Pool, sql: string, params: unknown[]): Promise<JobRow | undefined> {
   for (let attempt = 1; ; attempt += 1) {
+    let client: PoolClient | undefined;
     try {
-      const { rows } = await db.query<JobRow>(sql, params);
+      client = await db.connect();
+      await client.query('BEGIN');
+      const { rows } = await client.query<JobRow>(sql, params);
+      const row = rows[0];
+      if (row) await taskJobOutcome(client, row);
+      await client.query('COMMIT');
       return rows[0];
     } catch (error) {
+      if (client) {
+        try { await client.query('ROLLBACK'); }
+        catch (rollbackError) { console.error('[agents] Outcome rollback failed:', rollbackError); }
+      }
       if (attempt >= RECORD_ATTEMPTS) throw error;
-      await new Promise(resolve => setTimeout(resolve, RECORD_BACKOFF_MS * attempt));
-    }
+    } finally { client?.release(); }
+    await new Promise(resolve => setTimeout(resolve, RECORD_BACKOFF_MS * attempt));
   }
 }
 
@@ -412,20 +451,28 @@ async function runJob(db: Pool, row: JobRow, owner: string): Promise<void> {
     const text = message.trim().slice(0, MAX_PROGRESS_CHARS);
     if (!text || signal.aborted) return;
     writes = writes.then(async () => {
-      const { rows } = await db.query<JobRow>(
-        `UPDATE agent_jobs SET updated_at = NOW(),
+      const client = await db.connect();
+      try {
+        await client.query('BEGIN');
+        const { rows } = await client.query<JobRow>(
+          `UPDATE agent_jobs SET updated_at = NOW(),
                 progress = (SELECT COALESCE(jsonb_agg(value ORDER BY n), '[]'::jsonb) FROM (
                   SELECT value, n FROM jsonb_array_elements(progress || jsonb_build_array($2::text)) WITH ORDINALITY AS p(value, n)
                    ORDER BY n DESC LIMIT ${MAX_PROGRESS}) recent)
           WHERE id = $1 AND status = 'running' AND attempts = $3 AND lease_owner=$4
             AND lease_until>clock_timestamp() RETURNING *`,
-        [row.id, text, row.attempts, owner],
-      );
-      if (rows[0]) emit(rows[0]);
+          [row.id, text, row.attempts, owner],
+        );
+        if (rows[0]) await recordTaskAgentActivity(client, rows[0], specialist?.name ?? row.specialist, 'agent-progress', text);
+        await client.query('COMMIT');
+        if (rows[0]) emit(rows[0]);
+      } catch (error) { await client.query('ROLLBACK'); throw error; }
+      finally { client.release(); }
     }).catch((error: unknown) => { console.error('[agents] Could not save progress:', error); });
   };
   try {
     if (!specialist) throw new ValidationError(`The ${row.specialist} specialist is not available on this server.`);
+    if (row.subject_type === 'task' && row.specialist !== 'task-assistance-assessor') progress('Started the assigned work.');
     const done = await withAgentAttempt({ jobId: row.id, attempt: row.attempts, owner, assignmentId: row.assignment_id, signal, budgetDb: db },
       () => withAiWorkflow(db, { feature: row.specialist, jobId: row.id, attempt: row.attempts, signal }, async () => {
         signal.throwIfAborted();

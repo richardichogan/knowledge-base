@@ -3,6 +3,11 @@ import { test } from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { amendResearchFormatting, assistanceId, isPublicSearchEvidence, isReadEvidence, parseAssistanceProposal, researchAmendmentPreservesContent, researchNoteBlocks, validateAssistanceSearch } from '../src/work/taskAssistance.js';
 import { AiError } from '../src/types/errors.js';
+import { PGlite } from '@electric-sql/pglite';
+import type { PoolClient } from 'pg';
+import { assignTaskAgent, recordTaskAgentActivity, taskAssistanceSignature } from '../src/work/taskAgentActivity.js';
+import { rowToTask } from '../src/routes/tasks.js';
+import { parseTaskAssistanceReview, requireCurrentTaskDirection, requireTaskAssistanceReady, taskAssistanceContext } from '../src/work/taskAssistanceContract.js';
 
 const proposal = {
   kind: 'research', summary: 'Compare First Mate with Athena', approach: 'Verify the repository and read architecture evidence.',
@@ -151,4 +156,208 @@ test('TASK-ASSIST-04: internal reads and failed searches cannot satisfy approved
   assert.equal(isPublicSearchEvidence('tavily-search', { result: JSON.stringify({ results: [] }) }), false);
   assert.equal(isPublicSearchEvidence('search_knowledge_base', source), false);
   assert.equal(isReadEvidence('tavily-search', source), false, 'a search preview is not a public-source read');
+  assert.equal(isReadEvidence('read_task_activity', { notes: [{ body: 'A source pointer, not original content.' }] }), false);
+});
+
+async function activityFixture() {
+  const db = new PGlite();
+  await db.exec(`
+    CREATE TABLE tasks(id TEXT PRIMARY KEY,title TEXT,body TEXT,status TEXT,waiting_on TEXT,
+      project_id TEXT,external_url TEXT,archived BOOLEAN DEFAULT false,tags TEXT[] DEFAULT '{}',
+      created_at TIMESTAMPTZ DEFAULT now(),updated_at TIMESTAMPTZ DEFAULT now());
+    INSERT INTO tasks(id,title,body,status,waiting_on,project_id)
+      VALUES('task','Preserve the title','Preserve the writing','waiting','A response','project');
+    CREATE TABLE task_tags(task_id TEXT,tag_id TEXT);
+    INSERT INTO task_tags VALUES('task','topic');
+    CREATE TABLE task_assistance(id TEXT PRIMARY KEY,task_id TEXT,task_signature TEXT,
+      task_snapshot JSONB,approved_at TIMESTAMPTZ);
+    CREATE TABLE agent_jobs(id TEXT PRIMARY KEY,subject_id TEXT,attempts INTEGER,status TEXT);
+    INSERT INTO agent_jobs VALUES('job','task',1,'queued');
+    CREATE TABLE task_notes(id UUID PRIMARY KEY,task_id TEXT REFERENCES tasks(id),body TEXT,
+      activity JSONB,created_at TIMESTAMPTZ DEFAULT now());
+  `);
+  const client = {
+    async query(sql: string, params?: unknown[]) {
+      const result = await db.query(sql, params);
+      return { ...result, rowCount: result.affectedRows ?? result.rows.length };
+    },
+  } as unknown as PoolClient;
+  const task = rowToTask((await db.query<Record<string, unknown>>(`SELECT *,ARRAY['topic'] AS taxonomy_tag_ids FROM tasks`)).rows[0]!);
+  await db.query(`INSERT INTO task_assistance VALUES('proposal','task',$1,$2,now())`,
+    [taskAssistanceSignature(task), JSON.stringify(task)]);
+  const job = { id: 'job', specialist: 'task-researcher', subject_type: 'task', subject_id: 'task', attempts: 1, status: 'queued' };
+  return { db, client, task, job };
+}
+
+test('TASK-ASSIST-07: assigning work moves the task atomically and rebases only the approved snapshot', async () => {
+  const { db, client, task, job } = await activityFixture();
+  try {
+    await client.query('BEGIN');
+    const assigned = await assignTaskAgent(client, job, 'Iris', 'proposal');
+    await client.query('COMMIT');
+    assert.ok(assigned);
+    assert.equal(assigned.status, 'in-progress');
+    assert.equal(assigned.waitingOn, null);
+    assert.equal(assigned.title, task.title);
+    assert.equal(assigned.body, task.body);
+    const saved = (await db.query<{ task_signature: string; task_snapshot: unknown }>('SELECT * FROM task_assistance')).rows[0]!;
+    assert.equal(saved.task_signature, taskAssistanceSignature(assigned));
+    assert.deepEqual(saved.task_snapshot, JSON.parse(JSON.stringify(assigned)));
+    assert.deepEqual(assigned.taxonomyTagIds, ['topic']);
+    await assignTaskAgent(client, job, 'Iris', 'proposal');
+    assert.equal((await db.query('SELECT * FROM task_notes')).rows.length, 1, 'assignment receipts are idempotent');
+    await db.exec(`UPDATE tasks SET body='User editing must remain protected'`);
+    await assert.rejects(assignTaskAgent(client, job, 'Iris', 'proposal'), /changed before assignment/);
+    assert.equal((await db.query<{ body: string }>('SELECT body FROM tasks')).rows[0]?.body, 'User editing must remain protected');
+  } finally { await db.close(); }
+});
+
+test('TASK-ASSIST-08: assessment does not move tasks, and a failed queue transaction retains the original task', async () => {
+  const { db, client, task, job } = await activityFixture();
+  try {
+    await assignTaskAgent(client, { ...job, specialist: 'task-assistance-assessor' }, 'Athena', undefined);
+    assert.equal((await db.query<{ status: string }>('SELECT status FROM tasks')).rows[0]?.status, 'waiting');
+    assert.equal((await db.query('SELECT * FROM task_notes')).rows.length, 0);
+    await client.query('BEGIN');
+    await assignTaskAgent(client, job, 'Iris', 'proposal');
+    await client.query('ROLLBACK');
+    assert.equal((await db.query<{ status: string }>('SELECT status FROM tasks')).rows[0]?.status, 'waiting');
+    assert.equal((await db.query<{ task_signature: string }>('SELECT task_signature FROM task_assistance')).rows[0]?.task_signature,
+      taskAssistanceSignature(task));
+    assert.equal((await db.query('SELECT * FROM task_notes')).rows.length, 0);
+  } finally { await db.close(); }
+});
+
+test('TASK-ASSIST-09: activity retains progress, retries, blockers and results without completing the task', async () => {
+  const { db, client, job } = await activityFixture();
+  try {
+    await assignTaskAgent(client, job, 'Iris', 'proposal');
+    await db.exec(`UPDATE agent_jobs SET status='running'`);
+    const running = { ...job, status: 'running' };
+    await recordTaskAgentActivity(client, { ...running, specialist: 'task-assistance-assessor' }, 'Athena', 'agent-progress', 'Assessment');
+    for (let i = 0; i < 35; i++) await recordTaskAgentActivity(client, running, 'Iris', 'agent-progress', `Reading source ${i}`);
+    await recordTaskAgentActivity(client, running, 'Iris', 'agent-progress', 'Reading source 34');
+    assert.equal((await db.query('SELECT * FROM task_notes')).rows.length, 36, 'full activity outlives the bounded job-progress array');
+    await db.exec(`UPDATE agent_jobs SET status='failed'`);
+    await recordTaskAgentActivity(client, { ...job, status: 'failed' }, 'Iris', 'agent-blocked', 'Source access failed');
+    await db.exec(`UPDATE agent_jobs SET attempts=2,status='running'`);
+    await recordTaskAgentActivity(client, running, 'Iris', 'agent-progress', 'Stale worker');
+    await recordTaskAgentActivity(client, { ...running, attempts: 2 }, 'Iris', 'agent-progress', 'Reading source 34');
+    await db.exec(`UPDATE agent_jobs SET status='done'`);
+    const done = { ...job, attempts: 2, status: 'done' };
+    await recordTaskAgentActivity(client, done, 'Iris', 'agent-finished', 'Findings saved for review');
+    await recordTaskAgentActivity(client, done, 'Iris', 'agent-finished', 'Findings saved for review');
+    const notes = await db.query<{ body: string; activity: { actor: string; action: string; specialistName: string } }>('SELECT * FROM task_notes');
+    assert.equal(notes.rows.length, 39);
+    assert.ok(notes.rows.every(note => note.activity.actor === 'athena' && note.activity.specialistName === 'Iris'));
+    assert.ok(notes.rows.some(note => note.activity.action === 'agent-blocked'));
+    assert.ok(notes.rows.some(note => note.activity.action === 'agent-finished'));
+    assert.ok(notes.rows.every(note => !note.body.includes('Stale worker')));
+    assert.equal((await db.query<{ status: string }>('SELECT status FROM tasks')).rows[0]?.status, 'in-progress');
+  } finally { await db.close(); }
+});
+
+test('TASK-ASSIST-10: queue, recovery and live task activity share the same integration', async () => {
+  const engine = await readFile(new URL('../src/agents/engine.ts', import.meta.url), 'utf8');
+  const store = await readFile(new URL('../../knowledge-hub-web/src/services/agentJobStore.ts', import.meta.url), 'utf8');
+  assert.match(engine, /assignedTask = await assignTaskAgent[\s\S]*?await client\.query\('COMMIT'\)/);
+  assert.match(engine, /for \(const row of recovered\.rows\) \{\s*await saveTaskJobOutcome/);
+  assert.match(engine, /for \(const row of failed\.rows\) \{\s*await saveTaskJobOutcome/);
+  assert.match(engine, /await saveTaskJobOutcome\(db, outcome\);\s*await finish\(db, outcome\)/);
+  assert.match(store, /athena-task-job-updated/);
+  assert.match(store, /'task-assistance', 'task-notes'/);
+});
+
+test('TASK-ASSIST-11: blank reassessments retain owner direction beyond the visible proposal history', async () => {
+  const { db, client } = await activityFixture();
+  try {
+    await db.exec(`ALTER TABLE task_assistance ADD owner_id TEXT, ADD direction TEXT DEFAULT '',
+      ADD created_at TIMESTAMPTZ DEFAULT now();
+      UPDATE task_assistance SET owner_id='owner',direction='Read the original training note and tighten it into a Word document.',
+        created_at='2026-11-03T13:01:00Z';
+      INSERT INTO task_assistance(id,task_id,owner_id,direction,created_at)
+        SELECT 'blank-'||i,'task','owner','',TIMESTAMPTZ '2026-11-03T13:06:00Z'+i*INTERVAL '1 minute'
+        FROM generate_series(1,8) i;
+      INSERT INTO task_assistance(id,task_id,owner_id,direction,created_at)
+        VALUES('another-owner','task','someone-else','Write an email instead.','2026-11-03T15:00:00Z')`);
+    const retained = await taskAssistanceContext(client, 'task', 'owner', '   ');
+    assert.equal(retained.direction, 'Read the original training note and tighten it into a Word document.');
+    assert.equal((await taskAssistanceContext(client, 'task', 'owner')).direction, retained.direction);
+    assert.equal((await taskAssistanceContext(client, 'task', 'owner', '  Compare the two source documents.  ')).direction,
+      'Compare the two source documents.');
+    assert.equal((await taskAssistanceContext(client, 'task', 'new-owner')).direction, '');
+    assert.equal((await taskAssistanceContext(client, 'other-task', 'owner')).direction, '');
+    await assert.doesNotReject(requireCurrentTaskDirection(client, 'task', 'owner', retained.direction));
+    await assert.rejects(requireCurrentTaskDirection(client, 'task', 'owner', ''), /omitted from this proposal/,
+      'the blank email proposal must be reassessed, not silently granted the earlier document instruction');
+    await db.query(`INSERT INTO task_assistance(id,task_id,owner_id,direction,created_at)
+      VALUES('new-direction','task','owner','Compare both source documents.','2026-11-03T16:00:00Z')`);
+    await assert.rejects(requireCurrentTaskDirection(client, 'task', 'owner', retained.direction), /direction changed/);
+  } finally { await db.close(); }
+});
+
+test('TASK-ASSIST-12: task context includes attributed activity, declaring bounded or clipped history', async () => {
+  const { db, client } = await activityFixture();
+  try {
+    for (let i = 0; i < 32; i++) {
+      await db.query(`INSERT INTO task_notes(id,task_id,body,activity,created_at) VALUES($1,'task',$2,$3,to_timestamp($4))`,
+        [`00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+          i === 31 ? 'Read the linked training source. '.repeat(200) : `Status update ${i}`,
+          JSON.stringify({ actor: i === 31 ? 'user' : 'athena', action: 'note' }), i + 100]);
+    }
+    const context = await taskAssistanceContext(client, 'task', 'owner', 'Keep this instruction.');
+    assert.equal(context.activity.length, 30);
+    assert.equal(context.activityMayBePartial, true);
+    assert.equal(context.activity[0]?.body, 'Status update 2');
+    assert.equal(context.activity.at(-1)?.body.length, 3000);
+    assert.equal(context.activity.at(-1)?.truncated, true);
+    assert.deepEqual(context.activity.at(-1)?.activity, { actor: 'user', action: 'note' });
+    assert.equal(context.direction, 'Keep this instruction.');
+  } finally { await db.close(); }
+});
+
+test('TASK-ASSIST-13: Word deliverables and source obligations survive typed proposal parsing', () => {
+  const document = { ...proposal, kind: 'support', outputFormat: 'docx', sourceRequired: true };
+  assert.deepEqual(parseAssistanceProposal(document), document);
+  assert.throws(() => parseAssistanceProposal({ ...document, kind: 'email' }), /Word document/);
+  assert.throws(() => parseAssistanceProposal({ ...document, outputFormat: 'executable' }), /output format/);
+  assert.throws(() => parseAssistanceProposal({ ...document, sourceRequired: 'true' }), /source requirement/);
+});
+
+test('TASK-ASSIST-14: source-dependent work cannot be ready with no reads, unrelated evidence or only placeholders', () => {
+  const ready = parseTaskAssistanceReview({ fulfilsRequest: true, sourceRequired: true,
+    sourceSupportsResult: true, substantiveContent: true, reason: 'The revised modules and outcomes match the original training scope.' });
+  assert.doesNotThrow(() => requireTaskAssistanceReady(ready, 1, true));
+  assert.throws(() => requireTaskAssistanceReady(ready, 0, true), /No completed result was saved/);
+  assert.throws(() => requireTaskAssistanceReady({ ...ready, sourceRequired: false }, 0, true),
+    /No completed result was saved/, 'the approved source obligation overrides a mistaken reviewer verdict');
+  assert.throws(() => requireTaskAssistanceReady({ ...ready, sourceSupportsResult: false,
+    reason: 'Only a Daily Insights summary was read, not the original training scope.' }, 3, true), /original training scope/);
+  assert.throws(() => requireTaskAssistanceReady({ ...ready, fulfilsRequest: false,
+    reason: 'A placeholder email was returned instead of the requested tightened document.' }, 1, true), /placeholder email/);
+  assert.throws(() => requireTaskAssistanceReady({ ...ready, substantiveContent: false,
+    reason: 'The core training modules were left as placeholders.' }, 1, true), /core training modules/);
+  assert.doesNotThrow(() => requireTaskAssistanceReady({ ...ready, sourceRequired: false, sourceSupportsResult: false,
+    reason: 'This new draft uses facts supplied in the task and only leaves the unknown recipient labelled.' }, 0, false));
+  assert.throws(() => parseTaskAssistanceReview({ ...ready, fulfilsRequest: 'true' }), /fulfilsRequest/);
+  assert.throws(() => parseTaskAssistanceReview({ ...ready, reason: '' }), /explain its decision/);
+});
+
+test('TASK-ASSIST-15: every new result is reviewed before persistence, and legacy checkpoints cannot bypass review', async () => {
+  const service = await readFile(new URL('../src/work/taskAssistance.ts', import.meta.url), 'utf8');
+  const view = await readFile(new URL('../../knowledge-hub-web/src/features/plan/TaskDetail.tsx', import.meta.url), 'utf8');
+  const editor = await readFile(new URL('../../knowledge-hub-web/src/notes/NoteEditor.tsx', import.meta.url), 'utf8');
+  assert.match(service, /JSON\.stringify\(proposal\), intent\.direction/);
+  assert.match(service, /taskActivity: intent\.activity/);
+  assert.match(service, /initialTools: \[[\s\S]*?'search_knowledge_base', 'read_knowledge_record'/);
+  assert.match(service, /requireTaskAssistanceReady\(review, sourcesRead,[\s\S]*?const noteId = row\.id/);
+  assert.match(service, /if \(saved\['readinessReviewed'\] !== true\) return undefined/);
+  assert.match(service, /readinessReviewed: true/);
+  assert.match(service, /requireCurrentTaskDirection\(client, subjectId, row\.owner_id, row\.direction\)/);
+  assert.match(service, /name === 'read_task_activity' && args\['taskId'\] !== subjectId/);
+  assert.match(service, /No sending, task completion, deadline changes/);
+  assert.match(view, /Your direction/);
+  assert.match(view, /Export as Word \(\.docx\)/);
+  assert.match(editor, /async function handleExportWord/);
+  assert.match(editor, /downloadBlob\(blob, `\$\{slugifyTitle\(title\)\}\.docx`\)/);
 });
