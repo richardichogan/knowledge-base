@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test, mock } from 'node:test';
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { publishingFixture } from './publishing-fixture.js';
 import type { Pool } from 'pg';
 import type { Draft, Delivery, Source, Topic } from '../src/publishing/contracts.js';
@@ -786,6 +787,28 @@ test('explicit independent timing bypasses spacing, never unresolved deliveries'
   for (const status of ['sending', 'unconfirmed'] as const) {
     assert.match(slotBlock([{ ...history[0]!, status }], 'bluesky', now, true)!, /unresolved/);
   }
+});
+test('manual Discover posts bypass interval pacing while preserving duplicate and uncertain-delivery protection', async () => {
+  const route = await readFile(new URL('../src/routes/discover.ts', import.meta.url), 'utf8');
+  assert.match(route, /deliver\(db, 'linkedin', memberId, \{ identity: `discover:\$\{id\}`, independentSchedule: true \}/);
+  assert.match(route, /deliver\(db, 'bluesky', destinationAccount\('bluesky'\), \{ identity: `discover:\$\{id\}`, independentSchedule: true \}/);
+  const f = await publishingFixture();
+  try {
+    for (const destination of ['bluesky', 'linkedin'] as const) {
+      const account = destination === 'bluesky' ? 'fixture.bsky.social' : 'member';
+      let sends = 0;
+      const send = async () => { sends++; return { url: 'https://example.test/post' }; };
+      const first = { identity: `manual-${destination}-first`, independentSchedule: true };
+      await deliver(f.db, destination, account, first, send);
+      await assert.rejects(reserveDelivery(f.db, destination, account, { identity: `automatic-${destination}` }), /interval/);
+      await deliver(f.db, destination, account, { identity: `manual-${destination}-second`, independentSchedule: true }, send);
+      await deliver(f.db, destination, account, first, send);
+      assert.equal(sends, 2, 'manual posts are immediate, but the same delivery is not sent twice');
+      await assert.rejects(deliver(f.db, destination, account, { identity: `manual-${destination}-uncertain`, independentSchedule: true },
+        async () => { throw new PublicationUnconfirmed('Receipt unavailable.'); }));
+      await assert.rejects(reserveDelivery(f.db, destination, account, { identity: `manual-${destination}-next`, independentSchedule: true }), /unresolved/);
+    }
+  } finally { await f.close(); }
 });
 test('unknown outcomes reserve capacity; only definite transient failures get bounded retries', async () => {
   const f = await publishingFixture();

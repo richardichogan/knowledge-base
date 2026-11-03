@@ -1,5 +1,6 @@
 .notes-list-search.notes-list-tools {
-  padding: 0.625rem 0.5rem;
+  padding: 0.625rem 0.5rem 0.625rem 0;
+  margin-left: 0;
   gap: 0.25rem;
   flex-wrap: nowrap;
   min-width: 0;
@@ -7,7 +8,8 @@
   .notes-list-search__field .cds--text-input {
     height: var(--kh-control-height);
     min-width: 0;
-    padding-left: 0.5rem;
+    padding-left: var(--cds-spacing-03);
+    margin-left: 0;
   }
 
   .notes-list-search__clear {

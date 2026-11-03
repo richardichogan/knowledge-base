@@ -2,6 +2,38 @@
 
 ---
 
+## Manual social posting
+
+Discover's manual Bluesky and LinkedIn posting actions bypass automatic-feed
+spacing, using the existing independent-delivery path. Manual posts have no
+application daily cap or minimum interval. Duplicate/unconfirmed-delivery
+protection and provider-imposed rate limits remain enforced.
+
+## Research note formatting
+
+Iris research now explicitly produces Markdown with an H1 title, H2 sections,
+appropriate nested lists, source links and language-labelled fenced code blocks
+for actual technical content. The existing Markdown importer saves these as
+native Think blocks, not literal Markdown paragraphs. Formatting issues go back
+to Iris within the same research job for amendment and revalidation. The original
+draft and source evidence are retained; interrupted formatting work stays pending
+and resumes without restarting research or posting a completion notice. Amendments
+must preserve the original findings, quotations, source links and literal code.
+Existing notes and manual formatting are unchanged until a valid result is saved.
+
+Think's search toolbar now contains only search and sorting: the spacing,
+grouping and extra-content preview toggles are removed. The search row and input
+have no outer left padding or margin; the text has a small internal inset.
+Existing saved display preferences are retained.
+
+Opening a Plan task now retains the normal Board or Focus content in the left
+pane, including its grouping, ordering, project/tag filters, Inbox and completed
+visibility. Task cards render compact Markdown descriptions instead of exposing
+full raw task bodies. Saved task data is unchanged.
+Compact task descriptions use a single inline formatted flow with a two-line
+ellipsis, not fixed-height clipping of full Markdown paragraphs. Preview text
+does not shrink beneath the tags or footer controls.
+
 ## Main workspace clarity and safety
 
 Today opens the first posting pick, falling back to the highest-priority attention

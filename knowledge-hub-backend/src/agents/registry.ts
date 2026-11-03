@@ -35,6 +35,8 @@ export interface SpecialistResult {
   data: Record<string, unknown>;
   /** One sentence for the job notice and Athena's follow-up message. */
   summary: string;
+  /** Retained work is unfinished; requeue the same job after this delay, without a completion notice. */
+  continueAfterMs?: number;
 }
 
 export interface Specialist {

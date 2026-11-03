@@ -188,7 +188,7 @@
     border-bottom: 0;
   }
   .notes-list-panel__label { font-size: var(--kh-section-title); color: var(--cds-text-primary); }
-  .notes-list-search.notes-list-tools { padding: 8px 12px; border-bottom: 1px solid var(--cds-border-subtle-01); }
+  .notes-list-search.notes-list-tools { padding: 8px 12px 8px 0; margin-left: 0; border-bottom: 1px solid var(--cds-border-subtle-01); }
   .notes-date-bucket__header {
     padding: 12px 12px 8px;
     font-weight: 600;
@@ -1022,6 +1022,61 @@ dialog.kh-workspace-panel--overlay {
   display: flex;
   justify-content: flex-end;
   margin-bottom: var(--cds-spacing-05);
+}
+.kb-task-review-list {
+  .kb-board, .kb-focus {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cds-spacing-05);
+    overflow: visible;
+  }
+  .kb-col, .kb-focus__col, .kb-col__cards {
+    flex: none;
+    min-height: 0;
+    overflow: visible;
+  }
+  .kb-card--selected, .kb-focus-row--selected {
+    background: var(--kh-accent-bg);
+    box-shadow: inset 3px 0 var(--kh-accent);
+  }
+}
+.kh-task-prose {
+  overflow-wrap: anywhere;
+  p, blockquote { margin: 0 0 var(--cds-spacing-03); }
+  h1, h2, h3, h4, h5, h6 {
+    margin: var(--cds-spacing-03) 0;
+    font-size: inherit;
+    font-weight: 600;
+    line-height: inherit;
+  }
+  ul, ol {
+    margin: 0 0 var(--cds-spacing-03);
+    padding-left: var(--kh-list-indent);
+  }
+  ul { list-style: disc; }
+  ol { list-style: decimal; }
+  li { margin: 0; }
+  code {
+    font-family: var(--cds-code-01-font-family, 'IBM Plex Mono', monospace);
+    font-size: 0.9em;
+    background: var(--cds-layer-02);
+  }
+  pre { white-space: pre-wrap; }
+  blockquote { border-left: 2px solid var(--cds-border-subtle-01); padding-left: var(--cds-spacing-03); }
+  a {
+    color: var(--kh-link-prose);
+    &:hover { color: var(--kh-link-prose-hover); }
+    &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+  }
+  > :first-child { margin-top: 0; }
+  > :last-child { margin-bottom: 0; }
+}
+.kb-card__body.kh-task-prose, .kb-inbox-card__body.kh-task-prose {
+  flex: 0 0 auto;
+  min-width: 0;
+  margin: 0;
+  white-space: normal;
+  overflow: hidden;
 }
 .kh-uc-editor-fields {
   border: 0;

@@ -1,13 +1,13 @@
 /**
  * notes/NoteList.tsx — left panel: searchable, paginated list of notes.
- * Flat and newest-first by default; grouping by project is an opt-in toggle.
+ * Flat and newest-first by default; existing display preferences are retained.
  */
 
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { confirmDialog } from '../services/appDialogs';
 import { TextInput } from '@carbon/react';
 import { useQuery } from '@tanstack/react-query';
-import { TrashCan, Close, SortAscending, GroupObjects, View, ChevronDown, ChevronRight } from '@carbon/icons-react';
+import { TrashCan, Close, SortAscending, ChevronDown, ChevronRight } from '@carbon/icons-react';
 import type { ThinkListItem } from './types';
 import { useTaxonomy } from '../hooks/useTaxonomy';
 import { useProjects } from '../hooks/useProjects';
@@ -85,7 +85,7 @@ export const NoteList: React.FC<NoteListProps> = ({
 }) => {
   const [storedFilter, setFilter] = usePersistedText('kh-think-search');
   const filter = showTools ? storedFilter : '';
-  const [density, setDensity] = usePersistedChoice('kh-think-density', ['compact', 'comfortable'] as const, 'compact');
+  const [density] = usePersistedChoice('kh-think-density', ['compact', 'comfortable'] as const, 'compact');
   const [passageFilter, setPassageFilter] = useState('');
   useEffect(() => {
     const timer = window.setTimeout(() => { setPassageFilter(filter.trim()); }, 250);
@@ -110,8 +110,8 @@ export const NoteList: React.FC<NoteListProps> = ({
     'modified',
   );
   // The compact flat list groups dates; project grouping and previews remain opt-in.
-  const [groupByProject, setGroupByProject] = usePersistedBoolean('kh_notes_group', false);
-  const [showPreviews, setShowPreviews] = usePersistedBoolean('kh_notes_previews', false);
+  const [groupByProject] = usePersistedBoolean('kh_notes_group', false);
+  const [showPreviews] = usePersistedBoolean('kh_notes_previews', false);
   const compact = !groupByProject && !showPreviews;
   const bucketed = compact && sortKey !== 'title';
   const bucketListId = useId();
@@ -239,11 +239,6 @@ export const NoteList: React.FC<NoteListProps> = ({
   return (
     <>
       {showTools && <div className="notes-list-search notes-list-tools">
-        <button type="button" className="notes-list-tools__icon" aria-label="Compact note spacing"
-          title="Toggle compact spacing. List shortcuts: J/K move, O open."
-          aria-pressed={density === 'compact'} onClick={() => { setDensity(density === 'compact' ? 'comfortable' : 'compact'); }}>
-          <SortAscending size={16} aria-hidden="true" />
-        </button>
         <div className="notes-list-search__field">
           <TextInput
             id="notes-search"
@@ -280,26 +275,6 @@ export const NoteList: React.FC<NoteListProps> = ({
             ))}
           </select>
         </label>
-        <button
-          type="button"
-          className="notes-list-tools__icon"
-          title="Group by project"
-          aria-label="Group by project"
-          aria-pressed={groupByProject}
-          onClick={() => { setGroupByProject((on) => !on); }}
-        >
-          <GroupObjects size={16} aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className="notes-list-tools__icon"
-          title="Show note previews"
-          aria-label="Show note previews"
-          aria-pressed={showPreviews}
-          onClick={() => { setShowPreviews((on) => !on); }}
-        >
-          <View size={16} aria-hidden="true" />
-        </button>
       </div>}
 
       <div className={`notes-list kh-triage--${density}`} aria-label="Notes. J and K move; O opens the focused note."

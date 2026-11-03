@@ -30,8 +30,9 @@ import { requireApiData, requireApiSuccess, describeApiError } from '../services
 import { DataNotice } from '../components/DataNotice';
 import type { ApiSuccess, PaginatedList } from '../types/apiResponse';
 import { TaskDetail } from '../features/plan/TaskDetail';
-import { ReviewWorkspace, ReviewItem } from '../components/ReviewWorkspace';
+import { ReviewWorkspace } from '../components/ReviewWorkspace';
 import { confirmDialog } from '../services/appDialogs';
+import { TaskDescription } from '../components/TaskDescription';
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -147,13 +148,14 @@ const CardMenu: React.FC<{
 const TaskCard: React.FC<{
   task: Task;
   busy: boolean;
+  selected?: boolean;
   projects: ProjectRecord[];
   onMove: (id: string, status: TaskStatus) => void;
   onDelete: (id: string) => void;
   onEdit: (task: Task) => void;
   onSelect: (task: Task) => void;
   onAskAthena?: ((task: Task) => void) | undefined;
-}> = ({ task, busy, projects, onMove, onDelete, onEdit, onSelect, onAskAthena }) => {
+}> = ({ task, busy, selected = false, projects, onMove, onDelete, onEdit, onSelect, onAskAthena }) => {
   const [dragging, setDragging] = useState(false);
   const identity = useIdentity();
   const resolvedTags = identitiesFor(identity, task.taxonomyTagIds ?? [], task.projectId);
@@ -165,7 +167,7 @@ const TaskCard: React.FC<{
   const originTo = origin ? originHref(origin) : null;
   return (
     <article
-      className={`kb-card kh-priority--${task.priority}${dragging ? ' kb-card--dragging' : ''}${done ? ' kb-card--done' : ''}`}
+      className={`kb-card kh-priority--${task.priority}${dragging ? ' kb-card--dragging' : ''}${done ? ' kb-card--done' : ''}${selected ? ' kb-card--selected' : ''}`}
       title={done ? undefined : `${PRIORITY_LABEL[task.priority]} priority`}
       draggable={!busy}
       aria-busy={busy}
@@ -179,6 +181,7 @@ const TaskCard: React.FC<{
     >
     <div className="kb-card__header">
       <button type="button" className="kb-card__title kb-card__select" disabled={busy}
+        aria-pressed={selected}
         onClick={event => { event.stopPropagation(); onSelect(task); }}>{task.title}</button>
       <CardMenu
         task={task}
@@ -190,7 +193,7 @@ const TaskCard: React.FC<{
       />
     </div>
 
-    {task.body !== '' && <p className="kb-card__body">{task.body}</p>}
+    {task.body !== '' && <TaskDescription className="kb-card__body" text={task.body} />}
 
     {task.status === 'waiting' && (
       <p className={`kb-card__waiting${task.waitingOn ? '' : ' kb-card__waiting--unset'}`}>
@@ -302,7 +305,7 @@ const InboxTray: React.FC<{
             return (
               <li key={task.id} className={`kb-inbox-card kh-priority--${task.priority}`} aria-busy={busy}>
                 <button type="button" className="kb-inbox-card__title" disabled={busy} onClick={() => { onSelect(task); }}>{task.title}</button>
-                {task.body !== '' && <p className="kb-inbox-card__body">{task.body}</p>}
+                {task.body !== '' && <TaskDescription className="kb-inbox-card__body" text={task.body} />}
                 <p className="kb-inbox-card__meta">
                   <span>{getProjectName(task.projectId, projects)}</span>
                   {task.dueDate != null && (
@@ -339,21 +342,22 @@ const FOCUS_COLUMNS: FocusGroupId[][] = [['overdue', 'week', 'next'], ['waiting'
 const FocusRow: React.FC<{
   task: Task;
   busy: boolean;
+  selected?: boolean;
   projects: ProjectRecord[];
   onComplete: (task: Task) => void;
   onEdit: (task: Task) => void;
   onAskAthena?: ((task: Task) => void) | undefined;
-}> = ({ task, busy, projects, onComplete, onEdit, onAskAthena }) => {
+}> = ({ task, busy, selected = false, projects, onComplete, onEdit, onAskAthena }) => {
   const date = focusDate(task);
   const health = taskHealth(task);
   return (
-    <li className="kb-focus-row" aria-busy={busy}>
+    <li className={`kb-focus-row${selected ? ' kb-focus-row--selected' : ''}`} aria-busy={busy}>
       <span className={`kb-focus-row__bar kb-focus-row__bar--${task.priority}`} aria-hidden="true" />
       <button type="button" className="kb-focus-row__check" disabled={busy} title="Mark complete" aria-label={`Complete ${task.title}`}
         onClick={() => { onComplete(task); }}>
         <Checkmark size={16} />
       </button>
-      <button type="button" className="kb-focus-row__main" disabled={busy} onClick={() => { onEdit(task); }}>
+      <button type="button" className="kb-focus-row__main" disabled={busy} aria-pressed={selected} onClick={() => { onEdit(task); }}>
         <span className="kb-focus-row__title">{task.title}</span>
         <span className="kb-focus-row__meta">
           <span>{getProjectName(task.projectId, projects)}</span>
@@ -382,11 +386,12 @@ const FocusRow: React.FC<{
 const FocusView: React.FC<{
   tasks: Task[];
   busyIds: Set<string>;
+  selectedTaskId?: string | null;
   projects: ProjectRecord[];
   onComplete: (task: Task) => void;
   onEdit: (task: Task) => void;
   onAskAthena?: ((task: Task) => void) | undefined;
-}> = ({ tasks, busyIds, projects, onComplete, onEdit, onAskAthena }) => {
+}> = ({ tasks, busyIds, selectedTaskId, projects, onComplete, onEdit, onAskAthena }) => {
   const groups = groupForFocus(tasks, localDateKey(new Date()));
   return (
     <div className="kb-focus">
@@ -406,7 +411,7 @@ const FocusView: React.FC<{
                 </header>
                 <ul className="kb-focus__list">
                   {groups[group.id].map((task) => (
-                    <FocusRow key={task.id} task={task} busy={busyIds.has(task.id)} projects={projects}
+                    <FocusRow key={task.id} task={task} busy={busyIds.has(task.id)} selected={task.id === selectedTaskId} projects={projects}
                       onComplete={onComplete} onEdit={onEdit} onAskAthena={onAskAthena} />
                   ))}
                 </ul>
@@ -1134,23 +1139,8 @@ export const TasksPage: React.FC<{
   });
 
   const selectedTask = tasks.find(task => task.id === selectedTaskId) ?? selectedDetail.data?.task;
-  return (
-    <div className="kb-page">
-      {selectedTaskId && <ReviewWorkspace storageKey="plan-task" label="Plan tasks"
-        context={{ type: 'task', id: selectedTaskId, title: selectedTask?.title ?? 'Task',
-          ...(selectedTask?.projectId ? { projectId: selectedTask.projectId } : {}),
-          detail: `${JSON.stringify(selectedTask)}\nHelp me assesses capability before an explicit approval. Do not execute assistance from a casual discussion or complete this task automatically.` }}
-        list={<section className="today-brief" aria-labelledby="plan-task-list-heading">
-          <div className="today-brief__section-heading">
-            <h2 id="plan-task-list-heading">Tasks</h2>
-            <button type="button" className="today-brief__quiet" onClick={() => { setSelectedTaskId(null); }}>Back to {view === 'board' ? 'Board' : 'Focus'}</button>
-          </div>
-          {scopedTasks.map(task => <ReviewItem key={task.id} title={task.title} meta={`${getProjectName(task.projectId, projects)} · ${task.status}`}
-            description={task.body} selected={selectedTaskId === task.id} onSelect={() => { selectTask(task); }} />)}
-        </section>}
-        detail={<TaskDetail key={selectedTaskId} taskId={selectedTaskId} onBackToPlan={() => { setSelectedTaskId(null); }} />} />}
-
-      {!selectedTaskId && <>
+  const reviewFocusGroups = selectedTaskId && view === 'focus' ? groupForFocus(scopedTasks, localDateKey(new Date())) : null;
+  const taskViews = <>
       {isPending && <InlineLoading description="Loading…" />}
       {isError && <DataNotice title="Tasks are unavailable" error={loadError} onRetry={() => { void refetch(); }} />}
       {saveError !== null && !modalOpen && <DataNotice title="Task update needs attention" error={saveError} />}
@@ -1181,6 +1171,7 @@ export const TasksPage: React.FC<{
         <FocusView
           tasks={scopedTasks}
           busyIds={busyTaskIds}
+          selectedTaskId={selectedTaskId}
           projects={projects}
           onComplete={(task) => { moveTask(task.id, 'completed'); }}
           onEdit={selectTask}
@@ -1228,6 +1219,7 @@ export const TasksPage: React.FC<{
                     key={task.id}
                     task={task}
                     busy={busyTaskIds.has(task.id)}
+                    selected={selectedTaskId === task.id}
                     projects={projects}
                     onMove={moveTask}
                     onDelete={(id) => { if (beginTaskAction(id)) deleteMutation.mutate(id); }}
@@ -1258,7 +1250,32 @@ export const TasksPage: React.FC<{
           );
         })}
       </div>}
-      </>}
+      </>;
+  return (
+    <div className="kb-page">
+      {selectedTaskId ? <ReviewWorkspace storageKey="plan-task" label="Plan tasks"
+        context={{ type: 'task', id: selectedTaskId, title: selectedTask?.title ?? 'Task',
+          ...(selectedTask?.projectId ? { projectId: selectedTask.projectId } : {}),
+          detail: `${JSON.stringify(selectedTask)}\nVisible ${view} task groups, with the same project/tag and completed-task filters as the normal Plan view:\n${JSON.stringify({
+            filterProject, filterTag, showOlderDone,
+            groups: reviewFocusGroups
+              ? [{ label: 'Inbox', ids: inboxTasks.map(task => task.id) }, ...FOCUS_GROUPS.map(group => ({
+                label: group.label, ids: reviewFocusGroups[group.id].map(task => task.id),
+              }))]
+              : [{ label: 'Inbox', ids: inboxTasks.map(task => task.id) }, ...COLUMNS.map(column => ({
+                label: column.label, ids: scopedTasks.filter(task => task.status === column.id
+                  && (task.status !== 'completed' || showOlderDone || busyTaskIds.has(task.id) || isRecentlyCompleted(task))).map(task => task.id),
+              }))],
+          })}\nHelp me assesses capability before an explicit approval. Do not execute assistance from a casual discussion or complete this task automatically.` }}
+        list={<section className="kb-task-review-list" aria-labelledby="plan-task-list-heading">
+          <div className="today-brief__section-heading">
+            <h2 id="plan-task-list-heading">{view === 'board' ? 'Board' : 'Focus'}</h2>
+            <button type="button" className="today-brief__quiet" onClick={() => { setSelectedTaskId(null); }}>Back to {view === 'board' ? 'Board' : 'Focus'}</button>
+          </div>
+          {taskViews}
+        </section>}
+        detail={<TaskDetail key={selectedTaskId} taskId={selectedTaskId} onBackToPlan={() => { setSelectedTaskId(null); }} />} />
+        : taskViews}
 
       <PodcastImportModal
         open={importOpen}

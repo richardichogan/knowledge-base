@@ -1,13 +1,97 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile } from 'node:fs/promises';
-import { assistanceId, isPublicSearchEvidence, isReadEvidence, parseAssistanceProposal, validateAssistanceSearch } from '../src/work/taskAssistance.js';
+import { amendResearchFormatting, assistanceId, isPublicSearchEvidence, isReadEvidence, parseAssistanceProposal, researchAmendmentPreservesContent, researchNoteBlocks, validateAssistanceSearch } from '../src/work/taskAssistance.js';
+import { AiError } from '../src/types/errors.js';
 
 const proposal = {
   kind: 'research', summary: 'Compare First Mate with Athena', approach: 'Verify the repository and read architecture evidence.',
   output: 'Linked research note with fit and gaps', questions: [], humanDecisions: ['Review recommendations'],
   publicQueries: ['First Mate GitHub repository AI agent'],
 };
+test('research saves native H1/H2 headings, nested bullets, numbered steps and literal code', () => {
+  const blocks = researchNoteBlocks('# IKEA research\n\n## Findings\n\n- **Finding** with [source](https://example.test)\n  - Supporting evidence\n\n## Proposed steps\n\n1. Review the evidence\n2. Decide next steps\n\n```json\n{\n  "example": true\n}\n```\n\n## Limitations\n\nThis is an illustrative fixture.');
+  assert.deepEqual(blocks.filter(block => block.type === 'heading').map(block => block.props?.level), [1, 2, 2, 2]);
+  const bullet = blocks.find(block => block.type === 'bulletListItem');
+  assert.ok(bullet?.type === 'bulletListItem' && bullet.children?.[0]?.type === 'bulletListItem');
+  assert.ok(bullet?.type === 'bulletListItem' && bullet.content.some(part => part.type === 'link'));
+  assert.equal(blocks.filter(block => block.type === 'numberedListItem').length, 2);
+  const code = blocks.find(block => block.type === 'codeBlock');
+  assert.ok(code?.type === 'codeBlock');
+  assert.equal(code.props?.language, 'json');
+  assert.equal(code.content[0]?.type === 'text' && code.content[0].text, '{\n  "example": true\n}');
+});
+test('research formatting checks request amendment of flattened prose and whole-document fences', () => {
+  assert.throws(() => researchNoteBlocks('**IKEA research**\n\n**Findings**\n\nPlain paragraphs.'), /Amend the formatting/);
+  assert.throws(() => researchNoteBlocks('```markdown\n# IKEA research\n\n## Findings\n\n- Evidence\n```'), /Amend the formatting/);
+  assert.doesNotThrow(() => researchNoteBlocks('# Research\n\n## Findings\n\nPlain-language findings without invented code.'));
+});
+test('Iris amends formatting without discarding the research or changing source evidence', async () => {
+  const original = '**Research**\n\n**Findings**\n\nEvidence from [the source](https://example.test).';
+  const valid = '# Research\n\n## Findings\n\n- Evidence from [the source](https://example.test).';
+  const checkpoint = { proposalId: 'proposal', taskSignature: 'task', original, markdown: original, feedback: '', publicEvidence: true };
+  let calls = 0;
+  const saved: string[] = [];
+  const blocks = await amendResearchFormatting(checkpoint, new AbortController().signal, async (draft, feedback, baseline) => {
+    assert.equal(baseline, original);
+    assert.ok(draft);
+    assert.match(feedback, /Amend the formatting/);
+    calls++;
+    return calls < 4 ? original : valid;
+  }, async current => { saved.push(current.markdown); }, () => {});
+  assert.equal(calls, 4, 'formatting is not rejected after a fixed amendment count');
+  assert.equal(checkpoint.original, original);
+  assert.equal(saved.at(-1), valid);
+  assert.equal(blocks?.[0]?.type, 'heading');
+});
+test('Iris retains unfinished formatting for resumption when the budget signal stops', async () => {
+  const original = '**Research**\n\nEvidence from [the source](https://example.test).';
+  const checkpoint = { proposalId: 'proposal', taskSignature: 'task', original, markdown: original, feedback: '', publicEvidence: true };
+  const stop = new AbortController();
+  let saves = 0;
+  const pending = await amendResearchFormatting(checkpoint, stop.signal, async () => {
+    stop.abort();
+    throw stop.signal.reason;
+  }, async () => { saves++; }, () => {});
+  assert.equal(pending, undefined);
+  assert.equal(saves, 1, 'the draft is saved before asking Iris to amend it');
+  assert.equal(checkpoint.original, original);
+  assert.match(checkpoint.feedback, /H1/);
+  let resumedCalls = 0;
+  const resumed = await amendResearchFormatting(checkpoint, new AbortController().signal, async () => {
+    resumedCalls++;
+    return '# Research\n\n## Findings\n\nEvidence from [the source](https://example.test).';
+  }, async () => {}, () => {});
+  assert.equal(resumedCalls, 1);
+  assert.ok(resumed);
+});
+test('model amendment problems retain pending work rather than rejecting the research', async () => {
+  const original = 'Evidence.';
+  const checkpoint = { proposalId: 'proposal', taskSignature: 'task', original, markdown: original, feedback: '', publicEvidence: true };
+  const progress: string[] = [];
+  assert.equal(await amendResearchFormatting(checkpoint, new AbortController().signal,
+    async () => { throw new AiError('The endpoint is temporarily unavailable.'); }, async () => {},
+    message => { progress.push(message); }), undefined);
+  assert.match(progress.at(-1)!, /retained.*resume/);
+  assert.equal(checkpoint.original, original);
+});
+test('formatting amendments preserve wording, source URLs and literal code', () => {
+  const original = '```markdown\n# Research\n\n## Findings\n\n[Evidence](https://example.test).\n\n```json\n{"value":1}\n```\n```';
+  const amended = '# Research\n\n## Findings\n\n- [Evidence](https://example.test).\n\n```json\n{"value":1}\n```';
+  assert.equal(researchAmendmentPreservesContent(original, amended), true);
+  assert.equal(researchAmendmentPreservesContent(original, amended.replace('value', 'changed')), false);
+  assert.equal(researchAmendmentPreservesContent(original, amended.replace('example.test', 'invented.test')), false);
+  assert.equal(researchAmendmentPreservesContent(original, amended.replace('Evidence', 'Invented finding')), false);
+});
+test('research continuations remain queued with retained content and no completion notice', async () => {
+  const service = await readFile(new URL('../src/work/taskAssistance.ts', import.meta.url), 'utf8');
+  const engine = await readFile(new URL('../src/agents/engine.ts', import.meta.url), 'utf8');
+  assert.match(service, /getFoundryClient\('task-researcher'\)\.chat/);
+  assert.match(service, /retainedResearch: \{ original: checkpoint.original, markdown: checkpoint.markdown, feedback: checkpoint.feedback \}/);
+  assert.match(engine, /resumeAt \? 'queued' : 'done'/);
+  assert.match(engine, /if \(done\?\.status === 'queued'\) emit\(done\)/);
+  assert.match(engine, /AND NOT \(specialist='task-researcher' AND input \? 'researchFormattingCheckpoint'\)/);
+});
 test('TASK-ASSIST-05: research and email questions are retained without approval or execution gates', async () => {
   const research = parseAssistanceProposal({ ...proposal, questions: ['Should recommendations also suggest document wording?'] });
   const email = parseAssistanceProposal({ ...research, kind: 'email', questions: ['Who is the recipient?'] });

@@ -1,7 +1,28 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFile } from 'node:fs/promises';
 import { resumeWorkspacePath } from '../src/navigation/workspaceContinuity';
 import { listShortcut } from '../src/hooks/listKeyboard';
+
+test('selected Plan tasks retain the normal Board/Focus content and compact formatted previews', async () => {
+  const page = await readFile(new URL('../src/pages/TasksPage.tsx', import.meta.url), 'utf8');
+  const preview = await readFile(new URL('../src/components/TaskDescription.tsx', import.meta.url), 'utf8');
+  assert.match(page, /const taskViews = <>/);
+  assert.match(page, /\{taskViews\}[\s\S]*: taskViews/);
+  assert.doesNotMatch(page, /scopedTasks\.map\(task => <ReviewItem/);
+  assert.match(page, /TaskDescription className="kb-card__body" text=\{task\.body\}/);
+  assert.match(preview, /renderMarkdownPreview\(text\)/);
+  assert.match(page, /isRecentDone[\s\S]*!showOlderDone \? allColTasks\.filter\(isRecentDone\)/);
+});
+test('task previews clamp one inline flow without fixed-height paragraph cropping', async () => {
+  const renderer = await readFile(new URL('../src/utils/markdown.ts', import.meta.url), 'utf8');
+  const styles = await readFile(new URL('../src/styles/workspaces.scss', import.meta.url), 'utf8');
+  assert.match(renderer, /export function renderMarkdownPreview/);
+  assert.match(renderer, /source\.cloneNode\(false\)/);
+  assert.match(renderer, /doc\.createElement\(\/\^H\[1-6\]\$\/\.test\(source\.tagName\) \? 'strong' : 'span'\)/);
+  assert.doesNotMatch(styles, /max-height: 3em/);
+  assert.match(styles, /\.kb-card__body\.kh-task-prose, \.kb-inbox-card__body\.kh-task-prose \{\s*flex: 0 0 auto/);
+});
 
 test('area navigation resumes only an exact internal root and never replaces an explicit link', () => {
   const original = Object.getOwnPropertyDescriptor(globalThis, 'window');

@@ -323,6 +323,7 @@ async function claim(db: Pool): Promise<JobRow | null> {
       WHERE id = (
         SELECT j.id FROM agent_jobs j LEFT JOIN agent_jobs d ON d.id = j.depends_on
          WHERE j.worker_pool = $1 AND j.status = 'queued' AND j.protocol_version<=$4 AND j.assignment_id IS NULL
+           AND (j.result->>'resumeAt' IS NULL OR (j.result->>'resumeAt')::timestamptz<=clock_timestamp())
            AND (j.depends_on IS NULL OR d.status = 'done')
          ORDER BY j.created_at LIMIT 1 FOR UPDATE OF j SKIP LOCKED)
       RETURNING *`,
@@ -338,7 +339,8 @@ async function recoverExpiredJobs(db: Pool): Promise<void> {
     `UPDATE agent_jobs SET status='failed',finished_at=clock_timestamp(),updated_at=clock_timestamp(),
       lease_owner=NULL,lease_until=NULL,error='It was interrupted too many times and stopped.'
       WHERE worker_pool=$1 AND assignment_id IS NULL AND protocol_version<=$3 AND status='running'
-        AND (lease_until IS NULL OR lease_until<=clock_timestamp()) AND attempts>=$2 RETURNING *`,
+        AND (lease_until IS NULL OR lease_until<=clock_timestamp()) AND attempts>=$2
+        AND NOT (specialist='task-researcher' AND input ? 'researchFormattingCheckpoint') RETURNING *`,
     [workerPool(), AGENT_MAX_ATTEMPTS, AGENT_PROTOCOL_VERSION],
   );
   for (const row of failed.rows) await finish(db, row);
@@ -428,17 +430,27 @@ async function runJob(db: Pool, row: JobRow, owner: string): Promise<void> {
       () => withAiWorkflow(db, { feature: row.specialist, jobId: row.id, attempt: row.attempts, signal }, async () => {
         signal.throwIfAborted();
         const outcome = await specialist.run({ db, jobId: row.id, attempt: row.attempts, subjectId: row.subject_id, input: row.input, progress, signal });
+        const delay = outcome.continueAfterMs;
+        if (delay !== undefined && (!Number.isSafeInteger(delay) || delay <= 0 || !Number.isFinite(new Date(Date.now() + delay).getTime()))) {
+          throw new ValidationError('A specialist continuation requires a positive delay.');
+        }
+        const resumeAt = delay === undefined ? undefined : new Date(Date.now() + delay).toISOString();
         await writes;
         signal.throwIfAborted();
         const saved = await record(db,
-          `UPDATE agent_jobs SET status = 'done', result = $2, error = NULL, finished_at = NOW(), updated_at = NOW(),lease_until=NULL,lease_owner=NULL
+          `UPDATE agent_jobs SET status = $5, result = $2, error = NULL,
+              finished_at = CASE WHEN $5='done' THEN NOW() ELSE NULL END,
+              updated_at = NOW(),lease_until=NULL,lease_owner=NULL
             WHERE id = $1 AND status = 'running' AND attempts = $3 AND lease_owner=$4 AND lease_until>clock_timestamp() RETURNING *`,
-          [row.id, JSON.stringify({ data: outcome.data, summary: outcome.summary }), row.attempts, owner],
+          [row.id, JSON.stringify({ data: outcome.data, summary: outcome.summary,
+            ...(resumeAt ? { resumeAt } : {}) }),
+            row.attempts, owner, resumeAt ? 'queued' : 'done'],
         );
         if (!saved) throw new ConflictError('The specialist attempt stopped before its outcome was saved.', 'AGENT_ATTEMPT_CONFLICT');
         return saved;
       }));
-    if (done) await finish(db, done);
+    if (done?.status === 'queued') emit(done);
+    else if (done) await finish(db, done);
   } catch (error) {
     await writes;
     if (shutdown.signal.aborted) {

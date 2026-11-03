@@ -126,14 +126,13 @@ function renderList(
   }
 }
 
-test('compact header exposes native sort and labelled icon toggles without filters', () => {
+test('compact header exposes search and native sort without filters or view toggles', () => {
   const html = renderList();
-  const header = html.slice(0, html.indexOf('<div class="notes-list">'));
+  const header = html.slice(0, html.indexOf('<div class="notes-list '));
   assert.match(header, /id="notes-search"/);
   assert.match(header, /<select[^>]+aria-label="Sort notes: Modified"/);
   assert.match(header, /value="modified" selected=""/);
-  assert.match(header, /aria-label="Group by project" aria-pressed="false"/);
-  assert.match(header, /aria-label="Show note previews" aria-pressed="false"/);
+  assert.doesNotMatch(header, /Group by project|Show note previews|Compress|Condense/);
   assert.doesNotMatch(header, /notes-list-filters|notes-list-arrange|>Group<|>Previews</);
   assert.doesNotMatch(html, /notes-list-item-preview/);
   assert.match(html, /notes-list-item--active/);
@@ -143,8 +142,7 @@ test('persisted sort, project grouping and previews keep their existing behavior
   const html = renderList({}, { kh_notes_sort: 'title', kh_notes_group: 'true', kh_notes_previews: 'true' });
   assert.match(html, /aria-label="Sort notes: Title"/);
   assert.match(html, /value="title" selected=""/);
-  assert.match(html, /aria-label="Group by project" aria-pressed="true"/);
-  assert.match(html, /aria-label="Show note previews" aria-pressed="true"/);
+  assert.doesNotMatch(html, /Group by project|Show note previews/);
   assert.match(html, /notes-group__label">Project One/);
   assert.match(html, /notes-list-item-preview">Body 0/);
 });

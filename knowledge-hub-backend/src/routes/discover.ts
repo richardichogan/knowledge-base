@@ -198,7 +198,7 @@ discoverRouter.post('/:id/linkedin-post', (req: Request, res: Response, next: Ne
       let posted;
       try {
         const link = sourceUrl(item.url);
-        posted = await deliver(db, 'linkedin', memberId, { identity: `discover:${id}` },
+        posted = await deliver(db, 'linkedin', memberId, { identity: `discover:${id}`, independentSchedule: true },
           () => postToLinkedIn(copy, link ? { url: link, title: item.title } : null, memberId));
       } catch (err) {
         try {
@@ -273,7 +273,7 @@ discoverRouter.post('/:id/bluesky-post', (req: Request, res: Response, next: Nex
       const description = item.body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
       let posted;
       try {
-        posted = await deliver(db, 'bluesky', destinationAccount('bluesky'), { identity: `discover:${id}` },
+        posted = await deliver(db, 'bluesky', destinationAccount('bluesky'), { identity: `discover:${id}`, independentSchedule: true },
           () => postToBluesky(copy, link ? { url: link, title: item.title, description } : null));
       } catch (err) {
         // Release the claim only when nothing could have been published; otherwise keep it so a retry cannot duplicate.

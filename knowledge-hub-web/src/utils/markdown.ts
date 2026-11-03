@@ -41,17 +41,17 @@ function splitTableRow(line: string): string[] {
 }
 
 /** A table with a "Download as Excel" button (handled page-wide by tableExport.ts). */
-function renderTable(rows: string[][]): string {
+function renderTable(rows: string[][], controls: boolean): string {
   const [head, ...body] = rows;
   const cells = (r: string[], tag: 'th' | 'td'): string => r.map((c) => `<${tag}>${inlineMarkdown(c)}</${tag}>`).join('');
   return '<div class="kh-table-block">'
-    + '<button type="button" class="kh-table-xlsx-btn" data-xlsx-table>Download as Excel</button>'
+    + (controls ? '<button type="button" class="kh-table-xlsx-btn" data-xlsx-table>Download as Excel</button>' : '')
     + `<div class="kh-table-scroll"><table><thead><tr>${cells(head ?? [], 'th')}</tr></thead>`
     + `<tbody>${body.map((r) => `<tr>${cells(r, 'td')}</tr>`).join('')}</tbody></table></div></div>`;
 }
 
-export function renderMarkdown(md: string): string {
-  installTableExport();
+export function renderMarkdown(md: string, { controls = true }: { controls?: boolean } = {}): string {
+  if (controls) installTableExport();
   const lines = md.split('\n');
   const html: string[] = [];
   let inCode = false;
@@ -80,7 +80,7 @@ export function renderMarkdown(md: string): string {
       if (inCode) { html.push('</code></pre></div>'); inCode = false; }
       else {
         fenceIndent = fence[1]!.length;
-        html.push(`<div class="kh-code-block"><button type="button" class="kh-code-copy-btn" data-copy-code>Copy</button><pre><code class="language-${escapeHtml((fence[2] ?? '').trim())}">`);
+        html.push(`<div class="kh-code-block">${controls ? '<button type="button" class="kh-code-copy-btn" data-copy-code>Copy</button>' : ''}<pre><code class="language-${escapeHtml((fence[2] ?? '').trim())}">`);
         inCode = true;
       }
       continue;
@@ -97,7 +97,7 @@ export function renderMarkdown(md: string): string {
       const rows: string[][] = [splitTableRow(line)];
       let j = i + 2;
       while (j < lines.length && isTableRow(lines[j]!)) { rows.push(splitTableRow(lines[j]!)); j += 1; }
-      html.push(renderTable(rows));
+      html.push(renderTable(rows, controls));
       i = j - 1;
       continue;
     }
@@ -151,4 +151,36 @@ export function renderMarkdown(md: string): string {
   closeList();
   if (inCode) html.push('</code></pre></div>');
   return sanitizeHtml(html.join('\n'));
+}
+
+/** Compact cards need one inline flow so line clamping never crops a separate paragraph. */
+export function renderMarkdownPreview(md: string): string {
+  const doc = new DOMParser().parseFromString(renderMarkdown(md, { controls: false }), 'text/html');
+  const preview = doc.createElement('div');
+  const inlineTags = new Set(['A', 'B', 'STRONG', 'I', 'EM', 'CODE', 'DEL', 'SUP', 'SUB']);
+  const append = (source: Node, target: Node): void => {
+    if (source.nodeType === Node.TEXT_NODE) {
+      target.appendChild(doc.createTextNode((source.textContent ?? '').replace(/\s+/g, ' ')));
+      return;
+    }
+    if (!(source instanceof Element)) return;
+    if (source.tagName === 'BR' || source.tagName === 'HR') {
+      target.appendChild(doc.createTextNode(' '));
+      return;
+    }
+    const isInline = inlineTags.has(source.tagName);
+    const next = isInline ? source.cloneNode(false)
+      : doc.createElement(/^H[1-6]$/.test(source.tagName) ? 'strong' : 'span');
+    if (source.tagName === 'LI') {
+      const parent = source.parentElement;
+      const start = Number(parent?.getAttribute('start') ?? 1);
+      const index = parent ? Array.from(parent.children).indexOf(source) : 0;
+      next.appendChild(doc.createTextNode(parent?.tagName === 'OL' ? `${start + index}. ` : '\u2022 '));
+    }
+    for (const child of Array.from(source.childNodes)) append(child, next);
+    target.appendChild(next);
+    if (!isInline) target.appendChild(doc.createTextNode(' '));
+  };
+  for (const child of Array.from(doc.body.childNodes)) append(child, preview);
+  return preview.innerHTML;
 }
