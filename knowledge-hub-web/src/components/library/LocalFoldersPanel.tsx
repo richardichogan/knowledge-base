@@ -6,7 +6,8 @@
 import React, { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { desktopErrorMessage, getDesktop, type DesktopFolder } from '../../types/desktop';
-import { getLocalSyncStatus, startLocalSync, subscribeLocalSync, syncLocalFolders } from '../../services/localSync';
+import type { AgentJob } from '../../types/agentJobs';
+import { getLocalSyncStatus, reconcileDailyInsightsImport, startLocalSync, subscribeLocalSync, syncLocalFolders } from '../../services/localSync';
 
 function ago(iso: string | null): string {
   if (iso === null) return 'not yet';
@@ -25,6 +26,16 @@ export function useLocalSyncStatus(): ReturnType<typeof getLocalSyncStatus> {
 export const LocalFolderSync: React.FC = () => {
   const qc = useQueryClient();
   useEffect(() => startLocalSync(() => { void qc.invalidateQueries(); }), [qc]);
+  useEffect(() => {
+    const finished = (event: Event): void => {
+      const job = (event as CustomEvent<AgentJob>).detail;
+      if (job?.specialist !== 'metis-daily-insights') return;
+      reconcileDailyInsightsImport(job);
+      if (job.status === 'done') void qc.invalidateQueries();
+    };
+    window.addEventListener('athena-daily-insights-import-finished', finished);
+    return () => { window.removeEventListener('athena-daily-insights-import-finished', finished); };
+  }, [qc]);
   return null;
 };
 
@@ -124,10 +135,16 @@ export const LocalFoldersPanel: React.FC = () => {
         <ul className="local-folders__captures" aria-label="Daily Insights capture status">
           {status.dailyInsights.map(report => (
             <li key={report.path} className="local-folders__capture">
-              <strong>{report.date}: {report.unchanged ? 'processed, up to date' : 'processed'}</strong>
-              <span>{report.meetings} diary entries; knowledge dated {report.knowledgeDate};
-                {' '}{report.tasksCreated} tasks created, {report.tasksUpdated} updated, {report.tasksPreserved} preserved in this report’s last import.</span>
-              {report.warnings.map((warning, index) => <span key={index} className="local-folders__capture-warning">{warning}</span>)}
+              {report.status === 'queued'
+                ? <><strong>{report.date}: submitted to Metis</strong><span>Follow live progress and the final result in Background work.</span></>
+                : report.status === 'failed'
+                  ? <><strong>{report.date}: Metis could not finish</strong><span className="local-folders__capture-warning">{report.error}</span></>
+                  : <>
+                    <strong>{report.date}: {report.unchanged ? 'processed, up to date' : 'processed'}</strong>
+                    <span>{report.meetings} diary entries; knowledge dated {report.knowledgeDate};
+                      {' '}{report.tasksCreated} tasks created, {report.tasksUpdated} updated, {report.tasksPreserved} preserved in this report’s last import.</span>
+                    {report.warnings.map((warning, index) => <span key={index} className="local-folders__capture-warning">{warning}</span>)}
+                  </>}
             </li>
           ))}
         </ul>

@@ -5,7 +5,7 @@ import { digest, explicitDate, normaliseIdentity, type DailyInsights } from './d
 
 const MAX_REPORT_CHARS = 250_000;
 const MAX_OUTPUT_TOKENS = 16_000;
-const EXTRACTION_TIMEOUT_MS = 120_000;
+const EXTRACTION_TIMEOUT_MS = 180_000;
 const EXTRACTION_BUDGET_MS = 210_000;
 const MAX_ITEMS = 200;
 const DATE_CHARS = 10;
@@ -24,10 +24,11 @@ const OUTPUT_SCHEMA: LlmJsonSchema = {
       tasks: {
         type: 'array', items: {
           type: 'object', additionalProperties: false,
-          required: ['title', 'project', 'owner', 'richardAssignee', 'dueText', 'source', 'evidenceLines'],
+          required: ['title', 'project', 'owner', 'richardAssignee', 'dueText', 'source', 'confidence', 'evidenceLines'],
           properties: {
             title: { type: 'string' }, project: { type: ['string', 'null'] }, owner: { type: ['string', 'null'] },
             richardAssignee: { type: ['string', 'null'] }, dueText: { type: ['string', 'null'] }, source: { type: ['string', 'null'] }, evidenceLines: { type: 'array', items: { type: 'integer' } },
+            confidence: { type: 'string', enum: ['high', 'ambiguous'] },
           },
         },
       },
@@ -118,6 +119,13 @@ export function validateDailyExtraction(filename: string, report: string, value:
     const task = object(raw);
     const evidence = sourceLines(task.evidenceLines, lines);
     const title = string(task.title, 'task title');
+    if (task.confidence !== 'high' && task.confidence !== 'ambiguous') {
+      throw new AiError('Daily Insights extraction returned an invalid task confidence');
+    }
+    if (task.confidence === 'ambiguous') {
+      warnings.push(`Not imported; action or ownership is ambiguous: ${title}`);
+      continue;
+    }
     const owner = optionalTaskDetail(task.owner, evidence, 'task owner', title, warnings);
     if (task.richardAssignee === null) {
       warnings.push(owner ? `Not assigned to Richard: ${title} (${owner})` : `Assignee not stated: ${title}`);
@@ -168,7 +176,7 @@ export function validateDailyExtraction(filename: string, report: string, value:
   return { date, knowledgeDate, knowledge, tasks, meetings, warnings: [...new Set(warnings)] };
 }
 
-export async function extractDailyInsights(filename: string, report: string): Promise<DailyInsights> {
+export async function extractDailyInsights(filename: string, report: string, signal?: AbortSignal): Promise<DailyInsights> {
   const date = dailyReportDate(filename);
   if (!report.trim() || report.length > MAX_REPORT_CHARS) throw new Error('Daily Insights report is empty or exceeds 250,000 characters');
   const messages: ConversationMessage[] = [
@@ -176,8 +184,9 @@ export async function extractDailyInsights(filename: string, report: string): Pr
 Structure, labels, headings, available facts and writing style can change completely each day. Read tables, prose, lists and task cards equally. Do not require any particular section or metadata. Do not invent missing information.
 Return the internal JSON representation required by the output schema. Its properties are NOT required fields in the source document.
 The briefing day is ${date}, from its filename. date is that day unless the document explicitly states a different report day. knowledgeDate is the previous calendar day. dateEvidenceLines contains source lines stating the report day, or [] when no report date is stated.
-Read the WHOLE document for actions Richard needs to take, including direct requests, commitments and carried-over work expressed in prose. Include other people's explicit actions too, with richardAssignee=null. Do not turn general news or speculative suggestions into tasks. A headline reporting that Josh's figures are due does NOT assign producing/submitting them to Richard. A separate request that Richard check Josh's figures IS Richard's action. Interpret ownership from the complete context, not merely from the fact it appears in his briefing.
-Recognise repeated mentions of the SAME action across headline, preparation, email, task card and follow-up prose as ONE task, using an explicit task card title when present. Do not create differently worded copies of that action. This task consolidation does not apply to separate diary occurrences.
+Read the WHOLE document for actions Richard needs to take, including direct requests, commitments and carried-over work expressed in prose. Include other people's explicit actions too, with richardAssignee=null. Do not turn general news, speculative suggestions, possible opportunities or low-confidence interpretations into tasks. A headline reporting that Josh's figures are due does NOT assign producing/submitting them to Richard. A separate request that Richard check Josh's figures IS Richard's action. Interpret ownership from the complete context, not merely from the fact it appears in his briefing.
+For every candidate action, set confidence to high only when the document clearly supports both a real action and Richard's responsibility. Set confidence to ambiguous when the action, ownership, or whether it is a separate task is uncertain; the validator will retain it as a warning, not create a task. Never upgrade uncertainty to high to avoid a warning.
+Recognise repeated mentions of the SAME action across headline, preparation, email, task card and follow-up prose as ONE high-confidence task, using an explicit task card title when present. Do not create differently worded copies of that action. If two mentions may be the same action but the relationship is unclear, mark the candidate ambiguous. This task consolidation does not apply to separate diary occurrences.
 For Richard's direct or joint commitments, richardAssignee is "Richard Hogan", "Richard", "me", "you" or "your" as supported by context. An instruction addressed to the reader of his personal briefing is for Richard even without a named owner. Another person's task merely mentioning Richard is not his assignment. Distinguish the sender/requester from the assignee: an email from Anya asking Richard to accept an invite is Richard's task, not Anya's. owner is the actual assignee, not the sender heading; use null if the assignee is implicit in context.
 Titles should clearly describe the supported action or diary entry. Preserve explicit task titles exactly for stable identity across daily readings; prose may need a concise action title rather than a verbatim substring. Never invent work. Any stated project, owner, dueText and source should use original wording. If optional metadata is absent, use null. Source is a stated reference, not an invented citation. Preserve vague deadlines verbatim without inventing a date.
 evidenceLines identifies the 1-based source lines supporting the task or diary entry, including relevant context. Include the title's actual line. Supplied line-number prefixes are not document text.
@@ -185,7 +194,7 @@ Read all today's diary entries, including private appointments, repeated entries
 For each diary entry, date is its actual occurrence date in YYYY-MM-DD or null if unknown; isFreeTime distinguishes availability/lunch/focus gaps from commitments. Read date qualifiers even inside a table called today's meetings: e.g. a Thursday overnight row in a Wednesday briefing belongs to Thursday, not Wednesday. Rows saying Free or best lunch/focus window are availability, not appointments.
 Meeting start/end are HH:mm UK local times when stated, null when absent. Never invent times. Missing flags are null. Do not mistake free-time suggestions for meetings. Include untimed/all-day commitments as context with null times.
 knowledgeStartLine/knowledgeEndLine identify the complete contiguous learning/yesterday passage, if identifiable, including ALL its nested subsections, task cards and people/follow-up lists through the next top-level part or final nonempty source line. A subheading does not end it. Use null for both when there is no distinct passage; the original briefing will be retained as context. Never require a learning section to exist.
-Empty task or diary lists are legitimate when nothing is stated. warnings are only actionable uncertainties, not complaints about missing optional metadata, duplicates, overlaps or mismatched summary counts. Preserve every supported useful fact even when another detail is absent.` },
+Empty task or diary lists are legitimate when nothing is stated. warnings are only actionable uncertainties, not complaints about missing optional metadata, confidently collapsed duplicates, overlaps or mismatched summary counts. Preserve every supported useful fact even when another detail is absent.` },
     { role: 'user', content: `Filename: ${filename}\nNumbered source report:\n${report.split(/\r?\n/).map((line, index) => `${index + 1}: ${line}`).join('\n')}` },
   ];
   const client = new FoundryClient('daily-insights-extraction');
@@ -193,7 +202,7 @@ Empty task or diary lists are legitimate when nothing is stated. warnings are on
   for (let attempt = 1; attempt <= EXTRACTION_ATTEMPTS; attempt++) {
     const timeoutMs = Math.min(EXTRACTION_TIMEOUT_MS, EXTRACTION_BUDGET_MS - (Date.now() - startedAt));
     if (timeoutMs <= 0) throw new AiError('Daily Insights extraction exceeded its time budget; no changes saved');
-    const raw = await client.chatBulk(messages, MAX_OUTPUT_TOKENS, timeoutMs, 'medium', OUTPUT_SCHEMA);
+    const raw = await client.chatBulk(messages, MAX_OUTPUT_TOKENS, timeoutMs, 'medium', OUTPUT_SCHEMA, signal);
     try {
       let value: unknown;
       try { value = JSON.parse(raw); }
@@ -202,7 +211,7 @@ Empty task or diary lists are legitimate when nothing is stated. warnings are on
     } catch (error) {
       if (!(error instanceof AiError) || attempt === EXTRACTION_ATTEMPTS) throw error;
       messages.push({ role: 'assistant', content: raw }, {
-        role: 'user', content: `Validation failed: ${error.message}. Re-read the cited original lines and correct the invalid output. Use supported actions and times, null for absent metadata, and preserve separate diary occurrences including duplicates and overlaps. Return the complete corrected JSON, not a patch. Do not drop supported work because another detail is absent.`,
+        role: 'user', content: `Validation failed: ${error.message}. Re-read the cited original lines and correct the invalid output. Use confidence "high" only for clearly supported Richard actions; mark uncertain candidates "ambiguous". Use supported actions and times, null for absent metadata, and preserve separate diary occurrences including duplicates and overlaps. Return the complete corrected JSON, not a patch. Do not drop supported work because another detail is absent.`,
       });
     }
   }

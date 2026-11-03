@@ -18,6 +18,12 @@ const stageLabels: Record<string, string> = {
   revision: 'Targeted revision', recheck: 'Independent recheck',
 };
 
+function submittedToMetis(run: JobRun | undefined): boolean {
+  const capture = run?.artifacts['capture'];
+  return !!capture && typeof capture === 'object' && !Array.isArray(capture)
+    && 'status' in capture && capture.status === 'queued';
+}
+
 export const BackgroundWork: React.FC = () => {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -136,9 +142,10 @@ export const BackgroundWork: React.FC = () => {
     {imports.isError && <p role="alert">{describeApiError(imports.error)} <button type="button" className="kh-btn-ghost" onClick={() => { void imports.refetch(); }}>Retry</button></p>}
     {!imports.isPending && !imports.isError && !imports.data?.length && <p>No scheduled Daily Insights import. Local folder sync may still run separately.</p>}
     <ul className="kh-background-work__list">{imports.data?.map(({ job, run }) => <li key={job.id}>
-      <div><strong>{job.definition.name}</strong><span className="kh-background-work__state">{run ? runStatusLabel(run) : 'Not run yet'}</span></div>
+      <div><strong>{job.definition.name}</strong><span className="kh-background-work__state">{run ? submittedToMetis(run) ? 'Submitted to Metis' : runStatusLabel(run) : 'Not run yet'}</span></div>
       {!job.enabled && <p>Schedule paused.</p>}
       {run && <p>Scheduled {new Date(run.scheduledAt).toLocaleString('en-GB', { timeZone: job.definition.schedule.timezone })} ({job.definition.schedule.timezone}).</p>}
+      {run && submittedToMetis(run) && <p>Metis is handling the report. Its live status appears under Specialist work.</p>}
       {run && ['failed', 'partial', 'rejected', 'missed', 'unconfirmed'].includes(run.status) && typeof run.artifacts.error === 'string' && <p>{run.artifacts.error}</p>}
       <Link to={`/jobs?${new URLSearchParams({ jobId: job.id, ...(run ? { runId: run.id } : {}) })}`} onClick={() => { setOpen(false); }}>
         {run ? 'View import run' : 'View schedule'}

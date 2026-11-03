@@ -2,6 +2,30 @@
 
 **Status:** Validated
 
+**Section 7: Metis Daily Insights import and Discover dialog release validation (2026-11-03):**
+- Release scope includes asynchronous Metis processing for M365 Daily Insights,
+  additive staging migration 139, one-time Discover Socials URL-trigger cleanup,
+  and removal of redundant Projects search controls. Think note-list contextual
+  search remains available.
+- `git fetch origin` confirmed local HEAD and `origin/main` both at b96ead03;
+  no merge was required. `git diff --check` passed.
+- Both app `npx tsc --noEmit` checks and production builds passed. Frontend
+  isolated tests passed (305 main checks plus the bundled note-list checks);
+  affected Daily Insights retry passed 2/2 and note-list passed 12/12. The
+  backend isolated suite had already passed for this unchanged backend code.
+  Lint non-regression passed: frontend 22 existing / baseline 41; backend
+  544 / baseline 623.
+- Migration 139 is included by the existing Docker copy of
+  `src/db/migrations/*.sql` and applies through normal startup migration logic.
+  No new dependencies, infrastructure, hosting, identity, secret or Desktop
+  changes. No local browser was launched.
+- Authenticated Azure CLI reads confirm Alliance Tenant Reporting, current API
+  image `kh-prod-api:v292`, healthy revision `kh-prod-api-vnet--0000289`, and
+  Static Web App `kh-prod-web`. Advance the API to v293 and deploy the validated
+  frontend to the existing targets.
+- Azure MCP returned no available subscriptions; Azure CLI authentication and
+  the target resources were verified successfully instead.
+
 **Section 7: Main workspace release validation (2026-11-03):**
 - Existing application-only AZCLI deployment targets retained: Alliance Tenant
   Reporting, backend kh-prod-api-vnet / cad79107555facr in UK South, frontend

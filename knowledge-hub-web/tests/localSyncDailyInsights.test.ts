@@ -76,7 +76,7 @@ test('structured capture retries independently of a successful, unchanged upload
       captureDailyInsights: async () => {
         captures++;
         if (captures === 1) throw new Error('offline');
-        return ok({ date: '2026-10-20', knowledgeDate: '2026-10-19', tasksCreated: 1, tasksUpdated: 0, tasksPreserved: 0, meetings: 2, warnings: [], unchanged: false });
+        return ok({ status: 'queued', jobId: 'metis-job-1', date: '2026-10-20' });
       },
       uploadLocalDocument: async () => { uploads++; throw new Error('must not reupload unchanged file'); },
     },
@@ -90,6 +90,11 @@ test('structured capture retries independently of a successful, unchanged upload
     assert.equal(captures, 2);
     assert.equal(uploads, 0);
     assert.equal(module.exports.getLocalSyncStatus().problems.length, 0);
-    assert.equal(module.exports.getLocalSyncStatus().dailyInsights.length, 1);
+    assert.deepEqual(module.exports.getLocalSyncStatus().dailyInsights, [{
+      path,
+      status: 'queued',
+      jobId: 'metis-job-1',
+      date: '2026-10-20',
+    }]);
   } finally { delete globals.__dailySyncFixture; }
 });

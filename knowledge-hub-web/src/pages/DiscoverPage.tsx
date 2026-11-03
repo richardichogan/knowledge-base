@@ -398,13 +398,18 @@ export const DiscoverPage: React.FC = () => {
     const id = params.get('socialDraft');
     return id ? { id, title: params.get('title') ?? 'Discover article', format: params.get('format') === 'short' ? 'short' : 'linkedin' } : null;
   });
+  const clearSocialDraftQuery = useCallback((): void => {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has('socialDraft')) return;
+    ['socialDraft', 'format', 'title'].forEach(key => { url.searchParams.delete(key); });
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+  useEffect(() => {
+    clearSocialDraftQuery();
+  }, [clearSocialDraftQuery]);
   function closeSocialDraft(): void {
     setLinkedInItem(null);
-    const url = new URL(window.location.href);
-    if (url.searchParams.has('socialDraft')) {
-      ['socialDraft', 'format', 'title'].forEach(key => { url.searchParams.delete(key); });
-      window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
-    }
+    clearSocialDraftQuery();
   }
   const [since] = useState(() => readSinceLastLooked());
   const flatTags = useFlatTags();

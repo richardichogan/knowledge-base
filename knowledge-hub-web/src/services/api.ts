@@ -759,8 +759,8 @@ export interface BlogJobResult {
 }
 
 export class KnowledgeHubApi {
-  async jobs<T>(path = '', method: 'GET' | 'POST' | 'PUT' = 'GET', data?: unknown): Promise<T> {
-    const response = await this.client.request<ApiResponse<T>>({ url: `/api/jobs${path}`, method, data, timeout: 120_000 });
+  async jobs<T>(path = '', method: 'GET' | 'POST' | 'PUT' = 'GET', data?: unknown, timeoutMs = 120_000): Promise<T> {
+    const response = await this.client.request<ApiResponse<T>>({ url: `/api/jobs${path}`, method, data, timeout: timeoutMs });
     return requireApiData(response.data);
   }
   async publishing<T>(path: string, method: 'GET' | 'POST' | 'PUT' = 'GET', data?: unknown): Promise<T> {
@@ -2079,12 +2079,20 @@ export class KnowledgeHubApi {
   }
 
   async captureDailyInsights(input: { filename: string; text: string; sourcePath: string; sourceModifiedAt: string }): Promise<ApiResponse<{
-    date: string; knowledgeDate: string; tasksCreated: number; tasksUpdated: number;
-    tasksPreserved: number; meetings: number; warnings: string[]; unchanged: boolean;
-  }>> {
-    return (await this.client.post<ApiResponse<{
+    status: 'queued'; jobId: string; date: string;
+  } | {
+    status: 'completed'; result: {
       date: string; knowledgeDate: string; tasksCreated: number; tasksUpdated: number;
       tasksPreserved: number; meetings: number; warnings: string[]; unchanged: boolean;
+    };
+  }>> {
+    return (await this.client.post<ApiResponse<{
+      status: 'queued'; jobId: string; date: string;
+    } | {
+      status: 'completed'; result: {
+        date: string; knowledgeDate: string; tasksCreated: number; tasksUpdated: number;
+        tasksPreserved: number; meetings: number; warnings: string[]; unchanged: boolean;
+      };
     }>>('/api/capture/daily-insights', input, { timeout: DAILY_INSIGHTS_TIMEOUT_MS })).data;
   }
 

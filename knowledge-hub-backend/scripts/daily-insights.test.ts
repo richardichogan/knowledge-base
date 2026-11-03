@@ -144,9 +144,9 @@ function extraction() {
     taskCount: 2, meetingCount: 1,
     tasksComplete: true, meetingsComplete: true, knowledgeComplete: true, warnings: [],
     tasks: [
-      { title: 'Review the draft', project: 'IMAGINE', owner: 'Richard Hogan (as reviewer)', richardAssignee: 'Richard Hogan',
+      { title: 'Review the draft', project: 'IMAGINE', owner: 'Richard Hogan (as reviewer)', richardAssignee: 'Richard Hogan', confidence: 'high',
         dueText: '20 Oct 2026', source: 'Email from Joel', evidenceLines: [4] },
-      { title: 'Prepare the demo', project: 'IMAGINE', owner: 'Colleague (Richard Hogan is informed)', richardAssignee: null,
+      { title: 'Prepare the demo', project: 'IMAGINE', owner: 'Colleague (Richard Hogan is informed)', richardAssignee: null, confidence: 'high',
         dueText: 'This week', source: 'Team email', evidenceLines: [5] },
     ],
     meetings: [{ title: 'Project review', start: '09:45', end: '10:15', flag: '', evidenceLines: [2] }],
@@ -201,6 +201,7 @@ test('rejects malformed, invalid-date and invalid-clock output before any writes
     { knowledgeEndLine: 999 }, { knowledgeStartLine: 0 }, { tasks: 'not an array' },
     { tasks: [{ ...extraction().tasks[0], title: '' }] },
     { taskCount: 1, tasks: [{ ...extraction().tasks[0], richardAssignee: 'Joel' }] },
+    { taskCount: 1, tasks: [{ ...extraction().tasks[0], confidence: 'low' }] },
     { taskCount: 1, tasks: [{ ...extraction().tasks[0], evidenceLines: [999] }] },
     { meetings: [{ ...extraction().meetings[0], start: '29:45' }] },
     { meetings: [{ ...extraction().meetings[0], start: '10:15', end: '09:45' }] },
@@ -212,6 +213,21 @@ test('rejects malformed, invalid-date and invalid-clock output before any writes
   const parsed = validateDailyExtraction(filename, vague, output);
   assert.equal(parsed.tasks[0]?.due, null);
   assert.match(parsed.warnings.join(), /Deadline needs review/);
+});
+
+test('imports only high-confidence Richard actions, collapses exact duplicates, and warns about ambiguous candidates', () => {
+  const task = extraction().tasks[0]!;
+  const parsed = validateDailyExtraction(filename, semanticReport, {
+    ...extraction(),
+    tasks: [
+      task,
+      { ...task },
+      { ...task, title: 'Maybe confirm the project review', confidence: 'ambiguous', evidenceLines: [2] },
+    ],
+  });
+  assert.equal(parsed.tasks.length, 1);
+  assert.equal(parsed.tasks[0]?.title, 'Review the draft');
+  assert.ok(parsed.warnings.some(warning => warning.includes('ambiguous: Maybe confirm the project review')));
 });
 
 test('shared-time children cite parent and child source lines without manufacturing evidence', () => {

@@ -7,20 +7,19 @@ import { api } from './api';
 import { describeApiError, requireApiData } from './apiError';
 import type { ApiResponse } from '../types/apiResponse';
 import { desktopErrorMessage, getDesktop, type DesktopSkippedFile } from '../types/desktop';
+import type { AgentJob } from '../types/agentJobs';
+import { getAgentJobSnapshot } from './agentJobStore';
 import { dailyInsightsFiles } from './dailyInsightsSource';
 import { syncDesktopJobs } from './desktopJobs';
 
-export interface DailyInsightsSyncReport {
-  path: string;
-  date: string;
-  knowledgeDate: string;
-  tasksCreated: number;
-  tasksUpdated: number;
-  tasksPreserved: number;
-  meetings: number;
-  warnings: string[];
-  unchanged: boolean;
-}
+export type DailyInsightsSyncReport =
+  | { path: string; date: string; jobId: string; status: 'queued' }
+  | { path: string; date: string; jobId: string; status: 'failed'; error: string }
+  | {
+    path: string; date: string; jobId?: string; status: 'completed'; knowledgeDate: string;
+    tasksCreated: number; tasksUpdated: number; tasksPreserved: number; meetings: number;
+    warnings: string[]; unchanged: boolean;
+  };
 
 export interface LocalSyncProblem {
   path: string;
@@ -54,6 +53,14 @@ let onSynced: (() => void) | null = null;
 function set(patch: Partial<LocalSyncStatus>): void {
   status = { ...status, ...patch };
   listeners.forEach((l) => { l(); });
+}
+
+function publishReports(reports: DailyInsightsSyncReport[]): void {
+  set({ dailyInsights: reports.map(report => {
+    if (report.status !== 'queued') return report;
+    const current = status.dailyInsights.find(item => item.path === report.path && item.jobId === report.jobId);
+    return current && current.status !== 'queued' ? current : report;
+  }) });
 }
 
 export function getLocalSyncStatus(): LocalSyncStatus {
@@ -110,14 +117,23 @@ export async function syncLocalFolders(): Promise<void> {
         const text = await desktop.readText(file.path);
         if (text === null) throw new Error('Report disappeared while syncing; will retry');
         const filename = file.path.split('\\').pop() ?? '';
-        const result = await apiCall(() => api.captureDailyInsights({ filename, text, sourcePath: file.path, sourceModifiedAt: file.modifiedAt }));
-        reports.push({ path: file.path, ...result });
-        captured ||= !result.unchanged;
+        const submission = await apiCall(() => api.captureDailyInsights({ filename, text, sourcePath: file.path, sourceModifiedAt: file.modifiedAt }));
+        if (submission.status === 'queued') {
+          const queued = { path: file.path, date: submission.date, jobId: submission.jobId, status: 'queued' as const };
+          reports.push(queued);
+          publishReports(reports);
+          const knownJob = getAgentJobSnapshot(submission.jobId);
+          if (knownJob) reconcileDailyInsightsImport(knownJob);
+        } else {
+          reports.push({ path: file.path, ...submission.result, status: 'completed' });
+          captured ||= !submission.result.unchanged;
+        }
       } catch (err) {
         problems.push({ path: file.path, message: `Daily Insights capture failed (will retry): ${desktopErrorMessage(err)}` });
       }
     }
-    set({ dailyInsights: reports, problems });
+    publishReports(reports);
+    set({ problems });
     if (captured) onSynced?.();
     const indexed = await apiCall(() => api.getLocalIndex(deviceId));
     const byKey = new Map(indexed.map((e) => [e.localKey, e]));
@@ -172,6 +188,42 @@ export async function syncLocalFolders(): Promise<void> {
     again = false;
     await syncLocalFolders();
   }
+}
+
+/** Reconciles the local capture summary when Metis finishes its durable import job. */
+export function reconcileDailyInsightsImport(job: AgentJob): void {
+  if (job.specialist !== 'metis-daily-insights' || (job.status !== 'done' && job.status !== 'failed')) return;
+  const pending = status.dailyInsights.find((report): report is Extract<DailyInsightsSyncReport, { status: 'queued' }> =>
+    report.status === 'queued' && report.jobId === job.id);
+  if (!pending) return;
+  if (job.status === 'failed') {
+    set({ dailyInsights: status.dailyInsights.map(report => report === pending
+      ? { path: pending.path, date: pending.date, jobId: pending.jobId, status: 'failed', error: job.error ?? 'Metis could not finish the import.' }
+      : report) });
+    return;
+  }
+  const data = job.result;
+  const date = data?.['date'];
+  const knowledgeDate = data?.['knowledgeDate'];
+  const tasksCreated = data?.['tasksCreated'];
+  const tasksUpdated = data?.['tasksUpdated'];
+  const tasksPreserved = data?.['tasksPreserved'];
+  const meetings = data?.['meetings'];
+  const warnings = data?.['warnings'];
+  const unchanged = data?.['unchanged'];
+  if (date !== pending.date || typeof knowledgeDate !== 'string'
+    || typeof tasksCreated !== 'number' || typeof tasksUpdated !== 'number' || typeof tasksPreserved !== 'number'
+    || typeof meetings !== 'number' || !Array.isArray(warnings) || !warnings.every(item => typeof item === 'string')
+    || typeof unchanged !== 'boolean') {
+    set({ dailyInsights: status.dailyInsights.map(report => report === pending
+      ? { path: pending.path, date: pending.date, jobId: pending.jobId, status: 'failed', error: 'Metis finished without a valid import summary. Check Background work.' }
+      : report) });
+    return;
+  }
+  set({ dailyInsights: status.dailyInsights.map(report => report === pending
+    ? { path: pending.path, date: pending.date, jobId: pending.jobId, status: 'completed', knowledgeDate,
+      tasksCreated, tasksUpdated, tasksPreserved, meetings, warnings, unchanged }
+    : report) });
 }
 
 /** Starts syncing on launch and whenever files change. Safe to call more than once. */

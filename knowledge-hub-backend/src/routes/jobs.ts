@@ -8,7 +8,7 @@ import { env } from '../config/env.js';
 import { object, parseJob, text, JOB_LIMITS, withRunDiagnostics, type JobRun } from '../jobs/contracts.js';
 import { audit, decideRun, enqueue, getJob, getRun, leaseRun, listJobs, pauseJob, persistRun, reconcileRun, releaseRun, retryRun, runColumns, saveJob } from '../jobs/store.js';
 import { localClock, nextOccurrence } from '../jobs/schedule.js';
-import { captureDailyInsights } from '../services/dailyInsights.js';
+import { submitDailyInsightsImport } from '../services/dailyInsightsImport.js';
 import { feedId } from '../publishing/contracts.js';
 import { saveFeed } from '../publishing/store.js';
 
@@ -182,7 +182,9 @@ jobsRouter.post('/desktop/:runId/result', route(async req => {
       const report = b.text;
       const modifiedAt = text(b.modifiedAt, 'file modified time');
       if (!Number.isFinite(Date.parse(modifiedAt))) throw new ValidationError('Invalid file timestamp.');
-      const result = await captureDailyInsights(db, filename, report, `${run.definition.inputFolder}/${filename}`, modifiedAt);
+      const result = await submitDailyInsightsImport(db, {
+        filename, report, sourcePath: `${run.definition.inputFolder}/${filename}`, sourceModifiedAt: modifiedAt,
+      });
       run.artifacts.capture = result; run.status = 'succeeded';
     } else {
       const path = text(b.path, 'output file');

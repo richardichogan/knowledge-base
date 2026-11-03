@@ -62,6 +62,18 @@ export function JobsPage({ onClose }: { onClose?: () => void }): React.ReactElem
     const timer = window.setInterval(refresh, 15000);
     return () => { active = false; window.clearInterval(timer); };
   }, [load]);
+  const viewedRunId = view?.id;
+  useEffect(() => {
+    if (!viewedRunId) return;
+    let active = true;
+    const refresh = (): void => {
+      void api.jobs<JobRun>(`/runs/${viewedRunId}`)
+        .then(run => { if (active) setView(current => current?.id === viewedRunId ? run : current); })
+        .catch(err => { if (active) setError(describeApiError(err)); });
+    };
+    const timer = window.setInterval(refresh, 15000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [viewedRunId]);
   const runId = view?.id;
   useEffect(() => {
     setAthenaContext({
@@ -128,6 +140,9 @@ export function JobsPage({ onClose }: { onClose?: () => void }): React.ReactElem
     setView(null);
     if (linkedRun) filterJob(selected);
   }
+  const waitingForFile = view?.status === 'waiting-file';
+  const waitingForDevice = view?.status === 'waiting-device';
+  const waitingForInput = waitingForFile || waitingForDevice;
   return <div className="kh-jobs kh-jobs--manager" aria-busy={busy || loading}>
     <header className="kh-jobs__header"><p>Prompts, imports and publishing, on your schedule.<br /><span className="kh-jobs__muted">Set them up here or talk them through with Athena.</span></p>
       <button className="kh-jobs__primary" type="button" onClick={() => edit('new')}><Add size={16} />New job</button></header>
@@ -270,15 +285,20 @@ export function JobsPage({ onClose }: { onClose?: () => void }): React.ReactElem
     </>}>
       <div className="kh-jobs"><JobSummary definition={view.definition} /><p>Occurrence: {date(view.scheduledAt)} · Version {view.revision} · {view.preview ? 'Preview — no delivery' : 'Live run'}</p>
         {view.diagnostics ? <section className="kh-jobs__diagnostics" aria-label="Run timing and source coverage">
-          <h3>Timing and source coverage</h3>
-          <p>Started: {view.diagnostics.startedAt ? date(view.diagnostics.startedAt) : 'Not recorded'} · Finished: {view.diagnostics.finishedAt ? date(view.diagnostics.finishedAt) : 'Not recorded'}</p>
-          <p>Start delay: {view.diagnostics.startDelayMs === null ? 'Unknown' : `${Math.round(view.diagnostics.startDelayMs / 60000)} min`} · Schedule to recorded finish: {view.diagnostics.elapsedFromScheduleMs === null ? 'Unknown' : `${Math.round(view.diagnostics.elapsedFromScheduleMs / 60000)} min`}</p>
-          <p className={view.diagnostics.deadlineExceeded ? 'kh-jobs__warning' : 'kh-jobs__muted'}>Deadline: {date(view.deadline)}{view.diagnostics.deadlineExceeded ? ' — exceeded' : ''}{view.diagnostics.blockingStage ? ` · Current stage: ${view.diagnostics.blockingStage}` : ''}</p>
+          <h3>{waitingForFile ? 'Waiting for the dated report' : waitingForDevice ? 'Waiting for the desktop' : 'Timing and source coverage'}</h3>
+          {waitingForFile ? <p className="kh-jobs__muted">This occurrence has not started processing. It will begin when the configured desktop finds the dated M365 report in the authorised input folder.</p>
+            : waitingForDevice ? <p className="kh-jobs__muted">This run is waiting for the configured desktop to complete its file step. Any recorded work and output are shown below.</p>
+              : null}
+          {!waitingForFile && <>
+            <p>Started: {view.diagnostics.startedAt ? date(view.diagnostics.startedAt) : 'Not recorded'} · Finished: {view.diagnostics.finishedAt ? date(view.diagnostics.finishedAt) : 'Not recorded'}</p>
+            <p>Start delay: {view.diagnostics.startDelayMs === null ? 'Unknown' : `${Math.round(view.diagnostics.startDelayMs / 60000)} min`} · Schedule to recorded finish: {view.diagnostics.elapsedFromScheduleMs === null ? 'Unknown' : `${Math.round(view.diagnostics.elapsedFromScheduleMs / 60000)} min`}</p>
+          </>}
+          <p className={view.diagnostics.deadlineExceeded ? 'kh-jobs__warning' : 'kh-jobs__muted'}>Deadline: {date(view.deadline)}{view.diagnostics.deadlineExceeded ? ' — exceeded' : ''}{!waitingForInput && view.diagnostics.blockingStage ? ` · Current stage: ${view.diagnostics.blockingStage}` : ''}</p>
           {view.diagnostics.sourceWarnings.map(source => <div key={source.source} className="kh-jobs__warning">
             <strong>{source.source}: {source.errors} source error{source.errors === 1 ? '' : 's'}</strong>
             <JobArtifacts value={source.failures.length ? source.failures : { note: 'No structured remediation recorded. Inspect this source’s sync diagnostics.' }} />
           </div>)}
-          <p className="kh-jobs__muted">{view.diagnostics.note}</p>
+          {!waitingForInput && <p className="kh-jobs__muted">{view.diagnostics.note}</p>}
         </section> : <p className="kh-jobs__muted">Timing and source-coverage diagnostics are unavailable from this server.</p>}
         {view.status === 'awaiting-approval' && <p>Approve the exact payloads below. The confirmed public blog URL will be appended to the shown social copy after blog publication.</p>}
         {view.steps.map(s => <div className="kh-jobs__event" key={s.key}><strong>{s.key} · {s.status}</strong>

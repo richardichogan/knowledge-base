@@ -83,6 +83,9 @@ function receive(job: AgentJob): void {
   changed();
   if (isActiveAgentJob(job) || (previous && previous.status === job.status)) return;
   for (const listener of finishListeners) listener(job);
+  if (job.subjectType === 'daily-insights-import') {
+    window.dispatchEvent(new CustomEvent('athena-daily-insights-import-finished', { detail: job }));
+  }
   if (job.conversationId) window.dispatchEvent(new CustomEvent('athena-conversation-updated', { detail: { sessionId: job.conversationId } }));
   if (job.acknowledged) return;
   if (!job.isStep || job.status === 'failed') {
@@ -141,6 +144,10 @@ export function rememberAgentJob(job: AgentJob): void {
   if (jobs.has(job.id)) return;
   jobs.set(job.id, job);
   changed();
+}
+
+export function getAgentJobSnapshot(id: string): AgentJob | undefined {
+  return jobs.get(id);
 }
 
 const subscribe = (listener: () => void): (() => void) => {

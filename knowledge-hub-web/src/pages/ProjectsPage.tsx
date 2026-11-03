@@ -9,7 +9,7 @@ import {
   Button, TextInput, TextArea, Modal,
   Select, SelectItem, InlineNotification, Checkbox,
 } from '@carbon/react';
-import { Add, Edit, TrashCan, LogoGithub, Launch, Search } from '@carbon/icons-react';
+import { Add, Edit, TrashCan, LogoGithub, Launch } from '@carbon/icons-react';
 import {
   useProjects,
   type ProjectRecord,
@@ -464,7 +464,6 @@ export const ProjectsPage: React.FC = () => {
   const { projects, loading, error, reload, createProject, updateProject, deleteProject } = useProjects();
   const [searchParams, setSearchParams] = useSearchParams();
   const linkedProjectId = searchParams.get('projectId');
-  const [search, setSearch] = useState('');
   const [filterGroup, setFilterGroup] = useState<string>('all');
   const [filterLifecycle, setFilterLifecycle] = useState<ProjectLifecycleState | 'all'>('active');
   const [modalOpen, setModalOpen] = useState(false);
@@ -487,17 +486,7 @@ export const ProjectsPage: React.FC = () => {
   const visible = projects.filter((p) => {
     if (filterGroup !== 'all' && (p.groupId ?? 'none') !== filterGroup) return false;
     if (filterLifecycle !== 'all' && (p.lifecycleState ?? 'active') !== filterLifecycle) return false;
-    if (!search.trim()) return true;
-    const q = search.toLowerCase();
-    return (
-      p.name.toLowerCase().includes(q) ||
-      p.description.toLowerCase().includes(q) ||
-      p.goal.toLowerCase().includes(q) ||
-      p.role.toLowerCase().includes(q) ||
-      p.ownership.toLowerCase().includes(q) ||
-      (p.groupName ?? '').toLowerCase().includes(q) ||
-      p.expectedOutputs.some((output) => output.toLowerCase().includes(q))
-    );
+    return true;
   });
   const selectedProject = linkedProjectId
     ? projects.find(project => project.id === linkedProjectId)
@@ -584,17 +573,6 @@ export const ProjectsPage: React.FC = () => {
             {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
             <option value="none">No group</option>
           </select>
-          <div className="dc-search">
-            <Search size={16} className="dc-search__icon" />
-            <input
-              type="text"
-              className="dc-search__input"
-              placeholder="Search projects…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              aria-label="Search projects"
-            />
-          </div>
         </div>
       </div>
 
@@ -610,7 +588,7 @@ export const ProjectsPage: React.FC = () => {
           <h2>Projects</h2>
           {loading && <p className="proj-loading" role="status">Loading projects...</p>}
           {!loading && visible.length === 0 && !error && <p className="proj-empty">
-            {projects.length === 0 ? 'No projects yet. Create a project to organise your work.' : 'No projects match these filters. Try another search or group.'}
+            {projects.length === 0 ? 'No projects yet. Create a project to organise your work.' : 'No projects match these filters. Try another group or project state.'}
           </p>}
           {visible.map(project => <ReviewItem key={project.id} title={project.name}
             meta={[project.groupName, LIFECYCLE_LABEL[project.lifecycleState ?? 'active'], `${project.priority ?? 'medium'} priority`].filter(Boolean).join(' · ')}

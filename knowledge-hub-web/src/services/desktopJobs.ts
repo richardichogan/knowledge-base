@@ -11,7 +11,8 @@ export async function syncDesktopJobs(files: DesktopFileInfo[], onCompleted?: ()
   const assignment = await api.jobs<DesktopAssignment>('/desktop/claim', 'POST', { ...device, folders });
   if (!assignment.work) return assignment.managedImport;
   const { run, lease } = assignment.work;
-  const finish = (result: Record<string, unknown>): Promise<unknown> => api.jobs(`/desktop/${run.id}/result`, 'POST', { deviceId: device.deviceId, lease, ...result });
+  const finish = (result: Record<string, unknown>): Promise<unknown> =>
+    api.jobs(`/desktop/${run.id}/result`, 'POST', { deviceId: device.deviceId, lease, ...result }, 240_000);
   let result: Record<string, unknown>;
   try {
     const d = run.definition;

@@ -759,7 +759,7 @@ export const NotesPage: React.FC = () => {
             >
               <SidePanelOpen size={16} />
             </button>
-            {mode !== 'notes' && <button
+            {mode === 'notes' && <button
               type="button"
               className="notes-list-rail__btn"
               title="Search notes"
