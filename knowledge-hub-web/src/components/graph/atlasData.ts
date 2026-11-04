@@ -59,7 +59,7 @@ export function buildAtlasData(nodes: GraphNode[], edges: GraphEdge[], now = Dat
   const by = new Map(items.map(n => [n.id, n]));
   // Indexed entities can have a recorded project edge without projectIds metadata.
   for (const edge of [...edges].sort((a, b) => a.id.localeCompare(b.id))) {
-    if (isInferred(edge) || !['belongs_to', 'works_on'].includes(edge.edgeType)) continue;
+    if (isInferred(edge) || !['belongs_to', 'works_on', 'client_of', 'partner_on'].includes(edge.edgeType)) continue;
     const a = by.get(edge.source), b = by.get(edge.target);
     if (a && b) {
       if (a.hub && !b.hub && !b.project) b.project = a.id;

@@ -192,7 +192,14 @@ raw_edges AS (
     jsonb_build_object('evidence','Saved project assignment'), NULL::timestamptz, 'explicit'
     FROM live n CROSS JOIN LATERAL unnest(n.project_ids) p WHERE n.ref_type NOT IN ('project','person','company')
   UNION ALL SELECT 'company-project:'||company_id||':'||project_id, 'company:'||company_id, 'project:'||project_id,
-    'works_on',1,jsonb_build_object('evidence','Saved company programme link'),NULL,'explicit' FROM company_projects
+    CASE WHEN role='client' THEN 'client_of' ELSE 'partner_on' END,1,
+    jsonb_build_object('evidence',CASE WHEN role='client' THEN 'Saved workstream client' ELSE 'Saved workstream partner' END,'role',role),
+    NULL,'explicit' FROM company_projects
+  UNION ALL SELECT 'offering-link:'||project_id,'project:'||project_id,'project:'||offering_id,
+    CASE WHEN relation='sells' THEN 'sells' ELSE 'related_to' END,1,
+    jsonb_build_object('evidence','Saved workstream offering link','relation',relation),NULL,'explicit' FROM project_offering_links
+  UNION ALL SELECT 'canvas-use:'||canvas_id||':'||project_id,'canvas:'||canvas_id,'project:'||project_id,'used_in',1,
+    jsonb_build_object('evidence','Saved diagram also-used-in link'),NULL,'explicit' FROM canvas_project_uses
   UNION ALL SELECT 'person-company:'||id, 'person:'||id,'company:'||company_id,'member_of',1,
     jsonb_build_object('evidence','Saved person company link'),NULL,'explicit' FROM people WHERE company_id IS NOT NULL
   UNION ALL SELECT 'role:'||person_id||':'||project_id,'person:'||person_id,'project:'||project_id,'works_on',1,
