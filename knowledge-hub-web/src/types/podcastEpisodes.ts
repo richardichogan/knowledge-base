@@ -1,4 +1,5 @@
 import { scriptSentenceLines } from '../features/podcasts/scriptFormatting';
+import { scriptReadingText } from '../../../knowledge-hub-backend/src/podcasts/scriptAnnotations';
 
 export interface ScriptCard { id: string; title: string; synopsis: string; bullets: string[] }
 export interface PodcastEpisode {
@@ -28,7 +29,7 @@ export function episodeUrl(noteId: string, tab: PodcastEpisodeTab = 'prep'): str
 
 /** Presentation-only text with compact numbered headings; saved topic titles stay unchanged. */
 export function episodeScriptText(intro: string, cards: ScriptCard[]): string {
-  return [scriptSentenceLines(intro), ...cards.map((card, index) => [`Topic ${index + 1}`, scriptSentenceLines(card.synopsis),
-    card.bullets.map(item => item.trim()).filter(Boolean).map(item => `• ${scriptSentenceLines(item)}`).join('\n\n')].filter(Boolean).join('\n\n'))]
+  return [scriptSentenceLines(scriptReadingText(intro)), ...cards.map((card, index) => [`Topic ${index + 1}`, scriptSentenceLines(scriptReadingText(card.synopsis)),
+    card.bullets.map(item => scriptReadingText(item).trim()).filter(Boolean).map(item => `• ${scriptSentenceLines(item)}`).join('\n\n')].filter(Boolean).join('\n\n'))]
     .filter(Boolean).join('\n\n');
 }

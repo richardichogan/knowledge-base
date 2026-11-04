@@ -5,9 +5,15 @@ export const SCRIPT_COLOUR_VALUES: Record<ScriptColour, string> = {
   teal: '#3ddbd9', yellow: '#f1c21b', pink: '#ff7eb6',
 };
 export interface AnnotatedScriptRun { text: string; colour?: ScriptColour; cue?: ScriptCue; plain?: boolean }
+export interface ScriptLine { runs: AnnotatedScriptRun[]; heading: number }
 const MAX_COLOUR_DEPTH = 50;
 const CLOSING_TOKEN_GROUP = 2;
 const CUE_TOKEN_GROUP = 3;
+const MAX_HEADING_LEVEL = 6;
+
+export function scriptHeadingPrefix(level: unknown): string {
+  return '#'.repeat(typeof level === 'number' && Number.isInteger(level) && level >= 1 && level <= MAX_HEADING_LEVEL ? level : 1) + ' ';
+}
 
 /** Plain-text annotations are shared by the editor, Athena and presentation. */
 export function scriptAnnotationRuns(text: string): AnnotatedScriptRun[] {
@@ -50,8 +56,43 @@ export function scriptAnnotationParts(parts: readonly string[]): AnnotatedScript
   return result;
 }
 
+/** Preserve emphasis across line boundaries while identifying non-spoken headings. */
+export function scriptLines(text: string): ScriptLine[] {
+  const lines: ScriptLine[] = [{ runs: [], heading: 0 }];
+  for (const run of scriptAnnotationRuns(text.replace(/\r\n?/g, '\n'))) {
+    if (run.cue) { lines.at(-1)!.runs.push(run); continue; }
+    run.text.split('\n').forEach((part, index) => {
+      if (index) lines.push({ runs: [], heading: 0 });
+      if (part) lines.at(-1)!.runs.push({ ...run, text: part });
+    });
+  }
+  for (const line of lines) {
+    const marker = /^(#{1,6})[ \t]+/.exec(line.runs.map(run => run.text).join(''));
+    if (!marker) continue;
+    line.heading = marker[1]!.length;
+    let remaining = marker[0].length;
+    line.runs = line.runs.flatMap(run => {
+      const remove = Math.min(remaining, run.text.length);
+      remaining -= remove;
+      return remove < run.text.length ? [{ ...run, text: run.text.slice(remove) }] : [];
+    });
+  }
+  return lines;
+}
+
+/** Reading text excludes heading labels, not the content beneath them. */
+export function scriptReadingRuns(text: string): AnnotatedScriptRun[] {
+  return scriptLines(text).filter(line => !line.heading).flatMap((line, index) =>
+    [...(index ? [{ text: '\n' }] : []), ...line.runs]);
+}
+
+export function scriptReadingText(text: string): string {
+  return scriptReadingRuns(text).map(run => run.cue ? `[${run.cue}]`
+    : run.colour ? `[colour=${run.colour}]${run.text}[/colour]` : run.text).join('');
+}
+
 export function spokenScriptText(text: string): string {
-  return scriptAnnotationRuns(text).map(run => run.cue ? ' ' : run.text).join('');
+  return scriptReadingRuns(text).map(run => run.cue ? ' ' : run.text).join('');
 }
 
 export function scriptTextColour(styles: unknown): ScriptColour | undefined {

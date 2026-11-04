@@ -357,8 +357,10 @@ export const NotesPage: React.FC = () => {
     const saved = await fetchNote(openDoc.id);
     if (authSession.isExpired()) throw new Error('Sign in again before presenting.');
     if (!saved) throw new Error('Save the note before presenting.');
-    const script = presentationScript(saved.contentJson);
-    if (!script.text.trim()) throw new Error('Choose a saved note containing text.');
+    const script = presentationScript(saved.contentJson, { script: saved.contentType === 'script' });
+    if (!script.text.trim()) throw new Error(saved.contentType === 'script'
+      ? 'No spoken text to present. Script headings are editor-only; add spoken text beneath them.'
+      : 'Choose a saved note containing text.');
     if (script.runs.some(run => run.styles.some(style => style.startsWith('cue-') || style.startsWith('colour-')))
       && !presentation.scriptAnnotations) {
       throw new Error('Update Athena Desktop to present script colours and delivery cues. Your saved script is unchanged.');
@@ -614,7 +616,7 @@ export const NotesPage: React.FC = () => {
           type: 'note',
           title: doc.title,
           detail: `Content type: ${doc.contentType}${imageNote}${doc.contentType === 'script'
-            ? '. Continuous script: [colour=teal|yellow|pink]...[/colour] describes visual emphasis; [pause]/[beat] are nonspoken delivery cues. For replace_text, find the exact visible wording without colour markers; replacement may use these annotations. Read the saved note for full content if this context is partial.'
+            ? '. Continuous script: Markdown headings (# title, ## chapter, ### section) are structural labels visible in the editor but excluded from the autocue; spoken text beneath them is included. Preserve heading levels when editing. [colour=teal|yellow|pink]...[/colour] describes visual emphasis; [pause]/[beat] are nonspoken delivery cues. For replace_text, find the exact visible wording without colour markers; replacement may use these annotations. Read the saved note for full content if this context is partial.'
             : ''}${bodyBlock()}`,
           id: doc.id,
           ...(['deliverable-brief', 'email-draft'].includes(doc.contentType) ? { workContentId: doc.id } : {}),

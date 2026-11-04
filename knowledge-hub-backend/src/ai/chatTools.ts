@@ -741,8 +741,10 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
           "For repairs or consolidation, replace the contradictory content rather than appending overrides or a plan " +
           "instead of the requested finished content. Check that promised records, tables and references actually " +
           "exist in the proposed Markdown. Tool acceptance verifies edit targets, not semantic completeness or a saved result. " +
-          "Reference headings EXACTLY as they appear in the note. Write content as Markdown " +
-          "(headings, lists, checklists '- [ ]', tables). A SMALL request gets the smallest edit that does the job " +
+          "Reference headings EXACTLY as they appear in the note. " +
+          "For Script notes, # script title, ## chapter and ### section are editor-only heading blocks excluded from the autocue; " +
+          "the spoken paragraphs beneath them remain included. Preserve these levels and use headings, not colour, to mark nonspoken titles. " +
+          "Write content as Markdown (headings, lists, checklists '- [ ]', tables). A SMALL request gets the smallest edit that does the job " +
           "(add_to_section or replace_text). Review, update, proofread and wording clean-up mean exact replace_text edits, preserving " +
           "all existing formatting, lists, links, images and heading levels. The markdown field for replace_text is plain replacement text, " +
           "not a newly formatted paragraph. Do not turn a request to fix your previous mistake into permission for a clean rewrite. " +

@@ -29,7 +29,7 @@ function inline(value: unknown, depth = 0, inherited: PresentationStyle[] = []):
   if (typeof item.text === 'string') return [{ text: item.text, styles }];
   return inline(item.content, depth + 1, styles);
 }
-export function presentationScript(contentJson: string): { text: string; runs: PresentationRun[]; warnings: string[] } {
+export function presentationScript(contentJson: string, options: { script?: boolean } = {}): { text: string; runs: PresentationRun[]; warnings: string[] } {
   const raw: unknown = JSON.parse(contentJson);
   if (!Array.isArray(raw)) throw new Error('This note does not contain a supported block document.');
   let omitted = 0;
@@ -40,6 +40,9 @@ export function presentationScript(contentJson: string): { text: string; runs: P
     return blocks.flatMap(value => {
       const block = record(value);
       if (!block) throw new Error('This note contains an invalid block.');
+      if (options.script && block.type === 'heading') {
+        return Array.isArray(block.children) ? normalize(block.children, depth) : [];
+      }
       const content = record(block.content);
       let runs: PresentationRun[];
       if (block.type === 'table' && Array.isArray(content?.rows)) {

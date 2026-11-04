@@ -1,9 +1,15 @@
-import { scriptAnnotationRuns } from '../../../../knowledge-hub-backend/src/podcasts/scriptAnnotations';
+import { scriptAnnotationRuns, scriptHeadingPrefix } from '../../../../knowledge-hub-backend/src/podcasts/scriptAnnotations';
 import type { JSONContent } from '@tiptap/core';
 import { parseScriptBullets, SCRIPT_BULLET } from './scriptFormatting';
 
 export { SCRIPT_COLOUR_VALUES } from '../../../../knowledge-hub-backend/src/podcasts/scriptAnnotations';
 export type ScriptRichNode = JSONContent;
+export const SCRIPT_BLOCK_STYLES = [
+  { value: '0', label: 'Spoken text' },
+  { value: '1', label: 'Script title' },
+  { value: '2', label: 'Chapter' },
+  { value: '3', label: 'Section heading' },
+] as const;
 
 export function scriptRichDocument(text: string, bullets = false): ScriptRichNode {
   if (bullets) {
@@ -13,20 +19,44 @@ export function scriptRichDocument(text: string, bullets = false): ScriptRichNod
     })) }] };
   }
   const paragraphs: ScriptRichNode[] = [{ type: 'paragraph', content: [] }];
-  for (const run of scriptAnnotationRuns(text)) {
+  for (const run of scriptAnnotationRuns(text.replace(/\r\n?/g, '\n'))) {
     if (run.cue) {
       paragraphs.at(-1)!.content!.push({ type: 'scriptCue', attrs: { cue: run.cue } });
       continue;
     }
-    const parts = run.text.split(/(\n\n|\n)/);
-    for (const part of parts) {
+    for (const part of run.text.split(/(\n\n|\n)/)) {
       if (part === '\n\n') paragraphs.push({ type: 'paragraph', content: [] });
       else if (part === '\n') paragraphs.at(-1)!.content!.push({ type: 'hardBreak' });
       else if (part) paragraphs.at(-1)!.content!.push({ type: 'text', text: part,
         ...(run.colour ? { marks: [{ type: 'scriptColour', attrs: { colour: run.colour } }] } : {}) });
     }
   }
-  return { type: 'doc', content: paragraphs };
+  const blocks = paragraphs.flatMap(paragraph => {
+    const lines: ScriptRichNode[][] = [[]];
+    for (const node of paragraph.content ?? []) {
+      if (node.type === 'hardBreak') lines.push([]);
+      else lines.at(-1)!.push(node);
+    }
+    const result: ScriptRichNode[] = [];
+    for (const line of lines) {
+      const marker = /^(#{1,6})[ \t]+/.exec(line.map(node => node.text ?? '\uFFFC').join(''));
+      if (marker) {
+        let remaining = marker[0].length;
+        const content = line.flatMap(node => {
+          if (node.type !== 'text') return [node];
+          const remove = Math.min(remaining, node.text?.length ?? 0);
+          remaining -= remove;
+          const text = node.text?.slice(remove);
+          return text ? [{ ...node, text }] : [];
+        });
+        result.push({ type: 'heading', attrs: { level: marker[1]!.length }, content });
+      } else if (result.at(-1)?.type === 'paragraph') {
+        result.at(-1)!.content!.push({ type: 'hardBreak' }, ...line);
+      } else result.push({ type: 'paragraph', content: line });
+    }
+    return result;
+  });
+  return { type: 'doc', content: blocks };
 }
 
 /** Serialise the editor, including a bounded selection, to the existing Athena/podcast contract. */
@@ -46,6 +76,7 @@ export function scriptRichText(doc: ScriptRichNode, from = 0, to = Infinity, col
       position++;
       return included ? node.type === 'hardBreak' ? '\n' : `[${node.attrs?.['cue'] === 'beat' ? 'beat' : 'pause'}]` : '';
     }
+    const start = position;
     position++;
     const children = node.content ?? [];
     const text = children.map((child, index) => {
@@ -55,7 +86,9 @@ export function scriptRichText(doc: ScriptRichNode, from = 0, to = Infinity, col
       return separator + marker + render(child);
     }).join('');
     position++;
-    return text;
+    const heading = colours && node.type === 'heading' && from <= start && to > start
+      ? scriptHeadingPrefix(node.attrs?.['level']) : '';
+    return heading + text;
   };
   return render(doc);
 }

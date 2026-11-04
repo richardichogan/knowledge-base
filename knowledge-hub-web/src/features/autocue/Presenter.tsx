@@ -42,7 +42,7 @@ export function Presenter(): React.JSX.Element {
         return { script: episode.data ? { ...annotatedPresentation(episodeScriptText(episode.data.scriptIntro, episode.data.scriptCards)), warnings: [] } : null,
           scriptError: episode.error?.message ?? null };
       }
-      return { script: note.data ? presentationScript(note.data.contentJson) : null, scriptError: null };
+      return { script: note.data ? presentationScript(note.data.contentJson, { script: note.data.contentType === 'script' }) : null, scriptError: null };
     }
     catch (err) { return { script: null, scriptError: err instanceof Error ? err.message : 'Could not read this script.' }; }
   }, [note.data, episode.data, episode.error]);
@@ -94,7 +94,7 @@ export function Presenter(): React.JSX.Element {
   const rows = notes.data?.pages.flatMap(page => page.items) ?? [];
   const selected = note.data;
   const currentListed = rows.some(item => item.id === noteId);
-  const canStart = !expired && !!selected && !!script?.text && !!displayId && !note.isFetching && !episode.isFetching && !annotationUnsupported;
+  const canStart = !expired && !!selected && !!script?.text.trim() && !!displayId && !note.isFetching && !episode.isFetching && !annotationUnsupported;
   const play = (): void => {
     if (!desktop || !canStart || !selected || !script) return;
     void action(async () => {
@@ -134,9 +134,11 @@ export function Presenter(): React.JSX.Element {
         {(note.error || scriptError) && <p className="kh-presenter__error" role="alert">{note.error?.message ?? scriptError}</p>}
         {script?.warnings.map(warning => <p key={warning}>{warning}</p>)}
         <h3>{selected?.title ?? 'No note selected'}</h3>
-        <p className="kh-presenter__preview">{script?.text ? script.runs.map((run, index) =>
+        <p className="kh-presenter__preview">{script?.text.trim() ? script.runs.map((run, index) =>
           <span key={index} className={run.styles.map(style => `kh-presenter__text--${style}`).join(' ')}>{run.text}</span>)
-          : 'Choose a saved note with text to see its script here.'}</p>
+          : selected?.contentType === 'script' && script
+            ? 'No spoken text to present. Script headings are editor-only; add spoken text beneath them.'
+            : 'Choose a saved note with text to see its script here.'}</p>
         <p>The output uses a saved snapshot. Edits will not change a live presentation.</p>
         {annotationUnsupported && <p className="kh-presenter__error" role="alert">Update Athena Desktop to present script colours and visual delivery cues.</p>}
       </section>

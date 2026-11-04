@@ -8,10 +8,10 @@
  * (timeline sync, AI chat search results, page-context injection, etc.).
  */
 
-import { annotateScriptText } from '../podcasts/scriptAnnotations.js';
+import { annotateScriptText, scriptHeadingPrefix } from '../podcasts/scriptAnnotations.js';
 
 interface BlockContent { text?: string }
-interface BlockProps { url?: string }
+interface BlockProps { url?: string; level?: number }
 export interface Block { type?: string; content?: BlockContent[] | unknown; children?: Block[]; props?: BlockProps }
 interface NoteContentWrapper { title?: string; contentType?: string; contentJson?: string }
 
@@ -119,7 +119,9 @@ export function blocksToTextWithImages(blocks: Block[], visionByBlobId: Map<stri
           ? table.rows.map(row => (row.cells ?? []).map(cell =>
             blockContentSpans({ content: [cell] }, scriptAnnotations).map(span => span.text ?? '').join('')).join(' | ')).join('\n').trim()
           : blockContentSpans(block, scriptAnnotations).map((c) => c.text ?? '').join('').trim();
-        if (text) lines.push(text);
+        const heading = scriptAnnotations && block.type === 'heading'
+          ? scriptHeadingPrefix(block.props?.level) : '';
+        if (text) lines.push(heading + text);
       }
       if (Array.isArray(block.children)) walk(block.children);
     }

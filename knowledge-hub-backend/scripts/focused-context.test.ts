@@ -21,6 +21,19 @@ const sessionId = '11111111-1111-4111-8111-111111111111';
 const otherSession = '22222222-2222-4222-8222-222222222222';
 const outputId = '33333333-3333-4333-8333-333333333333';
 
+test('saved Script reads expose actual heading levels alongside spoken text', () => {
+  const blocks = [
+    { type: 'heading', props: { level: 1 }, content: [{ text: 'Script title' }] },
+    { type: 'heading', props: { level: 2 }, content: [{ text: 'Chapter' }], children: [
+      { type: 'paragraph', content: [{ text: 'Nested spoken words.' }] },
+    ] },
+    { type: 'paragraph', content: [{ text: 'More spoken words.' }] },
+  ];
+  assert.equal(blocksToTextWithImages(blocks, new Map(), true),
+    '# Script title\n## Chapter\nNested spoken words.\nMore spoken words.');
+  assert.equal(blocksToTextWithImages(blocks, new Map()), 'Script title\nChapter\nNested spoken words.\nMore spoken words.');
+});
+
 for (const orchestration of ['true', 'false']) {
   for (const size of [13_000, 200_000]) test(`the model interprets an ambiguous in-view review without a forced action (${orchestration}, ${size})`, async () => {
     const db = new Pool();

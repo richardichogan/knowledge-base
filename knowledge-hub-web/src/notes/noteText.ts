@@ -1,4 +1,4 @@
-export interface NoteContentBlock { type?: string; content?: unknown; children?: NoteContentBlock[] }
+export interface NoteContentBlock { type?: string; props?: { level?: number }; content?: unknown; children?: NoteContentBlock[] }
 
 /** Renders a link chip as text; returning '' drops it. */
 export type MentionText = (type: string, id: string) => string;
@@ -34,7 +34,9 @@ export function extractNoteBlockText(blocks: NoteContentBlock[], mention?: Menti
   const parts: string[] = [];
   for (const block of blocks) {
     const text = contentText(block.content, mention, scriptAnnotations);
-    if (text.trim() !== '') parts.push(text.trim());
+    const heading = scriptAnnotations && block.type === 'heading'
+      ? scriptHeadingPrefix(block.props?.level) : '';
+    if (text.trim() !== '') parts.push(heading + text.trim());
     if (Array.isArray(block.children)) {
       const childText = extractNoteBlockText(block.children, mention, scriptAnnotations);
       if (childText !== '') parts.push(childText);
@@ -42,4 +44,4 @@ export function extractNoteBlockText(blocks: NoteContentBlock[], mention?: Menti
   }
   return parts.join('\n');
 }
-import { annotateScriptText } from '../../../knowledge-hub-backend/src/podcasts/scriptAnnotations';
+import { annotateScriptText, scriptHeadingPrefix } from '../../../knowledge-hub-backend/src/podcasts/scriptAnnotations';

@@ -2,6 +2,36 @@
 
 **Status:** Validated
 
+**Script heading release validation (2026-11-04):**
+- All validation checks pass:
+  - Core validation: existing Azure authentication/targets, both TypeScript
+    checks and production builds, isolated release suites and lint non-regression.
+  - Docker build: reuse the unchanged lockfile/Dockerfile context, compile the
+    backend locally and build its production image through the existing ACR.
+  - Azure Policy validation: application-only update; no infrastructure,
+    policy, identity, network, RBAC, dependencies or Desktop source changes.
+- Retain the existing Alliance Tenant Reporting ACA/ACR/SWA targets. No
+  provisioning, Bicep/what-if or managed-identity role changes are applicable.
+
+**Section 7: Validation Proof — script headings (2026-11-04 12:09 UTC):**
+- Fetch/merge and remote-main confirmation: already current at 70677c6f.
+  Existing shared packed-refs maintenance lock warnings left untouched.
+- Both app `npx tsc --noEmit` checks passed after implementation; production
+  builds passed. Full isolated release suites ran once and passed: backend
+  1049/1049; frontend 324/324 main checks plus all auxiliary bundles.
+- Lint non-regression passed: backend 544/baseline 623; frontend 21/baseline 41.
+  Regression coverage includes visual heading round-trips, omission from
+  standalone and podcast autocue output, retained nested spoken content,
+  colours/cues, Athena heading reads and revision-protected script edits.
+- Authenticated CLI confirms Alliance Tenant Reporting and existing ACA v298,
+  identity None. Advance to v299 using unchanged ACR/Docker build and startup
+  migration handling; retain kh-prod-web. Azure MCP returned no subscriptions.
+- No infrastructure, RBAC, policy, dependency, migration or Desktop changes.
+  No new environment/provisioning or managed-identity roles are applicable.
+- Scope excludes unrelated DESIGN.md and .impeccable cache changes. No local
+  browser or actual Athena/Elgato mutation verification was performed.
+- Evidence: script-headings-{web-tests,api-tests,web-build}.log in session files.
+
 **Diagram, Athena and visual script release validation (2026-11-04):**
 - All validation checks pass:
   - Core validation: verify Azure CLI/authentication and existing application

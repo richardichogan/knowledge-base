@@ -86,6 +86,23 @@ test('intro edits preserve the complete card collection', async t => {
   assert.deepEqual(f.script.cards, cards);
 });
 
+test('Athena reads and saves script headings while excluding them from spoken duration', async t => {
+  const f = fixture(t);
+  f.script.cards[0]!.synopsis = '## Structural chapter\n\nOne spoken sentence.';
+  const read = await f.read({ cardId: 'github' });
+  assert.ok(read && typeof read === 'object' && 'cards' in read);
+  assert.deepEqual(read.cards, [f.script.cards[0]]);
+  const complete = await f.read();
+  assert.ok(complete && typeof complete === 'object' && 'totals' in complete);
+  assert.equal(complete.totals.synopsisWords, 16);
+  const remaining = structuredClone(f.script.cards.slice(1));
+  const synopsis = '## Updated chapter\n\nOne [colour=teal]spoken[/colour] sentence.[pause]';
+  await f.update({ expectedRevision: 1, cards: [{ id: 'github', synopsis }] });
+  assert.equal(f.script.cards[0]!.synopsis, synopsis);
+  assert.deepEqual(f.script.cards.slice(1), remaining);
+  assert.equal(f.script.writes, 1);
+});
+
 test('unread, stale, unknown-card and worker-busy changes cannot overwrite the script', async t => {
   const f = fixture(t);
   await assert.rejects(() => f.update({ expectedRevision: 1, intro: 'Wrong' }), /Read the current/);

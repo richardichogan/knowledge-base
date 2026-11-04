@@ -62,7 +62,7 @@ export const PODCAST_CHAT_TOOLS: LlmToolDefinition[] = [
   } },
   { type: 'function', function: {
     name: 'read_podcast_script',
-    description: 'Read this Podcast episode’s actual intro and topic cards, stable card IDs, revision, worker status and spoken-duration estimates. Cards are paged without truncation; use nextOffset to continue, or cardId to read a specific card. Read before editing; the generic parent note body does not contain this script.',
+    description: 'Read this Podcast episode’s actual intro and topic cards, stable card IDs, revision, worker status and spoken-duration estimates. Markdown headings (# script title, ## chapter, ### section) are editor-only structural labels, excluded from autocue and spoken-duration estimates; their following spoken text remains included. Cards are paged without truncation; use nextOffset to continue, or cardId to read a specific card. Read before editing; the generic parent note body does not contain this script.',
     parameters: { type: 'object', additionalProperties: false, properties: {
       offset: { type: 'integer', minimum: 0 },
       cardId: { type: 'string', description: 'Exact ID from the card overview; omit to read cards in running order.' },
@@ -70,7 +70,7 @@ export const PODCAST_CHAT_TOOLS: LlmToolDefinition[] = [
   } },
   { type: 'function', function: {
     name: 'update_podcast_script',
-    description: 'Directly save explicitly requested edits to this episode’s intro or existing card fields. Read the script first. Preserves untouched cards, fields, order, IDs and delivery annotations; uses normal editor validation and revision checks. Colours use [colour=teal|yellow|pink]text[/colour], or colour=plain to clear emphasis. [pause] and [beat] are non-spoken visual reminders, never scroll commands. Does not redraft the episode or edit the parent note. Never use without a user request to change the script.',
+    description: 'Directly save explicitly requested edits to this episode’s intro or existing card fields. Read the script first. Preserves untouched cards, fields, order, IDs, heading levels and delivery annotations; uses normal editor validation and revision checks. Use Markdown # script title, ## chapter and ### section for editor-only headings excluded from autocue, not bold/colour as a hiding convention. Text beneath headings remains spoken. Colours use [colour=teal|yellow|pink]text[/colour], or colour=plain to clear emphasis. [pause] and [beat] are non-spoken visual reminders, never scroll commands. Does not redraft the episode or edit the parent note. Never use without a user request to change the script.',
     parameters: { type: 'object', additionalProperties: false, properties: {
       expectedRevision: { type: 'integer' },
       intro: { type: 'string', description: 'Complete updated intro, only when requested. Omit to preserve it.' },

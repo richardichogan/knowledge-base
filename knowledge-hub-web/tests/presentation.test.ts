@@ -9,7 +9,8 @@ import { encodeWav, resampleVoiceAudio } from '../src/components/athena/speech';
 import { parseScriptBullets, scriptSentenceLines } from '../src/features/podcasts/scriptFormatting';
 import { episodeScriptText } from '../src/types/podcastEpisodes';
 import { scriptRichDocument, scriptRichText } from '../src/features/podcasts/scriptRichText';
-import { scriptAnnotationRuns, scriptInlineContent } from '../../knowledge-hub-backend/src/podcasts/scriptAnnotations';
+import { scriptAnnotationRuns, scriptInlineContent, scriptReadingText, spokenScriptText } from '../../knowledge-hub-backend/src/podcasts/scriptAnnotations';
+import { annotatedPresentation } from '../src/features/podcasts/scriptAnnotations';
 
 test('podcast sentence spacing leaves a blank line between sentences, preserving versions and links', () => {
   const text = 'Welcome to the podcast. Here is the running order.\r\n\r\nDiscuss version 5.4 and Microsoft 365. See https://example.com/news.\nKeep this deliberate break.';
@@ -83,6 +84,59 @@ test('rich bullet editing keeps markers outside emphasis and retains continuatio
   assert.deepEqual(parseScriptBullets(scriptRichText(doc), 0).bullets, bullets);
   assert.equal(scriptRichText(scriptRichDocument('', true)), '• ');
   assert.equal(scriptRichText(scriptRichDocument('One\nline\n\nAnother')), 'One\nline\n\nAnother');
+});
+
+test('script title, chapter and section blocks round-trip without exposing Markdown in the editor', () => {
+  const script = '# My script\n\nOpening words.[pause]\n\n## Chapter one\n\n'
+    + '[colour=teal]Important[/colour] words.\n\n### Detail\n\nClosing words.';
+  const doc = scriptRichDocument(script);
+  assert.deepEqual(doc.content!.map(block => block.type),
+    ['heading', 'paragraph', 'heading', 'paragraph', 'heading', 'paragraph']);
+  assert.deepEqual(doc.content!.filter(block => block.type === 'heading').map(block => block.attrs?.['level']), [1, 2, 3]);
+  assert.equal(scriptRichText(doc), script);
+  assert.equal(scriptRichText(scriptRichDocument(scriptRichText(doc))), script);
+  assert.equal(doc.content![0]!.content![0]!.text, 'My script');
+  assert.equal(scriptRichText(doc, 1, 3, false), 'My');
+  assert.equal(scriptRichText(scriptRichDocument('## Chapter\nSpoken words.')), '## Chapter\n\nSpoken words.');
+  const bullets = '• ## Supporting section\n\nKeep these words.';
+  assert.equal(scriptRichText(scriptRichDocument(bullets, true)), bullets);
+});
+
+test('standalone Script autocue omits heading labels but preserves their child and following spoken content', () => {
+  const document = JSON.stringify([
+    { type: 'heading', props: { level: 1 }, content: [{ type: 'text', text: 'Not spoken title' }] },
+    { type: 'paragraph', content: [{ type: 'text', text: 'Opening words.' }] },
+    { type: 'heading', props: { level: 2 }, content: [{ type: 'text', text: 'Not spoken chapter' }],
+      children: [{ type: 'paragraph', content: scriptInlineContent('[colour=teal]Nested words[/colour][pause]') }] },
+    { type: 'heading', props: { level: 3 }, content: [{ type: 'text', text: 'Not spoken section' }] },
+    { type: 'paragraph', content: [{ type: 'text', text: 'Closing words.' }] },
+  ]);
+  const result = presentationScript(document, { script: true });
+  assert.equal(result.text, 'Opening words.\nNested wordsPAUSE\nClosing words.');
+  assert.ok(result.runs.some(run => run.text === 'Nested words' && run.styles.includes('colour-teal')));
+  assert.ok(result.runs.some(run => run.styles.includes('cue-pause')));
+  assert.equal(result.text.includes('Not spoken'), false);
+  assert.equal(presentationScript(document).text.includes('Not spoken title'), true);
+  assert.equal(presentationScript(JSON.stringify([
+    { type: 'heading', content: [{ type: 'text', text: 'Only a title' }] },
+  ]), { script: true }).text, '');
+});
+
+test('podcast headings are editor-only even with sentence punctuation, colour spans and bullet continuations', () => {
+  const script = '[colour=teal]# Title. Do not speak this.\n\nSpeak these words.[/colour][pause]\n\n## Chapter label\n\nContinue here.';
+  const spoken = spokenScriptText(script);
+  assert.equal(spoken.includes('Title'), false);
+  assert.equal(spoken.includes('Chapter'), false);
+  assert.match(spoken, /Speak these words/);
+  assert.match(spoken, /Continue here/);
+  const runs = annotatedPresentation(scriptReadingText(script));
+  assert.ok(runs.runs.some(run => run.text.includes('Speak these words.') && run.styles.includes('colour-teal')));
+  assert.ok(runs.runs.some(run => run.styles.includes('cue-pause')));
+  const episode = episodeScriptText('# Episode title\n\nWelcome.', [{
+    id: 'one', title: 'Saved card title', synopsis: '## Section. Editor only.\n\nActual story.',
+    bullets: ['### Supporting label\n\nSpoken supporting point.', '## No spoken material'],
+  }]);
+  assert.equal(episode, 'Welcome.\n\nTopic 1\n\nActual story.\n\n• Spoken supporting point.');
 });
 
 test('standalone native script emphasis and atomic cues use the existing Elgato run protocol', () => {

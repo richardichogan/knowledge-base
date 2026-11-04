@@ -365,6 +365,22 @@ behaviour. Both the Present action and desktop command save pending edits before
 retrieving the current script; standalone colours and cues use the existing Elgato
 annotation protocol and older-desktop compatibility warning.
 
+Both script editors offer **Spoken text**, **Script title**, **Chapter** and
+**Section heading** in their existing script toolbar. These are semantic paragraph
+and heading blocks, not colour conventions. Standalone notes persist their normal
+native heading levels; episode fields persist Markdown `#`, `##` and `###` headings
+and render them visually without showing Markdown syntax. Titles and headings stay
+visible and editable, and Athena receives their actual wording and levels through
+page context and saved-content reads. Existing authorised structural note/script
+tools can edit them with the same save, revision and conflict safeguards.
+
+For Script notes, both Present and Presenter omit heading blocks from the autocue,
+preserving their nested and following spoken paragraphs, emphasis and cues. Other
+note types retain their existing heading presentation. Episode-field headings are
+also excluded from autocue text and spoken-duration estimates; the existing compact
+numbered topic markers are unchanged. Collapsing or excluding whole chapters and
+chapter navigation are not added. No script content is deleted or moved by presentation.
+
 Athena Desktop 0.1.11 renders the saved annotated script as safe text runs, not HTML.
 The passage at the existing reading guide is bright while surrounding passages
 are dimmed; positioning follows manual scrolling, text size and vertical mirroring.

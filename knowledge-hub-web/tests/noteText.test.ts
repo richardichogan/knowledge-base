@@ -39,3 +39,16 @@ test('Athena script context includes delivery cues and optional visual colour in
   assert.equal(extractNoteBlockText(blocks, undefined, true),
     'Start [colour=teal]here[/colour][pause][colour=pink] next[/colour][beat]');
 });
+
+test('Athena receives script heading levels and their spoken content without changing ordinary note text', () => {
+  const blocks = [
+    { type: 'heading', props: { level: 1 }, content: [{ text: 'Script title' }] },
+    { type: 'heading', props: { level: 2 }, content: [{ text: 'Chapter' }], children: [
+      { type: 'paragraph', content: [{ text: 'Nested spoken words.' }] },
+    ] },
+    { type: 'paragraph', content: [{ text: 'More spoken words.' }] },
+  ];
+  assert.equal(extractNoteBlockText(blocks, undefined, true),
+    '# Script title\n## Chapter\nNested spoken words.\nMore spoken words.');
+  assert.equal(extractNoteBlockText(blocks), 'Script title\nChapter\nNested spoken words.\nMore spoken words.');
+});
