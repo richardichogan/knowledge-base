@@ -61,6 +61,8 @@ import { consumePassageNavigation, passageNavigationSnapshot, subscribePassageNa
 import { prepareTaggedPaste } from './passageTags';
 import { passageTagKeys } from './passageTagModel';
 import { notifyPastedPassages } from '../utils/activeBlockNoteEditor';
+import { ungroupScriptSections } from '../../../knowledge-hub-backend/src/utils/scriptSections';
+import { preserveScriptSelection } from './scriptSectionSelection';
 
 interface NoteEditorProps {
   hideProperties?: boolean;
@@ -433,6 +435,25 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
     setActiveBlockNoteEditor(editor, doc.id, contentType === 'script');
     return () => { setActiveBlockNoteEditor(null); };
   }, [editor, doc.id, contentType]);
+
+  useEffect(() => {
+    let active = true;
+    if (contentType !== 'script' && !historyBusy && !externalBusy) {
+      queueMicrotask(() => {
+        if (!active) return;
+        const current = editor.document;
+        if (!current.some(block => block.type === 'heading' && block.props.scriptSection)) return;
+        try {
+          const ordinary = ungroupScriptSections(current).map(block =>
+            block.type === 'heading' ? { ...block, props: { ...block.props, scriptSection: false } } : block);
+          editor.transact(transaction => { preserveScriptSelection(transaction, () => { editor.replaceBlocks(current, ordinary); }); });
+        } catch (error) {
+          setNotification({ kind: 'error', msg: error instanceof Error ? error.message : 'Could not restore the ordinary note layout.' });
+        }
+      });
+    }
+    return () => { active = false; };
+  }, [editor, contentType, historyBusy, externalBusy]);
 
   const isDirtyRef = useRef(false);
 
@@ -1402,7 +1423,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
           </div>}
           {!showingHtml && bodyContent}
           {!showingHtml && contentType === 'email-draft' && <EmailDraftFields work={work} disabled={historyBusy || externalBusy || work.busy || work.recoveryConflict} />}
-          <div className="notes-editor-inner" hidden={showingHtml || bodyContent !== undefined}>
+          <div className={`notes-editor-inner${contentType === 'script' ? ' notes-editor-inner--script' : ''}`} hidden={showingHtml || bodyContent !== undefined}>
             {contentType === 'script' && <ScriptTools editor={editor} disabled={historyBusy || externalBusy} />}
             <BlockNoteViewWrapper
               editor={editor}

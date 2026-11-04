@@ -6,6 +6,7 @@
  */
 
 import { scriptAnnotationRuns } from '../podcasts/scriptAnnotations.js';
+import { SCRIPT_DIRECTION_LIMIT } from '../utils/scriptSections.js';
 
 export type NoteEditAction =
   | 'append'           // add to the end of the note
@@ -14,18 +15,21 @@ export type NoteEditAction =
   | 'replace_section'  // replace the content under `heading` (heading kept unless markdown starts with one)
   | 'delete_section'   // remove `heading` and its content
   | 'replace_text'     // replace exact text `find` with `markdown`
+  | 'set_section_direction'
   | 'replace_all';     // rewrite the whole note body with `markdown` (a full redraft)
 
 export interface NoteEditProposal {
   delivery?: 'apply' | 'preview';
   action: NoteEditAction;
   heading?: string;
+  sectionId?: string;
   find?: string;
   markdown?: string;
+  direction?: string;
   summary: string;
 }
 
-const ACTIONS: readonly NoteEditAction[] = ['append', 'prepend', 'add_to_section', 'replace_section', 'delete_section', 'replace_text', 'replace_all'];
+const ACTIONS: readonly NoteEditAction[] = ['append', 'prepend', 'add_to_section', 'replace_section', 'delete_section', 'replace_text', 'replace_all', 'set_section_direction'];
 
 export function allowsStructuralNoteEdits(message: string): boolean {
   const request = message.replace(/^\s*\[Viewing (?:note|document):[^\n]*\]\s*/i, '');
@@ -48,6 +52,7 @@ export function validateNoteEdits(raw: unknown): { edits: NoteEditProposal[]; pr
     const action = ACTIONS.find((a) => a === e['action']);
     const str = (k: string): string | undefined => (typeof e[k] === 'string' && (e[k] as string).trim() !== '' ? (e[k] as string) : undefined);
     const heading = str('heading');
+    const sectionId = str('sectionId');
     const find = str('find');
     const markdown = str('markdown');
     const summary = str('summary') ?? action ?? 'Edit';
@@ -55,18 +60,26 @@ export function validateNoteEdits(raw: unknown): { edits: NoteEditProposal[]; pr
     if ((action === 'add_to_section' || action === 'replace_section' || action === 'delete_section') && heading === undefined) {
       problems.push(`edit ${String(i + 1)}: "${action}" needs the exact heading text`); return;
     }
+    if (action === 'set_section_direction' && heading === undefined && sectionId === undefined) {
+      problems.push(`edit ${String(i + 1)}: set_section_direction needs a sectionId or exact heading text`); return;
+    }
     if (action === 'replace_text' && (find === undefined || markdown === undefined)) {
       problems.push(`edit ${String(i + 1)}: replace_text needs "find" (exact existing text) and "markdown" (replacement)`); return;
     }
-    if (action !== 'delete_section' && action !== 'replace_text' && markdown === undefined) {
+    if (action === 'set_section_direction' && (typeof e['direction'] !== 'string' || e['direction'].length > SCRIPT_DIRECTION_LIMIT)) {
+      problems.push(`edit ${String(i + 1)}: set_section_direction needs direction text of at most ${SCRIPT_DIRECTION_LIMIT} characters (empty clears it)`); return;
+    }
+    if (action !== 'delete_section' && action !== 'replace_text' && action !== 'set_section_direction' && markdown === undefined) {
       problems.push(`edit ${String(i + 1)}: "${action}" needs "markdown" content`); return;
     }
     edits.push({
       action,
       summary: summary.slice(0, 200),
       ...(heading !== undefined && { heading: heading.trim() }),
+      ...(action === 'set_section_direction' && sectionId !== undefined && { sectionId: sectionId.trim() }),
       ...(find !== undefined && { find }),
       ...(markdown !== undefined && { markdown }),
+      ...(action === 'set_section_direction' && typeof e['direction'] === 'string' && { direction: e['direction'] }),
     });
   });
   return { edits, problems };
@@ -76,7 +89,7 @@ export function validateNoteEdits(raw: unknown): { edits: NoteEditProposal[]; pr
 // Mirrors the matching in the web app's noteEditApplier, so anything that
 // passes here can be applied when he clicks Apply.
 
-interface NoteBlock { type?: string; props?: { level?: number }; content?: unknown; children?: NoteBlock[] }
+interface NoteBlock { id?: string; type?: string; props?: { level?: number; scriptSection?: boolean }; content?: unknown; children?: NoteBlock[] }
 
 function blockText(b: NoteBlock): string {
   const inline = (content: unknown): string => Array.isArray(content) ? content.map((item: { type?: string; props?: { cue?: string }; text?: string; content?: unknown }) =>
@@ -127,6 +140,11 @@ export function checkEditsAgainstNote(edits: NoteEditProposal[], blocks: NoteBlo
     const n = label(i);
     const reported = i >= alreadyProposed;
     const wanted = e.heading !== undefined ? norm(e.heading) : '';
+    if (reported && e.action === 'set_section_direction') {
+      const count = e.sectionId ? blocks.filter(block => block.type === 'heading' && block.id === e.sectionId).length
+        : headings.filter(heading => heading === wanted).length;
+      if (!script || count !== 1) problems.push(`edit ${n}: delivery direction needs one Script section identified by its id or exact heading`);
+    }
     if (reported && title !== undefined
       && (e.action === 'replace_text' && e.find !== undefined && blockText(title).includes(e.find)
         || ['replace_section', 'delete_section'].includes(e.action) && wanted === norm(blockText(title)))) {

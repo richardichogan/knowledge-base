@@ -1,4 +1,4 @@
-export interface NoteContentBlock { type?: string; props?: { level?: number }; content?: unknown; children?: NoteContentBlock[] }
+export interface NoteContentBlock { id?: string; type?: string; props?: { level?: number; scriptSection?: boolean; scriptDirection?: string }; content?: unknown; children?: NoteContentBlock[] }
 
 /** Renders a link chip as text; returning '' drops it. */
 export type MentionText = (type: string, id: string) => string;
@@ -37,11 +37,24 @@ export function extractNoteBlockText(blocks: NoteContentBlock[], mention?: Menti
     const heading = scriptAnnotations && block.type === 'heading'
       ? scriptHeadingPrefix(block.props?.level) : '';
     if (text.trim() !== '') parts.push(heading + text.trim());
+    if (scriptAnnotations && block.props?.scriptSection) {
+      parts.push(`[Script section id: ${block.id ?? 'not assigned'}]`);
+      parts.push(`[Delivery direction (not spoken): ${block.props.scriptDirection || 'None'}]`);
+    }
+
     if (Array.isArray(block.children)) {
       const childText = extractNoteBlockText(block.children, mention, scriptAnnotations);
       if (childText !== '') parts.push(childText);
     }
   }
   return parts.join('\n');
+}
+
+export function scriptSectionContext(blocks: NoteContentBlock[], activeBlockId: string, selectedText: string): string {
+  const contains = (block: NoteContentBlock): boolean => block.id === activeBlockId || (block.children ?? []).some(contains);
+  const section = blocks.find(block => block.props?.scriptSection && contains(block));
+  if (!section) return '';
+  return `\n[Active script section id: ${section.id ?? 'not assigned'}]\n[Active block id: ${activeBlockId}]`
+    + (selectedText ? `\n[Selected script text${selectedText.length > 4000 ? ' (truncated)' : ''}: ${selectedText.slice(0, 4000)}]` : '');
 }
 import { annotateScriptText, scriptHeadingPrefix } from '../../../knowledge-hub-backend/src/podcasts/scriptAnnotations';

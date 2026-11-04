@@ -9,6 +9,9 @@ import type { NoteEdit } from '../types';
 import { passageTagKeys } from '../notes/passageTagModel';
 import { scriptInlineContent } from '../../../knowledge-hub-backend/src/podcasts/scriptAnnotations';
 import { scriptNoteBlocks } from '../../../knowledge-hub-backend/src/utils/scriptNoteContent';
+import { groupScriptSections, ungroupScriptSections, splitScriptSectionTail, SCRIPT_DIRECTION_LIMIT } from '../../../knowledge-hub-backend/src/utils/scriptSections';
+import { preserveScriptSelection } from '../notes/scriptSectionSelection';
+import type { Transaction } from '@tiptap/pm/state';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Editor = BlockNoteEditor<any, any, any>;
@@ -108,7 +111,8 @@ function sectionBody(blocks: Block[], i: number): Block[] {
   const lvl = level(blocks[i]);
   const body: Block[] = [];
   for (let j = i + 1; j < blocks.length; j++) {
-    if (blocks[j].type === 'heading' && level(blocks[j]) <= lvl) break;
+    if (blocks[j].type === 'heading' && (blocks[i].props?.scriptSection
+      ? blocks[j].props?.scriptSection : level(blocks[j]) <= lvl)) break;
     body.push(blocks[j]);
   }
   return body;
@@ -154,7 +158,9 @@ function withParagraphBreaks(markdown: string): string {
 
 function parse(editor: Editor, markdown: string, script = false): Block[] {
   const blocks = editor.tryParseMarkdownToBlocks(withParagraphBreaks(markdown.trim())) as Block[];
-  return script ? scriptNoteBlocks(blocks) : blocks;
+  if (!script) return blocks;
+  return (scriptNoteBlocks(blocks) as Block[]).map(block => block.type === 'heading'
+    ? { ...block, props: { ...block.props, scriptSection: true } } : block);
 }
 
 function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined, script: boolean): void {
@@ -162,8 +168,19 @@ function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined,
   const md = edit.markdown ?? '';
   const titleId = titleBlock?.id;
   switch (edit.action) {
+    case 'set_section_direction': {
+      if (!script || typeof edit.direction !== 'string' || edit.direction.length > SCRIPT_DIRECTION_LIMIT) {
+        throw new Error('Delivery directions require a Script section and at most 2000 characters.');
+      }
+      const matches = blocks.filter(block => block.type === 'heading' && (edit.sectionId
+        ? block.id === edit.sectionId : Boolean(edit.heading?.trim()) && norm(inlineText(block)) === norm(edit.heading ?? '')));
+      if (matches.length !== 1) throw new Error('Choose one exact Script section heading before changing its delivery direction.');
+      editor.updateBlock(matches[0], { props: { scriptDirection: edit.direction } });
+      return;
+    }
     case 'append': {
-      const last = blocks[blocks.length - 1];
+      const appendTo = script ? splitScriptSectionTail(blocks).body : blocks;
+      const last = appendTo[appendTo.length - 1];
       editor.insertBlocks(parse(editor, md, script), last, 'after');
       return;
     }
@@ -191,6 +208,12 @@ function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined,
       const replacement = parse(editor, withoutLeadingHeading(md, edit.heading), script);
       // If the new content brings its own heading, replace the heading too.
       if (replacement[0]?.type === 'heading') {
+        if (blocks[i].props?.scriptSection) {
+          replacement[0] = { ...replacement[0], id: blocks[i].id, props: {
+            ...blocks[i].props, ...replacement[0].props,
+            scriptSection: true, scriptDirection: blocks[i].props.scriptDirection ?? '',
+          } };
+        }
         editor.replaceBlocks([blocks[i], ...body], replacement);
       } else if (body.length > 0) {
         editor.replaceBlocks(body, replacement);
@@ -244,8 +267,11 @@ function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined,
 export function applyNoteEdits(editor: Editor, edits: NoteEdit[], options: { script?: boolean } = {}): { applied: number; failed: string[] } {
   const failed: string[] = [];
   let applied = 0;
-  const titleBlock = (editor.document as Block[]).find(block => block.type === 'heading' && inlineText(block).trim());
   const run = (): void => {
+    const cards = options.script && (editor.document as Block[]).some(block => block.props?.scriptSection)
+      && edits.some(edit => edit.action !== 'replace_text' && edit.action !== 'set_section_direction');
+    if (cards) editor.replaceBlocks(editor.document, ungroupScriptSections(editor.document as Block[]));
+    const titleBlock = (editor.document as Block[]).find(block => block.type === 'heading' && inlineText(block).trim());
     for (const edit of edits) {
       try {
         applyOne(editor, edit, titleBlock, options.script === true);
@@ -254,10 +280,22 @@ export function applyNoteEdits(editor: Editor, edits: NoteEdit[], options: { scr
         failed.push(`${edit.summary}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+    if (cards) {
+      const current = editor.document as Block[];
+      const { body, tail } = splitScriptSectionTail(current);
+      editor.replaceBlocks(current, [...groupScriptSections(body, () => ({
+        type: 'heading', props: { level: 2, scriptSection: true, scriptDirection: '' },
+        content: [], children: [],
+      }), { markedOnly: true }), ...tail]);
+    }
   };
   // One undo step for the whole set when the editor supports transactions.
-  const maybeTransact = (editor as unknown as { transact?: (fn: () => void) => void }).transact;
-  if (typeof maybeTransact === 'function') maybeTransact.call(editor, run);
-  else run();
+  const maybeTransact = (editor as unknown as { transact?: (fn: (transaction?: Transaction) => void) => void }).transact;
+  const apply = (transaction?: Transaction): void => {
+    if (options.script && transaction) preserveScriptSelection(transaction, run);
+    else run();
+  };
+  if (typeof maybeTransact === 'function') maybeTransact.call(editor, apply);
+  else apply();
   return { applied, failed };
 }

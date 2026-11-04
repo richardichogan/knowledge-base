@@ -2,6 +2,22 @@
 
 **Status:** Validated
 
+**Script section cards release validation (2026-11-04):**
+- All validation checks pass:
+  - Core validation: main synced at 8bc8d604, both TypeScript checks, frontend
+    and backend isolated suites, lint baseline, frontend production build and
+    `git diff --check`.
+  - Azure context: Alliance Tenant Reporting; current backend v299 / revision
+    kh-prod-api-vnet--0000296. Application-only AZCLI recipe; no infrastructure,
+    RBAC or secret changes.
+
+**Section 7: Validation Proof — script section cards (2026-11-04):**
+- Frontend isolated suite: one new fixture failure (test ProseMirror schema id
+  attribute lacked a default); fixed test-only and the affected file reran 12/12.
+- Backend isolated suite, lint baseline and web build: exit 0.
+- Deploy backend v300 from main and frontend from the synced worktree.
+- Evidence: script-cards-*.log in the session files folder.
+
 **Sticky script toolbar and inline-colour release validation (2026-11-04):**
 - All validation checks pass:
   - Core validation: synced main, both app TypeScript checks, frontend isolated

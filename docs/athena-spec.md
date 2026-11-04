@@ -353,13 +353,25 @@ reject unbalanced colour spans, and Athena reads/preserves annotations through
 its existing typed script tools and revision checks. Spoken-duration estimates
 exclude colour tags and visual cues. No schema migration or separate document is needed.
 
-Standalone **Script** notes use one continuous rich-text document in the existing Think
-editor, with the same emphasis colours and Pause/Beat tools; no episode or podcast
-metadata is required. Native text styles and inline delivery-cue nodes use normal note
+Standalone **Script** notes use podcast-style chapter/section cards inside the existing
+Think editor; other note types are unchanged. Each card has an editable rich-text title
+and a separate delivery-direction field for tone, pace and nuance; neither is spoken.
+Its nested body retains the same WYSIWYG emphasis colours, links and Pause/Beat tools.
+Existing top-level headings become cards without regenerating or rewriting content;
+following blocks belong to that heading until the next card. Text before the first
+heading gets an untitled section. Empty sections retain an editable spoken-body block.
+The toolbar adds a section; card headers move sections up/down or remove the entire
+section after confirmation. The Think shell, properties and action locations stay intact.
+No episode or podcast metadata is required. Native styles and cue nodes use normal note
 autosave, revision/conflict handling, properties, history and exports. Athena's page
-context and saved-note reads include the actual wording, colours and cues. Her existing
+context and saved-note reads include stable section IDs, titles, delivery directions,
+actual wording, colours and cues, with the active section/block and selected passage.
+`set_section_direction` updates or clears a direction through its stable section ID
+or an exact, unambiguous Script heading (maximum 2,000 characters). Switching away
+from Script restores ordinary heading/body layout and retains direction metadata
+for switching back. Her existing
 requested note edits apply through the protected live editor, preserve untouched rich content
-and translate script annotations into native content when applied. Saved-note creation
+and section metadata, and translate script annotations into native content when applied. Saved-note creation
 and updates use the same conversion. Non-script notes keep their existing Markdown
 behaviour. Both the Present action and desktop command save pending edits before
 retrieving the current script; standalone colours and cues use the existing Elgato

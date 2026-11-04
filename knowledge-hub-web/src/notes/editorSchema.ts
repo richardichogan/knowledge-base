@@ -1,15 +1,10 @@
-import { BlockNoteSchema, createBlockSpec, createCodeBlockSpec, createStyleSpecFromTipTapMark, defaultBlockSpecs, defaultInlineContentSpecs, defaultStyleSpecs, type BlockSpec } from '@blocknote/core';
+import { BlockNoteSchema, createBlockSpec, createCodeBlockSpec, createStyleSpecFromTipTapMark, defaultBlockSpecs, defaultInlineContentSpecs, defaultStyleSpecs } from '@blocknote/core';
 import { codeBlockOptions } from '@blocknote/code-block';
 import { entityMentionSpec, noteMentionSpec } from './EntityMention';
 import { passageTagStyles } from './passageTags';
 import { scriptCueSpec } from './ScriptCue';
+import { scriptHeadingSpec } from './ScriptSection';
 
-// BlockNote 0.47 declares this optional key as possibly undefined; the runtime
-// spec is concrete. Preserve the optional runtime flag without erasing schema types.
-type HeadingProps = Omit<typeof defaultBlockSpecs.heading.config.propSchema, 'isToggleable'> & {
-  isToggleable: NonNullable<typeof defaultBlockSpecs.heading.config.propSchema.isToggleable>;
-};
-const headingSpec = defaultBlockSpecs.heading as BlockSpec<'heading', HeadingProps, 'inline'>;
 const codeBlockSpec = createCodeBlockSpec(codeBlockOptions);
 // Set this before mounting: mutating code marks afterwards feeds ProseMirror's DOM observer.
 const codeStyleSpec = createStyleSpecFromTipTapMark(
@@ -29,7 +24,7 @@ const codeBlockWithSpelling = createBlockSpec(codeBlockSpec.config, {
 export const editorSchema = BlockNoteSchema.create({
   blockSpecs: {
     ...defaultBlockSpecs,
-    heading: headingSpec,
+    heading: scriptHeadingSpec,
     codeBlock: codeBlockWithSpelling,
   },
   inlineContentSpecs: {

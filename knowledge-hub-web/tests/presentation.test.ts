@@ -140,6 +140,25 @@ test('standalone Script autocue omits heading labels but preserves their child a
   ]), { script: true }).text, '');
 });
 
+test('Script cards speak each body once without their rich titles or delivery directions', () => {
+  const result = presentationScript(JSON.stringify([
+    { id: 'opening', type: 'heading', props: { level: 2, scriptSection: true, scriptDirection: 'Never read this direction' },
+      content: [{ type: 'text', text: 'Never read this title', styles: { bold: true } }],
+      children: [{ id: 'body', type: 'paragraph', content: [
+        { type: 'link', href: 'https://example.com/project', content: [{ type: 'text', text: 'Imagine', styles: { textColor: '#f1c21b' } }] },
+        ...scriptInlineContent(' is ready.[pause]'),
+      ] }] },
+    { id: 'closing', type: 'heading', props: { level: 1, scriptSection: true, scriptDirection: 'Quietly' },
+      content: [{ type: 'text', text: 'Closing title' }], children: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'Thank you.' }] },
+      ] },
+  ]), { script: true });
+  assert.equal(result.text, 'Imagine is ready.PAUSE\nThank you.');
+  assert.ok(result.runs.some(run => run.text === 'Imagine' && run.styles.includes('colour-yellow')));
+  assert.equal(result.text.includes('Never read'), false);
+  assert.equal(result.text.includes('Quietly'), false);
+});
+
 test('podcast headings are editor-only even with sentence punctuation, colour spans and bullet continuations', () => {
   const script = '[colour=teal]# Title. Do not speak this.\n\nSpeak these words.[/colour][pause]\n\n## Chapter label\n\nContinue here.';
   const spoken = spokenScriptText(script);

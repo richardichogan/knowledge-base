@@ -11,8 +11,8 @@
 import { annotateScriptText, scriptHeadingPrefix } from '../podcasts/scriptAnnotations.js';
 
 interface BlockContent { text?: string }
-interface BlockProps { url?: string; level?: number }
-export interface Block { type?: string; content?: BlockContent[] | unknown; children?: Block[]; props?: BlockProps }
+interface BlockProps { url?: string; level?: number; scriptSection?: boolean; scriptDirection?: string }
+export interface Block { id?: string; type?: string; content?: BlockContent[] | unknown; children?: Block[]; props?: BlockProps }
 interface NoteContentWrapper { title?: string; contentType?: string; contentJson?: string }
 
 /**
@@ -122,6 +122,10 @@ export function blocksToTextWithImages(blocks: Block[], visionByBlobId: Map<stri
         const heading = scriptAnnotations && block.type === 'heading'
           ? scriptHeadingPrefix(block.props?.level) : '';
         if (text) lines.push(heading + text);
+        if (scriptAnnotations && block.props?.scriptSection) {
+          lines.push(`[Script section id: ${block.id ?? 'not assigned'}]`);
+          lines.push(`[Delivery direction (not spoken): ${block.props.scriptDirection || 'None'}]`);
+        }
       }
       if (Array.isArray(block.children)) walk(block.children);
     }

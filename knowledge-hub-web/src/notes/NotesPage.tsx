@@ -51,6 +51,8 @@ import { requestPassageNavigation } from './passageNavigation';
 import { CreateUseCaseDialog } from '../features/useCases/CreateUseCaseDialog';
 import { UseCaseDetailPanel } from '../features/useCases/UseCaseDetailPanel';
 import { useUseCase } from '../hooks/useUseCases';
+import { getActiveBlockNoteEditor, getActiveNoteId } from '../utils/activeBlockNoteEditor';
+import { scriptSectionContext } from './noteText';
 
 const NoteEditor = deferredView('Note editor', async () => ({ default: (await import('./NoteEditor')).NoteEditor }));
 const CanvasEditor = deferredView('Brainstorm', async () => ({ default: (await import('../features/canvas/CanvasEditor')).CanvasEditor }));
@@ -597,11 +599,19 @@ export const NotesPage: React.FC = () => {
       try { blocks = JSON.parse(openDoc.contentJson); } catch { blocks = []; }
       // Link chips (e.g. a heading that links to another note) carry no text of their own,
       // so Athena gets each one's title and id to read or follow.
+      const liveScriptEditor = (): ReturnType<typeof getActiveBlockNoteEditor> =>
+        openDoc.contentType === 'script' && getActiveNoteId() === openDoc.id ? getActiveBlockNoteEditor() : null;
       const bodyBlock = (): string => {
-        const bodyText = Array.isArray(blocks)
-          ? extractNoteBlockText(blocks as NoteContentBlock[], athenaLinkText, openDoc.contentType === 'script').slice(0, NOTE_CONTEXT_MAX_CHARS)
+        const editor = liveScriptEditor();
+        const currentBlocks = editor?.document ?? blocks;
+        const bodyText = Array.isArray(currentBlocks)
+          ? extractNoteBlockText(currentBlocks as NoteContentBlock[], athenaLinkText, openDoc.contentType === 'script').slice(0, NOTE_CONTEXT_MAX_CHARS)
           : '';
-        return bodyText !== '' ? `\n\nContent:\n${bodyText}` : '';
+        const focusedId = document.activeElement?.closest('.bn-block-outer')?.getAttribute('data-id');
+        const selection = editor ? scriptSectionContext(editor.document,
+          focusedId ?? editor.getTextCursorPosition().block.id,
+          document.activeElement instanceof HTMLTextAreaElement ? '' : editor.getSelectedText()) : '';
+        return (bodyText !== '' ? `\n\nContent:\n${bodyText}` : '') + selection;
       };
       const imageUrls = extractImageUrls(blocks);
       const imagesKey = imageUrls.join('|');
@@ -617,7 +627,7 @@ export const NotesPage: React.FC = () => {
           type: 'note',
           title: doc.title,
           detail: `Content type: ${doc.contentType}${imageNote}${doc.contentType === 'script'
-            ? '. Continuous script: Markdown headings (# title, ## chapter, ### section) are structural labels visible in the editor but excluded from the autocue; spoken text beneath them is included. Preserve heading levels when editing. [colour=teal|yellow|pink]...[/colour] describes visual emphasis; [pause]/[beat] are nonspoken delivery cues. For replace_text, find the exact visible wording without colour markers; replacement may use these annotations. Read the saved note for full content if this context is partial.'
+            ? '. Script section cards: headings are editor-only titles; their nested child blocks are the spoken body. Each card has a stable block id and an editor-only delivery direction, both included below. Titles and directions are excluded from the autocue. Use set_section_direction with its sectionId or an exact unique heading to edit delivery nuance without altering spoken words. Preserve heading levels when editing. [colour=teal|yellow|pink]...[/colour] describes visual emphasis; [pause]/[beat] are nonspoken delivery cues. For replace_text, find the exact visible wording without colour markers; replacement may use these annotations. Read the saved note for full content if this context is partial.'
             : ''}${bodyBlock()}`,
           id: doc.id,
           ...(['deliverable-brief', 'email-draft'].includes(doc.contentType) ? { workContentId: doc.id } : {}),
@@ -627,6 +637,22 @@ export const NotesPage: React.FC = () => {
       };
 
       let cancelled = false;
+      let selectionTimer: ReturnType<typeof setTimeout> | undefined;
+      const refreshSelection = (): void => {
+        clearTimeout(selectionTimer);
+        selectionTimer = setTimeout(() => { if (!cancelled) publish(latestDescriptions); }, 150);
+      };
+      if (doc.contentType === 'script') {
+        document.addEventListener('selectionchange', refreshSelection);
+        document.addEventListener('focusin', refreshSelection);
+      }
+      const cleanup = (): void => {
+        cancelled = true;
+        clearTimeout(selectionTimer);
+        document.removeEventListener('selectionchange', refreshSelection);
+        document.removeEventListener('focusin', refreshSelection);
+        setAthenaContext(null);
+      };
       const cached = imageDescriptionsRef.current.get(imagesKey);
       publish(cached);
       if (JSON.stringify(blocks).includes('Mention"')) {
@@ -634,7 +660,7 @@ export const NotesPage: React.FC = () => {
           .catch(() => { /* links stay as ids */ });
       }
       if (imageUrls.length === 0 || cached !== undefined) {
-        return () => { cancelled = true; setAthenaContext(null); };
+        return cleanup;
       }
 
       void api.lookupImages(imageUrls).then((r) => {
@@ -653,7 +679,7 @@ export const NotesPage: React.FC = () => {
         if (!cancelled) publish(descriptions);
       }).catch(() => { /* context stays without image detail */ });
 
-      return () => { cancelled = true; setAthenaContext(null); };
+      return cleanup;
     }
     setAthenaContext(null);
     return undefined;
