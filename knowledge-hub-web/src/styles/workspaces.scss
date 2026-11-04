@@ -1084,17 +1084,6 @@ dialog.kh-workspace-panel--overlay {
   margin: 0;
   min-width: 0;
 }
-.dc-article-search {
-  flex: 1 1 200px;
-  max-width: 320px;
-}
-.dc-article-search .build-input:hover {
-  border-color: var(--cds-border-strong-01);
-}
-.dc-article-search .build-input:focus-visible {
-  outline: 2px solid var(--cds-focus);
-  outline-offset: -2px;
-}
 .kh-task-detail__identity-row {
   display: flex;
   align-items: center;

@@ -421,14 +421,6 @@ export const DiscoverPage: React.FC = () => {
   const isWatchlists = activeTab === 'watchlists';
   const isParking = activeTab === 'parking-lot';
   const isForYou = activeTab === 'to-review';
-  const [articleSearch, setArticleSearch] = useState('');
-  const [searchTitle, setSearchTitle] = useState('');
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setSearchTitle(articleSearch.trim()); setPage(1); setActiveItemId(null); setSelectedIds(new Set());
-    }, 250);
-    return () => { window.clearTimeout(timer); };
-  }, [articleSearch, setPage]);
   const [interestsOpen, setInterestsOpen] = useState(false);
   const [publishingOpen, setPublishingOpen] = useState(() => new URLSearchParams(window.location.search).get('publishing') === '1');
   const isCfps  = activeTab === 'cfps';
@@ -447,9 +439,9 @@ export const DiscoverPage: React.FC = () => {
   }
 
   const feedQuery = useQuery({
-    queryKey: ['discover', isParking ? 'parking-lot' : workflowState, page, searchTitle],
-    queryFn: async () => requireApiSuccess(await (isParking ? api.getDiscoverParkingLot(page, PAGE_SIZE, searchTitle || undefined)
-      : api.getDiscoverFeed(workflowState, undefined, page, PAGE_SIZE, searchTitle || undefined, 'weighted'))),
+    queryKey: ['discover', isParking ? 'parking-lot' : workflowState, page],
+    queryFn: async () => requireApiSuccess(await (isParking ? api.getDiscoverParkingLot(page, PAGE_SIZE)
+      : api.getDiscoverFeed(workflowState, undefined, page, PAGE_SIZE, undefined, 'weighted'))),
     enabled: !isInbox && !isCfps && !isWatchlists,
     staleTime: 60_000,
   });
@@ -542,7 +534,7 @@ export const DiscoverPage: React.FC = () => {
     if (!isForYou || !briefingQuery.data?.success) return null;
     return buildBriefing(briefingQuery.data.data.items, since, (id) => flatTags.find((t) => t.id === id)?.name);
   }, [isForYou, briefingQuery.data, since, flatTags]);
-  const showBriefing = briefing !== null && page === 1 && searchTitle === '' && articleSearch.trim() === '';
+  const showBriefing = briefing !== null && page === 1;
   const attentionIds = useMemo(() => new Set(showBriefing ? [...briefing.standouts, ...briefing.alsoRelevant].map((i) => i.id) : []), [showBriefing, briefing]);
 
   const items = useMemo<DiscoverItem[]>(() =>
@@ -627,11 +619,6 @@ export const DiscoverPage: React.FC = () => {
           </p>
         )}
         {!isInbox && !isCfps && !isWatchlists && <div className="kh-triage-tools">
-          <label className="dc-article-search">
-            <span className="kh-uc-visually-hidden">Search article titles in this list</span>
-            <input type="search" className="build-input" maxLength={256} placeholder="Search article titles…" value={articleSearch}
-              onChange={event => { setArticleSearch(event.target.value); }} />
-          </label>
           <span title="Save/archive shortcuts do not apply to published or blog items.">J/K move · O open · S save · A archive</span>
           {selectedIds.size > 0 && <>
             <span>{selectedIds.size} selected</span>
@@ -681,7 +668,7 @@ export const DiscoverPage: React.FC = () => {
         </div>}
         <ReviewWorkspace storageKey="discover" label="Discovery" athenaEnabled={!publishingOpen}
         context={exploreLive ? { type: 'discover item', title: exploreLive.title, id: exploreLive.id,
-          detail: `Discover view: ${activeTabDef?.label ?? 'Discover'}. Title search: ${JSON.stringify(searchTitle)}; page ${page}, ${total} matching articles.${showBriefing ? ` Current briefing: ${JSON.stringify({ assessed: briefing.assessed, relevantCount: briefing.relevantCount, standoutIds: briefing.standouts.map(item => item.id), busiest: briefing.busiest, quiet: briefing.quiet, fallback: briefing.fallback })}.` : ''} Selected saved article and assessment (not necessarily full source text):\n${JSON.stringify(exploreLive)}\nUse saved-content retrieval for the full source. Respect contentBasis and evidence limitations.` }
+          detail: `Discover view: ${activeTabDef?.label ?? 'Discover'}. Page ${page}, ${total} matching articles.${showBriefing ? ` Current briefing: ${JSON.stringify({ assessed: briefing.assessed, relevantCount: briefing.relevantCount, standoutIds: briefing.standouts.map(item => item.id), busiest: briefing.busiest, quiet: briefing.quiet, fallback: briefing.fallback })}.` : ''} Selected saved article and assessment (not necessarily full source text):\n${JSON.stringify(exploreLive)}\nUse saved-content retrieval for the full source. Respect contentBasis and evidence limitations.` }
           : { type: 'discover', title: activeTabDef?.label ?? 'Discover', detail: 'No article selected in this view.' }}
         detail={exploreLive ? <DiscoverExplore key={exploreLive.id} embedded item={exploreLive}
           tagNames={(exploreLive.taxonomyTagIds ?? []).map(id => flatTags.find(tag => tag.id === id)?.name).filter((name): name is string => name !== undefined)}
