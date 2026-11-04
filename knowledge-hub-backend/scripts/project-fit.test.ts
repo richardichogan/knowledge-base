@@ -49,9 +49,9 @@ test('missing, repeated and invalid project-fit results cannot become no-fit ver
     [{ key: 'a1', projects: [{ id: 'unknown', fit: 1 }] }],
     [{ key: 'a1', projects: [{ id: 'imagine', fit: 1 }, { id: 'imagine', fit: 2 }] }],
   ]) {
-    assert.throws(() => parseProjectFitResponse(JSON.stringify({ results }), keys, PROJECTS), /Project fit/);
+    assert.throws(() => parseProjectFitResponse(JSON.stringify({ results }), keys, PROJECTS), /Workstream fit/);
   }
-  assert.throws(() => parseProjectFitResponse('{}', keys, PROJECTS), /Project fit/);
+  assert.throws(() => parseProjectFitResponse('{}', keys, PROJECTS), /Workstream fit/);
 });
 
 test('focus projects, restore from shelved, and shelving protection', async () => {

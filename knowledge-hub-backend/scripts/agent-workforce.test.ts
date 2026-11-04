@@ -766,7 +766,7 @@ test('source-authorised retrieval fails closed for excluded aliases and other pr
   const alias = randomUUID();
   await pg.query('INSERT INTO nodes(id,ref_id) VALUES($1,$2)', [alias, sourceId]);
   await assert.rejects(prepareManualBlogCommission(db, request, { ...context, excludedSourceIds: [alias] }), /excluded/);
-  await assert.rejects(prepareManualBlogCommission(db, request, { ...context, projectId: 'other-project' }), /outside the commissioned project/);
+  await assert.rejects(prepareManualBlogCommission(db, request, { ...context, projectId: 'other-project' }), /outside the commissioned workstream/);
   const prepared = await prepareManualBlogCommission(db, request, context);
   const captured = await workforceTransaction(db, client => captureManualBlogSources(client, prepared.brief));
   assert.deepEqual(captured.sources, prepared.brief.scope.sources);

@@ -18,7 +18,7 @@ test('actual failed conversation routes to app configuration, not project retrie
   assert.equal(isDiscoverSourceRequest('Describe IMAGINE architecture'), false);
   assert.equal(isDiscoverSourceRequest('write a claims demo', history), false);
   assert.equal(isDiscoverSourceRequest('ok, try it', [{ role: 'assistant', content: 'Discover sources' }]), false);
-  assert.match(DISCOVER_APP_GUIDANCE, /not a project document library/);
+  assert.match(DISCOVER_APP_GUIDANCE, /not a workstream document library/);
   assert.match(DISCOVER_APP_GUIDANCE, /exclude ALL configured sources/);
   assert.match(DISCOVER_APP_GUIDANCE, /Do not ask the user to paste/);
 });

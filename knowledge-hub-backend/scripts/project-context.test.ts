@@ -17,6 +17,7 @@ const project: CurrentProjectContext = {
   expectedOutputs: [output, 'Second output'], links: [{ label: 'Reference', url: 'https://example.com' }],
   gitlabPaths: ['team/imagine'], githubRepos: ['team/imagine'], tags: ['Insurance'],
   hasIcaDocumentCollection: true, icaDocumentCollectionName: 'IMAGINE documents', icaDocumentCollectionId: 'collection-1',
+  client: null, partners: [], offeringLink: null, linkedProjects: [],
 };
 
 test('actual per-turn context contains all saved project metadata and reflects edits in the same session', async () => {
@@ -40,7 +41,7 @@ test('actual per-turn context contains all saved project metadata and reflects e
   }
   assert.deepEqual(first.projectReferences, project.links);
   assert.match(first.projectContext, /focus, not a knowledge boundary/);
-  assert.match(first.projectContext, /ANY project without asking permission/);
+  assert.match(first.projectContext, /ANY workstream without asking permission/);
   assert.ok(!first.projectContext.includes('hard restriction'));
   const prompt = await assembleMessages(first, [], 'What are the expected outputs?', 'general');
   assert.equal(prompt[0]?.role, 'system');
@@ -58,7 +59,7 @@ test('actual per-turn context contains all saved project metadata and reflects e
 test('unassigned chat can discover saved project IDs and look up full current metadata', async () => {
   const db = new Pool();
   mock.method(db, 'query', async (sql: string) => {
-    if (sql.includes('FROM projects ORDER BY name')) return { rows: [{ id: project.id, name: project.name }] };
+    if (sql.includes('ORDER BY p.name')) return { rows: [{ id: project.id, name: project.name }] };
     if (sql.includes('FROM projects WHERE id')) return { rows: [project] };
     if (sql.includes("kind = 'profile'")) return { rows: [{ content: 'User profile', status: 'active' }] };
     return { rows: [] };
@@ -68,7 +69,7 @@ test('unassigned chat can discover saved project IDs and look up full current me
   assert.ok(context.projectContext.includes('get_project_details'));
   const result = await executeToolCall(db, 'get_project_details', '{"projectId":"imagine"}');
   assert.deepEqual(result, {
-    project, note: 'Current saved Projects record, read now. Takes precedence over older chat history and memories.',
+    project, note: 'Current saved Workstreams record, read now. Takes precedence over older chat history and memories.',
   });
 });
 
@@ -80,16 +81,16 @@ test('project lookup honours another requested project and defaults only when om
     return { rows: [] };
   });
   assert.deepEqual(await executeToolCall(db, 'get_project_details', '{"projectId":"other"}', project.id), {
-    error: 'Project "other" was not found.',
+    error: 'Workstream "other" was not found.',
   });
   assert.deepEqual(await executeToolCall(db, 'get_project_details', '{}', project.id), {
-    error: 'Project "imagine" was not found.',
+    error: 'Workstream "imagine" was not found.',
   });
   assert.deepEqual(requested, ['other', 'imagine']);
   assert.deepEqual(await executeToolCall(db, 'get_project_details', '{}'), {
-    error: 'Provide a saved project ID from the projects catalog.',
+    error: 'Provide a saved workstream ID from the workstreams catalog.',
   });
-  assert.equal(describeToolActivity('get_project_details', '{}'), 'Reading current project details');
+  assert.equal(describeToolActivity('get_project_details', '{}'), 'Reading current workstream details');
 });
 
 test('assigned client can discover the saved catalog and search knowledge, Library and auto-RAG across projects', async () => {
@@ -99,7 +100,7 @@ test('assigned client can discover the saved catalog and search knowledge, Libra
     reads.push({ sql, values });
     if (sql.includes('SELECT project_id FROM ai_chat_sessions')) return { rows: [{ project_id: project.id }] };
     if (sql.includes('FROM projects WHERE id')) return { rows: [project] };
-    if (sql.includes('FROM projects ORDER BY name')) return { rows: [{ id: 'azure', name: 'Azure' }] };
+    if (sql.includes('ORDER BY p.name')) return { rows: [{ id: 'azure', name: 'Azure' }] };
     if (sql.includes("kind = 'profile'")) return { rows: [{ content: 'User profile', status: 'active' }] };
     return { rows: [], rowCount: 1 };
   });

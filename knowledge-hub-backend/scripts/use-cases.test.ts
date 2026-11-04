@@ -71,7 +71,7 @@ test('pure helpers', () => {
   assert.equal(slugify('!!!'), 'use-case');
   assert.equal(defaultLinkTitle('https://github.com/acme/imagine/pull/42'), 'acme/imagine#42');
   assert.equal(defaultLinkTitle('https://example.com/demo/'), 'example.com/demo');
-  assert.throws(() => parseCreate({ title: 'x', productKind: 'product' }), /project or a repo/);
+  assert.throws(() => parseCreate({ title: 'x', productKind: 'product' }), /workstream or a repo/);
   assert.throws(() => parseCreate({ title: 'x', productKind: 'nope' }), /productKind/);
   assert.throws(() => parseCreate({ title: ' ', productKind: 'imagine_demo' }), /title is required/);
   assert.throws(() => parseCreate({ title: 'x', productKind: 'product', repo: 'not a repo' }), /owner\/name/);
@@ -193,7 +193,7 @@ test('buildSpecPrompt includes every source type, clips each source and the tota
   ]);
   for (const label of ['Discover item: Article', 'Spark: Idea', 'Think note: Note', 'Canvas: Flow']) assert.ok(p.user.includes(label), label);
   assert.ok(p.user.includes('[… truncated …]'));
-  assert.ok(p.user.includes('Repository: acme/imagine') && p.user.includes('Project description: Demo platform'));
+  assert.ok(p.user.includes('Repository: acme/imagine') && p.user.includes('Workstream description: Demo platform'));
   assert.ok(p.system.includes('## Why it fits') && !p.system.includes('IMAGINE demo brief'));
   assert.ok(p.system.includes('_Not discussed yet._'));
 

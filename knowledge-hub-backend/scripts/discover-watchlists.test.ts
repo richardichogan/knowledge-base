@@ -50,6 +50,9 @@ async function fixture(): Promise<{ pg: PGlite; db: Pool }> {
       expected_outputs JSONB DEFAULT '[]', links JSONB DEFAULT '[]', gitlab_paths JSONB DEFAULT '[]',
       github_repos JSONB DEFAULT '[]', tags JSONB DEFAULT '[]', has_ica_document_collection BOOLEAN DEFAULT false,
       ica_document_collection_name TEXT DEFAULT '', ica_document_collection_id TEXT DEFAULT '');
+    CREATE TABLE companies(id UUID PRIMARY KEY, name TEXT);
+    CREATE TABLE company_projects(company_id UUID, project_id TEXT, role TEXT NOT NULL DEFAULT 'partner');
+    CREATE TABLE project_offering_links(project_id TEXT, offering_id TEXT, relation TEXT);
     INSERT INTO projects(id,name,description) VALUES ('project-a','IMAGINE','Claims processing with grounded agents');
     CREATE TABLE discovery_sources(id UUID PRIMARY KEY,title TEXT,last_success_at TIMESTAMPTZ,is_active BOOLEAN,last_error TEXT);
     INSERT INTO discovery_sources VALUES ('${sourceId}','Test source',NOW(),true,NULL);
@@ -163,7 +166,7 @@ test('focused findings require structured fields and validate grounded project i
       relationship: 'possible-relevance', impact: 'Potential overlap in claims processing; deployment details not established.' }] };
   const parse = (value: unknown) => parseWatchAnalysis(JSON.stringify({ summary: 'Supported assessment', findings: [value] }), config(), evidence, true, projects);
   assert.equal(parse(focused).findings[0]?.projectAssessments?.[0]?.projectName, 'IMAGINE', 'Canonical saved name wins');
-  assert.throws(() => parse(finding()), /project assessments/);
+  assert.throws(() => parse(finding()), /workstream assessments/);
   assert.throws(() => parse({ ...focused, field: '' }), /activity field/);
   assert.throws(() => parse({ ...focused, projectAssessments: [{ ...focused.projectAssessments[0], projectId: 'invented' }] }), /Unsupported/);
   assert.throws(() => parse({ ...focused, projectAssessments: [{ ...focused.projectAssessments[0], relationship: 'high-risk' }] }), /Unsupported/);

@@ -5,6 +5,8 @@ import { PGlite } from '@electric-sql/pglite';
 import { PROJECT_TYPES } from '../src/services/projectTypes.js';
 
 const migration = readFileSync(new URL('../src/db/migrations/130_project_work_types.sql', import.meta.url), 'utf8');
+// Migration 130's five types; later migrations (141) extend the current PROJECT_TYPES list.
+const MIGRATION_130_TYPES = ['project', 'bau', 'aspiration', 'exploration', 'side-project'] as const;
 
 test('work type migration preserves content, maps both legacy types and accepts only the five approved types', async () => {
   const db = new PGlite();
@@ -23,12 +25,13 @@ test('work type migration preserves content, maps both legacy types and accepts 
       { id: 'client', description: 'Client description', project_type: 'project' },
       { id: 'practice', description: 'Ongoing practice description', project_type: 'project' },
     ]);
-    for (const type of PROJECT_TYPES) {
+    assert.ok(MIGRATION_130_TYPES.every(type => (PROJECT_TYPES as readonly string[]).includes(type)));
+    for (const type of MIGRATION_130_TYPES) {
       await db.query('INSERT INTO projects (id, description, project_type) VALUES ($1, $2, $1)', [type, 'Preserved']);
     }
     await db.exec(migration);
     assert.deepEqual((await db.query("SELECT project_type FROM projects WHERE description = 'Preserved' ORDER BY project_type")).rows.map(row => row['project_type']),
-      [...PROJECT_TYPES].sort());
+      [...MIGRATION_130_TYPES].sort());
     await db.exec("INSERT INTO projects (id, description) VALUES ('default', 'Default type')");
     assert.equal((await db.query("SELECT project_type FROM projects WHERE id = 'default'")).rows[0]?.['project_type'], 'project');
     for (const type of ['standard', 'formal-client', 'invalid']) {

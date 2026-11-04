@@ -17,7 +17,7 @@ test('atlas projects authoritative entities, every saved relationship family and
       CREATE TABLE projects(id text PRIMARY KEY,name text,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
       CREATE TABLE companies(id uuid PRIMARY KEY,name text,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
       CREATE TABLE people(id uuid PRIMARY KEY,name text,company_id uuid,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
-      CREATE TABLE company_projects(company_id uuid,project_id text);
+      CREATE TABLE company_projects(company_id uuid,project_id text,role text NOT NULL DEFAULT 'partner');
       CREATE TABLE person_project_roles(person_id uuid,project_id text,company_id uuid,role text);
       CREATE TABLE notes(id uuid PRIMARY KEY,content text,tags text[] DEFAULT '{}',linked_items uuid[] DEFAULT '{}',status text DEFAULT 'active',
         project_id text,created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
@@ -41,6 +41,15 @@ test('atlas projects authoritative entities, every saved relationship family and
         created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
       CREATE TABLE canvases(id uuid PRIMARY KEY,title text,project text,canvas_type text DEFAULT 'diagram',deleted_at timestamptz,
         created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now());
+      CREATE TABLE canvas_tags(canvas_id uuid,tag_id uuid,source text DEFAULT 'manual');
+      CREATE TABLE canvas_project_uses(canvas_id uuid,project_id text);
+      CREATE TABLE project_offering_links(project_id text,offering_id text,relation text);
+      CREATE TABLE podcast_episodes(note_id uuid,script_note_id uuid,show_notes_note_id uuid);
+      CREATE TABLE deliverable_briefs(note_id uuid,task_id text,produced_content_id uuid,produced_modified_at timestamptz);
+      CREATE TABLE email_drafts(note_id uuid,task_id text,brief_id uuid);
+      CREATE TABLE task_assistance(id uuid,task_id text,result_note_id uuid,direction text,approved_at timestamptz);
+      CREATE TABLE note_passage_followups(note_id uuid,tag_id uuid,task_id text,state text,created_at timestamptz DEFAULT now());
+      CREATE TABLE document_reading_sessions(session_id text,source_kind text,source_id text,complete boolean,updated_at timestamptz DEFAULT now());
       CREATE TABLE canvas_notes(canvas_id uuid,note_id text,created_at timestamptz DEFAULT now());
       CREATE TABLE canvas_nodes(id uuid PRIMARY KEY,canvas_id uuid,ref_type text,ref_id text,created_at timestamptz DEFAULT now());
       CREATE TABLE canvas_edges(id uuid PRIMARY KEY,canvas_id uuid,source_id uuid,target_id uuid,edge_type text,label text,created_at timestamptz DEFAULT now());

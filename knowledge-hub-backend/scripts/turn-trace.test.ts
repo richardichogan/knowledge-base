@@ -113,7 +113,7 @@ test('turn traces persist ordered requests/results, isolated failures, chunking,
     await assert.rejects(executeTraceTool(db, 'read_chat_turn_trace', { sessionId: SESSION, traceId: id },
       { excludedIds: new Set([OTHER]) }), /exclusions/);
     await assert.rejects(executeTraceTool(db, 'read_chat_turn_trace', { sessionId: SESSION, traceId: id },
-      { strictProjectId: 'imagine' }), /restricted project/);
+      { strictProjectId: 'imagine' }), /restricted workstream/);
     await local.query("UPDATE ai_chat_sessions SET excluded_sources='[{\"id\":\"excluded\"}]' WHERE id=$1", [SESSION]);
     await assert.rejects(executeTraceTool(db, 'read_chat_turn_trace', { sessionId: SESSION, traceId: id }, {}), /excluded sources/);
 

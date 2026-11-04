@@ -59,7 +59,7 @@ test('supporting records, configuration and management are separated without los
   assert.equal(selectedTool('/memory', '')?.label, 'Memory');
   assert.equal(selectedTool('/people', '?personId=abc')?.label, 'People');
   assert.equal(selectedTool('/companies', '?companyId=abc')?.label, 'Companies');
-  assert.equal(selectedTool('/projects', '')?.label, 'Projects');
+  assert.equal(selectedTool('/projects', '')?.label, 'Workstreams');
   assert.equal(selectedTool('/jobs', '')?.label, 'Jobs');
   assert.equal(selectedTool('/publishing', '')?.label, 'Publishing');
   assert.equal(TOOL_GROUPS[2]!.items.find(item => item.id === 'publishing')?.path, '/publishing');

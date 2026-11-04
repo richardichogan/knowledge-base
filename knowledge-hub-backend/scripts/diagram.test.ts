@@ -633,6 +633,11 @@ test('diagram metadata updates persist descriptions and allow explicit project c
       project: savedProject, canvas_type: 'diagram', linked_notes: [], node_count: 2,
     }], rowCount: 1 };
   });
+  const transactions: string[] = [];
+  const connect = mock.method(Pool.prototype, 'connect', async () => ({
+    query: async (sql: string) => { transactions.push(sql); return { rows: [], rowCount: 0 }; },
+    release: () => undefined,
+  }));
   try {
     const assigned = await updateCanvas(CANVAS, { description: 'Deployment stages', project: 'imagine' });
     assert.equal(assigned?.project, 'imagine');
@@ -641,7 +646,8 @@ test('diagram metadata updates persist descriptions and allow explicit project c
     assert.equal(cleared?.project, null);
     assert.equal(cleared?.description, '');
     assert.equal(cleared?.canvasType, 'diagram');
-  } finally { query.mock.restore(); }
+    assert.ok(transactions.some(sql => sql.includes('DELETE FROM canvas_project_uses')));
+  } finally { query.mock.restore(); connect.mock.restore(); }
 });
 
 test('saves when the base revision is current and returns revision + 1', async () => {

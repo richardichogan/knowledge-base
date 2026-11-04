@@ -140,7 +140,7 @@ test('invalid and excluded sources reach no write path; exact tools are register
     const excluded = await executeToolCall(pool, 'create_demo_specification', JSON.stringify(input), undefined, { sessionId, excludedIds: new Set([source]) });
     assert.match(JSON.stringify(excluded), /excluded/);
     const outOfScope = await executeToolCall(pool, 'create_demo_specification', JSON.stringify(input), undefined, { sessionId, strictProjectId: 'other-project' });
-    assert.match(JSON.stringify(outOfScope), /strict project scope/);
+    assert.match(JSON.stringify(outOfScope), /strict workstream scope/);
     const missing = { ...input, values: {} };
     assert.match(JSON.stringify(await run(missing)), /Missing:/);
     assert.deepEqual(writes, []);

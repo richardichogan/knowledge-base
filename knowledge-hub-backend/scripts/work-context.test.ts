@@ -69,7 +69,7 @@ test('meeting preparation is manual, explicit-project and read-only with evidenc
     assert.equal(invitation.projectId, null);
     assert.equal(invitation.cockpit, null);
     assert.equal(invitation.notes.length, 0);
-    assert.ok(invitation.limitations.some(item => item.includes('No project selected')));
+    assert.ok(invitation.limitations.some(item => item.includes('No workstream selected')));
     const brief = await prepareMeeting(pool(db), EVENT, 'p1', NOW);
     assert.equal(brief.notes.length, 1);
     assert.equal(brief.notes[0]?.text, 'Every payment needs approval.');

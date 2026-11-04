@@ -401,5 +401,5 @@ test('fix: raw metadata requests are refused and decision review is cross-projec
   const out = finalizeKnowledgeAnswer('Show me the raw metadata fields of that note', 'dump', { budget, counts: { found: 1, read: 1 }, retrievalUsed: true, deterministicPath: false });
   assert.match(out, /not available/);
   assert.match(out, /excluded/);
-  assert.match(REVIEW_DECISIONS_DEFINITION.function.description + JSON.stringify(REVIEW_DECISIONS_DEFINITION.function.parameters), /ALL projects/);
+  assert.match(REVIEW_DECISIONS_DEFINITION.function.description + JSON.stringify(REVIEW_DECISIONS_DEFINITION.function.parameters), /ALL workstreams/);
 });
