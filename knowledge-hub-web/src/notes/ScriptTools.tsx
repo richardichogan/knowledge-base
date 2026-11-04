@@ -26,7 +26,7 @@ export function ScriptTools({ editor, disabled }: { editor: Editor; disabled: bo
     return () => { offSelection(); offChange(); };
   }, [editor]);
   return <>
-  <div className="kh-script-tools" role="group" aria-label="Script block styles, emphasis and delivery cues">
+  <div className="kh-script-tools kh-script-tools--sticky" role="group" aria-label="Script block styles, emphasis and delivery cues">
     <label className="kh-script-tools__style">Block style
       <select value={blockStyle} disabled={disabled || !canStyle}
         onChange={event => {

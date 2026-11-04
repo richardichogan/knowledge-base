@@ -5924,9 +5924,14 @@ body.kh-pane-resizing {
     color: inherit;
   }
 
-  .bn-editor [data-text-color="#3ddbd9"] { color: var(--kh-accent); }
-  .bn-editor [data-text-color="#f1c21b"] { color: var(--cds-support-warning); }
-  .bn-editor [data-text-color="#ff7eb6"] { color: #ff7eb6; }
+  .bn-editor {
+    [data-text-color="#3ddbd9"],
+    [data-style-type="textColor"][data-value="#3ddbd9"] { color: var(--kh-accent); }
+    [data-text-color="#f1c21b"],
+    [data-style-type="textColor"][data-value="#f1c21b"] { color: var(--cds-support-warning); }
+    [data-text-color="#ff7eb6"],
+    [data-style-type="textColor"][data-value="#ff7eb6"] { color: #ff7eb6; }
+  }
 }
 
 // Bottom toolbar
@@ -16429,6 +16434,14 @@ fieldset.proj-modal-body {
   align-items: center;
   gap: var(--cds-spacing-03);
   margin-bottom: var(--cds-spacing-04);
+  &--sticky {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    padding-block: var(--cds-spacing-03);
+    border-bottom: 1px solid var(--cds-border-subtle-01);
+    background: var(--cds-background);
+  }
   > .kh-btn-ghost {
     min-height: var(--kh-control-height-compact);
     text-transform: capitalize;

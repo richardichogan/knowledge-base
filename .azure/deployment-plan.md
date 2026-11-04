@@ -2,6 +2,28 @@
 
 **Status:** Validated
 
+**Sticky script toolbar and inline-colour release validation (2026-11-04):**
+- All validation checks pass:
+  - Core validation: synced main, both app TypeScript checks, frontend isolated
+    release suite, production build and lint non-regression.
+  - Docker build: not applicable; backend v299 source remains unchanged.
+  - Azure Policy validation: existing kh-prod-web frontend-only update, with
+    no provisioning, identity, network, RBAC, dependency or Desktop changes.
+
+**Section 7: Validation Proof — sticky toolbar and inline colours (2026-11-04):**
+- Fetch/merge: current at d9e24db9; shared packed-refs lock left untouched.
+- Both app `npx tsc --noEmit` checks passed. Frontend isolated suite passed
+  328 main checks and all auxiliary bundles. Production build passed; lint
+  non-regression passed (21 existing findings / baseline 41).
+- Standalone controls are sticky in the existing editor scroll container.
+  Inline emphasis now targets actual BlockNote data-style-type/data-value
+  markup, retaining block-colour support. Regressions cover both changes.
+- Reuse unchanged backend v299 release evidence. No backend deployment needed.
+- Actual signed-in browser inspection remains blocked by separate browser auth;
+  no claim of live editor or physical Elgato visual verification is made.
+- Preserve unrelated DESIGN.md and hook cache modifications.
+- Evidence: script-toolbar-web-tests.log and script-toolbar-web-build.log.
+
 **Script linked-name and editor-colour release validation (2026-11-04):**
 - All validation checks pass:
   - Core validation: synced main, both application TypeScript checks, frontend

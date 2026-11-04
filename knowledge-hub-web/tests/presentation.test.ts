@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import { build } from 'esbuild';
 import { presentationScript } from '../src/features/autocue/presentationScript';
@@ -11,6 +12,23 @@ import { episodeScriptText } from '../src/types/podcastEpisodes';
 import { scriptRichDocument, scriptRichText } from '../src/features/podcasts/scriptRichText';
 import { scriptAnnotationRuns, scriptInlineContent, scriptReadingText, spokenScriptText } from '../../knowledge-hub-backend/src/podcasts/scriptAnnotations';
 import { annotatedPresentation } from '../src/features/podcasts/scriptAnnotations';
+import { SCRIPT_COLOUR_VALUES } from '../src/features/podcasts/scriptRichText';
+
+test('standalone script emphasis styles target BlockNote inline colour attributes, not only block colours', async () => {
+  const styles = await readFile(new URL('../src/styles/global.scss', import.meta.url), 'utf8');
+  for (const value of Object.values(SCRIPT_COLOUR_VALUES)) {
+    assert.ok(styles.includes(`[data-style-type="textColor"][data-value="${value}"]`),
+      `Missing inline editor styling for ${value}`);
+  }
+});
+
+test('standalone script controls stay sticky within the existing editor scroll area', async () => {
+  const tools = await readFile(new URL('../src/notes/ScriptTools.tsx', import.meta.url), 'utf8');
+  const styles = await readFile(new URL('../src/styles/global.scss', import.meta.url), 'utf8');
+  assert.ok(tools.includes('kh-script-tools kh-script-tools--sticky'));
+  assert.match(styles, /&--sticky\s*\{\s*position: sticky;\s*top: 0;/);
+  assert.ok(tools.includes('editor.onSelectionChange(refresh)'));
+});
 
 test('podcast sentence spacing leaves a blank line between sentences, preserving versions and links', () => {
   const text = 'Welcome to the podcast. Here is the running order.\r\n\r\nDiscuss version 5.4 and Microsoft 365. See https://example.com/news.\nKeep this deliberate break.';

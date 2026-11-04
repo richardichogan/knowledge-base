@@ -386,6 +386,9 @@ Present or Presenter prepares a snapshot and appear as spoken text, not URLs or
 badges. Lookup failures are shown rather than silently dropping words. Reloading
 the saved script refreshes linked names. Standalone editor emphasis renders the
 same saved teal, yellow and pink values used by the autocue.
+The standalone script toolbar sticks to the top of the existing editor scroll
+area, keeping block styles, emphasis state and delivery cues available while
+reading or selecting text further down the script.
 
 Athena Desktop 0.1.11 renders the saved annotated script as safe text runs, not HTML.
 The passage at the existing reading guide is bright while surrounding passages
