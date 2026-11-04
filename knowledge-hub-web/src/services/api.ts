@@ -444,11 +444,23 @@ export type ProjectColour =
   | 'red' | 'magenta' | 'purple' | 'indigo' | 'warm-gray' | 'gray';
 export type ProjectCategory = 'work' | 'personal' | 'side-hustle';
 export type ProjectPriority = 'low' | 'medium' | 'high';
-export type ProjectType = 'project' | 'bau' | 'aspiration' | 'exploration' | 'side-project';
+export type ProjectType = 'project' | 'opportunity' | 'offering' | 'bau' | 'aspiration' | 'exploration' | 'side-project';
 export type ProjectLifecycleState = 'active' | 'paused' | 'completed' | 'archived';
 export type ProjectImportance = 'critical' | 'high' | 'normal' | 'low';
 
 export interface ProjectLink { label: string; url: string; }
+export type OfferingRelation = 'sells' | 'related';
+export interface ProjectCompanyRef { id: string; name: string }
+export interface ProjectOfferingLink { offeringId: string; offeringName: string; relation: OfferingRelation }
+export interface ProjectLinkedWork { id: string; name: string; projectType: ProjectType; relation: OfferingRelation }
+/** Relation changes sent with a project create/update; omitted fields stay unchanged. */
+export type ProjectWriteFields = Omit<Project, 'id' | 'createdAt' | 'updatedAt' | 'client' | 'partners' | 'offeringLink' | 'linkedProjects'>;
+
+export interface ProjectRelationsInput {
+  clientCompanyId?: string | null;
+  partnerCompanyIds?: string[];
+  offeringLink?: { offeringId: string; relation: OfferingRelation } | null;
+}
 
 export interface Project {
   id: string;
@@ -480,6 +492,12 @@ export interface Project {
   icaDocumentCollectionId: string;
   links: ProjectLink[];
   tags: string[];
+  /** Read-only relation data; change it with ProjectRelationsInput fields. */
+  client?: ProjectCompanyRef | null;
+  partners?: ProjectCompanyRef[];
+  offeringLink?: ProjectOfferingLink | null;
+  /** For offerings: the projects and opportunities that sell or relate to it. */
+  linkedProjects?: ProjectLinkedWork[];
   createdAt: string;
   updatedAt: string;
 }
@@ -1844,12 +1862,12 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  async createProject(input: Omit<Project, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<ApiResponse<Project>> {
+  async createProject(input: ProjectWriteFields & ProjectRelationsInput & { id?: string }): Promise<ApiResponse<Project>> {
     const r = await this.client.post<ApiResponse<Project>>('/api/projects', input);
     return r.data;
   }
 
-  async updateProject(id: string, input: Partial<Omit<Project, 'id' | 'createdAt' | 'updatedAt'>>): Promise<ApiResponse<Project>> {
+  async updateProject(id: string, input: Partial<ProjectWriteFields> & ProjectRelationsInput): Promise<ApiResponse<Project>> {
     const r = await this.client.patch<ApiResponse<Project>>(`/api/projects/${id}`, input);
     return r.data;
   }
@@ -2671,7 +2689,7 @@ export class KnowledgeHubApi {
       { responseType: 'blob' })).data;
   }
 
-  async updateCanvas(id: string, patch: { title?: string; description?: string; project?: string | null; viewport?: object; brainstormSettings?: BrainstormSettings }): Promise<ApiResponse<CanvasSummaryApi>> {
+  async updateCanvas(id: string, patch: { title?: string; description?: string; project?: string | null; usedInProjectIds?: string[]; viewport?: object; brainstormSettings?: BrainstormSettings }): Promise<ApiResponse<CanvasSummaryApi>> {
     const r = await this.client.patch<ApiResponse<CanvasSummaryApi>>(`/api/canvases/${id}`, patch);
     return r.data;
   }
@@ -3230,6 +3248,8 @@ export interface CanvasSummaryApi {
   parentShapeLabel?: string | null;
   deletedAt?: string | null;
   project: string | null; createdAt: string; updatedAt: string;
+  /** Diagrams: other projects/opportunities this is also used in. */
+  usedInProjectIds?: string[];
   linkedNotes: Array<{ id: string; title: string }>;
   nodeCount: number;
   /** Only when listed for a note: the diagram shapes/connectors/footnotes that note is linked to. */

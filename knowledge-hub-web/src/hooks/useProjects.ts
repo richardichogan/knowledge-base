@@ -5,7 +5,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/api';
-import type { Project } from '../services/api';
+import type { Project, ProjectRelationsInput, ProjectWriteFields } from '../services/api';
 import { requireApiData } from '../services/apiError';
 
 export const PROJECTS_KEY = ['projects'] as const;
@@ -21,7 +21,7 @@ export function useProjects() {
 export function useCreateProject() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: Omit<Project, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) =>
+    mutationFn: async (input: ProjectWriteFields & ProjectRelationsInput & { id?: string }) =>
       requireApiData(await api.createProject(input)),
     onSuccess: (created) => {
       qc.setQueryData<Project[]>(PROJECTS_KEY, (current) => current === undefined ? undefined : [...current, created]);
@@ -33,7 +33,7 @@ export function useCreateProject() {
 export function useUpdateProject() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, ...input }: { id: string } & Partial<Omit<Project, 'id' | 'createdAt' | 'updatedAt'>>) =>
+    mutationFn: async ({ id, ...input }: { id: string } & Partial<ProjectWriteFields> & ProjectRelationsInput) =>
       requireApiData(await api.updateProject(id, input)),
     onSuccess: (updated) => {
       qc.setQueryData<Project[]>(PROJECTS_KEY, (current) => current?.map((project) => project.id === updated.id ? updated : project));

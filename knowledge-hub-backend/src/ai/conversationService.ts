@@ -364,7 +364,7 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
   if (toolContext.podcastOwner) catalog.load(['read_podcast_script', 'read_podcast_campaign']);
   if (openDiagram && permittedTools.some(tool => tool.function.name === 'hand_off_to_specialist')) catalog.load(['hand_off_to_specialist']);
   const contextCapabilities = catalog.loadPermitted([
-    ...(openDiagram ? ['update_diagram', 'hand_off_to_specialist', 'check_specialist_jobs', 'apply_diagram_candidate'] : []),
+    ...(openDiagram ? ['update_diagram', 'set_diagram_projects', 'hand_off_to_specialist', 'check_specialist_jobs', 'apply_diagram_candidate'] : []),
     ...(noteOpen ? ['propose_note_edit'] : []),
     ...(mapOutlineResult ? ['propose_map_changes'] : []),
     ...(design ? ['save_design_documents'] : []),

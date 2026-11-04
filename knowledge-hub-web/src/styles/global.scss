@@ -6979,6 +6979,44 @@ body.kh-pane-resizing {
   }
 }
 
+.proj-relations-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  background: var(--cds-layer-02);
+  border: 1px solid var(--cds-border-subtle-01);
+
+  &__title { margin: 0; color: var(--cds-text-primary); font-size: 0.9375rem; font-weight: 600; }
+  &__help { margin: 0; color: var(--cds-text-helper); font-size: var(--kh-text-meta); line-height: 1.5; }
+}
+
+.proj-linked-work {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+
+  &__item {
+    padding: 0;
+    color: var(--cds-link-primary);
+    font: inherit;
+    font-size: var(--kh-text-body);
+    text-align: left;
+    background: none;
+    border: 0;
+    cursor: pointer;
+    &:hover { color: var(--cds-link-primary-hover); text-decoration: underline; }
+    &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+  }
+
+  &__meta { color: var(--cds-text-helper); font-size: var(--kh-text-meta); }
+}
+
 .proj-modal-row {
   display: grid;
   grid-template-columns: 1fr 1fr;

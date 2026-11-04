@@ -18,6 +18,7 @@ import { IDENTITY_COLOURS, IDENTITY_PALETTE, type IdentityColour } from '../serv
 import { projectGitHubRepositories } from '../integrations/github/projectContext.js';
 import { PROJECT_TYPES, type ProjectType } from '../services/projectTypes.js';
 export type { ProjectType } from '../services/projectTypes.js';
+import { PROJECT_RELATION_COLUMNS, rowToRelations, parseProjectRelations, hasRelationChanges, saveProjectRelations, reconcileOfferingLinks, type ProjectRelations } from '../services/projectRelations.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -33,7 +34,7 @@ export interface ProjectLink {
   url: string;
 }
 
-export interface Project {
+export interface Project extends ProjectRelations {
   id: string;
   name: string;
   colour: ProjectColour;
@@ -73,7 +74,8 @@ const PROJECT_COLUMNS = `*, to_char(start_date, 'YYYY-MM-DD') AS start_date,
   to_char(target_end_date, 'YYYY-MM-DD') AS target_end_date,
   (SELECT t.id FROM tags t WHERE t.project_id = projects.id) AS tag_id,
   (SELECT g.id FROM tags t JOIN tags g ON g.id = t.parent_id WHERE t.project_id = projects.id) AS group_id,
-  (SELECT g.name FROM tags t JOIN tags g ON g.id = t.parent_id WHERE t.project_id = projects.id) AS group_name`;
+  (SELECT g.name FROM tags t JOIN tags g ON g.id = t.parent_id WHERE t.project_id = projects.id) AS group_name,
+  ${PROJECT_RELATION_COLUMNS}`;
 
 function rowToProject(row: Record<string, unknown>): Project {
   return {
@@ -105,6 +107,7 @@ function rowToProject(row: Record<string, unknown>): Project {
     tags:         row['tags'] as string[],
     createdAt:    String(row['created_at']),
     updatedAt:    String(row['updated_at']),
+    ...rowToRelations(row),
   };
 }
 
@@ -226,7 +229,7 @@ async function assertGroup(db: Db, groupId: string): Promise<void> {
  * under the chosen group. Creates the tag if the project has none.
  * `groupId` undefined leaves the group unchanged; null makes the project ungrouped.
  */
-async function syncProjectTag(db: Db, projectId: string, groupId: string | null | undefined): Promise<void> {
+export async function syncProjectTag(db: Db, projectId: string, groupId: string | null | undefined): Promise<void> {
   const project = await db.query<{ name: string; colour: IdentityColour }>(
     'SELECT name, colour FROM projects WHERE id = $1', [projectId],
   );
@@ -308,6 +311,7 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
       const db = getDb();
       const input = req.body as Record<string, unknown>;
       validateInput(input, true);
+      const relations = parseProjectRelations(input);
       const id = String(input['id'] ?? '').trim() || randomUUID();
       const tags = Array.isArray(input['tags']) ? (input['tags'] as string[]).filter(Boolean) : [];
       const result = await db.query<Record<string, unknown>>(
@@ -342,7 +346,12 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
       );
       const createdId = String((result.rows[0] as Record<string, unknown>)['id']);
       await syncProjectTag(db, createdId, (input['groupId'] as string | null | undefined) ?? null);
-      const body: ApiSuccess<Project> = { success: true, data: await loadProject(db, createdId) };
+      try { await saveProjectRelations(db, createdId, relations); }
+      catch (error) {
+        await db.query('DELETE FROM tags WHERE project_id = $1', [createdId]);
+        await db.query('DELETE FROM projects WHERE id = $1', [createdId]);
+        throw error;
+      }      const body: ApiSuccess<Project> = { success: true, data: await loadProject(db, createdId) };
       res.status(HTTP_STATUS.CREATED).json(body);
       // Auto-upsert tags into global registry (fire-and-forget)
       upsertTags(db, tags).catch((e: unknown) => {
@@ -360,6 +369,7 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       const { id } = req.params;
       const input = req.body as Record<string, unknown>;
       validateInput(input, false);
+      const relations = parseProjectRelations(input);
 
       const fields: string[] = [];
       const params: unknown[] = [];
@@ -390,7 +400,7 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       if (Array.isArray(input['links']))       add('links',        JSON.stringify(input['links']));
       if (Array.isArray(input['tags']))        add('tags',         (input['tags'] as string[]).filter(Boolean));
 
-      if (fields.length === 0 && input['groupId'] === undefined) throw new ValidationError('no fields to update', {});
+      if (fields.length === 0 && input['groupId'] === undefined && !hasRelationChanges(relations)) throw new ValidationError('no fields to update', {});
       if (input['startDate'] !== undefined || input['targetEndDate'] !== undefined) {
         const current = await db.query<{ start_date: string | null; target_end_date: string | null }>(
           `SELECT to_char(start_date, 'YYYY-MM-DD') AS start_date,
@@ -418,6 +428,8 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       );
       if (result.rows.length === 0) throw new NotFoundError(`Project '${id}' not found`);
       await syncProjectTag(db, id ?? '', input['groupId'] as string | null | undefined);
+      if (input['projectType'] !== undefined) await reconcileOfferingLinks(db, id ?? '');
+      await saveProjectRelations(db, id ?? '', relations);
       const updated = await loadProject(db, id ?? '');
       const body: ApiSuccess<Project> = { success: true, data: updated };
       res.status(HTTP_STATUS.OK).json(body);

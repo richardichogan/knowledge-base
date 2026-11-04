@@ -29,7 +29,7 @@ export const DIAGRAM_READING_GUIDANCE = [
 ].join('\n');
 
 interface DiagramRow {
-  id: string; title: string; description: string | null; project: string | null;
+  id: string; title: string; description: string | null; project: string | null; used_in: string[];
   revision: number; updated_at: string; document: DiagramDocument;
   linked_notes: Array<{ id: string; content: string }>;
   element_notes: Array<{ elementId: string; noteId: string; content: string }>;
@@ -115,6 +115,7 @@ export async function findDiagramContext(db: Pool, args: {
   const query = (args.query ?? '').trim().slice(0, 500);
   const { rows } = await db.query<DiagramRow>(`
     SELECT c.id::text, c.title, c.description, c.project, d.revision, d.updated_at, d.document,
+      COALESCE((SELECT array_agg(u.project_id ORDER BY u.project_id) FROM canvas_project_uses u WHERE u.canvas_id = c.id), '{}') AS used_in,
       COALESCE((SELECT json_agg(json_build_object('id', n.id::text, 'content', n.content) ORDER BY cn.created_at)
         FROM canvas_notes cn JOIN notes n ON n.id::text = cn.note_id AND n.status = 'active'
         WHERE cn.canvas_id = c.id), '[]'::json) AS linked_notes,
@@ -127,7 +128,8 @@ export async function findDiagramContext(db: Pool, args: {
     WHERE c.canvas_type = 'diagram' AND c.deleted_at IS NULL
       AND ($1::text IS NULL OR c.id::text = $1)
       AND NOT (c.id::text = ANY($5::text[]))
-      AND ($2::text IS NULL OR c.project = $2 OR EXISTS (
+      AND ($2::text IS NULL OR c.project = $2
+        OR EXISTS (SELECT 1 FROM canvas_project_uses u WHERE u.canvas_id = c.id AND u.project_id = $2) OR EXISTS (
         SELECT 1 FROM canvas_notes cn JOIN notes n ON n.id::text = cn.note_id
         WHERE cn.canvas_id = c.id AND n.status = 'active' AND n.project_id = $2))
       AND ($3::text = '' OR strpos(lower(c.title || ' ' || COALESCE(c.description, '')), lower($3)) > 0
@@ -156,14 +158,14 @@ export async function findDiagramContext(db: Pool, args: {
       noteBudget -= Math.min(text.length, share);
     }
     const content = args.fullSource ? [
-      JSON.stringify({ title: row.title, description: row.description, project: row.project, revision: row.revision, savedAt: row.updated_at }),
+      JSON.stringify({ title: row.title, description: row.description, project: row.project, usedInProjects: row.used_in, revision: row.revision, savedAt: row.updated_at }),
       JSON.stringify(row.document),
       JSON.stringify({ elementNotes: row.element_notes.filter(n => args.excludedIds?.has(n.noteId) !== true)
         .map(n => ({ elementId: n.elementId, noteId: n.noteId, url: `/think?noteId=${encodeURIComponent(n.noteId)}` })) }),
       JSON.stringify({ linkedNotes: notes, assets: row.assets }),
     ].join('\n') : [
         JSON.stringify({ title: row.title, description: row.description?.slice(0, 1500) ?? null,
-          project: row.project, revision: row.revision, savedAt: row.updated_at }),
+          project: row.project, usedInProjects: row.used_in, revision: row.revision, savedAt: row.updated_at }),
         diagramEvidence(row.document, args.diagramId === undefined ? 12_000 : 24_000, args.selectedId),
         JSON.stringify({ elementNotes: row.element_notes.filter(n => args.excludedIds?.has(n.noteId) !== true).slice(0, 50).map(n => ({
           elementId: n.elementId, noteId: n.noteId, title: (parseNoteContent(n.content).title ?? 'Untitled').slice(0, 300),

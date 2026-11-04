@@ -55,6 +55,7 @@ const LABELS: Record<string, string> = {
   update_note: 'Updating a Think note',
   create_diagram: 'Drawing a diagram',
   update_diagram: 'Updating a diagram',
+  set_diagram_projects: 'Updating a diagram\'s projects',
   create_mind_map: 'Creating a mind map',
   create_weekly_microsoft_digest: 'Collating this week\'s Microsoft updates',
   manage_scheduled_jobs: 'Working with scheduled jobs',

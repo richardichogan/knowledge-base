@@ -1,7 +1,8 @@
 import type { Pool } from 'pg';
 import type { ProjectType } from '../services/projectTypes.js';
+import { PROJECT_RELATION_COLUMNS, rowToRelations, type ProjectRelations } from '../services/projectRelations.js';
 
-export interface CurrentProjectContext {
+export interface CurrentProjectContext extends ProjectRelations {
   id: string;
   name: string;
   description: string;
@@ -27,7 +28,7 @@ export interface CurrentProjectContext {
 
 /** Query on every turn/lookup; project edits must not depend on a chat restart. */
 export async function loadCurrentProjectContext(db: Pool, projectId: string): Promise<CurrentProjectContext | null> {
-  const { rows } = await db.query<CurrentProjectContext>(
+  const { rows } = await db.query<CurrentProjectContext & Record<string, unknown>>(
     `SELECT id, name, description, goal, role, ownership,
       lifecycle_state AS "lifecycleState",
       to_char(start_date, 'YYYY-MM-DD') AS "startDate",
@@ -37,14 +38,17 @@ export async function loadCurrentProjectContext(db: Pool, projectId: string): Pr
       gitlab_paths AS "gitlabPaths", github_repos AS "githubRepos", tags,
       has_ica_document_collection AS "hasIcaDocumentCollection",
       ica_document_collection_name AS "icaDocumentCollectionName",
-      ica_document_collection_id AS "icaDocumentCollectionId"
+      ica_document_collection_id AS "icaDocumentCollectionId",
+      ${PROJECT_RELATION_COLUMNS}
     FROM projects WHERE id = $1`,
     [projectId],
   );
   const project = rows[0];
   if (!project) return null;
+  const { client_company: _client, partner_companies: _partners, offering_link: _offering, linked_projects: _linked, ...fields } = project;
   return {
-    ...project,
+    ...fields,
+    ...rowToRelations(project),
     links: Array.isArray(project.links) ? project.links : [],
     expectedOutputs: Array.isArray(project.expectedOutputs) ? project.expectedOutputs : [],
     gitlabPaths: Array.isArray(project.gitlabPaths) ? project.gitlabPaths : [],
@@ -66,7 +70,11 @@ export function formatCurrentProjectContext(project: CurrentProjectContext): str
     project.startDate && `Start date: ${project.startDate}`,
     project.targetEndDate && `Target end date: ${project.targetEndDate}`,
     project.expectedOutputs.length > 0 && `Deliverables:\n${project.expectedOutputs.map((output) => `- ${output}`).join('\n')}`,
-    'Work type describes the nature of the work, not a client arrangement. BAU is an ongoing responsibility; an aspiration is a direction for growth. Neither implies a required end date or completion score.',
+    project.client && `Client: ${project.client.name}`,
+    project.partners.length > 0 && `Partners: ${project.partners.map((partner) => partner.name).join(', ')}`,
+    project.offeringLink && `Offering: ${project.offeringLink.relation === 'sells' ? 'sells' : 'related to'} ${project.offeringLink.offeringName} (id: ${project.offeringLink.offeringId})`,
+    project.linkedProjects.length > 0 && `Projects and opportunities linked to this offering:\n${project.linkedProjects.map((linked) => `- ${linked.name} (id: ${linked.id}; ${linked.projectType}; ${linked.relation === 'sells' ? 'sells it' : 'related'})`).join('\n')}`,
+    'Work type describes the nature of the work. A project is delivery work; an opportunity is a sales pursuit for a client; an offering is something sold (projects and opportunities can sell or relate to it). BAU is an ongoing responsibility; an aspiration is a direction for growth. Neither implies a required end date or completion score.',
     project.githubRepos.length > 0 && `GitHub repositories: ${project.githubRepos.join(', ')}`,
     project.gitlabPaths.length > 0 && `GitLab paths: ${project.gitlabPaths.join(', ')}`,
     project.tags.length > 0 && `Tags: ${project.tags.join(', ')}`,

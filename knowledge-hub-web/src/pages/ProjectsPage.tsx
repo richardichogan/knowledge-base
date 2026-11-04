@@ -7,7 +7,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   Button, TextInput, TextArea, Modal,
-  Select, SelectItem, InlineNotification, Checkbox,
+  Select, SelectItem, InlineNotification, Checkbox, ComboBox, FilterableMultiSelect,
 } from '@carbon/react';
 import { Add, Edit, TrashCan, LogoGithub, Launch } from '@carbon/icons-react';
 import {
@@ -22,7 +22,8 @@ import {
   type CreateProjectInput,
   type UpdateProjectInput,
 } from '../services/useProjects';
-import { api } from '../services/api';
+import { api, type OfferingRelation } from '../services/api';
+import type { Company } from '../types/companies';
 import { COLOUR_LABEL, IDENTITY_COLOURS, IDENTITY_ICONS, IdentityChip, colourHex, identityIcon, type Identity } from '../identity';
 import { describeApiError, requireApiData } from '../services/apiError';
 import { DataNotice } from '../components/DataNotice';
@@ -48,6 +49,8 @@ const PRIORITIES: { value: ProjectPriority; label: string }[] = [
 ];
 const PROJECT_TYPES: { value: ProjectType; label: string }[] = [
   { value: 'project', label: 'Project' },
+  { value: 'opportunity', label: 'Opportunity' },
+  { value: 'offering', label: 'Offering' },
   { value: 'bau', label: 'Ongoing responsibility (BAU)' },
   { value: 'aspiration', label: 'Aspiration' },
   { value: 'exploration', label: 'Exploration' },
@@ -89,12 +92,15 @@ interface ProjectModalProps {
   open: boolean;
   initial: ProjectRecord | null;   // null = create mode
   groups: ProjectGroup[];
+  offerings: ProjectRecord[];
   onClose: () => void;
   onSave: (data: CreateProjectInput | UpdateProjectInput) => Promise<void>;
   saving: boolean;
 }
 
-const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, groups, onClose, onSave, saving }) => {
+interface CompanyOption { id: string; text: string }
+
+const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, groups, offerings, onClose, onSave, saving }) => {
   const isEdit = initial != null;
 
   const [name, setName]             = useState(initial?.name ?? '');
@@ -118,7 +124,22 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, groups, onCl
   const [gitlabRaw, setGitlabRaw]   = useState((initial?.gitlabPaths ?? []).join('\n'));
   const [githubRaw, setGithubRaw]   = useState((initial?.githubRepos ?? []).join('\n'));
   const [links, setLinks]           = useState<ProjectLink[]>(initial?.links ?? []);
+  const [clientId, setClientId]     = useState<string>(initial?.client?.id ?? '');
+  const [partnerIds, setPartnerIds] = useState<string[]>((initial?.partners ?? []).map((partner) => partner.id));
+  const [offeringId, setOfferingId] = useState<string>(initial?.offeringLink?.offeringId ?? '');
+  const [offeringRelation, setOfferingRelation] = useState<OfferingRelation>(initial?.offeringLink?.relation ?? 'sells');
   const [err, setErr]               = useState<string | null>(null);
+
+  const companiesQuery = useQuery<Company[]>({
+    queryKey: ['companies', ''],
+    queryFn: async () => requireApiData(await api.getCompanies()),
+    enabled: open,
+    staleTime: 60_000,
+    retry: 1,
+  });
+  const companyOptions: CompanyOption[] = (companiesQuery.data ?? []).map((company) => ({ id: company.id, text: company.name }));
+  const companiesReady = companiesQuery.data !== undefined;
+  const offeringOptions = offerings.filter((offering) => offering.id !== initial?.id);
 
   // Reset when modal reopens for a new project
   React.useEffect(() => {
@@ -144,6 +165,10 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, groups, onCl
       setGitlabRaw((initial?.gitlabPaths ?? []).join('\n'));
       setGithubRaw((initial?.githubRepos ?? []).join('\n'));
       setLinks(initial?.links ?? []);
+      setClientId(initial?.client?.id ?? '');
+      setPartnerIds((initial?.partners ?? []).map((partner) => partner.id));
+      setOfferingId(initial?.offeringLink?.offeringId ?? '');
+      setOfferingRelation(initial?.offeringLink?.relation ?? 'sells');
       setErr(null);
     }
   }, [open, initial]);
@@ -176,9 +201,16 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, groups, onCl
         return;
       }
     }
+    if (clientId !== '' && partnerIds.includes(clientId)) {
+      setErr('The client cannot also be a partner.');
+      return;
+    }
     setErr(null);
     try {
       await onSave({
+        // Company links are sent only once the company list has loaded, so a lookup failure never clears them.
+        ...(companiesReady ? { clientCompanyId: clientId === '' ? null : clientId, partnerCompanyIds: partnerIds } : {}),
+        offeringLink: projectType === 'offering' || offeringId === '' ? null : { offeringId, relation: offeringRelation },
         ...(isEdit ? {} : { id: name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-') }),
         name: name.trim(),
         description: description.trim(),
@@ -319,9 +351,63 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, groups, onCl
           </Select>
         </div>
 
-        <Select id="pm-project-type" labelText="Project type" value={projectType} onChange={(e) => setProjectType(e.target.value as ProjectType)}>
+        <Select id="pm-project-type" labelText="Project type" value={projectType} onChange={(e) => {
+          const next = e.target.value as ProjectType;
+          setProjectType(next);
+          if (!initial?.offeringLink) setOfferingRelation(next === 'opportunity' ? 'sells' : 'related');
+        }}>
           {PROJECT_TYPES.map((p) => <SelectItem key={p.value} value={p.value} text={p.label} />)}
         </Select>
+
+        <div className="proj-relations-editor">
+          <p className="proj-relations-editor__title">Client, partners and offering</p>
+          {companiesQuery.error ? (
+            <InlineNotification kind="warning" lowContrast hideCloseButton
+              title="Companies could not be loaded."
+              subtitle="Existing client and partner links will be kept." />
+          ) : (
+            <>
+              <ComboBox<CompanyOption>
+                id="pm-client"
+                titleText="Client"
+                placeholder={companiesReady ? 'Choose a company' : 'Loading companies…'}
+                disabled={!companiesReady}
+                items={companyOptions}
+                itemToString={(item) => item?.text ?? ''}
+                selectedItem={companyOptions.find((option) => option.id === clientId) ?? null}
+                onChange={({ selectedItem }) => { setClientId(selectedItem?.id ?? ''); }}
+                helperText="The company this work is for."
+              />
+              <FilterableMultiSelect<CompanyOption>
+                key={open ? 'partners-open' : 'partners-closed'}
+                id="pm-partners"
+                titleText="Partners"
+                placeholder={companiesReady ? 'Choose partner companies' : 'Loading companies…'}
+                disabled={!companiesReady}
+                items={companyOptions.filter((option) => option.id !== clientId)}
+                itemToString={(item) => item?.text ?? ''}
+                selectedItems={companyOptions.filter((option) => partnerIds.includes(option.id))}
+                onChange={({ selectedItems }) => { setPartnerIds((selectedItems ?? []).map((item) => item.id)); }}
+              />
+            </>
+          )}
+          {projectType === 'offering' ? (
+            <p className="proj-relations-editor__help">Projects and opportunities link to this offering from their own settings.</p>
+          ) : (
+            <div className="proj-modal-row">
+              <Select id="pm-offering" labelText="Offering" value={offeringId} onChange={(e) => setOfferingId(e.target.value)}
+                helperText={offeringOptions.length === 0 ? 'No offerings yet. Create a project with type Offering.' : undefined}>
+                <SelectItem value="" text="No offering" />
+                {offeringOptions.map((offering) => <SelectItem key={offering.id} value={offering.id} text={offering.name} />)}
+              </Select>
+              <Select id="pm-offering-relation" labelText="Relationship" value={offeringRelation} disabled={offeringId === ''}
+                onChange={(e) => setOfferingRelation(e.target.value as OfferingRelation)}>
+                <SelectItem value="sells" text="Sells" />
+                <SelectItem value="related" text="Related to" />
+              </Select>
+            </div>
+          )}
+        </div>
 
         <div className="proj-ica-panel">
           <Checkbox
@@ -625,7 +711,8 @@ export const ProjectsPage: React.FC = () => {
               project.ownership ||
               projectDates.length > 0 ||
               project.expectedOutputs.length > 0 ||
-              project.description
+              project.description ||
+              (project.linkedProjects?.length ?? 0) > 0
             );
 
             return (
@@ -662,6 +749,13 @@ export const ProjectsPage: React.FC = () => {
                           <span>{project.importance} importance</span>
                         )}
                         <span>{PROJECT_TYPES.find(type => type.value === project.projectType)?.label}</span>
+                        {project.client && <span>Client: {project.client.name}</span>}
+                        {(project.partners?.length ?? 0) > 0 && (
+                          <span>Partners: {(project.partners ?? []).map((partner) => partner.name).join(', ')}</span>
+                        )}
+                        {project.offeringLink && (
+                          <span>{project.offeringLink.relation === 'sells' ? 'Sells' : 'Related to'} {project.offeringLink.offeringName}</span>
+                        )}
                         {project.hasIcaDocumentCollection && (
                           <span title={project.icaDocumentCollectionName || project.icaDocumentCollectionId}>
                             ICA docs
@@ -707,6 +801,24 @@ export const ProjectsPage: React.FC = () => {
                           <div className="proj-detail-section">
                             <h3 className="proj-detail-heading">Goal</h3>
                             <p className="proj-card-goal">{project.goal}</p>
+                          </div>
+                        )}
+                        {project.projectType === 'offering' && (project.linkedProjects?.length ?? 0) > 0 && (
+                          <div className="proj-detail-section">
+                            <h3 className="proj-detail-heading">Projects and opportunities</h3>
+                            <ul className="proj-linked-work">
+                              {(project.linkedProjects ?? []).map((linked) => (
+                                <li key={linked.id}>
+                                  <button type="button" className="proj-linked-work__item" onClick={() => { selectProject(linked.id); }}>
+                                    {linked.name}
+                                  </button>
+                                  <span className="proj-linked-work__meta">
+                                    {PROJECT_TYPES.find(type => type.value === linked.projectType)?.label ?? linked.projectType}
+                                    {' · '}{linked.relation === 'sells' ? 'sells it' : 'related'}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
                           </div>
                         )}
                         {project.expectedOutputs.length > 0 && (
@@ -795,6 +907,7 @@ export const ProjectsPage: React.FC = () => {
         open={modalOpen}
         initial={editProject}
         groups={groups}
+        offerings={projects.filter((item) => item.projectType === 'offering')}
         onClose={() => { setModalOpen(false); setEditProject(null); }}
         onSave={handleSave}
         saving={saving}

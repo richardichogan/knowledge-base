@@ -90,8 +90,9 @@ export async function saveCompany(db: Pool, value: unknown, id?: string): Promis
     } else await client.query('INSERT INTO companies(id,name,description,website) VALUES($1,$2,$3,$4)', [key, input.name, input.description, input.website]);
     const projects = await client.query('SELECT id FROM projects WHERE id=ANY($1::text[])', [input.projectIds]);
     if (projects.rows.length !== input.projectIds.length) throw new ValidationError('One or more selected projects no longer exist');
-    await client.query('DELETE FROM company_projects WHERE company_id=$1', [key]);
-    for (const projectId of input.projectIds) await client.query('INSERT INTO company_projects(company_id,project_id) VALUES($1,$2)', [key, projectId]);
+    // Preserve the client/partner role of links that remain selected.
+    await client.query('DELETE FROM company_projects WHERE company_id=$1 AND NOT (project_id=ANY($2::text[]))', [key, input.projectIds]);
+    for (const projectId of input.projectIds) await client.query('INSERT INTO company_projects(company_id,project_id) VALUES($1,$2) ON CONFLICT (company_id,project_id) DO NOTHING', [key, projectId]);
     await client.query('COMMIT');
     return { id: key, ...input };
   } catch (error) { await client.query('ROLLBACK'); throw error; }

@@ -3,15 +3,15 @@ import {
   useProjects as useProjectQuery, useCreateProject, useUpdateProject, useDeleteProject,
 } from '../hooks/useProjects';
 import { describeApiError } from './apiError';
-import type { Project } from './api';
+import type { Project, ProjectRelationsInput, ProjectWriteFields } from './api';
 
 export type {
   ProjectColour, ProjectCategory, ProjectPriority, ProjectType,
   ProjectLifecycleState, ProjectImportance, ProjectLink,
 } from './api';
 export type ProjectRecord = Project;
-export type CreateProjectInput = Omit<Project, 'createdAt' | 'updatedAt'>;
-export type UpdateProjectInput = Partial<Omit<Project, 'id' | 'createdAt' | 'updatedAt'>>;
+export type CreateProjectInput = ProjectWriteFields & { id: string } & ProjectRelationsInput;
+export type UpdateProjectInput = Partial<ProjectWriteFields> & ProjectRelationsInput;
 
 export function useProjects() {
   const query = useProjectQuery();

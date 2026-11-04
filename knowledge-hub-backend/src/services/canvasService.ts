@@ -39,6 +39,8 @@ export interface CanvasSummary {
   title: string;
   description: string | null;
   project: string | null;
+  /** Other projects or opportunities a diagram is also used in. */
+  usedInProjectIds: string[];
   createdAt: string;
   updatedAt: string;
   linkedNotes: LinkedNote[];
@@ -174,6 +176,7 @@ function rowToSummary(r: Record<string, unknown>): CanvasSummary {
     title:       r['title'] as string,
     description: (r['description'] as string | null) ?? null,
     project:     (r['project'] as string | null) ?? null,
+    usedInProjectIds: Array.isArray(r['used_in_project_ids']) ? r['used_in_project_ids'] as string[] : [],
     createdAt:   r['created_at'] as string,
     updatedAt:   r['updated_at'] as string,
     linkedNotes: (r['linked_notes'] as LinkedNote[] | null) ?? [],
@@ -226,6 +229,7 @@ function rowToEdge(r: Record<string, unknown>): CanvasEdge {
 
 const SUMMARY_SQL = `
   SELECT c.id, c.title, c.description, c.project, c.created_at, c.updated_at, c.canvas_type, c.deleted_at,
+         COALESCE((SELECT json_agg(u.project_id ORDER BY u.project_id) FROM canvas_project_uses u WHERE u.canvas_id = c.id), '[]'::json) AS used_in_project_ids,
          (SELECT dd.canvas_id FROM diagram_drilldowns dd WHERE dd.child_canvas_id = c.id) AS parent_canvas_id,
          (SELECT element->>'label'
             FROM diagram_drilldowns dd JOIN canvas_diagrams d ON d.canvas_id = dd.canvas_id
@@ -391,9 +395,19 @@ export async function getCanvas(id: string): Promise<CanvasFull | null> {
 
 export async function updateCanvas(
   id: string,
-  patch: { title?: string; description?: string; project?: string | null; viewport?: object; brainstormSettings?: BrainstormSettings },
+  patch: { title?: string; description?: string; project?: string | null; usedInProjectIds?: string[]; viewport?: object; brainstormSettings?: BrainstormSettings },
 ): Promise<CanvasSummary | null> {
   const db = getDb();
+  if (patch.usedInProjectIds !== undefined) {
+    if (!Array.isArray(patch.usedInProjectIds) || patch.usedInProjectIds.length > 50
+      || patch.usedInProjectIds.some(value => typeof value !== 'string' || value.trim() === '')) {
+      throw new ValidationError('Used in must be a list of up to 50 projects');
+    }
+    const ids = [...new Set(patch.usedInProjectIds.map(value => value.trim()))];
+    const found = await db.query('SELECT id FROM projects WHERE id = ANY($1::text[])', [ids]);
+    if (found.rows.length !== ids.length) throw new ValidationError('One or more selected projects no longer exist');
+    patch = { ...patch, usedInProjectIds: ids };
+  }
   const sets: string[] = ['updated_at = NOW()'];
   const vals: unknown[] = [];
   let i = 1;
@@ -406,9 +420,28 @@ export async function updateCanvas(
   const res = await db.query<{ id: string }>(
     `UPDATE canvases SET ${sets.join(', ')} WHERE id = $${i} AND deleted_at IS NULL RETURNING id`, vals);
   if (res.rows[0] === undefined) return null;
+  if (patch.usedInProjectIds !== undefined || patch.project !== undefined) await saveUsedInProjects(db, id, patch.usedInProjectIds);
   if (patch.title !== undefined) scheduleGraphSync(id);
   const summary = await db.query<Record<string, unknown>>(`${SUMMARY_SQL} WHERE c.id = $1`, [id]);
   return summary.rows[0] ? rowToSummary(summary.rows[0]) : null;
+}
+
+/** Replaces the "used in" list; the owning project is never repeated there. */
+async function saveUsedInProjects(db: Pool, canvasId: string, ids: string[] | undefined): Promise<void> {
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    if (ids !== undefined) {
+      await client.query('DELETE FROM canvas_project_uses WHERE canvas_id = $1', [canvasId]);
+      for (const projectId of ids) {
+        await client.query('INSERT INTO canvas_project_uses (canvas_id, project_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [canvasId, projectId]);
+      }
+    }
+    await client.query(`DELETE FROM canvas_project_uses u USING canvases c
+      WHERE u.canvas_id = c.id AND c.id = $1 AND u.project_id = c.project`, [canvasId]);
+    await client.query('COMMIT');
+  } catch (error) { await client.query('ROLLBACK'); throw error; }
+  finally { client.release(); }
 }
 
 export async function deleteCanvas(id: string): Promise<void> {

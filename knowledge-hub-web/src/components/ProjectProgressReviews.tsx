@@ -8,7 +8,7 @@ import { useAthenaContext } from '../context/AthenaContext';
 import type { ProgressEvidence, ProgressFinding, ProgressReview, ProgressReviewSummary } from '../types/progressReview';
 
 const dateTime = (value: string): string => new Date(value).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
-const WORK_TYPE_LABEL = { project: 'Project', bau: 'BAU', aspiration: 'Aspiration', exploration: 'Exploration', 'side-project': 'Side project' };
+const WORK_TYPE_LABEL = { project: 'Project', opportunity: 'Opportunity', offering: 'Offering', bau: 'BAU', aspiration: 'Aspiration', exploration: 'Exploration', 'side-project': 'Side project' };
 
 function EvidenceLinks({ ids, evidence }: { ids: string[]; evidence: ProgressEvidence[] }): React.ReactElement | null {
   const sources = ids.flatMap(id => {

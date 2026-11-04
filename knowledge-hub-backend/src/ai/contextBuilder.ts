@@ -1070,8 +1070,12 @@ export async function buildAiContext(
           'Task-board queries and new note filing default to the conversation project unless another is specified.',
       ].filter(Boolean).join('\n');
   const projectCatalog = !noBackground
-    ? await db.query<{ id: string; name: string; importance: string | null; lifecycle_state: string | null }>(
-      'SELECT id, name, importance, lifecycle_state FROM projects ORDER BY name')
+    ? await db.query<{ id: string; name: string; importance: string | null; lifecycle_state: string | null; project_type: string; client: string | null; offering: string | null; relation: string | null }>(
+      `SELECT p.id, p.name, p.importance, p.lifecycle_state, p.project_type,
+         (SELECT c.name FROM company_projects cp JOIN companies c ON c.id = cp.company_id WHERE cp.project_id = p.id AND cp.role = 'client' LIMIT 1) AS client,
+         o.name AS offering, l.relation
+       FROM projects p LEFT JOIN project_offering_links l ON l.project_id = p.id LEFT JOIN projects o ON o.id = l.offering_id
+       ORDER BY p.name`)
     : null;
   const catalogContext = projectCatalog && projectCatalog.rows.length > 0
     ? [
@@ -1081,7 +1085,12 @@ export async function buildAiContext(
             project.importance !== null && project.importance !== 'normal' ? `${project.importance} importance` : '',
             project.lifecycle_state !== null && project.lifecycle_state !== 'active' ? project.lifecycle_state : '',
           ].filter(Boolean).join(', ');
-          return `- ${project.name} (id: ${project.id})${flags !== '' ? ` — ${flags}` : ''}`;
+          const links = [
+            project.project_type !== 'project' ? project.project_type : '',
+            project.client !== null ? `client ${project.client}` : '',
+            project.offering !== null ? `${project.relation === 'sells' ? 'sells' : 'related to'} ${project.offering}` : '',
+          ].filter(Boolean).join('; ');
+          return `- ${project.name} (id: ${project.id})${links !== '' ? ` [${links}]` : ''}${flags !== '' ? ` — ${flags}` : ''}`;
         }),
         'Projects overlap: something learned for one (a platform, a pattern, a client need) often bears on others. When an answer for one project has implications for another — especially a high-importance one — say so.',
         'When discussing a named project, call get_project_details for its current saved goal, role, ownership, dates and expected outputs. Do not substitute old profile text or memories for current project information.',

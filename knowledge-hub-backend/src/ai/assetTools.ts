@@ -23,11 +23,13 @@ import { layoutGeneralDiagram } from '../services/diagramLayout.js';
 import { DIAGRAM_LIMITS, currentStepType } from '../services/diagramValidation.js';
 import { env } from '../config/env.js';
 import { PROJECT_TYPES } from '../services/projectTypes.js';
+import { resolveCompanyRefs, saveProjectRelations, reconcileOfferingLinks, type ProjectRelationsInput } from '../services/projectRelations.js';
+import { syncProjectTag } from '../routes/projects.js';
 import { workflowStateSql } from '../services/discoverWorkflow.js';
 
 export const ASSET_WRITE_TOOLS = [
   'add_discover_source', 'update_discover_source', 'set_discover_item_state', 'update_spark',
-  'create_project', 'update_project', 'update_note', 'create_diagram', 'update_diagram', 'create_mind_map',
+  'create_project', 'update_project', 'update_note', 'create_diagram', 'update_diagram', 'set_diagram_projects', 'create_mind_map',
   'create_weekly_microsoft_digest',
 ] as const;
 type AssetToolName = typeof ASSET_WRITE_TOOLS[number];
@@ -246,11 +248,15 @@ export function getAssetToolDefinitions(): LlmToolDefinition[] {
       {
         name: { type: 'string' }, id: { type: 'string', description: 'Optional short kebab-case id.' },
         description: { type: 'string' }, goal: { type: 'string' },
-        projectType: { type: 'string', enum: [...PROJECT_TYPES], description: 'Nature of the work: project, ongoing responsibility (bau), aspiration, exploration or side-project. Select only as requested; do not invent completion dates for ongoing work.' },
+        projectType: { type: 'string', enum: [...PROJECT_TYPES], description: 'Nature of the work: project (delivery for a client or internal), opportunity (a sales pursuit), offering (something sold, e.g. Imagine), ongoing responsibility (bau), aspiration, exploration or side-project. Select only as requested; do not invent completion dates for ongoing work.' },
         category: { type: 'string', enum: [...PROJECT_CATEGORIES] }, priority: { type: 'string', enum: [...PROJECT_PRIORITIES] },
         importance: { type: 'string', enum: [...PROJECT_IMPORTANCE] }, tags: { type: 'array', items: { type: 'string' } },
+        clientCompany: { type: 'string', description: 'Client company name or id (projects and opportunities). Use an empty string to clear it.' },
+        partnerCompanies: { type: 'array', items: { type: 'string' }, description: 'Partner company names or ids; replaces the existing partners.' },
+        offering: { type: 'string', description: 'Offering this sells or is related to (an offering-type project id or name). Empty string clears it.' },
+        offeringRelation: { type: 'string', enum: ['sells', 'related'], description: 'sells for an opportunity selling the offering; related otherwise. Defaults to sells for opportunities, related for other work.' },
       }, ['name']),
-    fn('update_project', 'Updates a project\'s name, description, goal, work type, category, priority, importance, state (active/paused/completed/archived) or tags. Tags given replace the existing tags.',
+    fn('update_project', 'Updates a project, opportunity or offering: name, description, goal, work type, category, priority, importance, state (active/paused/completed/archived), tags, client company, partner companies or linked offering. Tags and partners given replace the existing ones.',
       {
         projectId: { type: 'string', description: 'Project id or exact name.' },
         name: { type: 'string' }, description: { type: 'string' }, goal: { type: 'string' },
@@ -258,7 +264,18 @@ export function getAssetToolDefinitions(): LlmToolDefinition[] {
         category: { type: 'string', enum: [...PROJECT_CATEGORIES] }, priority: { type: 'string', enum: [...PROJECT_PRIORITIES] },
         importance: { type: 'string', enum: [...PROJECT_IMPORTANCE] }, lifecycleState: { type: 'string', enum: [...PROJECT_LIFECYCLE] },
         tags: { type: 'array', items: { type: 'string' } },
+        clientCompany: { type: 'string', description: 'Client company name or id (projects and opportunities). Use an empty string to clear it.' },
+        partnerCompanies: { type: 'array', items: { type: 'string' }, description: 'Partner company names or ids; replaces the existing partners.' },
+        offering: { type: 'string', description: 'Offering this sells or is related to (an offering-type project id or name). Empty string clears it.' },
+        offeringRelation: { type: 'string', enum: ['sells', 'related'], description: 'sells for an opportunity selling the offering; related otherwise. Defaults to sells for opportunities, related for other work.' },
       }, ['projectId']),
+    fn('set_diagram_projects',
+      'Files a saved diagram under its owning project and/or records the other projects or opportunities it is also used in. usedInProjectIds replaces the existing list; the owning project is never listed there.',
+      {
+        diagramId: { type: 'string' },
+        projectId: { type: 'string', description: 'Owning project id or exact name. Empty string removes the owner.' },
+        usedInProjectIds: { type: 'array', items: { type: 'string' }, description: 'Project or opportunity ids or exact names the diagram is also used in.' },
+      }, ['diagramId']),
     fn('update_note',
       'Changes a saved Think note by id, even when it is not open: append content, replace the whole body (a checkpoint of the previous version is kept in its history), rename it, or move it to another project. For the note open beside the chat use propose_note_edit instead.',
       {
@@ -358,6 +375,7 @@ export async function executeAssetTool(db: Pool, name: AssetToolName, args: Reco
       case 'update_note': return await updateNote(db, args, openNoteId);
       case 'create_diagram': return await createDiagram(db, args);
       case 'update_diagram': return await updateDiagram(args);
+      case 'set_diagram_projects': return await setDiagramProjects(db, args);
       case 'create_mind_map': return await createMindMap(db, args);
       case 'create_weekly_microsoft_digest': {
         if (env.NODE_ENV !== 'production') return { error: 'Scheduled job execution is disabled on development servers.' };
@@ -464,13 +482,23 @@ async function createProject(db: Pool, args: Record<string, unknown>): Promise<u
   const slug = (str(args['id']) ?? name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, MAX_PROJECT_ID_CHARS);
   const id = slug !== '' && await resolveProjectId(db, slug) === null ? slug : randomUUID();
   const tags = cleanTags(args['tags']) ?? [];
+  const relations = await relationsFromArgs(db, args, projectType ?? 'project');
+  if ('error' in relations) return relations;
   await db.query(
     `INSERT INTO projects (id, name, colour, category, priority, project_type, description, goal, role, ownership, lifecycle_state, importance, expected_outputs, gitlab_paths, github_repos, links, tags)
      VALUES ($1, $2, 'gray', $3, $4, $9, $5, $6, '', '', 'active', $7, '{}', '{}', '{}', '[]', $8)`,
     [id, name, oneOf(args['category'], PROJECT_CATEGORIES) ?? 'work', oneOf(args['priority'], PROJECT_PRIORITIES) ?? 'medium',
       str(args['description']) ?? '', str(args['goal']) ?? '', oneOf(args['importance'], PROJECT_IMPORTANCE) ?? 'normal', tags, projectType ?? 'project'],
   );
-  return { success: true, project: { id, name }, url: `${env.FRONTEND_BASE_URL}/projects` };
+  try {
+    await syncProjectTag(db, id, null);
+    await saveProjectRelations(db, id, relations.input);
+  } catch (error) {
+    await db.query('DELETE FROM tags WHERE project_id = $1', [id]);
+    await db.query('DELETE FROM projects WHERE id = $1', [id]);
+    return { error: error instanceof Error ? error.message : 'The project links could not be saved.' };
+  }
+  return { success: true, project: { id, name, projectType: projectType ?? 'project' }, url: `${env.FRONTEND_BASE_URL}/projects` };
 }
 
 async function updateProject(db: Pool, args: Record<string, unknown>): Promise<unknown> {
@@ -494,11 +522,49 @@ async function updateProject(db: Pool, args: Record<string, unknown>): Promise<u
   set('importance', oneOf(args['importance'], PROJECT_IMPORTANCE));
   set('lifecycle_state', oneOf(args['lifecycleState'], PROJECT_LIFECYCLE));
   set('tags', cleanTags(args['tags']));
-  if (sets.length === 0) return { error: 'Nothing to change.' };
-  vals.push(id);
-  const { rows } = await db.query<{ id: string; name: string }>(
-    `UPDATE projects SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${vals.length.toString()} RETURNING id, name`, vals);
-  return { success: true, project: rows[0], changed: sets.map((s) => s.split(' = ')[0]) };
+  const currentType = (await db.query<{ project_type: string }>('SELECT project_type FROM projects WHERE id = $1', [id])).rows[0]?.project_type ?? 'project';
+  const relations = await relationsFromArgs(db, args, projectType ?? currentType);
+  if ('error' in relations) return relations;
+  if (sets.length === 0 && relations.changed.length === 0) return { error: 'Nothing to change.' };
+  if (sets.length > 0) {
+    vals.push(id);
+    await db.query(`UPDATE projects SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${vals.length.toString()}`, vals);
+    if (str(args['name']) !== undefined) await syncProjectTag(db, id, undefined);
+    if (projectType !== undefined) await reconcileOfferingLinks(db, id);
+  }
+  try { await saveProjectRelations(db, id, relations.input); }
+  catch (error) { return { error: error instanceof Error ? error.message : 'The project links could not be saved.', changedBeforeError: sets.map((s) => s.split(' = ')[0]) }; }
+  const { rows } = await db.query<{ id: string; name: string; project_type: string }>('SELECT id, name, project_type FROM projects WHERE id = $1', [id]);
+  return { success: true, project: rows[0], changed: [...sets.map((s) => s.split(' = ')[0]), ...relations.changed] };
+}
+
+/** Converts Athena's company/offering arguments into validated relation changes. */
+async function relationsFromArgs(db: Pool, args: Record<string, unknown>, projectType: string): Promise<{ input: ProjectRelationsInput; changed: string[] } | { error: string }> {
+  const input: ProjectRelationsInput = {};
+  const changed: string[] = [];
+  try {
+    if (typeof args['clientCompany'] === 'string') {
+      const ref = args['clientCompany'].trim();
+      input.clientCompanyId = ref === '' ? null : (await resolveCompanyRefs(db, [ref]))[0] ?? null;
+      changed.push('client');
+    }
+    if (Array.isArray(args['partnerCompanies'])) {
+      input.partnerCompanyIds = await resolveCompanyRefs(db, (args['partnerCompanies'] as unknown[]).filter((v): v is string => typeof v === 'string'));
+      changed.push('partners');
+    }
+  } catch (error) { return { error: error instanceof Error ? error.message : 'Company not found.' }; }
+  if (typeof args['offering'] === 'string') {
+    const ref = args['offering'].trim();
+    if (ref === '') input.offeringLink = null;
+    else {
+      const offeringId = await resolveProjectId(db, ref);
+      if (offeringId === null) return { error: `Offering "${ref}" was not found. Create it with create_project and projectType offering first.` };
+      const relation = oneOf(args['offeringRelation'], ['sells', 'related'] as const) ?? (projectType === 'opportunity' ? 'sells' : 'related');
+      input.offeringLink = { offeringId, relation };
+    }
+    changed.push('offering');
+  }
+  return { input, changed };
 }
 
 // ── Notes ────────────────────────────────────────────────────────────────────
@@ -968,6 +1034,35 @@ async function updateDiagram(args: Record<string, unknown>): Promise<unknown> {
     ...(problems.length > 0 ? { problems } : {}),
     ...(saved.document.diagramType === 'ai-flow' ? { governance: governanceSummary(saved.document) } : {}),
   };
+}
+
+async function setDiagramProjects(db: Pool, args: Record<string, unknown>): Promise<unknown> {
+  const id = str(args['diagramId']);
+  if (id === undefined) return { error: 'diagramId is required.' };
+  const { getCanvasType } = await import('../services/diagramService.js');
+  if (await getCanvasType(id) !== 'diagram') return { error: 'Diagram not found.' };
+  const patch: { project?: string | null; usedInProjectIds?: string[] } = {};
+  if (typeof args['projectId'] === 'string') {
+    const ref = args['projectId'].trim();
+    patch.project = ref === '' ? null : await resolveProjectId(db, ref);
+    if (ref !== '' && patch.project === null) return { error: `Project "${ref}" was not found.` };
+  }
+  if (Array.isArray(args['usedInProjectIds'])) {
+    const ids: string[] = [];
+    for (const ref of args['usedInProjectIds'] as unknown[]) {
+      if (typeof ref !== 'string' || ref.trim() === '') continue;
+      const projectId = await resolveProjectId(db, ref.trim());
+      if (projectId === null) return { error: `Project "${ref}" was not found.` };
+      ids.push(projectId);
+    }
+    patch.usedInProjectIds = ids;
+  }
+  if (Object.keys(patch).length === 0) return { error: 'Nothing to change.' };
+  const { updateCanvas } = await import('../services/canvasService.js');
+  const saved = await updateCanvas(id, patch);
+  if (saved === null) return { error: 'Diagram not found.' };
+  return { success: true, diagram: { id, project: saved.project, usedInProjectIds: saved.usedInProjectIds },
+    url: `${env.FRONTEND_BASE_URL}/think?mapId=${id}` };
 }
 
 // ── Mind maps ────────────────────────────────────────────────────────────────
