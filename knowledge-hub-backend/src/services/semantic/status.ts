@@ -1,12 +1,26 @@
 /** Capability report so a graph/semantic connection alone is never shown as healthy. */
 import type { Pool } from 'pg';
 import { parseMonitoringConfig } from './monitoring.js';
+import { GRAPH_RELATIONSHIPS, unregisteredGraphEdgeTypes } from './graphRelationships.js';
 
 export interface SemanticStatus {
   schemaReady: boolean;
   decisions: { total: number; acceptanceUnknown: number; withReviewDate: number };
   edges: { total: number; inferred: number };
   monitoring: { enabled: boolean; reason?: string };
+  /** Registered graph relationship vocabulary and any saved edge types it does not describe. */
+  graphVocabulary: { registered: number; unregisteredInUse: string[] };
+}
+
+const REGISTERED_COUNT = Object.keys(GRAPH_RELATIONSHIPS).length;
+
+async function unregisteredInUse(db: Pool): Promise<string[]> {
+  try {
+    const { rows } = await db.query<{ edge_type: string }>(`SELECT DISTINCT edge_type FROM edges`);
+    return unregisteredGraphEdgeTypes(rows.map((r) => r.edge_type));
+  } catch {
+    return [];
+  }
 }
 
 export async function getSemanticStatus(db: Pool, monitoringConfig: unknown): Promise<SemanticStatus> {
@@ -21,8 +35,10 @@ export async function getSemanticStatus(db: Pool, monitoringConfig: unknown): Pr
       schemaReady: true,
       decisions: { total: Number(d.rows[0]?.['total']), acceptanceUnknown: Number(d.rows[0]?.['unknown']), withReviewDate: Number(d.rows[0]?.['reviewed']) },
       edges: { total: Number(e.rows[0]?.['total']), inferred: Number(e.rows[0]?.['inferred']) }, monitoring: monitoringStatus,
+      graphVocabulary: { registered: REGISTERED_COUNT, unregisteredInUse: await unregisteredInUse(db) },
     };
   } catch {
-    return { schemaReady: false, decisions: { total: 0, acceptanceUnknown: 0, withReviewDate: 0 }, edges: { total: 0, inferred: 0 }, monitoring: monitoringStatus };
+    return { schemaReady: false, decisions: { total: 0, acceptanceUnknown: 0, withReviewDate: 0 }, edges: { total: 0, inferred: 0 }, monitoring: monitoringStatus,
+      graphVocabulary: { registered: REGISTERED_COUNT, unregisteredInUse: [] } };
   }
 }

@@ -65,6 +65,7 @@ import { generateProgressReview, listProgressReviews, readProgressReview } from 
 import { NotFoundError, ValidationError } from '../types/errors.js';
 import { EXCLUSION_GATED_TOOLS, EXCLUSIONS_UNAVAILABLE_RESULT, executeReadKnowledgeRecord } from '../services/knowledge/tool.js';
 import { executeTraverseRelationships } from './knowledge/traversalLoader.js';
+import { executeReadRecordRelationships, READ_RECORD_RELATIONSHIPS_DEFINITION, READ_RECORD_RELATIONSHIPS_TOOL } from './knowledge/recordRelationships.js';
 import { isKnowledgeOrchestrationEnabled, searchContentPreview } from './knowledge/budgets.js';
 import { STRUCTURED_TOOL_DEFINITIONS, STRUCTURED_TOOL_NAMES, executeStructuredTool } from './knowledge/structuredTools.js';
 import { getDiscoverSources, inspectDiscoverFeed } from './discoveryContext.js';
@@ -371,6 +372,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
         },
       },
     },
+    READ_RECORD_RELATIONSHIPS_DEFINITION,
     ...STRUCTURED_TOOL_DEFINITIONS,
     {
       type: 'function',
@@ -1040,6 +1042,10 @@ export async function executeToolCall(
     }
   }
   if (name === 'read_knowledge_record') return executeReadKnowledgeRecord(db, args, turn);
+  if (name === READ_RECORD_RELATIONSHIPS_TOOL) {
+    if (turn.exclusionsFailed === true) return EXCLUSIONS_UNAVAILABLE_RESULT;
+    return executeReadRecordRelationships(db, args, { excludedIds: turn.excludedIds, strictProjectId: turn.strictProjectId });
+  }
   if (name === 'traverse_relationships') {
     if (!isKnowledgeOrchestrationEnabled()) return { error: 'Relationship traversal is not enabled.' };
     if (turn.exclusionsFailed === true) return EXCLUSIONS_UNAVAILABLE_RESULT;

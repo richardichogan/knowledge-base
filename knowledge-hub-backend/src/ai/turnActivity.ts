@@ -21,6 +21,7 @@ const LABELS: Record<string, string> = {
   get_content_pipeline: 'Checking your content plan',
   set_content_plan: 'Updating your content plan',
   search_knowledge_graph: 'Looking through the knowledge graph',
+  read_record_relationships: 'Reading saved relationships',
   search_ica: 'Searching the ICA document collections',
   fetch_web_page: 'Reading a web page',
   list_tasks: 'Checking your tasks',

@@ -4,9 +4,10 @@
  */
 import type { Pool } from 'pg';
 import type { EvidenceRef } from './evidence.js';
+import { INFERRED_GRAPH_EDGE_TYPES } from '../../services/semantic/graphRelationships.js';
 import { traverseRelationships, type RelatedEdge, type TargetResolution, type TraversalResult } from './traversal.js';
 
-export const INFERRED_EDGE_TYPES: ReadonlySet<string> = new Set(['tag_overlap', 'thematically_related', 'produced_in_window', 'similar', 'similarity']);
+export const INFERRED_EDGE_TYPES: ReadonlySet<string> = INFERRED_GRAPH_EDGE_TYPES;
 /** Fetch slightly more than the per-expansion cap so truncation is detectable. */
 const EDGE_FETCH_LIMIT = 41;
 const UUID = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';

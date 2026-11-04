@@ -73,7 +73,7 @@ export function recordToolSources(used: ContextUsed, toolName: string, result: u
       url: `/think?mapId=${encodeURIComponent(review.ref.id)}` });
     return;
   }
-  if (toolName === 'traverse_relationships') recordTraversalSources(used, result);
+  if (toolName === 'traverse_relationships' || toolName === 'read_record_relationships') recordTraversalSources(used, result);
   else if (toolName === 'list_tasks' || toolName === 'find_files') {
     const rows = (toolName === 'list_tasks' ? (result as { tasks?: unknown }).tasks : (result as { files?: unknown }).files);
     for (const x of Array.isArray(rows) ? rows as Array<{ id?: string; title?: string; url?: string }> : []) {
@@ -94,7 +94,7 @@ export function recordToolSources(used: ContextUsed, toolName: string, result: u
   }
 }
 
-const SEARCH_TOOLS = new Set(['search_diagrams', 'search_knowledge_base', 'search_library', 'search_past_chats', 'search_knowledge_graph', 'traverse_relationships']);
+const SEARCH_TOOLS = new Set(['search_diagrams', 'search_knowledge_base', 'search_library', 'search_past_chats', 'search_knowledge_graph', 'traverse_relationships', 'read_record_relationships']);
 const READ_TOOLS = new Set(['read_diagram', 'read_output', 'read_past_chat']);
 
 const UNAVAILABLE_STATUSES = new Set(['not_found', 'unavailable']);
@@ -159,7 +159,7 @@ export function recordToolEvidence(ledger: EvidenceLedger, toolName: string, res
   if (SEARCH_TOOLS.has(toolName)) {
     for (const x of rows) {
       if (typeof x.id !== 'string' || x.id === '') continue;
-      const rowKind = toolName === 'traverse_relationships' ? (x as { type?: string }).type ?? kind : kind;
+      const rowKind = toolName === 'traverse_relationships' || toolName === 'read_record_relationships' ? (x as { type?: string }).type ?? kind : kind;
       noteFound(ledger, { kind: rowKind, id: x.id }, { title: x.title ?? null, locator: x.url ?? null, projectId: x.projectId ?? null });
     }
   } else if (READ_TOOLS.has(toolName)) {

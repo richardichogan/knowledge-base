@@ -1092,6 +1092,25 @@ cycles in supersession chains; return an invalid relationship state rather than
 arbitrarily choosing a current decision. Respect the same bounded traversal and
 exclusion policies as other knowledge reads.
 
+#### 17.3.1 Graph relationship vocabulary
+
+Every edge type the knowledge graph projects is registered in
+`services/semantic/graphRelationships.ts` with a plain meaning, allowed endpoint
+node types, origin (explicit or inferred), storage source and, where one exists,
+the matching semantic relationship. User-drawn diagram connections
+(`canvas-edge:` ids) keep free-text labels and are classified separately.
+
+- The Graph API annotates each edge with `meaning` and `registration`
+  (`registered`, `diagram_connection`, `invalid_endpoint`, `unregistered`) and
+  reports `stats.unregisteredEdgeTypes`.
+- Semantic status reports `graphVocabulary` (registered count and unregistered
+  edge types found in the legacy `edges` table).
+- Athena's read-only `read_record_relationships` tool returns one hop of typed
+  relationships around a record (relation, meaning, direction, origin, evidence),
+  honouring exclusions and strict workstream scope. Targets are not read; inferred
+  links must be presented as suggestions.
+- A new graph edge type must be added to the registry in the same change.
+
 ### 17.4 Shared deterministic rules and measures
 
 Implement rules as typed, tested functions over approved live bindings, not

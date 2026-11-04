@@ -60,6 +60,10 @@ const STRUCTURED_INTENT_PATTERN =
 const RELATIONSHIP_INTENT_PATTERN =
   /\b(?:depend(?:s|ed|encies|ency)?\s+on|downstream|upstream|consequences?|knock-?on|impacts?|affect(?:s|ed)?|linked?\s+(?:to|with)|connected\s+to|related\s+to|relationships?|what\s+else\s+(?:uses|touches|relies)|blocked\s+by|blocks)\b/i;
 
+/** Questions about who or what a record is attached to (clients, partners, people, workstreams, tags). */
+const RECORD_RELATIONSHIP_PATTERN =
+  /\b(?:clients?|partners?|customers?|offerings?|stakeholders?|who\s+(?:works?|is\s+(?:on|involved))|works?\s+on|used\s+in|belongs?\s+to|filed\s+under|tagged|annotat\w*|drill\w*|mentions?|categor(?:y|ies)|attached\s+to|links?)\b/i;
+
 /**
  * Withholds specialised tool groups the turn does not need, so the model sees fewer, more relevant
  * choices and less prompt. Conservative: the current message and recent history both count, so
@@ -73,6 +77,7 @@ export function focusTools(
   const wantsDiagram = turn.hasOpenDiagram === true || DIAGRAM_INTENT_PATTERN.test(text);
   const wantsDiscover = DISCOVER_INTENT_PATTERN.test(text);
   const wantsDecisionReview = DECISION_REVIEW_INTENT_PATTERN.test(text);
+  const wantsRelationships = RELATIONSHIP_INTENT_PATTERN.test(text) || RECORD_RELATIONSHIP_PATTERN.test(text);
   const wantsTraversal = turn.knowledgeOrchestration === true && RELATIONSHIP_INTENT_PATTERN.test(text);
   const wantsStructured = turn.knowledgeOrchestration === true && STRUCTURED_INTENT_PATTERN.test(text);
   const wantsDemoSpecification = /\bdemo\s+spec(?:ification)?\b/i.test(text);
@@ -84,6 +89,7 @@ export function focusTools(
     if (name === 'get_demo_specification_template' || name === 'create_demo_specification') return wantsDemoSpecification;
     if (STRUCTURED_TOOL_NAMES.has(name)) return wantsStructured;
     if (name === 'traverse_relationships') return wantsTraversal;
+    if (name === 'read_record_relationships') return wantsRelationships;
     if (name === 'review_decisions') return wantsDecisionReview;
     if (DIAGRAM_WRITE_TOOLS.has(name)) return wantsDiagram;
     if (DISCOVER_ADMIN_TOOLS.has(name)) return wantsDiscover;

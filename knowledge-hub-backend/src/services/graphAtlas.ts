@@ -1,6 +1,7 @@
 import type { Pool } from 'pg';
 import { ValidationError } from '../types/errors.js';
 import { canonicalContentSql } from '../db/contentVisibility.js';
+import { classifyGraphEdge, type GraphEdgeClassification } from './semantic/graphRelationships.js';
 
 export interface AtlasNode {
   id: string; refId: string; refType: string; title: string; tags: string[];
@@ -12,6 +13,9 @@ export interface AtlasEdge {
   id: string; source: string; target: string; edgeType: string; confidence: number;
   metadata: Record<string, unknown> | null; createdAt: string | null;
   origin: 'explicit' | 'user_confirmed' | 'inferred';
+  /** Registered meaning of `source -> target`; null when the type is not registered. */
+  meaning: string | null;
+  registration: GraphEdgeClassification['status'];
 }
 export interface AtlasQuery { days: number; depth: number; seed: string | null; nodeTypes: string[]; edgeTypes: string[]; includeInferred: boolean }
 const NODE_CAP = 500;
@@ -419,9 +423,9 @@ bounded_edges AS (SELECT * FROM chosen_edges ORDER BY (origin<>'inferred') DESC,
 
 export async function readGraphAtlas(db: Pick<Pool, 'query'>, query: AtlasQuery, now = new Date()): Promise<{
   nodes: AtlasNode[]; edges: AtlasEdge[]; rootId: string | null;
-  stats: { totalNodes: number; totalEdges: number; filteredNodes: number; filteredEdges: number; truncated: boolean };
+  stats: { totalNodes: number; totalEdges: number; filteredNodes: number; filteredEdges: number; truncated: boolean; unregisteredEdgeTypes: string[] };
 }> {
-  const result = await db.query<{ nodes: AtlasNode[]; edges: AtlasEdge[]; root_id: string | null; total_nodes: number; total_edges: number; matched_nodes: number; matched_edges: number }>(
+  const result = await db.query<{ nodes: AtlasNode[]; edges: Omit<AtlasEdge, 'meaning' | 'registration'>[]; root_id: string | null; total_nodes: number; total_edges: number; matched_nodes: number; matched_edges: number }>(
     `${PROJECTION}
     SELECT (SELECT id FROM root ORDER BY id LIMIT 1) AS root_id,
       COALESCE((SELECT jsonb_agg(jsonb_build_object('id',id,'refId',ref_id,'refType',ref_type,'title',LEFT(title,240),
@@ -436,7 +440,14 @@ export async function readGraphAtlas(db: Pick<Pool, 'query'>, query: AtlasQuery,
   );
   const row = result.rows[0];
   if (!row) throw new Error('Graph query returned no result');
-  return { nodes: row.nodes, edges: row.edges, rootId: row.root_id, stats: { totalNodes: row.total_nodes, totalEdges: row.total_edges,
-    filteredNodes: row.nodes.length, filteredEdges: row.edges.length,
-    truncated: row.matched_nodes > NODE_CAP || row.matched_edges > EDGE_CAP } };
+  const nodeTypes = new Map(row.nodes.map((n) => [n.id, n.refType]));
+  const unregistered = new Set<string>();
+  const edges = row.edges.map((e) => {
+    const c = classifyGraphEdge(e, nodeTypes.get(e.source) ?? '', nodeTypes.get(e.target) ?? '');
+    if (c.status === 'unregistered' || c.status === 'invalid_endpoint') unregistered.add(e.edgeType);
+    return { ...e, meaning: c.meaning, registration: c.status };
+  });
+  return { nodes: row.nodes, edges, rootId: row.root_id, stats: { totalNodes: row.total_nodes, totalEdges: row.total_edges,
+    filteredNodes: row.nodes.length, filteredEdges: edges.length,
+    truncated: row.matched_nodes > NODE_CAP || row.matched_edges > EDGE_CAP, unregisteredEdgeTypes: [...unregistered].sort() } };
 }
