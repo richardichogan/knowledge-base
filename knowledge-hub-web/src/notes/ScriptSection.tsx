@@ -73,6 +73,16 @@ const sectionHeading = createReactBlockSpec(config, {
 const renderNativeHeading = nativeHeading.implementation.render as unknown as typeof sectionHeading.implementation.render;
 const exportNativeHeading = nativeHeading.implementation.toExternalHTML as typeof sectionHeading.implementation.toExternalHTML;
 
+// The native wrapper validates every prop against the native heading schema,
+// so it must never receive the script-only metadata.
+type ScriptHeadingBlock = Parameters<typeof sectionHeading.implementation.render>[0];
+const nativeBlock = (block: ScriptHeadingBlock): ScriptHeadingBlock => {
+  const props: Record<string, unknown> = { ...block.props };
+  delete props['scriptSection'];
+  delete props['scriptDirection'];
+  return { ...block, props: props as ScriptHeadingBlock['props'] };
+};
+
 export const scriptHeadingSpec: BlockSpec<'heading', typeof config.propSchema, 'inline'> = {
   config,
   implementation: {
@@ -80,10 +90,10 @@ export const scriptHeadingSpec: BlockSpec<'heading', typeof config.propSchema, '
     render(block, editor) {
       return block.props.scriptSection
         ? sectionHeading.implementation.render.call(this, block, editor)
-        : renderNativeHeading.call(this, block, editor);
+        : renderNativeHeading.call(this, nativeBlock(block), editor);
     },
     toExternalHTML(block, editor, context) {
-      const output = exportNativeHeading!.call(this, block, editor, context);
+      const output = exportNativeHeading!.call(this, nativeBlock(block), editor, context);
       if (!output) throw new Error('Could not export this script section heading.');
       if (!block.props.scriptDirection) return output;
       const wrapper = document.createElement('div');
