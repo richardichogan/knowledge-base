@@ -124,7 +124,6 @@ export function blocksToTextWithImages(blocks: Block[], visionByBlobId: Map<stri
         if (text) lines.push(heading + text);
         if (scriptAnnotations && block.props?.scriptSection) {
           lines.push(`[Script section id: ${block.id ?? 'not assigned'}]`);
-          lines.push(`[Delivery direction (not spoken): ${block.props.scriptDirection || 'None'}]`);
         }
       }
       if (Array.isArray(block.children)) walk(block.children);

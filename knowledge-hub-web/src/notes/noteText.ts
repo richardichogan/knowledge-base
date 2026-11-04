@@ -39,7 +39,6 @@ export function extractNoteBlockText(blocks: NoteContentBlock[], mention?: Menti
     if (text.trim() !== '') parts.push(heading + text.trim());
     if (scriptAnnotations && block.props?.scriptSection) {
       parts.push(`[Script section id: ${block.id ?? 'not assigned'}]`);
-      parts.push(`[Delivery direction (not spoken): ${block.props.scriptDirection || 'None'}]`);
     }
 
     if (Array.isArray(block.children)) {

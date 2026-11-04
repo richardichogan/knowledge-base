@@ -2,7 +2,6 @@ import React from 'react';
 import { defaultBlockSpecs, type BlockSpec } from '@blocknote/core';
 import { createReactBlockSpec } from '@blocknote/react';
 import { confirmDialog } from '../services/appDialogs';
-import { SCRIPT_DIRECTION_LIMIT } from '../../../knowledge-hub-backend/src/utils/scriptSections';
 import { preserveScriptSelection } from './scriptSectionSelection';
 
 type HeadingProps = Omit<typeof defaultBlockSpecs.heading.config.propSchema, 'isToggleable'> & {
@@ -58,11 +57,6 @@ const sectionHeading = createReactBlockSpec(config, {
         }}>Remove</button>
       </div>
       <div className="kh-script-section__title" ref={contentRef} role="textbox" aria-label="Section title (not spoken)" />
-      <label className="kh-script-section__direction" contentEditable={false}>Delivery direction (not spoken)
-        <textarea value={block.props.scriptDirection} maxLength={SCRIPT_DIRECTION_LIMIT} rows={2}
-          disabled={!editor.isEditable} placeholder="Tone, pace, emphasis or other delivery nuance"
-          onChange={event => perform(() => { editor.updateBlock(block, { props: { scriptDirection: event.target.value } }); })} />
-      </label>
       {error && <p className="kh-script-section__error" role="alert" contentEditable={false}>{error}</p>}
     </div>;
   },
@@ -95,13 +89,7 @@ export const scriptHeadingSpec: BlockSpec<'heading', typeof config.propSchema, '
     toExternalHTML(block, editor, context) {
       const output = exportNativeHeading!.call(this, nativeBlock(block), editor, context);
       if (!output) throw new Error('Could not export this script section heading.');
-      if (!block.props.scriptDirection) return output;
-      const wrapper = document.createElement('div');
-      wrapper.appendChild(output.dom);
-      const direction = document.createElement('p');
-      direction.textContent = `Delivery direction (not spoken): ${block.props.scriptDirection}`;
-      wrapper.appendChild(direction);
-      return { ...output, dom: wrapper };
+      return output;
     },
   },
   ...(nativeHeading.extensions && { extensions: nativeHeading.extensions }),

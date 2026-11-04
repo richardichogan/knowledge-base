@@ -744,8 +744,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
           "Reference headings EXACTLY as they appear in the note. " +
           "For Script notes, # script title, ## chapter and ### section are editor-only heading blocks excluded from the autocue; " +
           "the spoken paragraphs beneath them remain included. Preserve these levels and use headings, not colour, to mark nonspoken titles. " +
-          "Script sections are cards with heading titles, nested spoken blocks and an editor-only delivery direction. " +
-          "Use set_section_direction with a stable sectionId (preferred, including untitled/duplicate headings) or one exact heading and direction text (empty clears it) to edit that field without changing spoken words. " +
+          "Script sections are cards with editor-only heading titles and nested spoken blocks. " +
           "Write content as Markdown (headings, lists, checklists '- [ ]', tables). A SMALL request gets the smallest edit that does the job " +
           "(add_to_section or replace_text). Review, update, proofread and wording clean-up mean exact replace_text edits, preserving " +
           "all existing formatting, lists, links, images and heading levels. The markdown field for replace_text is plain replacement text, " +
@@ -773,17 +772,15 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
                 properties: {
                   action: {
                     type: 'string',
-                    enum: ['append', 'prepend', 'add_to_section', 'replace_section', 'delete_section', 'replace_text', 'replace_all', 'set_section_direction'],
+                    enum: ['append', 'prepend', 'add_to_section', 'replace_section', 'delete_section', 'replace_text', 'replace_all'],
                     description: "append = end of note; prepend = top (after the title); add_to_section = end of the section under 'heading'; " +
                       "replace_section = replace the content under 'heading'; delete_section = remove 'heading' and its content; " +
                       "replace_text = replace the exact existing text 'find' with 'markdown'; replace_all = rewrite the WHOLE note " +
                       "with 'markdown' — use this for a full redraft or rewrite instead of many separate edits.",
                   },
                   heading: { type: 'string', description: 'Exact heading text of the target section (section actions only).' },
-                  sectionId: { type: 'string', description: 'Stable Script section block ID for set_section_direction; preferred over heading, especially for untitled or duplicate headings.' },
                   find: { type: 'string', description: 'Exact existing text to replace (replace_text only) — a sentence or phrase copied from the note.' },
                   markdown: { type: 'string', description: 'New content as Markdown. For section actions, give ONLY the section body — do not repeat the heading line (it stays in the note). To ADD a new section (append/prepend/add_to_section), start with a real Markdown heading, e.g. "## Summary". Use a blank line between paragraphs.' },
-                  direction: { type: 'string', description: 'Editor-only delivery direction for set_section_direction; not spoken. Maximum 2000 characters; empty clears it.' },
                   summary: { type: 'string', description: 'One short line describing this edit, e.g. "Add a Summary section at the top".' },
                 },
                 required: ['action', 'summary'],
@@ -1344,7 +1341,7 @@ export async function executeToolCall(
       const editMode = args['editMode'] ?? 'preserve_formatting';
       if (editMode !== 'preserve_formatting' && editMode !== 'structural') return { error: 'No edits proposed: editMode must be preserve_formatting or structural.' };
       const allowStructural = turn.allowStructuralNoteEdits ?? (editMode === 'structural');
-      if (!allowStructural && edits.some(edit => edit.action !== 'replace_text' && edit.action !== 'set_section_direction')) {
+      if (!allowStructural && edits.some(edit => edit.action !== 'replace_text')) {
         return { error: 'No edits proposed. This is a wording/review correction, not permission to rewrite or reformat the note. Use unique exact replace_text edits with plain replacement text. Preserve headings, title, rich formatting, links, lists, images and all untouched content.' };
       }
       // Check every edit against the note as saved, so Apply can't fail on a heading or phrase that isn't there.

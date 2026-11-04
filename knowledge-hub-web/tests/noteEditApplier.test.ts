@@ -95,25 +95,16 @@ test('normalisation and Athena appends retain the required empty root paragraph 
   assert.deepEqual(editor.document[0]?.children?.map(block => block.content[0]?.text), ['Welcome.', 'More words.']);
 });
 
-test('Athena direction and exact-body edits preserve the card IDs, other metadata, cues and rich content', () => {
+test('Athena exact-body edits preserve the card IDs, stored metadata, cues and rich content', () => {
   const original: Block[] = [{ ...title(), props: { level: 1, scriptSection: true, scriptDirection: 'Warmly' }, children: [
     { id: 'body', type: 'paragraph', content: [text('Helo', { bold: true, textColor: '#f1c21b' }), { type: 'scriptCue', props: { cue: 'beat' } }] },
   ] }];
   const { editor, apply } = fixture(original);
-  assert.equal(apply([{ action: 'set_section_direction', heading: 'Guest guide', direction: 'Slowly', summary: 'Slow the opening' }], true).applied, 1);
-  assert.equal(editor.document[0]?.props?.['scriptDirection'], 'Slowly');
   assert.equal(apply([{ action: 'replace_text', find: 'Helo', markdown: 'Hello', summary: 'Correct the opening' }], true).applied, 1);
   assert.deepEqual(editor.document[0]?.children?.[0]?.content, [
     text('Hello', { bold: true, textColor: '#f1c21b' }), { type: 'scriptCue', props: { cue: 'beat' } },
   ]);
-  assert.equal(apply([{ action: 'set_section_direction', heading: 'Guest guide', direction: '', summary: 'Clear direction' }], true).applied, 1);
-  assert.equal(editor.document[0]?.props?.['scriptDirection'], '');
-  const before = structuredClone(editor.document);
-  assert.equal(apply([{ action: 'set_section_direction', heading: 'Guest guide', direction: 'x'.repeat(2001), summary: 'Too long' }], true).applied, 0);
-  assert.equal(apply([{ action: 'set_section_direction', heading: 'Guest guide', direction: 'No', summary: 'Wrong type' }]).applied, 0);
-  assert.deepEqual(editor.document, before);
-  assert.equal(apply([{ action: 'set_section_direction', sectionId: 'title', direction: 'By stable ID', summary: 'Set direction by ID' }], true).applied, 1);
-  assert.equal(editor.document[0]?.props?.['scriptDirection'], 'By stable ID');
+  assert.equal(editor.document[0]?.props?.['scriptDirection'], 'Warmly');
 });
 
 test('card conversion and reordering retain a backwards text selection by stable body IDs in the active transaction', () => {

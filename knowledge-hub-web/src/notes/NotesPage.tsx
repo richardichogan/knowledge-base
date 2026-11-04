@@ -627,7 +627,7 @@ export const NotesPage: React.FC = () => {
           type: 'note',
           title: doc.title,
           detail: `Content type: ${doc.contentType}${imageNote}${doc.contentType === 'script'
-            ? '. Script section cards: headings are editor-only titles; their nested child blocks are the spoken body. Each card has a stable block id and an editor-only delivery direction, both included below. Titles and directions are excluded from the autocue. Use set_section_direction with its sectionId or an exact unique heading to edit delivery nuance without altering spoken words. Preserve heading levels when editing. [colour=teal|yellow|pink]...[/colour] describes visual emphasis; [pause]/[beat] are nonspoken delivery cues. For replace_text, find the exact visible wording without colour markers; replacement may use these annotations. Read the saved note for full content if this context is partial.'
+            ? '. Script section cards: headings are editor-only titles; their nested child blocks are the spoken body. Each card has a stable block id, included below. Titles are excluded from the autocue. Preserve heading levels when editing. [colour=teal|yellow|pink]...[/colour] describes visual emphasis; [pause]/[beat] are nonspoken delivery cues. For replace_text, find the exact visible wording without colour markers; replacement may use these annotations. Read the saved note for full content if this context is partial.'
             : ''}${bodyBlock()}`,
           id: doc.id,
           ...(['deliverable-brief', 'email-draft'].includes(doc.contentType) ? { workContentId: doc.id } : {}),

@@ -16525,30 +16525,6 @@ fieldset.proj-modal-body {
       &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
     }
   }
-  &__direction {
-    display: flex;
-    flex-direction: column;
-    gap: var(--cds-spacing-02);
-    margin-top: var(--cds-spacing-04);
-    color: var(--cds-text-secondary);
-    font-size: var(--kh-text-meta);
-    font-weight: 400;
-    textarea {
-      width: 100%;
-      box-sizing: border-box;
-      resize: vertical;
-      padding: var(--cds-spacing-03);
-      border: 1px solid var(--cds-border-subtle-01);
-      border-radius: var(--kh-control-radius);
-      background: var(--cds-background);
-      color: var(--cds-text-primary);
-      font: inherit;
-      line-height: 1.5;
-      &:hover:not(:disabled) { border-color: var(--cds-text-secondary); }
-      &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
-      &:disabled { opacity: 0.5; cursor: not-allowed; }
-    }
-  }
   &__error { color: var(--cds-support-error); font-size: var(--kh-text-meta); margin: var(--cds-spacing-03) 0 0; }
 }
 .kh-script-text--teal { color: var(--kh-accent) !important; }

@@ -17,7 +17,6 @@ const ACTION_LABEL: Record<NoteEdit['action'], string> = {
   delete_section: 'Remove section',
   replace_text: 'Replace text',
   replace_all: 'Rewrite the whole note',
-  set_section_direction: 'Set section delivery direction',
 };
 
 const LONG_PREVIEW_WORDS = 220;
@@ -95,7 +94,6 @@ export const NoteEditCard: React.FC<{ edits: NoteEdit[]; noteId: string; result?
                 <ins>{e.markdown}</ins>
               </div>
             )}
-            {e.action === 'set_section_direction' && <p className="note-edit-card__summary">{e.direction || 'Clear delivery direction'}</p>}
             {e.action !== 'replace_text' && e.action !== 'delete_section' && e.markdown !== undefined && status.state === 'pending' && (
               <>
                 <div

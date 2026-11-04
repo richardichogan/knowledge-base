@@ -364,12 +364,10 @@ The toolbar adds a section; card headers move sections up/down or remove the ent
 section after confirmation. The Think shell, properties and action locations stay intact.
 No episode or podcast metadata is required. Native styles and cue nodes use normal note
 autosave, revision/conflict handling, properties, history and exports. Athena's page
-context and saved-note reads include stable section IDs, titles, delivery directions,
+context and saved-note reads include stable section IDs, titles,
 actual wording, colours and cues, with the active section/block and selected passage.
-`set_section_direction` updates or clears a direction through its stable section ID
-or an exact, unambiguous Script heading (maximum 2,000 characters). Switching away
-from Script restores ordinary heading/body layout and retains direction metadata
-for switching back. Her existing
+Cards have no separate delivery-direction field. Switching away from Script restores
+ordinary heading/body layout. Her existing
 requested note edits apply through the protected live editor, preserve untouched rich content
 and section metadata, and translate script annotations into native content when applied. Saved-note creation
 and updates use the same conversion. Non-script notes keep their existing Markdown

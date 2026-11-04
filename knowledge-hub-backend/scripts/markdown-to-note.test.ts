@@ -5,32 +5,20 @@ import { IMAGINE_DEMO_BRIEF_TEMPLATE } from '../src/ai/imagineDemoBriefSkill.js'
 import { checkEditsAgainstNote, validateNoteEdits } from '../src/ai/noteEdits.js';
 import { blocksToTextWithImages } from '../src/utils/noteContent.js';
 
-test('saved Script cards expose section IDs and editor-only delivery directions without omitting bodies', () => {
+test('saved Script cards expose section IDs without hidden delivery directions or omitting bodies', () => {
   const cards = [{ id: 'opening', type: 'heading',
     props: { level: 2, scriptSection: true, scriptDirection: 'Warmly' },
     content: [{ text: 'Opening' }], children: [{ type: 'paragraph', content: [{ text: 'Speak this.' }] }] }];
   assert.equal(blocksToTextWithImages(cards, new Map(), true),
-    '## Opening\n[Script section id: opening]\n[Delivery direction (not spoken): Warmly]\nSpeak this.');
+    '## Opening\n[Script section id: opening]\nSpeak this.');
   assert.equal(blocksToTextWithImages(cards, new Map()), 'Opening\nSpeak this.');
 });
 
-test('section-direction proposals validate clear/limits and require an unambiguous Script target', () => {
-  const proposal = { action: 'set_section_direction', heading: 'Opening', direction: '', summary: 'Clear direction' };
-  const result = validateNoteEdits([proposal]);
-  assert.deepEqual(result.problems, []);
-  assert.deepEqual(result.edits, [proposal]);
-  assert.equal(validateNoteEdits([{ ...proposal, direction: 'x'.repeat(2001) }]).edits.length, 0);
-  assert.equal(validateNoteEdits([{ ...proposal, direction: null }]).edits.length, 0);
-  assert.equal(validateNoteEdits([{ ...proposal, heading: undefined }]).edits.length, 0);
-  const heading = { id: 'first', type: 'heading', props: { scriptSection: true }, content: [{ text: 'Opening' }] };
-  assert.deepEqual(checkEditsAgainstNote(result.edits, [heading], 0, true), []);
-  assert.equal(checkEditsAgainstNote(result.edits, [heading], 0, false).length, 1);
-  assert.equal(checkEditsAgainstNote(result.edits, [heading, { ...heading, id: 'second' }], 0, true).length, 1);
-  const byId = validateNoteEdits([{ ...proposal, heading: undefined, sectionId: 'first' }]).edits;
-  assert.equal(byId.length, 1);
-  assert.deepEqual(checkEditsAgainstNote(byId, [heading, { ...heading, id: 'second' }], 0, true), []);
-  assert.deepEqual(checkEditsAgainstNote(byId, [{ ...heading, content: [] }], 0, true), []);
-  assert.equal(checkEditsAgainstNote(byId, [{ ...heading, id: 'missing' }], 0, true).length, 1);
+test('section-direction proposals are no longer accepted', () => {
+  const result = validateNoteEdits([{ action: 'set_section_direction', heading: 'Opening', direction: 'Warmly', summary: 'Set direction' }]);
+  assert.equal(result.edits.length, 0);
+  assert.equal(result.problems.length, 1);
+  assert.deepEqual(checkEditsAgainstNote([], [], 0, true), []);
 });
 
 test('screenshot regression: consecutive headings and lists become real editor blocks', () => {

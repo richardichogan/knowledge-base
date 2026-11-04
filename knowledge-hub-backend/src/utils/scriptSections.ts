@@ -1,4 +1,3 @@
-export const SCRIPT_DIRECTION_LIMIT = 2000;
 
 export interface ScriptSectionBlock {
   id?: string;

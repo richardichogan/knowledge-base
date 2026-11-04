@@ -9,7 +9,7 @@ import type { NoteEdit } from '../types';
 import { passageTagKeys } from '../notes/passageTagModel';
 import { scriptInlineContent } from '../../../knowledge-hub-backend/src/podcasts/scriptAnnotations';
 import { scriptNoteBlocks } from '../../../knowledge-hub-backend/src/utils/scriptNoteContent';
-import { groupScriptSections, ungroupScriptSections, splitScriptSectionTail, SCRIPT_DIRECTION_LIMIT } from '../../../knowledge-hub-backend/src/utils/scriptSections';
+import { groupScriptSections, ungroupScriptSections, splitScriptSectionTail } from '../../../knowledge-hub-backend/src/utils/scriptSections';
 import { preserveScriptSelection } from '../notes/scriptSectionSelection';
 import type { Transaction } from '@tiptap/pm/state';
 
@@ -168,16 +168,6 @@ function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined,
   const md = edit.markdown ?? '';
   const titleId = titleBlock?.id;
   switch (edit.action) {
-    case 'set_section_direction': {
-      if (!script || typeof edit.direction !== 'string' || edit.direction.length > SCRIPT_DIRECTION_LIMIT) {
-        throw new Error('Delivery directions require a Script section and at most 2000 characters.');
-      }
-      const matches = blocks.filter(block => block.type === 'heading' && (edit.sectionId
-        ? block.id === edit.sectionId : Boolean(edit.heading?.trim()) && norm(inlineText(block)) === norm(edit.heading ?? '')));
-      if (matches.length !== 1) throw new Error('Choose one exact Script section heading before changing its delivery direction.');
-      editor.updateBlock(matches[0], { props: { scriptDirection: edit.direction } });
-      return;
-    }
     case 'append': {
       const appendTo = script ? splitScriptSectionTail(blocks).body : blocks;
       const last = appendTo[appendTo.length - 1];
@@ -269,7 +259,7 @@ export function applyNoteEdits(editor: Editor, edits: NoteEdit[], options: { scr
   let applied = 0;
   const run = (): void => {
     const cards = options.script && (editor.document as Block[]).some(block => block.props?.scriptSection)
-      && edits.some(edit => edit.action !== 'replace_text' && edit.action !== 'set_section_direction');
+      && edits.some(edit => edit.action !== 'replace_text');
     if (cards) editor.replaceBlocks(editor.document, ungroupScriptSections(editor.document as Block[]));
     const titleBlock = (editor.document as Block[]).find(block => block.type === 'heading' && inlineText(block).trim());
     for (const edit of edits) {

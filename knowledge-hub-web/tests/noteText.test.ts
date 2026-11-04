@@ -53,12 +53,12 @@ test('Athena receives script heading levels and their spoken content without cha
   assert.equal(extractNoteBlockText(blocks), 'Script title\nChapter\nNested spoken words.\nMore spoken words.');
 });
 
-test('Script card context exposes stable section IDs, editor-only directions and the full spoken body', () => {
+test('Script card context exposes stable section IDs and the full spoken body without hidden directions', () => {
   const blocks = [{ id: 'opening', type: 'heading',
     props: { level: 2, scriptSection: true, scriptDirection: 'Warm, then slow down.' },
     content: [{ text: 'Opening' }], children: [{ type: 'paragraph', content: [{ text: 'Actual spoken words.' }] }] }];
   assert.equal(extractNoteBlockText(blocks, undefined, true),
-    '## Opening\n[Script section id: opening]\n[Delivery direction (not spoken): Warm, then slow down.]\nActual spoken words.');
+    '## Opening\n[Script section id: opening]\nActual spoken words.');
   assert.equal(extractNoteBlockText(blocks), 'Opening\nActual spoken words.');
 });
 

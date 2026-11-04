@@ -115,7 +115,7 @@ export function ScriptTools({ editor, disabled }: { editor: Editor; disabled: bo
         editor.insertInlineContent([{ type: 'scriptCue', props: { cue } }]);
       }}>{cue === 'pause' ? 'Pause' : 'Beat'}</button>)}
   </div>
-  <p className="kh-script-tools__hint">Each card is a section. Titles and delivery directions are editor-only; the text inside each card is read on the autocue.</p>
+  <p className="kh-script-tools__hint">Each card is a section. Titles are editor-only; the text inside each card is read on the autocue.</p>
   {sectionError && <p className="kh-script-section__error" role="alert">{sectionError}</p>}
   </>;
 }

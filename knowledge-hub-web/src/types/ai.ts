@@ -240,13 +240,11 @@ export interface MapChange {
 /** One edit Athena proposes to the open Think note. */
 export interface NoteEdit {
   delivery?: 'apply' | 'preview';
-  action: 'append' | 'prepend' | 'add_to_section' | 'replace_section' | 'delete_section' | 'replace_text' | 'replace_all' | 'set_section_direction';
-  heading?: string;
-  find?: string;
-  markdown?: string;
-  direction?: string;
-  sectionId?: string;
-  summary: string;
+  action: 'append' | 'prepend' | 'add_to_section' | 'replace_section' | 'delete_section' |   'replace_text' | 'replace_all';
+    heading?: string;
+    find?: string;
+    markdown?: string;
+    summary: string;
 }
 
 export interface NoteEditDeliveryResult {
