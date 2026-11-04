@@ -119,7 +119,7 @@ canvasRouter.get('/:id', (req: Request, res: Response, next: NextFunction): void
 canvasRouter.patch('/:id', (req: Request, res: Response, next: NextFunction): void => {
   void (async (): Promise<void> => {
     try {
-      const body = req.body as { title?: string; description?: string; project?: string | null; usedInProjectIds?: string[]; viewport?: object; brainstormSettings?: unknown };
+      const body = req.body as { title?: string; description?: string; project?: string | null; usedInProjectIds?: string[]; tagIds?: string[]; viewport?: object; brainstormSettings?: unknown };
       if (body.brainstormSettings !== undefined) await requireBrainstorm(param(req, 'id'));
       const { brainstormSettings, ...metadata } = body;
       const patch = { ...metadata, ...(brainstormSettings !== undefined && { brainstormSettings: parseBrainstormSettings(brainstormSettings) }) };

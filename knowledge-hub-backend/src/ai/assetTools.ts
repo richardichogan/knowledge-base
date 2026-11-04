@@ -270,11 +270,12 @@ export function getAssetToolDefinitions(): LlmToolDefinition[] {
         offeringRelation: { type: 'string', enum: ['sells', 'related'], description: 'sells for an opportunity selling the offering; related otherwise. Defaults to sells for opportunities, related for other work.' },
       }, ['projectId']),
     fn('set_diagram_projects',
-      'Files a saved diagram under its owning workstream and/or records the other workstreams it is also used in. usedInProjectIds replaces the existing list; the owning workstream is never listed there.',
+      'Files a saved diagram under its owning workstream, records the other workstreams it is also used in, and/or sets its taxonomy tags. usedInProjectIds and tags each replace the existing list; the owning workstream is never listed in usedInProjectIds.',
       {
         diagramId: { type: 'string' },
         projectId: { type: 'string', description: 'Owning workstream id or exact name. Empty string removes the owner.' },
         usedInProjectIds: { type: 'array', items: { type: 'string' }, description: 'Workstream ids or exact names the diagram is also used in.' },
+        tags: { type: 'array', items: { type: 'string' }, description: 'Existing taxonomy tag names or ids; replaces the diagram\'s tags. Unknown names are rejected, not created. Empty array clears them.' },
       }, ['diagramId']),
     fn('update_note',
       'Changes a saved Think note by id, even when it is not open: append content, replace the whole body (a checkpoint of the previous version is kept in its history), rename it, or move it to another workstream. For the note open beside the chat use propose_note_edit instead.',
@@ -1041,7 +1042,7 @@ async function setDiagramProjects(db: Pool, args: Record<string, unknown>): Prom
   if (id === undefined) return { error: 'diagramId is required.' };
   const { getCanvasType } = await import('../services/diagramService.js');
   if (await getCanvasType(id) !== 'diagram') return { error: 'Diagram not found.' };
-  const patch: { project?: string | null; usedInProjectIds?: string[] } = {};
+  const patch: { project?: string | null; usedInProjectIds?: string[]; tagIds?: string[] } = {};
   if (typeof args['projectId'] === 'string') {
     const ref = args['projectId'].trim();
     patch.project = ref === '' ? null : await resolveProjectId(db, ref);
@@ -1057,11 +1058,27 @@ async function setDiagramProjects(db: Pool, args: Record<string, unknown>): Prom
     }
     patch.usedInProjectIds = ids;
   }
+  if (Array.isArray(args['tags'])) {
+    const ids: string[] = [];
+    for (const ref of args['tags'] as unknown[]) {
+      if (typeof ref !== 'string' || ref.trim() === '') continue;
+      const name = ref.trim();
+      const slug = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      const found = await db.query<{ id: string }>(
+        `SELECT id::text FROM tags WHERE id::text = lower($1) OR slug = $2 OR lower(name) = lower($1) ORDER BY (id::text = lower($1)) DESC, (slug = $2) DESC, id LIMIT 1`,
+        [name, slug]);
+      if (found.rows[0] === undefined) return { error: `Tag "${name}" was not found. Use an existing taxonomy tag.` };
+      ids.push(found.rows[0].id);
+    }
+    patch.tagIds = ids;
+  }
   if (Object.keys(patch).length === 0) return { error: 'Nothing to change.' };
   const { updateCanvas } = await import('../services/canvasService.js');
   const saved = await updateCanvas(id, patch);
   if (saved === null) return { error: 'Diagram not found.' };
-  return { success: true, diagram: { id, project: saved.project, usedInProjectIds: saved.usedInProjectIds },
+  const tagNames = saved.tagIds.length === 0 ? [] : (await db.query<{ name: string }>(
+    'SELECT name FROM tags WHERE id = ANY($1::uuid[]) ORDER BY name', [saved.tagIds])).rows.map(r => r.name);
+  return { success: true, diagram: { id, project: saved.project, usedInProjectIds: saved.usedInProjectIds, tags: tagNames },
     url: `${env.FRONTEND_BASE_URL}/think?mapId=${id}` };
 }
 

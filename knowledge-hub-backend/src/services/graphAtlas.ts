@@ -175,6 +175,7 @@ tag_memberships AS MATERIALIZED (
     UNION ALL SELECT 'document:'||doc_id,tag_id,'saved' FROM document_tags
     UNION ALL SELECT 'content_item:'||content_item_id,tag_id,'saved' FROM content_item_tags
     UNION ALL SELECT 'cfp_item:'||cfp_item_id,tag_id,'saved' FROM cfp_item_tags
+    UNION ALL SELECT 'canvas:'||canvas_id,tag_id,source FROM canvas_tags
     UNION ALL SELECT 'task:'||id,linked_tag_id,'saved' FROM tasks WHERE linked_tag_id IS NOT NULL
   ) m JOIN aliases a ON a.alias=m.ref
 ),

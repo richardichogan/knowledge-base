@@ -3,6 +3,8 @@ import { useProjects } from '../../hooks/useProjects';
 import { ProjectOptions } from '../../components/ProjectOptions';
 import { api, type CanvasFullApi, type CanvasSummaryApi } from '../../services/api';
 import { DiagramDescriptionEditor } from './DiagramDescriptionEditor';
+import { TagPicker } from '../../components/TagPicker';
+import { EntityChip } from '../../identity';
 
 export function DiagramMetadata({ canvas, onSaved }: {
   canvas: CanvasFullApi;
@@ -12,6 +14,7 @@ export function DiagramMetadata({ canvas, onSaved }: {
   const [description, setDescription] = useState(canvas.description ?? '');
   const [project, setProject] = useState(canvas.project ?? '');
   const [usedIn, setUsedIn] = useState<string[]>(canvas.usedInProjectIds ?? []);
+  const [tagIds, setTagIds] = useState<string[]>(canvas.tagIds ?? []);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -19,11 +22,14 @@ export function DiagramMetadata({ canvas, onSaved }: {
     setDescription(canvas.description ?? '');
     setProject(canvas.project ?? '');
     setUsedIn(canvas.usedInProjectIds ?? []);
-  }, [canvas.id, canvas.title, canvas.description, canvas.project, canvas.usedInProjectIds]);
+    setTagIds(canvas.tagIds ?? []);
+  }, [canvas.id, canvas.title, canvas.description, canvas.project, canvas.usedInProjectIds, canvas.tagIds]);
   const projects = useProjects();
   const savedUsedIn = canvas.usedInProjectIds ?? [];
   const usedInChanged = usedIn.length !== savedUsedIn.length || usedIn.some(id => !savedUsedIn.includes(id));
-  const changed = title.trim() !== canvas.title || description !== (canvas.description ?? '') || project !== (canvas.project ?? '') || usedInChanged;
+  const savedTags = canvas.tagIds ?? [];
+  const tagsChanged = tagIds.length !== savedTags.length || tagIds.some(id => !savedTags.includes(id));
+  const changed = title.trim() !== canvas.title || description !== (canvas.description ?? '') || project !== (canvas.project ?? '') || usedInChanged || tagsChanged;
   const usedInChoices = (projects.data ?? []).filter(item => item.id !== project);
   async function save(event: React.FormEvent): Promise<void> {
     event.preventDefault();
@@ -34,6 +40,7 @@ export function DiagramMetadata({ canvas, onSaved }: {
       const response = await api.updateCanvas(canvas.id, {
         title: title.trim(), description, project: project || null,
         ...(usedInChanged || project !== (canvas.project ?? '') ? { usedInProjectIds: usedIn.filter(id => id !== project) } : {}),
+        ...(tagsChanged ? { tagIds } : {}),
       });
       if (!response.success) throw new Error(response.error.message);
       onSaved(response.data);
@@ -69,6 +76,16 @@ export function DiagramMetadata({ canvas, onSaved }: {
         {item.name}
       </label>)}
     </fieldset>
+    <div className="dg-properties__field">
+      <span>Tags</span>
+      <div className="notes-meta-tags-chips">
+        {tagIds.length === 0 && <span className="dg-properties__hint">No tags.</span>}
+        {tagIds.map(id => <EntityChip key={id} tagId={id} fallbackLabel="Unknown tag"
+          removeTitle="Remove this tag" onRemove={() => { if (!saving) setTagIds(tagIds.filter(item => item !== id)); }} />)}
+        <TagPicker selectedIds={tagIds} onChange={setTagIds} disabled={saving}
+          trigger={<button type="button" className="notes-tag-picker-trigger" disabled={saving}>+ Add tag</button>} />
+      </div>
+    </div>
     <p className="dg-properties__hint">Workstream grounds this diagram's Athena conversation. Choose No workstream to remove that restriction on the next message.</p>
     {projects.error !== null && <div className="dg-metadata__error" role="alert">
       Could not load workstreams: {projects.error.message}

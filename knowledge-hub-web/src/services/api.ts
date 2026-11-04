@@ -2689,7 +2689,7 @@ export class KnowledgeHubApi {
       { responseType: 'blob' })).data;
   }
 
-  async updateCanvas(id: string, patch: { title?: string; description?: string; project?: string | null; usedInProjectIds?: string[]; viewport?: object; brainstormSettings?: BrainstormSettings }): Promise<ApiResponse<CanvasSummaryApi>> {
+  async updateCanvas(id: string, patch: { title?: string; description?: string; project?: string | null; usedInProjectIds?: string[]; tagIds?: string[]; viewport?: object; brainstormSettings?: BrainstormSettings }): Promise<ApiResponse<CanvasSummaryApi>> {
     const r = await this.client.patch<ApiResponse<CanvasSummaryApi>>(`/api/canvases/${id}`, patch);
     return r.data;
   }
@@ -3250,6 +3250,8 @@ export interface CanvasSummaryApi {
   project: string | null; createdAt: string; updatedAt: string;
   /** Diagrams: other projects/opportunities this is also used in. */
   usedInProjectIds?: string[];
+  /** Taxonomy tag ids on the diagram. */
+  tagIds?: string[];
   linkedNotes: Array<{ id: string; title: string }>;
   nodeCount: number;
   /** Only when listed for a note: the diagram shapes/connectors/footnotes that note is linked to. */
