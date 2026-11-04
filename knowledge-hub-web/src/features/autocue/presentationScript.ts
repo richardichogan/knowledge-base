@@ -3,13 +3,18 @@ import { scriptTextColour } from '../../../../knowledge-hub-backend/src/podcasts
 
 const PRESENTATION_STYLES = ['bold', 'italic', 'underline', 'strike', 'code'] satisfies PresentationStyle[];
 
+interface PresentationOptions {
+  script?: boolean;
+  resolveMention?: (mention: unknown) => string;
+}
+
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
-function inline(value: unknown, depth = 0, inherited: PresentationStyle[] = []): PresentationRun[] {
+function inline(value: unknown, depth = 0, inherited: PresentationStyle[] = [], options: PresentationOptions = {}): PresentationRun[] {
   if (depth > 50) throw new Error('This note is nested too deeply to present.');
   if (typeof value === 'string') return [{ text: value, styles: inherited }];
-  if (Array.isArray(value)) return value.flatMap(v => inline(v, depth + 1, inherited));
+  if (Array.isArray(value)) return value.flatMap(v => inline(v, depth + 1, inherited, options));
   const item = record(value);
   if (!item) return [];
   if (item.type === 'scriptCue') {
@@ -26,10 +31,15 @@ function inline(value: unknown, depth = 0, inherited: PresentationStyle[] = []):
     if (previous >= 0) styles.splice(previous, 1);
     styles.push(`colour-${colour}`);
   }
+  if (item.type === 'noteMention' || item.type === 'entityMention') {
+    const text = options.resolveMention?.(item);
+    if (!text?.trim()) throw new Error('Could not resolve a linked name in this script. Reload the saved script and retry.');
+    return [{ text, styles }];
+  }
   if (typeof item.text === 'string') return [{ text: item.text, styles }];
-  return inline(item.content, depth + 1, styles);
+  return inline(item.content, depth + 1, styles, options);
 }
-export function presentationScript(contentJson: string, options: { script?: boolean } = {}): { text: string; runs: PresentationRun[]; warnings: string[] } {
+export function presentationScript(contentJson: string, options: PresentationOptions = {}): { text: string; runs: PresentationRun[]; warnings: string[] } {
   const raw: unknown = JSON.parse(contentJson);
   if (!Array.isArray(raw)) throw new Error('This note does not contain a supported block document.');
   let omitted = 0;
@@ -50,10 +60,10 @@ export function presentationScript(contentJson: string, options: { script?: bool
           const cells = record(row)?.cells;
           if (!Array.isArray(cells)) throw new Error('This note contains an unsupported table.');
           return [...(rowIndex ? [plain('\n')] : []), ...cells.flatMap((cell, index) =>
-            [...(index ? [plain(' | ')] : []), ...inline(cell)])];
+            [...(index ? [plain(' | ')] : []), ...inline(cell, 0, [], options)])];
         });
       } else {
-        runs = inline(block.content, 0, block.type === 'heading' ? ['bold'] : block.type === 'codeBlock' ? ['code'] : []);
+        runs = inline(block.content, 0, block.type === 'heading' ? ['bold'] : block.type === 'codeBlock' ? ['code'] : [], options);
         if (block.type === 'numberedListItem') runs.unshift(plain(`${++number}. `));
         else {
           number = 0;

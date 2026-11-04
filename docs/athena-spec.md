@@ -381,6 +381,12 @@ also excluded from autocue text and spoken-duration estimates; the existing comp
 numbered topic markers are unchanged. Collapsing or excluding whole chapters and
 chapter navigation are not added. No script content is deleted or moved by presentation.
 
+Inline linked names (including project and note references) are resolved before
+Present or Presenter prepares a snapshot and appear as spoken text, not URLs or
+badges. Lookup failures are shown rather than silently dropping words. Reloading
+the saved script refreshes linked names. Standalone editor emphasis renders the
+same saved teal, yellow and pink values used by the autocue.
+
 Athena Desktop 0.1.11 renders the saved annotated script as safe text runs, not HTML.
 The passage at the existing reading guide is bright while surrounding passages
 are dimmed; positioning follows manual scrolling, text size and vertical mirroring.

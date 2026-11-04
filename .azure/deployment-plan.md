@@ -2,6 +2,28 @@
 
 **Status:** Validated
 
+**Script linked-name and editor-colour release validation (2026-11-04):**
+- All validation checks pass:
+  - Core validation: synced main, both application TypeScript checks, frontend
+    isolated release suite, production frontend build and lint non-regression.
+  - Docker build: not applicable; backend source and deployed v299 are unchanged.
+  - Azure Policy validation: frontend-only update to existing kh-prod-web;
+    no infrastructure, identity, network, RBAC, dependencies or Desktop changes.
+
+**Section 7: Validation Proof — script links and colours (2026-11-04 12:25 UTC):**
+- Fetch/merge: already current at 55c446c6; shared packed-refs maintenance lock
+  warnings left untouched. Preserve unrelated DESIGN.md and hook cache edits.
+- Both application `tsc --noEmit` checks passed. Frontend isolated release suite
+  passed 326 main checks and all auxiliary bundles; production build passed.
+  Lint non-regression passed with 21 existing findings against baseline 41.
+- Regression definitions cover project/note names, nested emphasis, tables,
+  editor-only headings, awaited lookup and explicit lookup failures.
+- Existing backend validation from the preceding unchanged v299 release is reused.
+  CLI confirms v299 / ready revision 0000296 and Alliance Tenant Reporting.
+- Frontend-only deployment; no backend image, provisioning or role changes.
+  No browser, physical Elgato playback or live authoring mutation was performed.
+- Evidence: script-links-web-tests.log and script-links-web-build.log in session files.
+
 **Script heading release validation (2026-11-04):**
 - All validation checks pass:
   - Core validation: existing Azure authentication/targets, both TypeScript

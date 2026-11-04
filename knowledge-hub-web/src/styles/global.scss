@@ -5923,6 +5923,10 @@ body.kh-pane-resizing {
   .bn-editor [data-content-type][data-text-color]:not([data-text-color="default"]) p {
     color: inherit;
   }
+
+  .bn-editor [data-text-color="#3ddbd9"] { color: var(--kh-accent); }
+  .bn-editor [data-text-color="#f1c21b"] { color: var(--cds-support-warning); }
+  .bn-editor [data-text-color="#ff7eb6"] { color: #ff7eb6; }
 }
 
 // Bottom toolbar

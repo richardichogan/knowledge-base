@@ -13,7 +13,7 @@ import { Search, Add, SidePanelOpen, SidePanelClose, DocumentImport, ChevronDown
 import { NoteList } from './NoteList';
 import { QuickSparkModal } from '../components/sparks/QuickSparkModal';
 import { fetchNotesPage, fetchNote, createNote, deleteNote, extractNoteBlockText, buildPreview } from './noteStorage';
-import { presentationScript } from '../features/autocue/presentationScript';
+import { preparePresentationScript } from '../features/autocue/preparePresentationScript';
 import { annotatedPresentation } from '../features/podcasts/scriptAnnotations';
 import { episodeScriptText } from '../types/podcastEpisodes';
 import type { NoteContentBlock, NoteListPage } from './noteStorage';
@@ -357,7 +357,8 @@ export const NotesPage: React.FC = () => {
     const saved = await fetchNote(openDoc.id);
     if (authSession.isExpired()) throw new Error('Sign in again before presenting.');
     if (!saved) throw new Error('Save the note before presenting.');
-    const script = presentationScript(saved.contentJson, { script: saved.contentType === 'script' });
+    const script = await preparePresentationScript(saved.contentJson, { script: saved.contentType === 'script' });
+    if (authSession.isExpired()) throw new Error('Sign in again before presenting.');
     if (!script.text.trim()) throw new Error(saved.contentType === 'script'
       ? 'No spoken text to present. Script headings are editor-only; add spoken text beneath them.'
       : 'Choose a saved note containing text.');

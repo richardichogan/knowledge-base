@@ -288,6 +288,60 @@ test('presentation spacing follows authored empty blocks and hard breaks without
   assert.equal(result.text, 'First\nSecond\n\nThird\nFourth\n\nFifth\n');
   assert.equal(result.runs.map(run => run.text).join(''), result.text);
 });
+test('presentation includes linked names in paragraphs, nested links and tables with inherited emphasis', () => {
+  const document = JSON.stringify([
+    { type: 'heading', content: [{ type: 'entityMention', props: { entityType: 'project', entityId: 'hidden' } }] },
+    { type: 'paragraph', content: [
+      { text: 'Introducing ' },
+      { type: 'link', styles: { bold: true, textColor: '#3ddbd9' }, content: [
+        { type: 'entityMention', props: { entityType: 'project', entityId: 'imagine' } },
+      ] },
+      { text: ' and ' },
+      { type: 'noteMention', props: { noteId: 'notes' } },
+    ] },
+    { type: 'table', content: { rows: [{ cells: [[
+      { type: 'entityMention', props: { entityType: 'company', entityId: 'company' } },
+    ]] }] } },
+  ]);
+  const seen: unknown[] = [];
+  const result = presentationScript(document, { script: true, resolveMention: value => {
+    seen.push(value);
+    const item = value as { props: { entityId?: string; noteId?: string } };
+    return item.props.entityId === 'imagine' ? 'Imagine' : item.props.noteId ? 'Supporting notes' : 'Company';
+  } });
+  assert.equal(result.text, 'Introducing Imagine and Supporting notes\nCompany');
+  assert.deepEqual(result.runs.find(run => run.text === 'Imagine')?.styles, ['bold', 'colour-teal']);
+  assert.equal(seen.length, 3);
+  assert.throws(() => presentationScript(document, { script: true }), /resolve a linked name/);
+});
+
+test('presentation preparation awaits linked-name retrieval and propagates lookup failures', async () => {
+  const bundled = await build({
+    entryPoints: [fileURLToPath(new URL('../src/features/autocue/preparePresentationScript.ts', import.meta.url))],
+    bundle: true, write: false, platform: 'node', format: 'cjs',
+    plugins: [{ name: 'presentation-link-fixture', setup(builder) {
+      builder.onResolve({ filter: /notes\/linkLabels$/ }, () => ({ path: 'labels', namespace: 'fixture' }));
+      builder.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ contents: `
+        let title;
+        export async function prepareEntityLinkExport(blocks) {
+          await Promise.resolve();
+          if (blocks[0].props?.fail) throw new Error('Link lookup failed');
+          title = 'Imagine';
+        }
+        export function inlineText() { return title; }
+      ` }));
+    } }],
+  });
+  const module = { exports: {} as { preparePresentationScript: (json: string) => Promise<{ text: string }> } };
+  runInNewContext(bundled.outputFiles[0]!.text, { module, exports: module.exports });
+  const content = [{ type: 'paragraph', content: [
+    { type: 'entityMention', props: { entityType: 'project', entityId: 'imagine' } },
+  ] }];
+  assert.equal((await module.exports.preparePresentationScript(JSON.stringify(content))).text, 'Imagine');
+  await assert.rejects(module.exports.preparePresentationScript(JSON.stringify([
+    { ...content[0], props: { fail: true } },
+  ])), /Link lookup failed/);
+});
 test('presentation retains inline formatting, heading emphasis, list markers and literal text safely', () => {
   const result = presentationScript(JSON.stringify([
     { type: 'heading', content: [{ text: 'Heading' }] },

@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchNote, fetchNotesPage } from '../../notes/noteStorage';
 import { nextNotesPage } from '../../notes/noteListState';
 import { desktopErrorMessage, getDesktop, type DesktopCommand, type DesktopCommandState } from '../../types/desktop';
 import type { PresentationDisplay } from '../../../../athena-desktop/src/elgatoProtocol';
-import { presentationScript } from './presentationScript';
+import { preparePresentationScript } from './preparePresentationScript';
 import { authSession } from '../../services/authSession';
 import { api } from '../../services/api';
 import { requireApiData } from '../../services/apiError';
@@ -13,6 +13,7 @@ import { annotatedPresentation } from '../podcasts/scriptAnnotations';
 import './presenter.scss';
 
 export function Presenter(): React.JSX.Element {
+  const queryClient = useQueryClient();
   const desktop = getDesktop()?.presentation;
   const expired = useSyncExternalStore(authSession.subscribe, authSession.isExpired);
   const [state, setState] = useState<DesktopCommandState | null>(null);
@@ -36,16 +37,24 @@ export function Presenter(): React.JSX.Element {
     queryFn: async () => requireApiData(await api.getPodcastEpisode(noteId)),
     enabled: !!desktop && note.data?.contentType === 'podcast-episode',
   });
+  const preparedScript = useQuery({
+    queryKey: ['presentation-script', noteId, note.data?.contentJson, note.data?.contentType],
+    queryFn: () => {
+      if (!note.data) throw new Error('Choose a saved note before presenting.');
+      return preparePresentationScript(note.data.contentJson, { script: note.data.contentType === 'script' });
+    },
+    enabled: !!desktop && !!note.data && note.data.contentType !== 'podcast-episode',
+  });
   const { script, scriptError } = useMemo(() => {
     try {
       if (note.data?.contentType === 'podcast-episode') {
         return { script: episode.data ? { ...annotatedPresentation(episodeScriptText(episode.data.scriptIntro, episode.data.scriptCards)), warnings: [] } : null,
           scriptError: episode.error?.message ?? null };
       }
-      return { script: note.data ? presentationScript(note.data.contentJson, { script: note.data.contentType === 'script' }) : null, scriptError: null };
+      return { script: preparedScript.error ? null : preparedScript.data ?? null, scriptError: preparedScript.error?.message ?? null };
     }
     catch (err) { return { script: null, scriptError: err instanceof Error ? err.message : 'Could not read this script.' }; }
-  }, [note.data, episode.data, episode.error]);
+  }, [note.data, episode.data, episode.error, preparedScript.data, preparedScript.error]);
   const annotationUnsupported = !!script?.runs.some(run => run.styles.some(style => style.startsWith('colour-') || style.startsWith('cue-')))
     && !desktop?.scriptAnnotations;
 
@@ -94,7 +103,7 @@ export function Presenter(): React.JSX.Element {
   const rows = notes.data?.pages.flatMap(page => page.items) ?? [];
   const selected = note.data;
   const currentListed = rows.some(item => item.id === noteId);
-  const canStart = !expired && !!selected && !!script?.text.trim() && !!displayId && !note.isFetching && !episode.isFetching && !annotationUnsupported;
+  const canStart = !expired && !!selected && !!script?.text.trim() && !!displayId && !note.isFetching && !episode.isFetching && !preparedScript.isFetching && !annotationUnsupported;
   const play = (): void => {
     if (!desktop || !canStart || !selected || !script) return;
     void action(async () => {
@@ -130,7 +139,7 @@ export function Presenter(): React.JSX.Element {
         {notes.error && <p className="kh-presenter__error" role="alert">{notes.error.message} <button onClick={() => { void notes.refetch(); }}>Retry</button></p>}
         {notes.hasNextPage && <button disabled={notes.isFetchingNextPage} onClick={() => { void notes.fetchNextPage(); }}>Load more notes</button>}
         {notes.isFetchNextPageError && <p className="kh-presenter__error" role="alert">Could not load more notes. Retry Load more notes.</p>}
-        {(note.isFetching || episode.isFetching) && <p role="status">Loading script...</p>}
+        {(note.isFetching || episode.isFetching || preparedScript.isFetching) && <p role="status">Loading script...</p>}
         {(note.error || scriptError) && <p className="kh-presenter__error" role="alert">{note.error?.message ?? scriptError}</p>}
         {script?.warnings.map(warning => <p key={warning}>{warning}</p>)}
         <h3>{selected?.title ?? 'No note selected'}</h3>
@@ -161,9 +170,13 @@ export function Presenter(): React.JSX.Element {
             if (connected) await desktop.command({ id: crypto.randomUUID(), command: 'pause', issuedAt: Date.now() });
             const refreshed = await note.refetch();
             if (refreshed.error) throw refreshed.error;
+            if (!refreshed.data) throw new Error('Could not reload the saved note.');
             if (refreshed.data?.contentType === 'podcast-episode') {
               const nextEpisode = await episode.refetch();
               if (nextEpisode.error) throw nextEpisode.error;
+            } else {
+              const nextScript = await preparePresentationScript(refreshed.data.contentJson, { script: refreshed.data.contentType === 'script' });
+              queryClient.setQueryData(['presentation-script', noteId, refreshed.data.contentJson, refreshed.data.contentType], nextScript);
             }
           }, 'Preview reloaded. Open script on display to replace the paused output.'); }}>Reload saved script</button>
         </section>
