@@ -442,24 +442,30 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
           WHERE draft.note_id=n.id AND draft.task_generated
             AND note_list_metadata(n.content)->>'contentType'='email-draft')
       )`);
-      const prefix = grouped ? `WITH design_note_memberships AS (${DESIGN_NOTE_MEMBERSHIPS_SQL})` : '';
       if (grouped) conditions.push(`(
         note_list_metadata(n.content)->>'contentType'='design'
         OR NOT EXISTS (SELECT 1 FROM design_note_memberships member WHERE member.note_id=n.id::text)
       )`);
       const q = filterValue('q');
+      const ctes: string[] = [];
+      if (grouped) ctes.push(`design_note_memberships AS MATERIALIZED (${DESIGN_NOTE_MEMBERSHIPS_SQL})`);
       if (q !== undefined) {
         params.push(`%${q.replace(/[\\%_]/g, '\\$&')}%`);
+        // Scan note bodies once; correlated per-row ILIKEs over child notes took seconds per search.
+        ctes.push(`matched_notes AS MATERIALIZED (
+          SELECT id FROM notes WHERE status = 'active' AND content ILIKE $${params.length})`);
         const episodeMatch = `EXISTS (
-          SELECT 1 FROM podcast_episodes episode JOIN notes child
+          SELECT 1 FROM podcast_episodes episode JOIN matched_notes child
             ON child.id = episode.show_notes_note_id OR child.id = episode.script_note_id
-          WHERE episode.note_id = n.id AND child.status = 'active' AND child.content ILIKE $${params.length}
+          WHERE episode.note_id = n.id
         )`;
-        conditions.push(grouped ? `(n.content ILIKE $${params.length} OR ${episodeMatch} OR EXISTS (
-          SELECT 1 FROM design_note_memberships member JOIN notes child ON child.id::text=member.note_id
-          WHERE member.parent_note_id=n.id AND child.status='active' AND child.content ILIKE $${params.length}
-        ))` : `(n.content ILIKE $${params.length} OR ${episodeMatch})`);
+        const selfMatch = `(n.content ILIKE $${params.length})`;
+        conditions.push(grouped ? `(${selfMatch} OR ${episodeMatch} OR EXISTS (
+          SELECT 1 FROM design_note_memberships member JOIN matched_notes child ON child.id::text=member.note_id
+          WHERE member.parent_note_id=n.id
+        ))` : `(${selfMatch} OR ${episodeMatch})`);
       }
+      const prefix = ctes.length > 0 ? `WITH ${ctes.join(', ')}` : '';
       const contentType = filterValue('contentType');
       if (contentType !== undefined) {
         params.push(contentType);
