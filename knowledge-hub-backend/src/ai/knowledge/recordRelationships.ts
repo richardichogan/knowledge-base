@@ -7,6 +7,7 @@ import { readGraphAtlas } from '../../services/graphAtlas.js';
 
 export const READ_RECORD_RELATIONSHIPS_TOOL = 'read_record_relationships';
 const MAX_RESULTS = 40;
+const MAX_SEED_LENGTH = 250;
 const SEED_PATTERN = /^[\w:.-]+$/;
 const KIND_ALIASES: Record<string, string> = { diagram: 'diagram', canvas: 'canvas', use_case: 'use_case', usecase: 'usecase', workstream: 'project' };
 /** Node types that carry no workstream of their own, so strict scope does not hide them. */
@@ -45,7 +46,7 @@ export async function executeReadRecordRelationships(db: Pool, args: Record<stri
   const kind = KIND_ALIASES[rawKind] ?? rawKind;
   if (isExcluded(kind, id)) return { status: 'excluded' };
   const seed = `${kind}:${id}`;
-  if (seed.length > 250 || !SEED_PATTERN.test(seed)) return { error: 'Invalid kind or id.' };
+  if (seed.length > MAX_SEED_LENGTH || !SEED_PATTERN.test(seed)) return { error: 'Invalid kind or id.' };
 
   const atlas = await readGraphAtlas(db, { days: 3650, depth: 1, seed, nodeTypes: [], edgeTypes: [], includeInferred: args['include_inferred'] === true });
   const root = atlas.rootId === null ? undefined : atlas.nodes.find((n) => n.id === atlas.rootId);

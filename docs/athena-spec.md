@@ -44,7 +44,9 @@ Full-document reading keeps strict checkpoint and quotation validation. A failed
 
 Her personality is curious, candid, warm and understated. She recognises playful sarcasm and can reciprocate with dry wit, while taking frustration seriously, particularly when she caused it. Humour is contextual, not mandatory; it must not trivialise a concern or turn sarcasm into permission to act.
 
-Note reviews include native table cells and nested text, preserving row and cell boundaries in both the current-note chat context and backend note rendering. Proposed edits are not saved changes: Apply/Discard remains explicit. Invalid edit batches are rejected rather than silently proposing only the valid subset. If time runs out after proposals are produced, Athena reports the available preview and unfinished verification instead of telling Richard to repeat the request.
+Note reviews include native table cells and nested text, preserving row and cell boundaries in both the current-note chat context and backend note rendering. Explicitly requested open-note edits apply directly through the live editor's exclusive action bridge, retaining history, undo, formatting and revision/conflict checks. Pending writing is saved before a new note-chat turn. The tool queues validated edits rather than claiming a saved result; the client reports actual saved, partial or blocked outcomes after persistence. An account-, note- and assistant-message-scoped session receipt prevents reconnect/re-render duplication; an interrupted receipt is not replayed. Loading chat history never applies an edit. Discussion alone is not edit authorisation. An explicitly requested preview still uses Apply/Discard, and existing Design-readiness, specialist-candidate and external-delivery approvals are unchanged. Invalid edit batches are rejected rather than silently proposing only the valid subset. If time runs out with an incomplete batch, it remains a manual preview with unfinished verification explicitly reported.
+
+Short confirmations resolve against the immediately preceding agreed action. A bounded execution repair catches accepted read offers answered without a read and final first-person promises to perform work. It allows one correction within the existing turn budget, never grants write permission from an accepted read, and must not replay a successful mutation or queued specialist job. If it still cannot act, it reports incompletion instead of another promise. Diagram-save loss is not inferred from a complaint; current saved evidence must be read.
 
 The learning loop reuses Memory's approval-based suggestions. Weekly review pairs each user correction with its preceding assistant reply, records the source conversation and verifies the supporting user quote. It can propose collaboration and verification preferences as well as style preferences; it must not treat assistant assertions as user instructions, generalise one-off prototype permissions or turn software defects into user workarounds. Suggestions remain inactive until approved. Deterministic defects belong in fixes and regression tests, not learned excuses.
 
@@ -338,12 +340,30 @@ nested raised-grey input panels. The Think shell and Athena/properties panel are
 Selected words in intro, synopsis and individual bullet fields can receive teal,
 yellow or pink emphasis, or have colour cleared. Compact Pause and Beat controls
 insert visual delivery reminders at the cursor without changing scrolling.
+These fields are WYSIWYG editors: emphasis is coloured immediately and delivery cues
+appear as atomic, removable chips, not annotation text. Undo/redo, paragraph breaks,
+Enter for a new bullet and Shift+Enter within a bullet retain their editing roles.
+Selection-based Athena requests use the visible wording, never rich-editor positions
+as offsets into stored strings. Character limits include the underlying annotations;
+rejected edits show an error without discarding the current field.
 Annotations are stored in the existing text fields as `[colour=teal]text[/colour]`
 (also yellow/pink; `plain` clears emphasis), `[pause]` and `[beat]`. The same
 dependency-free parser is used by the frontend and backend: normal script saves
 reject unbalanced colour spans, and Athena reads/preserves annotations through
 its existing typed script tools and revision checks. Spoken-duration estimates
 exclude colour tags and visual cues. No schema migration or separate document is needed.
+
+Standalone **Script** notes use one continuous rich-text document in the existing Think
+editor, with the same emphasis colours and Pause/Beat tools; no episode or podcast
+metadata is required. Native text styles and inline delivery-cue nodes use normal note
+autosave, revision/conflict handling, properties, history and exports. Athena's page
+context and saved-note reads include the actual wording, colours and cues. Her existing
+requested note edits apply through the protected live editor, preserve untouched rich content
+and translate script annotations into native content when applied. Saved-note creation
+and updates use the same conversion. Non-script notes keep their existing Markdown
+behaviour. Both the Present action and desktop command save pending edits before
+retrieving the current script; standalone colours and cues use the existing Elgato
+annotation protocol and older-desktop compatibility warning.
 
 Athena Desktop 0.1.11 renders the saved annotated script as safe text runs, not HTML.
 The passage at the existing reading guide is bright while surrounding passages
@@ -1017,6 +1037,34 @@ Passage-only repairs address substantive blockers, not cosmetic preferences.
 The existing user approval and external-delivery safeguards remain unchanged.
 
 ### Diagram save protection
+
+The Properties panel is selection-first: Content (title and description), Behaviour
+(AI-flow semantics where applicable), Appearance, then Links and supporting actions.
+Diagram-wide metadata is a distinct section below, initially open when nothing is
+selected. Metadata autosaves through a serialised, field-only queue with visible
+pending/saving/error status and retry; newer typing survives save responses and
+overlapping refreshed fields retain the local draft with an explicit conflict.
+Metadata writes compare the changed fields with their expected saved values under
+the canvas row lock, and commit metadata, workstream links and tags atomically.
+An overlapping external write is rejected rather than silently overwritten;
+unrelated shape saves or unchanged metadata fields do not cause false conflicts.
+Properties stay mounted while Athena is open, and pending metadata and document
+changes are saved before her turn. Metadata controls pause during that turn, then
+refresh from the saved canvas even if the shape revision did not change.
+
+Diagrams use the notes' existing taxonomy auto-tagger after 45 seconds of settled
+saved changes, with the same minimum meaningful-content and tag-count thresholds.
+Tagging considers diagram title/description, shape and connector text, AI-flow
+semantics, custom footnotes and key labels, not geometry or colours. It reruns only
+when that semantic text changes. Automatic tags are additive and marked `auto`;
+manual tags remain intact and removals are remembered as rejections. Auto-tagging
+is queued by shared diagram/metadata services, including Athena writes. The open
+properties panel refreshes saved metadata periodically to expose automatic tags.
+
+Shape footnote markers sit on the left, separate from the existing right-side badges.
+The shared anchor handles ordinary shapes, diamonds, hexagons and standalone lines,
+and is reused by the editor, SVG/PNG, draw.io and Mural. Connector marker placement,
+numbering, navigation and Notes-panel behaviour are unchanged.
 
 Existing and new shape titles render bold by default, without rewriting stored
 titles or overriding explicit Markdown formatting. A shape's description appears

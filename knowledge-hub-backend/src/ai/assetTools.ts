@@ -282,7 +282,7 @@ export function getAssetToolDefinitions(): LlmToolDefinition[] {
       {
         noteId: { type: 'string' },
         mode: { type: 'string', enum: ['append', 'replace'], description: 'How to apply content. Defaults to append.' },
-        content: { type: 'string', description: 'Markdown: blank lines separate paragraphs; #, ##, ### make headings; - bullets.' },
+        content: { type: 'string', description: 'Markdown: blank lines separate paragraphs; #, ##, ### make headings; - bullets. Script notes also support [colour=teal|yellow|pink|plain]...[/colour] emphasis and [pause]/[beat] visual cues, saved as native rich content.' },
         title: { type: 'string' },
         projectId: { type: 'string' },
       }, ['noteId']),
@@ -573,7 +573,7 @@ async function relationsFromArgs(db: Pool, args: Record<string, unknown>, projec
 async function updateNote(db: Pool, args: Record<string, unknown>, openNoteId?: string): Promise<unknown> {
   const id = str(args['noteId']);
   if (id === undefined) return { error: 'noteId is required.' };
-  if (id === openNoteId) return { error: 'That note is open beside the chat: use propose_note_edit so the user can review the change.' };
+  if (id === openNoteId) return { error: 'That note is open beside the chat: use propose_note_edit to apply the requested change through its protected live editor.' };
   const content = typeof args['content'] === 'string' && args['content'].trim() !== '' ? args['content'] : undefined;
   const title = str(args['title']);
   const projectRef = str(args['projectId']);
@@ -590,9 +590,18 @@ async function updateNote(db: Pool, args: Record<string, unknown>, openNoteId?: 
   try { wrapper = JSON.parse(row.content) as Record<string, unknown>; } catch { wrapper = {}; }
 
   const mode = args['mode'] === 'replace' ? 'replace' : 'append';
+  let incoming: unknown[] = content === undefined ? [] : textToBlocks(content);
+  if (content !== undefined && wrapper['contentType'] === 'script') {
+    try {
+      const { scriptNoteBlocks } = await import('../utils/scriptNoteContent.js');
+      incoming = scriptNoteBlocks(incoming);
+    } catch (error) {
+      return { error: `Script not changed: ${error instanceof Error ? error.message : 'Invalid delivery annotations.'}` };
+    }
+  }
   let note;
   if (content !== undefined && mode === 'append' && title === undefined && projectId === undefined) {
-    note = await writeNote(db, id, { appendBlocks: textToBlocks(content) });
+    note = await writeNote(db, id, { appendBlocks: incoming });
   } else {
     // Keep the current text in the note's history before Athena rewrites it.
     const protectedNote = mode === 'replace' && content !== undefined
@@ -600,7 +609,7 @@ async function updateNote(db: Pool, args: Record<string, unknown>, openNoteId?: 
       : { revision: row.revision };
     let blocks: unknown[] = [];
     try { blocks = JSON.parse(typeof wrapper['contentJson'] === 'string' ? wrapper['contentJson'] : '[]') as unknown[]; } catch { blocks = []; }
-    if (content !== undefined) blocks = mode === 'replace' ? textToBlocks(content) : [...blocks, ...textToBlocks(content)];
+    if (content !== undefined) blocks = mode === 'replace' ? incoming : [...blocks, ...incoming];
     const next = { ...wrapper, ...(title !== undefined ? { title } : {}), contentJson: JSON.stringify(blocks) };
     note = await writeNote(db, id, {
       content: JSON.stringify(next), expectedRevision: protectedNote.revision,

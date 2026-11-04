@@ -29,7 +29,8 @@ export function athenaLinkText(type: string, id: string): string {
 export function inlineText(value: unknown): string {
   if (Array.isArray(value)) return value.map(inlineText).join('');
   if (!value || typeof value !== 'object') return typeof value === 'string' ? value : '';
-  const item = value as { type?: string; text?: string; props?: { noteId?: string; entityType?: EntityLinkType; entityId?: string }; content?: unknown };
+  const item = value as { type?: string; text?: string; props?: { noteId?: string; entityType?: EntityLinkType; entityId?: string; cue?: string }; content?: unknown };
+  if (item.type === 'scriptCue') return `[${item.props?.cue === 'beat' ? 'beat' : 'pause'}]`;
   if (item.type === 'noteMention' && item.props?.noteId) return linkLabel('note', item.props.noteId);
   if (item.type === 'entityMention' && item.props?.entityType && item.props.entityId) return linkLabel(item.props.entityType, item.props.entityId);
   return item.text ?? inlineText(item.content);

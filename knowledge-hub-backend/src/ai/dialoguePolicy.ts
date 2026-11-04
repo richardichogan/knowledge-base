@@ -36,6 +36,12 @@ export const DIALOGUE_POLICY_PROMPT = [
     'specification. "Generate the specification from what we agreed" is. Honour requested length and format. Do not append ' +
     '"shall I", "if you want", "would you like", or "anything else". Ask first only if a material ambiguity or risk prevents a correct result; ' +
     'never ask a question merely to prove you are conversational. "No more questions, draft it" ends exploration unless unsafe.',
+  'Execution follow-through: resolve a short "yes", "ok", "do it" or "redo it" against the immediately preceding agreed ' +
+    'action, target and constraints. An accepted offer to check saved content requires an actual read now, not a second ' +
+    'offer, speculation or an acknowledgement. An authorised edit requires the appropriate tool in this turn, not ' +
+    '"I am going to" or "I will" as a final answer. If blocked, state the specific failure and what remains undone. ' +
+    'Do not infer that a save was overwritten from a complaint; read the current revision and compare the actual content. ' +
+    'Approval applies only to the offered action: accepting a read never approves a write, candidate application or publishing.',
   'If he corrects you, update the premise and address what he actually meant, briefly, without defending the earlier essay. ' +
     'If he is playfully sarcastic, brief dry wit can be the whole appropriate reply. If he is frustrated with you, fix the ' +
     'problem, not his mood: no defensive joke, patronising reassurance or lecture. Neither requires a forced question. ' +
@@ -76,6 +82,26 @@ export const INLINE_REVIEW_CHARS = 60_000;
 
 export function dialogueRequestText(message: string): string {
   return message.replace(/^\s*\[Viewing (?:note|canvas|document):[^\n]*\]\s*/i, '').trim();
+}
+
+/** A bounded runtime backstop for replies that promise work instead of executing it. */
+export function executionFollowThroughRepair(
+  history: ConversationMessage[], userMessage: string, reply: string, calledTools: ReadonlySet<string>,
+): string | null {
+  const previous = history.at(-1);
+  const acceptedRead = /^(?:yes|yep|yeah|ok|okay|go ahead|do it)(?:,?\s+please)?[.!\s]*$/i.test(dialogueRequestText(userMessage))
+    && previous?.role === 'assistant'
+    && /\b(?:I\s+can|shall\s+I|would\s+you\s+like\s+me\s+to)\s+(?:re-?)?(?:check|read|verify|inspect|look\s+(?:at|into))\b/i.test(previous.content);
+  const hasRead = [...calledTools].some(name => /^(?:read_|get_|search_|list_|inspect_)/.test(name));
+  const promise = /\bI(?:['’]m\s+going\s+to|\s+am\s+going\s+to|['’]ll|\s+will)\s+(?:now\s+)?(?:re[- ]?)?(?:read|check|verify|inspect|save|update|apply|write|edit|fix|create|add|remove)\b/i
+    .test(reply.replace(/[*_`]/g, ''));
+  if ((!acceptedRead || hasRead) && !promise) return null;
+  return 'Execution check: the proposed final reply has not completed an agreed action. Interpret the latest request in its conversation context. ' +
+    'For an accepted offer to check, retrieve the current saved target now; do not speculate about overwritten changes. ' +
+    'For an explicitly authorised edit, use the appropriate permitted tool now, preserving the agreed scope and all approval boundaries. ' +
+    'An accepted read is not permission to write. Do not repeat a mutation with an existing success receipt, an accepted live-editor note batch or work already queued. ' +
+    'If truly blocked or the intended action is materially ambiguous, state the concrete blocker or ask one necessary question. ' +
+    'Do not finish with a promise, a second offer to do the same work, or an unsupported completion claim.';
 }
 
 export function referencesOtherMaterial(message: string): boolean {

@@ -61,5 +61,5 @@ export async function renderNoteAsText(db: Pool, rawContentJson: string): Promis
     }
   }
 
-  return blocksToTextWithImages(blocks, visionByBlobId);
+  return blocksToTextWithImages(blocks, visionByBlobId, parsed.contentType === 'script');
 }

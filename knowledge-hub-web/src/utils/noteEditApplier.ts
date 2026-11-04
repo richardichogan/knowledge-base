@@ -7,6 +7,8 @@
 import type { BlockNoteEditor } from '@blocknote/core';
 import type { NoteEdit } from '../types';
 import { passageTagKeys } from '../notes/passageTagModel';
+import { scriptInlineContent } from '../../../knowledge-hub-backend/src/podcasts/scriptAnnotations';
+import { scriptNoteBlocks } from '../../../knowledge-hub-backend/src/utils/scriptNoteContent';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Editor = BlockNoteEditor<any, any, any>;
@@ -16,28 +18,40 @@ type Block = any;
 function inlineText(block: Block): string {
   const content: unknown = block?.content;
   if (!Array.isArray(content)) return '';
-  return content.map((c: { text?: string; content?: unknown }) => c.text ?? inlineText({ content: c.content })).join('');
+  return content.map((c: { type?: string; props?: { cue?: string }; text?: string; content?: unknown }) =>
+    c.type === 'scriptCue' ? `[${c.props?.cue === 'beat' ? 'beat' : 'pause'}]` : c.text ?? inlineText({ content: c.content })).join('');
 }
 
-function replaceInlineText(content: Block[], find: string, replacement: string): Block[] {
+function replaceInlineText(content: Block[], find: string, replacement: string, script = false): Block[] {
   const text = inlineText({ content });
   const start = text.indexOf(find);
   const end = start + find.length;
   let offset = 0;
   let inserted = false;
-  const visit = (items: Block[]): Block[] => items.map(item => {
-    if (item.type === 'link' && Array.isArray(item.content)) return { ...item, content: visit(item.content) };
+  const visit = (items: Block[]): Block[] => items.flatMap(item => {
+    if (item.type === 'link' && Array.isArray(item.content)) return [{ ...item, content: visit(item.content) }];
+    if (item.type === 'scriptCue') {
+      const from = offset;
+      offset += item.props?.cue === 'beat' ? '[beat]'.length : '[pause]'.length;
+      if (offset <= start || from >= end) return [item];
+      if (!script || from < start || offset > end) throw new Error('Select the whole delivery cue to replace it.');
+      const insert = inserted ? [] : scriptInlineContent(replacement);
+      inserted = true;
+      return insert;
+    }
     if (item.type !== 'text' || typeof item.text !== 'string') {
       throw new Error('This passage contains embedded content. Select a plain text passage instead.');
     }
     const from = offset;
     offset += item.text.length;
-    if (offset <= start || from >= end) return item;
+    if (offset <= start || from >= end) return [item];
     const prefix = item.text.slice(0, Math.max(0, start - from));
     const suffix = item.text.slice(Math.max(0, end - from));
     const insert = inserted ? '' : replacement;
     inserted = true;
-    return { ...item, text: prefix + insert + suffix };
+    return script
+      ? [...(prefix ? [{ ...item, text: prefix }] : []), ...scriptInlineContent(insert, item.styles ?? {}), ...(suffix ? [{ ...item, text: suffix }] : [])]
+      : [{ ...item, text: prefix + insert + suffix }];
   });
   return visit(content);
 }
@@ -138,25 +152,26 @@ function withParagraphBreaks(markdown: string): string {
   return out.join('\n');
 }
 
-function parse(editor: Editor, markdown: string): Block[] {
-  return editor.tryParseMarkdownToBlocks(withParagraphBreaks(markdown.trim())) as Block[];
+function parse(editor: Editor, markdown: string, script = false): Block[] {
+  const blocks = editor.tryParseMarkdownToBlocks(withParagraphBreaks(markdown.trim())) as Block[];
+  return script ? scriptNoteBlocks(blocks) : blocks;
 }
 
-function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined): void {
+function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined, script: boolean): void {
   const blocks = editor.document as Block[];
   const md = edit.markdown ?? '';
   const titleId = titleBlock?.id;
   switch (edit.action) {
     case 'append': {
       const last = blocks[blocks.length - 1];
-      editor.insertBlocks(parse(editor, md), last, 'after');
+      editor.insertBlocks(parse(editor, md, script), last, 'after');
       return;
     }
     case 'prepend': {
       // After the title heading if the note opens with one, else at the very top.
       const first = blocks[0];
-      if (first?.type === 'heading') editor.insertBlocks(parse(editor, md), first, 'after');
-      else editor.insertBlocks(parse(editor, md), first, 'before');
+      if (first?.type === 'heading') editor.insertBlocks(parse(editor, md, script), first, 'after');
+      else editor.insertBlocks(parse(editor, md, script), first, 'before');
       return;
     }
     case 'add_to_section': {
@@ -164,7 +179,7 @@ function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined)
       if (i < 0) throw new Error(`Section “${edit.heading ?? ''}” not found`);
       const body = sectionBody(blocks, i);
       const anchor = body.length > 0 ? body[body.length - 1] : blocks[i];
-      editor.insertBlocks(parse(editor, withoutLeadingHeading(md, edit.heading)), anchor, 'after');
+      editor.insertBlocks(parse(editor, withoutLeadingHeading(md, edit.heading), script), anchor, 'after');
       return;
     }
     case 'replace_section': {
@@ -173,7 +188,7 @@ function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined)
       if (blocks[i].id === titleId) throw new Error('Athena body edits cannot replace the note title. Edit the title directly.');
       const body = sectionBody(blocks, i);
       if (passageTagKeys([blocks[i], ...body]).size > 0) throw new Error('This section contains tagged passages. Edit it directly in the note instead.');
-      const replacement = parse(editor, withoutLeadingHeading(md, edit.heading));
+      const replacement = parse(editor, withoutLeadingHeading(md, edit.heading), script);
       // If the new content brings its own heading, replace the heading too.
       if (replacement[0]?.type === 'heading') {
         editor.replaceBlocks([blocks[i], ...body], replacement);
@@ -195,7 +210,7 @@ function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined)
     }
     case 'replace_all': {
       // A full redraft: the whole note body becomes the new content (one ⌘Z step with the rest).
-      const replacement = parse(editor, md);
+      const replacement = parse(editor, md, script);
       if (replacement.length > 0) {
         if (passageTagKeys(blocks.filter(block => block.id !== titleId)).size > 0) {
           throw new Error('This note contains tagged passages. Edit it directly in the note instead.');
@@ -214,7 +229,7 @@ function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined)
       if (!find || matches.length !== 1 || inlineText(target).split(find).length !== 2) throw new Error('The passage is missing or no longer unique. Ask Athena for a current, exact text edit.');
       if (target.id === titleId) throw new Error('Athena body edits cannot rename the note. Edit its title directly.');
       if (/[\r\n]/.test(md)) throw new Error('Text edits must stay within the existing paragraph or list item.');
-      const content = replaceInlineText(target.content, find, md);
+      const content = replaceInlineText(target.content, find, md, script);
       preservePassageTags(target.content, content);
       editor.updateBlock(target, { content });
       return;
@@ -226,14 +241,14 @@ function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined)
  * Applies the edits in order. Returns the summaries that failed (e.g. a
  * heading that no longer exists); the rest are applied.
  */
-export function applyNoteEdits(editor: Editor, edits: NoteEdit[]): { applied: number; failed: string[] } {
+export function applyNoteEdits(editor: Editor, edits: NoteEdit[], options: { script?: boolean } = {}): { applied: number; failed: string[] } {
   const failed: string[] = [];
   let applied = 0;
   const titleBlock = (editor.document as Block[]).find(block => block.type === 'heading' && inlineText(block).trim());
   const run = (): void => {
     for (const edit of edits) {
       try {
-        applyOne(editor, edit, titleBlock);
+        applyOne(editor, edit, titleBlock, options.script === true);
         applied++;
       } catch (err) {
         failed.push(`${edit.summary}: ${err instanceof Error ? err.message : String(err)}`);

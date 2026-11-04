@@ -64,6 +64,7 @@ export async function applyPassageTag(kind: PassageTag, selection: PassageSelect
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let activeEditor: BlockNoteEditor<any, any, any> | null = null;
+let activeScriptEditor = false;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let unsubscribe: (() => void) | null = null;
 let lastSelectionSnapshot = '';
@@ -259,11 +260,16 @@ export function getActiveNoteId(): string | null {
   return activeEditor === null ? null : activeNoteId;
 }
 
+export function isActiveScriptEditor(): boolean {
+  return activeEditor !== null && activeScriptEditor;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function setActiveBlockNoteEditor(editor: BlockNoteEditor<any, any, any> | null, noteId: string | null = null): void {
+export function setActiveBlockNoteEditor(editor: BlockNoteEditor<any, any, any> | null, noteId: string | null = null, script = false): void {
   unsubscribe?.();
   unsubscribe = null;
   activeEditor = editor;
+  activeScriptEditor = editor !== null && script;
   activeNoteId = editor === null ? null : noteId;
   lastSelectionSnapshot = '';
 

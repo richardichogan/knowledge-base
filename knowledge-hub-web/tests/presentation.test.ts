@@ -8,6 +8,8 @@ import { appendVoiceTranscript, finishVoiceTranscript, submitVoiceTranscript } f
 import { encodeWav, resampleVoiceAudio } from '../src/components/athena/speech';
 import { parseScriptBullets, scriptSentenceLines } from '../src/features/podcasts/scriptFormatting';
 import { episodeScriptText } from '../src/types/podcastEpisodes';
+import { scriptRichDocument, scriptRichText } from '../src/features/podcasts/scriptRichText';
+import { scriptAnnotationRuns, scriptInlineContent } from '../../knowledge-hub-backend/src/podcasts/scriptAnnotations';
 
 test('podcast sentence spacing leaves a blank line between sentences, preserving versions and links', () => {
   const text = 'Welcome to the podcast. Here is the running order.\r\n\r\nDiscuss version 5.4 and Microsoft 365. See https://example.com/news.\nKeep this deliberate break.';
@@ -50,6 +52,50 @@ test('podcast bullet continuation lines round-trip without becoming extra bullet
   assert.deepEqual(parseScriptBullets(continuation, continuation.length), { bullets: ['A feature.\n'], caret: continuation.length });
   assert.deepEqual(parseScriptBullets('• ', 2), { bullets: [''], caret: 2 });
   assert.deepEqual(parseScriptBullets('', 0), { bullets: [], caret: 0 });
+});
+
+test('visual script documents round-trip saved emphasis and cues without displaying annotation syntax', () => {
+  const saved = 'A [colour=teal]focus[/colour] now[pause]\n\nNext [colour=pink]point[/colour][beat]';
+  const doc = scriptRichDocument(saved);
+  assert.equal(scriptRichText(doc), saved);
+  assert.equal(JSON.stringify(doc).includes('[colour='), false);
+  assert.equal(JSON.stringify(doc).includes('[pause]'), false);
+  assert.equal(scriptRichText(doc, 3, 8, false), 'focus');
+  assert.equal(scriptRichText(doc, 12, 13, false), '[pause]');
+  assert.equal(scriptRichText(doc, 3, 8), '[colour=teal]focus[/colour]');
+  const changed = structuredClone(doc);
+  const focus = changed.content![0]!.content![1]!;
+  focus.marks = [{ type: 'scriptColour', attrs: { colour: 'yellow' } }];
+  assert.match(scriptRichText(changed), /\[colour=yellow\]focus\[\/colour\]/);
+  focus.marks = [];
+  assert.match(scriptRichText(changed), /^A focus now\[pause\]/);
+  assert.equal(scriptRichText(scriptRichDocument(scriptRichText(changed))), scriptRichText(changed));
+  assert.throws(() => scriptRichDocument('[colour=teal]Unclosed'), /Close each/);
+});
+
+test('rich bullet editing keeps markers outside emphasis and retains continuation paragraphs', () => {
+  const bullets = ['A [colour=yellow]feature[/colour].\n\nIts constraint.[pause]', 'A second point.[beat]'];
+  const saved = bullets.map(item => `• ${item}`).join('\n\n');
+  const doc = scriptRichDocument(saved, true);
+  assert.equal(doc.content![0]!.type, 'bulletList');
+  assert.equal(doc.content![0]!.content!.length, 2);
+  assert.equal(scriptRichText(doc), saved);
+  assert.deepEqual(parseScriptBullets(scriptRichText(doc), 0).bullets, bullets);
+  assert.equal(scriptRichText(scriptRichDocument('', true)), '• ');
+  assert.equal(scriptRichText(scriptRichDocument('One\nline\n\nAnother')), 'One\nline\n\nAnother');
+});
+
+test('standalone native script emphasis and atomic cues use the existing Elgato run protocol', () => {
+  const content = scriptInlineContent('Begin [colour=teal]clearly[/colour][pause] then [colour=pink]finish[/colour][beat].');
+  const result = presentationScript(JSON.stringify([{ type: 'paragraph', content }]));
+  assert.equal(result.text, 'Begin clearlyPAUSE then finishBEAT.');
+  assert.ok(result.runs.some(run => run.text === 'clearly' && run.styles.includes('colour-teal')));
+  assert.ok(result.runs.some(run => run.text === 'finish' && run.styles.includes('colour-pink')));
+  assert.deepEqual(result.runs.find(run => run.text === 'PAUSE')?.styles, ['cue-pause']);
+  assert.deepEqual(result.runs.find(run => run.text === 'BEAT')?.styles, ['cue-beat']);
+  assert.equal(result.text.includes('[colour'), false);
+  assert.deepEqual(scriptAnnotationRuns('[colour=teal]One [colour=plain]plain[/colour] teal[/colour]')
+    .map(run => [run.text, run.colour]), [['One ', 'teal'], ['plain', undefined], [' teal', 'teal']]);
 });
 test('desktop speech selects the available panel, restores earlier handlers and waits for a revealed panel', async () => {
   const bundled = await build({

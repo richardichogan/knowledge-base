@@ -345,7 +345,7 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   return {
       reply, sessionId: effectiveSessionId, persona, sources, pendingActions: pending, memoriesCreated, outputsChanged, assistantMessageId, contextUsed, nextSteps,
       ...(taskStatusChanges.length ? { taskStatusChanges } : {}),
-      // Proposed edits to the open note, applied client-side on "Apply".
+      // Validated edits delivered through the live editor; explicit previews stay manual.
       noteEdits, noteEditsFor: noteEdits.length > 0 ? openNoteId ?? null : null,
       // Proposed changes to the open mind map, applied on "Apply".
     mapChanges, mapChangesFor: mapChanges.length > 0 && openNoteId?.startsWith('map:') === true ? openNoteId.slice('map:'.length) : null,

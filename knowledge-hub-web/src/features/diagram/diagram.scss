@@ -301,9 +301,14 @@ $dg-ink: #161616;
 
   .dg-section { border-bottom: 1px solid var(--cds-border-subtle-01); padding: 0.25rem 0; }
   .dg-section__summary {
-    cursor: pointer; padding: 0.5rem 0; font-size: var(--kh-heading-label); font-weight: 600;
+    cursor: pointer; padding: 0.5rem 0; font-size: var(--kh-section-title); font-weight: 600;
     &:focus-visible { @include dg-focus; }
   }
+  &__editable { border: 0; margin: 0; padding: 0; min-width: 0; }
+  &__editable:disabled { opacity: 0.65; }
+  &__group { display: flex; flex-direction: column; gap: 0.75rem; margin: 0; padding: 0.75rem 0; min-width: 0; }
+  &__group + &__group { border-top: 1px solid var(--cds-border-subtle-01); }
+  &__group-title { margin: 0; font-size: var(--kh-section-title); font-weight: 600; color: var(--cds-text-primary); }
   .dg-metadata {
     display: flex;
     flex-direction: column;
@@ -324,19 +329,7 @@ $dg-ink: #161616;
       input { accent-color: var(--cds-interactive); }
       input:focus-visible { @include dg-focus; }
     }
-    &__save {
-      padding: 0.5rem 0.75rem;
-      background: var(--cds-button-primary);
-      color: var(--cds-text-on-color);
-      border: 1px solid transparent;
-      font: inherit;
-      font-size: 0.8125rem;
-      cursor: pointer;
-      &:hover { background: var(--cds-button-primary-hover); }
-      &:active { background: var(--cds-button-primary-active); }
-      &:focus-visible { @include dg-focus; }
-      &:disabled { opacity: 0.5; cursor: not-allowed; }
-    }
+    &__status { margin: 0; color: var(--cds-text-secondary); font-size: var(--kh-text-meta); line-height: 1.5; }
   }
   &__field select {
     box-sizing: border-box;

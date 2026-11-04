@@ -19,7 +19,8 @@ import { getDb } from '../db/db.js';
 import { upsertNode } from './nodeService.js';
 import { canvasTypeMismatch, initDiagram } from './diagramService.js';
 import type { CanvasType, DiagramDocument } from '../types/diagram.js';
-import { NotFoundError, ValidationError } from '../types/errors.js';
+import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
+import { queueAutoTag } from './autoTagging.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -396,13 +397,33 @@ export async function getCanvas(id: string): Promise<CanvasFull | null> {
   };
 }
 
+const MAX_METADATA_LINKS = 50;
+
+interface ExpectedCanvasMetadata {
+  title: string; description: string; project: string; usedInProjectIds: string[]; tagIds: string[];
+}
+
+function parseExpectedMetadata(value: unknown): ExpectedCanvasMetadata | undefined {
+  if (value === undefined) return undefined;
+  const strings = (items: unknown): items is string[] => Array.isArray(items) && items.length <= MAX_METADATA_LINKS && items.every(item => typeof item === 'string');
+  if (typeof value !== 'object' || value === null
+    || !('title' in value) || typeof value.title !== 'string'
+    || !('description' in value) || typeof value.description !== 'string'
+    || !('project' in value) || typeof value.project !== 'string'
+    || !('usedInProjectIds' in value) || !strings(value.usedInProjectIds)
+    || !('tagIds' in value) || !strings(value.tagIds)) throw new ValidationError('Invalid expected diagram properties');
+  return { title: value.title, description: value.description, project: value.project,
+    usedInProjectIds: value.usedInProjectIds, tagIds: value.tagIds };
+}
+
 export async function updateCanvas(
   id: string,
-  patch: { title?: string; description?: string; project?: string | null; usedInProjectIds?: string[]; tagIds?: string[]; viewport?: object; brainstormSettings?: BrainstormSettings },
+  patch: { title?: string; description?: string; project?: string | null; usedInProjectIds?: string[]; tagIds?: string[]; viewport?: object; brainstormSettings?: BrainstormSettings; expectedMetadata?: unknown },
 ): Promise<CanvasSummary | null> {
   const db = getDb();
+  const expected = parseExpectedMetadata(patch.expectedMetadata);
   if (patch.tagIds !== undefined) {
-    if (!Array.isArray(patch.tagIds) || patch.tagIds.length > 50
+    if (!Array.isArray(patch.tagIds) || patch.tagIds.length > MAX_METADATA_LINKS
       || patch.tagIds.some(value => typeof value !== 'string' || !/^[0-9a-f-]{36}$/i.test(value.trim()))) {
       throw new ValidationError('Tags must be a list of up to 50 tag ids');
     }
@@ -412,7 +433,7 @@ export async function updateCanvas(
     patch = { ...patch, tagIds: ids };
   }
   if (patch.usedInProjectIds !== undefined) {
-    if (!Array.isArray(patch.usedInProjectIds) || patch.usedInProjectIds.length > 50
+    if (!Array.isArray(patch.usedInProjectIds) || patch.usedInProjectIds.length > MAX_METADATA_LINKS
       || patch.usedInProjectIds.some(value => typeof value !== 'string' || value.trim() === '')) {
       throw new ValidationError('Used in must be a list of up to 50 workstreams');
     }
@@ -430,46 +451,63 @@ export async function updateCanvas(
   if (patch.viewport    !== undefined) { sets.push(`viewport = $${i++}`);    vals.push(JSON.stringify(patch.viewport)); }
   if (patch.brainstormSettings !== undefined) { sets.push(`brainstorm_settings = $${i++}`); vals.push(JSON.stringify(parseBrainstormSettings(patch.brainstormSettings))); }
   vals.push(id);
-  const res = await db.query<{ id: string }>(
-    `UPDATE canvases SET ${sets.join(', ')} WHERE id = $${i} AND deleted_at IS NULL RETURNING id`, vals);
-  if (res.rows[0] === undefined) return null;
-  if (patch.usedInProjectIds !== undefined || patch.project !== undefined) await saveUsedInProjects(db, id, patch.usedInProjectIds);
-  if (patch.tagIds !== undefined) await saveCanvasTags(db, id, patch.tagIds);
+  const client = await db.connect();
+  let saved: CanvasSummary | null = null;
+  try {
+    await client.query('BEGIN');
+    const locked = await client.query<Record<string, unknown>>(`${SUMMARY_SQL} WHERE c.id = $1 AND c.deleted_at IS NULL FOR UPDATE OF c`, [id]);
+    if (!locked.rows[0]) { await client.query('ROLLBACK'); return null; }
+    const current = rowToSummary(locked.rows[0]);
+    const sameSet = (left: string[], right: string[]): boolean => JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
+    if (expected !== undefined) {
+      if (patch.title !== undefined && current.title !== expected.title
+        || patch.description !== undefined && (current.description ?? '') !== expected.description
+        || patch.project !== undefined && (current.project ?? '') !== expected.project
+        || patch.usedInProjectIds !== undefined && !sameSet(current.usedInProjectIds, expected.usedInProjectIds)
+        || patch.tagIds !== undefined && !sameSet(current.tagIds, expected.tagIds)) {
+        throw new ConflictError('Diagram properties changed elsewhere. Your draft was not saved over them.', 'CANVAS_METADATA_CONFLICT');
+      }
+    }
+    await client.query(`UPDATE canvases SET ${sets.join(', ')} WHERE id = $${i} AND deleted_at IS NULL`, vals);
+    if (patch.usedInProjectIds !== undefined || patch.project !== undefined) await saveUsedInProjects(client, id, patch.usedInProjectIds);
+    if (patch.tagIds !== undefined) await saveCanvasTags(client, id, patch.tagIds);
+    const summary = await client.query<Record<string, unknown>>(`${SUMMARY_SQL} WHERE c.id = $1`, [id]);
+    saved = summary.rows[0] ? rowToSummary(summary.rows[0]) : null;
+    await client.query('COMMIT');
+  } catch (error) { await client.query('ROLLBACK'); throw error; }
+  finally { client.release(); }
   if (patch.title !== undefined) scheduleGraphSync(id);
-  const summary = await db.query<Record<string, unknown>>(`${SUMMARY_SQL} WHERE c.id = $1`, [id]);
-  return summary.rows[0] ? rowToSummary(summary.rows[0]) : null;
+  if (saved?.canvasType === 'diagram' && (patch.title !== undefined || patch.description !== undefined)) {
+    queueAutoTag(db, 'diagram', id);
+  }
+  return saved;
 }
 
 /** Replaces the "used in" list; the owning project is never repeated there. */
-async function saveUsedInProjects(db: Pool, canvasId: string, ids: string[] | undefined): Promise<void> {
-  const client = await db.connect();
-  try {
-    await client.query('BEGIN');
-    if (ids !== undefined) {
-      await client.query('DELETE FROM canvas_project_uses WHERE canvas_id = $1', [canvasId]);
-      for (const projectId of ids) {
-        await client.query('INSERT INTO canvas_project_uses (canvas_id, project_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [canvasId, projectId]);
-      }
+async function saveUsedInProjects(client: PoolClient, canvasId: string, ids: string[] | undefined): Promise<void> {
+  if (ids !== undefined) {
+    await client.query('DELETE FROM canvas_project_uses WHERE canvas_id = $1', [canvasId]);
+    for (const projectId of ids) {
+      await client.query('INSERT INTO canvas_project_uses (canvas_id, project_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [canvasId, projectId]);
     }
-    await client.query(`DELETE FROM canvas_project_uses u USING canvases c
-      WHERE u.canvas_id = c.id AND c.id = $1 AND u.project_id = c.project`, [canvasId]);
-    await client.query('COMMIT');
-  } catch (error) { await client.query('ROLLBACK'); throw error; }
-  finally { client.release(); }
+  }
+  await client.query(`DELETE FROM canvas_project_uses u USING canvases c
+    WHERE u.canvas_id = c.id AND c.id = $1 AND u.project_id = c.project`, [canvasId]);
 }
 
 /** Replaces the diagram's taxonomy tags. */
-async function saveCanvasTags(db: Pool, canvasId: string, ids: string[]): Promise<void> {
-  const client = await db.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query('DELETE FROM canvas_tags WHERE canvas_id = $1', [canvasId]);
-    if (ids.length > 0) {
-      await client.query('INSERT INTO canvas_tags (canvas_id, tag_id) SELECT $1, unnest($2::uuid[]) ON CONFLICT DO NOTHING', [canvasId, ids]);
-    }
-    await client.query('COMMIT');
-  } catch (error) { await client.query('ROLLBACK'); throw error; }
-  finally { client.release(); }
+async function saveCanvasTags(client: PoolClient, canvasId: string, ids: string[]): Promise<void> {
+  // Match notes: removing an automatic tag is a persistent rejection, not an invitation to reapply it.
+  await client.query(
+    `INSERT INTO tag_rejections (content_kind, content_id, tag_id)
+     SELECT 'diagram', canvas_id::text, tag_id FROM canvas_tags
+     WHERE canvas_id = $1 AND NOT (tag_id = ANY($2::uuid[]))
+     ON CONFLICT DO NOTHING`, [canvasId, ids]);
+  await client.query('DELETE FROM canvas_tags WHERE canvas_id = $1 AND NOT (tag_id = ANY($2::uuid[]))', [canvasId, ids]);
+  if (ids.length > 0) {
+    await client.query('DELETE FROM tag_rejections WHERE content_kind = $1 AND content_id = $2 AND tag_id = ANY($3::uuid[])', ['diagram', canvasId, ids]);
+    await client.query('INSERT INTO canvas_tags (canvas_id, tag_id) SELECT $1, unnest($2::uuid[]) ON CONFLICT DO NOTHING', [canvasId, ids]);
+  }
 }
 
 export async function deleteCanvas(id: string): Promise<void> {

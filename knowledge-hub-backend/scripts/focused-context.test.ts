@@ -12,6 +12,7 @@ import { focusTools, selectRequiredToolChoice, selectKnowledgeRetrievalChoice } 
 import type { NoteEditProposal } from '../src/ai/noteEdits.js';
 import { allowsStructuralNoteEdits, checkEditsAgainstNote } from '../src/ai/noteEdits.js';
 import { blocksToTextWithImages, blockContentSpans } from '../src/utils/noteContent.js';
+import { scriptNoteBlocks } from '../src/utils/scriptNoteContent.js';
 import { readFile } from 'node:fs/promises';
 import { emptyDiagram } from '../src/types/diagram.js';
 import { READING_BATCH_TOKENS, REVIEW_CONTEXT_RESERVE, textTokens } from '../src/ai/knowledge/reviewContext.js';
@@ -461,7 +462,7 @@ test('live chat explains first-party identity and filtered runtime capabilities 
     assert.ok(text.includes('first-party runtime context'));
     assert.ok(text.includes('not automatically the target of every request'));
     assert.ok(text.includes('Read-only turn: mutation tools are withheld.'));
-    assert.ok(text.includes('Editable note preview: unavailable'));
+    assert.ok(text.includes('Protected live-note editing: unavailable'));
     assert.ok(text.includes('none supplied; no local filesystem access'));
     assert.ok(text.includes('Outputs panel: not visible here'));
     assert.ok(tools.every(tool => !['propose_note_edit', 'update_note', 'create_task', 'save_output'].includes(tool.function.name)));
@@ -550,6 +551,27 @@ test('a mixed valid and invalid note-edit batch is rejected without leaving a pa
     assert.match(JSON.stringify(result), /No edits proposed/);
     assert.deepEqual(noteEdits, []);
   } finally { await db.end(); }
+});
+
+test('ordinary requested note edits are delivered automatically and previews remain explicit', async () => {
+  const db = new Pool();
+  const query = mock.method(db, 'query', async () => ({ rows: [{ content: { contentJson: JSON.stringify([
+    { type: 'heading', content: [{ text: 'Title' }] },
+    { type: 'paragraph', content: [{ text: 'Existing wording.' }] },
+  ]) } }] }));
+  try {
+    for (const delivery of [undefined, 'preview'] as const) {
+      const edits: NoteEditProposal[] = [];
+      const result = await executeToolCall(db, 'propose_note_edit', JSON.stringify({
+        ...(delivery ? { delivery } : {}),
+        edits: [{ action: 'replace_text', find: 'Existing', markdown: 'Updated', summary: 'Improve wording' }],
+      }), undefined, { noteId: outputId, noteEdits: edits });
+      assert.equal(edits.length, 1);
+      assert.equal(edits[0]?.delivery, delivery ?? 'apply');
+      assert.match(JSON.stringify(result), delivery === 'preview' ? /Explicitly requested preview/ : /automatic application/);
+      assert.doesNotMatch(JSON.stringify(result), /saved":true/);
+    }
+  } finally { query.mock.restore(); await db.end(); }
 });
 
 test('ordinary review and repair requests cannot be widened into whole-note rewrites', async () => {
@@ -885,4 +907,24 @@ test('a project-scoped knowledge search still returns real matches from other pr
     query.mock.restore();
     await db.end();
   }
+});
+test('standalone script annotations survive rich boundaries, retrieval and sequential Athena edits', () => {
+  const source = [{ type: 'paragraph', content: [
+    { type: 'text', text: '[colour=teal]First ', styles: {} },
+    { type: 'text', text: 'strong', styles: { bold: true } },
+  ] }, { type: 'paragraph', content: [
+    { type: 'text', text: 'continuation[/colour][pause] End.', styles: {} },
+  ] }];
+  const original = JSON.stringify(source);
+  const blocks = scriptNoteBlocks(source) as Record<string, unknown>[];
+  assert.equal(JSON.stringify(source), original);
+  assert.equal(blocksToTextWithImages(blocks, new Map(), true),
+    '[colour=teal]First [/colour][colour=teal]strong[/colour]\n[colour=teal]continuation[/colour][pause] End.');
+  assert.deepEqual((blocks[0] as typeof source[number]).content[1]?.styles, { bold: true, textColor: '#3ddbd9' });
+  assert.deepEqual(checkEditsAgainstNote([
+    { action: 'replace_text', find: '[pause]', markdown: '[beat]', summary: 'Change cue' },
+    { action: 'replace_text', find: 'End.', markdown: '[colour=pink]Finish.[/colour]', summary: 'Emphasise ending' },
+    { action: 'replace_text', find: 'Finish.', markdown: 'Done.', summary: 'Adjust new wording' },
+  ], blocks, 0, true), []);
+  assert.throws(() => scriptNoteBlocks([{ type: 'paragraph', content: [{ type: 'text', text: '[colour=pink]unclosed' }] }]), /Close each/);
 });

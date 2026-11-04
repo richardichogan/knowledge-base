@@ -617,7 +617,7 @@ test('failed recovery snapshots block destructive saves rather than losing the p
 test('diagram metadata updates persist descriptions and allow explicit project clearing', async () => {
   let savedProject: string | null = 'cloudt-with-a-chance-of-insights';
   let savedDescription = '';
-  const query = mock.method(Pool.prototype, 'query', async (sql: string, values: unknown[]) => {
+  const runQuery = async (sql: string, values: unknown[]) => {
     if (sql.startsWith('UPDATE canvases')) {
       assert.ok(sql.includes('description = $1'));
       assert.ok(sql.includes('project = $2'));
@@ -632,10 +632,15 @@ test('diagram metadata updates persist descriptions and allow explicit project c
       id: CANVAS, title: 'Imagine diagram', description: savedDescription,
       project: savedProject, canvas_type: 'diagram', linked_notes: [], node_count: 2,
     }], rowCount: 1 };
-  });
+  };
+  const query = mock.method(Pool.prototype, 'query', runQuery);
   const transactions: string[] = [];
   const connect = mock.method(Pool.prototype, 'connect', async () => ({
-    query: async (sql: string) => { transactions.push(sql); return { rows: [], rowCount: 0 }; },
+    query: async (sql: string, values: unknown[] = []) => {
+      transactions.push(sql);
+      if (/^(BEGIN|COMMIT|ROLLBACK|DELETE FROM canvas_project_uses)/.test(sql)) return { rows: [], rowCount: 0 };
+      return runQuery(sql, values);
+    },
     release: () => undefined,
   }));
   try {
@@ -648,6 +653,50 @@ test('diagram metadata updates persist descriptions and allow explicit project c
     assert.equal(cleared?.canvasType, 'diagram');
     assert.ok(transactions.some(sql => sql.includes('DELETE FROM canvas_project_uses')));
   } finally { query.mock.restore(); connect.mock.restore(); }
+});
+
+test('metadata autosave refuses stale changed fields inside the canvas transaction', async () => {
+  const calls: string[] = [];
+  const connection = mock.method(Pool.prototype, 'connect', async () => ({
+    query: async (sql: string) => {
+      calls.push(sql);
+      return { rows: sql.includes('FOR UPDATE OF c') ? [{
+        id: CANVAS, title: 'Current title', description: 'Athena description',
+        project: null, canvas_type: 'diagram', used_in_project_ids: [], tag_ids: [],
+      }] : [] };
+    },
+    release: () => undefined,
+  }));
+  try {
+    await assert.rejects(updateCanvas(CANVAS, {
+      description: 'Stale local rewrite',
+      expectedMetadata: { title: 'Current title', description: 'Earlier description', project: '', usedInProjectIds: [], tagIds: [] },
+    }), error => error instanceof ConflictError && error.code === 'CANVAS_METADATA_CONFLICT');
+    assert.ok(calls.some(sql => sql.includes('FOR UPDATE OF c')));
+    assert.ok(calls.includes('ROLLBACK'));
+    assert.ok(!calls.some(sql => sql.startsWith('UPDATE canvases')));
+  } finally { connection.mock.restore(); }
+});
+
+test('metadata autosave preserves an unrelated external description while changing its workstream', async () => {
+  const calls: string[] = [];
+  const current = { id: CANVAS, title: 'Current title', description: 'External description',
+    project: 'old', canvas_type: 'diagram', used_in_project_ids: [], tag_ids: [] };
+  const connection = mock.method(Pool.prototype, 'connect', async () => ({
+    query: async (sql: string) => {
+      calls.push(sql);
+      if (sql.startsWith('UPDATE canvases')) current.project = '';
+      return { rows: sql.includes('FROM canvases c') ? [current] : [] };
+    },
+    release: () => undefined,
+  }));
+  try {
+    const saved = await updateCanvas(CANVAS, { project: null,
+      expectedMetadata: { title: current.title, description: 'Older description', project: 'old', usedInProjectIds: [], tagIds: [] } });
+    assert.equal(saved?.description, 'External description');
+    assert.ok(calls.includes('COMMIT'));
+    assert.ok(calls.some(sql => sql.startsWith('UPDATE canvases') && !sql.includes('description =')));
+  } finally { connection.mock.restore(); }
 });
 
 test('saves when the base revision is current and returns revision + 1', async () => {

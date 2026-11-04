@@ -56,6 +56,7 @@ import { DocumentReview } from '../components/DocumentReview';
 import { applyReviewedNoteText } from '../utils/noteEditApplier';
 import { runNoteAction } from '../utils/activeBlockNoteEditor';
 import { PassageTagManager } from './PassageTagManager';
+import { ScriptTools } from './ScriptTools';
 import { consumePassageNavigation, passageNavigationSnapshot, subscribePassageNavigation } from './passageNavigation';
 import { prepareTaggedPaste } from './passageTags';
 import { passageTagKeys } from './passageTagModel';
@@ -429,9 +430,9 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   // can read table/text selections directly from the editor (native
   // window.getSelection() doesn't reflect ProseMirror table cell selections).
   useEffect(() => {
-    setActiveBlockNoteEditor(editor, doc.id);
+    setActiveBlockNoteEditor(editor, doc.id, contentType === 'script');
     return () => { setActiveBlockNoteEditor(null); };
-  }, [editor]);
+  }, [editor, doc.id, contentType]);
 
   const isDirtyRef = useRef(false);
 
@@ -636,7 +637,13 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
     });
   }, [doc.id, doSave, workEnabled, reloadWork]);
 
-  useEffect(() => { onSaveReady?.(doSave); return () => { onSaveReady?.(null); }; }, [doSave, onSaveReady]);
+  useEffect(() => {
+    onSaveReady?.(async () => {
+      do { if (!await doSave()) return false; } while (isDirtyRef.current);
+      return true;
+    });
+    return () => { onSaveReady?.(null); };
+  }, [doSave, onSaveReady]);
 
   useEffect(() => {
     if (!passageRequest || passageRequest.noteId !== doc.id) return;
@@ -714,8 +721,11 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
       }
       if (!mountedRef.current || getActiveBlockNoteEditor() !== editorRef.current) throw new Error('The open note changed. No Athena changes applied.');
       action();
+      isDirtyRef.current = true;
+      persistDraft();
     });
-  }), [doc.id, liveDocument, runExclusive, persistDraft]);
+    if (!await doSave()) throw new Error('Athena changes are in the open draft, but the save was not confirmed. Resolve the save error in the note; do not reapply the changes.');
+  }), [doc.id, liveDocument, runExclusive, persistDraft, doSave]);
 
   const restoreVersion = useCallback(async (versionId: string): Promise<void> => {
     await runExclusive(async () => {
@@ -1393,6 +1403,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
           {!showingHtml && bodyContent}
           {!showingHtml && contentType === 'email-draft' && <EmailDraftFields work={work} disabled={historyBusy || externalBusy || work.busy || work.recoveryConflict} />}
           <div className="notes-editor-inner" hidden={showingHtml || bodyContent !== undefined}>
+            {contentType === 'script' && <ScriptTools editor={editor} disabled={historyBusy || externalBusy} />}
             <BlockNoteViewWrapper
               editor={editor}
               theme={BLOCKNOTE_G100_THEME}

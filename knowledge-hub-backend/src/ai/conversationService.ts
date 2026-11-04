@@ -54,6 +54,7 @@ import type { MapChangeProposal } from './mapEdits.js';
 import { LOCAL_FILE_TOOLS, localFilesPrompt, type LocalFileWriteProposal, type LocalFolder } from './localFiles.js';
 import { ukClock } from '../sync/ukClock.js';
 import { recordTurnTrace, setTraceProject, withTurnTrace, withTurnSpan } from './turnTrace.js';
+import { executionFollowThroughRepair } from './dialoguePolicy.js';
 
 const RAG_USED_LIMIT = 10;
 const TOOL_ERROR_LOG_CHARS = 400;
@@ -380,7 +381,7 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
   const runtimeCapabilities = [
     '## Current chat runtime capabilities (authoritative for this turn)',
     `Persona: ${persona ?? 'general'}. ${hooks.readOnlyTools === true ? 'Read-only turn: mutation tools are withheld.' : 'Only the supplied tools can perform actions.'}`,
-    `Editable note preview: ${permittedTools.some(tool => tool.function.name === 'propose_note_edit') ? 'available; Richard must Apply to save' : 'unavailable in this turn'}.`,
+    `Protected live-note editing: ${permittedTools.some(tool => tool.function.name === 'propose_note_edit') ? 'available; explicitly requested edits apply and save automatically through the live editor. delivery=preview only for an explicitly requested preview. The tool acceptance is not a save receipt: the editor reports save success or failure. Do not tell Richard to click Apply for ordinary edits.' : 'unavailable in this turn'}.`,
     `Canvas change preview: ${permittedTools.some(tool => tool.function.name === 'propose_map_changes') ? 'available; requires user application' : 'unavailable in this turn'}.`,
     `Diagram design: ${permittedTools.some(tool => tool.function.name === 'hand_off_to_specialist') ? 'Ariadne is available through hand_off_to_specialist (load the schema if needed). For creating/redrawing diagrams, matching reference images or substantial layout work, hand off to Ariadne (specialist id "daedalus") with the full instruction, source revision and selected screen/reference IDs. It creates a separate editable candidate and reports back here. A queued handoff is not a completed drawing. Only apply_diagram_candidate after explicit user approval of that candidate. Minor shape edits may use update_diagram.' : 'specialist handoff unavailable in this turn'}`,
     'A permitted capability may need load_tools; not being loaded is not being unavailable. Never claim editing is unavailable just because the schema has not been loaded. Report diagram changes only from successful save results, not proposed specifications or earlier conversation claims.',
@@ -435,12 +436,19 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
   let diagramClaimRepaired = false;
   let capabilityClaimRepaired = false;
   let actionDenialRepaired = false;
+  let executionRepaired = false;
+  const calledTools = new Set<string>();
   const pendingReads = new Map<string, PendingRead>();
   let readingMs = 0;
   const failedDocumentReads = new Set<string>();
   // Show Notes saves seven deliverables in three batches after one round of link checks, so it gets more rounds.
   let maxRounds = persona === 'podcast_show_notes' ? SHOW_NOTES_MAX_TOOL_ITERATIONS : AI_MAX_TOOL_ITERATIONS;
   const minimumToolRounds = 2;
+  const incomplete = (reason: string): string => {
+    if (!toolContext.noteEdits?.length) return reason;
+    for (const edit of toolContext.noteEdits) edit.delivery = 'preview';
+    return `${reason} The unfinished note edit batch has not been applied automatically; it remains a manual preview.`;
+  };
   if (hooks.maxToolRounds !== undefined) maxRounds = Math.min(maxRounds, Math.max(minimumToolRounds, Math.floor(hooks.maxToolRounds)));
   for (let i = 0; i < maxRounds; i++) {
     if (isStopped(hooks)) throw new AiStoppedError();
@@ -451,6 +459,7 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
       console.warn(`[ai] Stopping tool loop after ${i} round(s) — turn budget exhausted`);
       const proposed = toolContext.noteEdits?.length ?? 0;
       if (proposed > 0) {
+        for (const edit of toolContext.noteEdits ?? []) edit.delivery = 'preview';
         return `There ${proposed === 1 ? 'is 1 proposed edit' : `are ${proposed} proposed edits`} available in the preview. ` +
           'The time limit was reached before I could finish checking the complete request. These are not saved changes: ' +
           'review the preview and Apply or Discard it before requesting further edits. Do not repeat the original request, ' +
@@ -484,10 +493,22 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
       : await client.chatWithTools(model, messages, tools, maxTokens, roundToolChoice, roundTimeoutMs);
 
     if (wrapUp && response.toolCalls.length > 0) {
-      return "I ran out of steps before I could finish. Some of it may already be done — ask me to check what's in place and carry on from there.";
+      return incomplete('I ran out of steps before I could finish. The recorded tool results show what completed; the remaining work is not complete.');
     }
     if (response.toolCalls.length === 0) {
       const reply = response.content ?? '';
+      const executionRepair = executionFollowThroughRepair(safeHistory, userMessage, reply, calledTools);
+      if (executionRepair) {
+        if (executionRepaired || wrapUp || i >= maxRounds - 1) {
+          hooks.onReset?.();
+          return incomplete('I could not complete the agreed action in this turn. A promise is not a result; check the recorded tool results and saved content before repeating any edit.');
+        }
+        executionRepaired = true;
+        await recordTurnTrace('action.follow_through_repair', { calledTools: [...calledTools] });
+        hooks.onReset?.();
+        messages.push({ role: 'user', content: `[Runtime execution check: ${executionRepair}]` });
+        continue;
+      }
       const confirmedSave = diagramEvidence.receipts?.at(-1) ?? priorDiagramSave;
       if (confirmedSave && deniesDiagramSave(reply)) {
         await recordTurnTrace('action.contradiction', { reply, receipt: confirmedSave });
@@ -612,6 +633,7 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
 
     const roundImages: Array<{ label: string; url: string }> = [];
     for (const call of response.toolCalls) {
+      calledTools.add(call.function.name);
       let result: unknown;
       let directRead = false;
       const requestedArgs = parseToolArgs(call.function.arguments);
@@ -851,7 +873,7 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
     }
   }
 
-  return "I ran out of steps before I could finish. Some of it may already be done — ask me to check what's in place and carry on from there.";
+  return incomplete('I ran out of steps before I could finish. The recorded tool results show what completed; the remaining work is not complete.');
 }
 
 const WRAP_UP_INSTRUCTION = '[System: no more tool calls are available this turn.] Reply now. Say plainly what you actually completed (based only on the tool results above — successes and failures), and what is still left to do, if anything. Do not claim anything the tool results do not show, and do not apologise for running out of steps.';

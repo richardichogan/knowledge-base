@@ -484,6 +484,7 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, recovered, 
     },
     staleTime: 0,
     refetchOnWindowFocus: false,
+    refetchInterval: 60_000,
     retry: false,
   });
   const savedTitle = canvas?.title ?? 'Untitled diagram';
@@ -535,6 +536,10 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, recovered, 
     rev: recovered?.baseRevision ?? initial.revision, seq: recovered ? 1 : 0, savedSeq: 0, inflight: null as Promise<void> | null,
     timer: null as number | null, blocked: null as 'error' | 'conflict' | null, discard: false,
   });
+  const metadataSave = useRef<(() => Promise<boolean>) | null>(null);
+  const registerMetadataSave = useCallback((handler: (() => Promise<boolean>) | null) => { metadataSave.current = handler; }, []);
+  const [athenaBusy, setAthenaBusy] = useState(false);
+  const athenaBusyRef = useRef(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>(recovered ? 'pending' : 'saved');
   const [saveError, setSaveError] = useState<string | null>(null);
   const [draftIdentity] = useState(() => noteDraftIdentity.get());
@@ -655,28 +660,37 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, recovered, 
   }, [draftSession, flush]);
 
   useEffect(() => {
-    onSaveReady?.(saveNow);
+    onSaveReady?.(async () => {
+      if (metadataSave.current && !await metadataSave.current()) return false;
+      return saveNow();
+    });
     return () => { onSaveReady?.(null); };
   }, [onSaveReady, saveNow]);
 
   useEffect(() => setDiagramChatBridge(`map:${canvasId}`, async () => {
+    if (athenaBusyRef.current) throw new Error('Athena is already working on this diagram.');
+    if (metadataSave.current && !await metadataSave.current()) throw new Error('Resolve the diagram property save error before asking Athena to work on it.');
     if (!await saveNow()) throw new Error('Finish the open label edit and resolve any diagram save error or recovery conflict before asking Athena to work on it.');
+    athenaBusyRef.current = true;
+    setAthenaBusy(true);
     return async () => {
-      if (save.current.discard || noteDraftIdentity.snapshot() !== draftSession) return;
-      const current = await api.getDiagram(canvasId);
-      if (!current.success) throw new Error(current.error.message);
-      if (current.data.revision === save.current.rev) return;
-      void queryClient.invalidateQueries({ queryKey: ['canvases'] });
-      void queryClient.invalidateQueries({ queryKey: ['canvas', canvasId] });
-      void queryClient.invalidateQueries({ queryKey: ['diagram-versions', canvasId] });
-      if (save.current.seq !== save.current.savedSeq || pendingLabel.current !== null || save.current.inflight !== null) {
-        save.current.blocked = 'conflict';
-        setSaveStatus('conflict');
-        setSaveError('The saved diagram changed while you were editing. Your local draft is retained; resolve the conflict before saving.');
-        return;
-      }
-      save.current.discard = true;
-      onReload();
+      try {
+        if (save.current.discard || noteDraftIdentity.snapshot() !== draftSession) return;
+        const current = await api.getDiagram(canvasId);
+        if (!current.success) throw new Error(current.error.message);
+        void queryClient.invalidateQueries({ queryKey: ['canvases'] });
+        void queryClient.invalidateQueries({ queryKey: ['canvas', canvasId] });
+        if (current.data.revision === save.current.rev) return;
+        void queryClient.invalidateQueries({ queryKey: ['diagram-versions', canvasId] });
+        if (save.current.seq !== save.current.savedSeq || pendingLabel.current !== null || save.current.inflight !== null) {
+          save.current.blocked = 'conflict';
+          setSaveStatus('conflict');
+          setSaveError('The saved diagram changed while you were editing. Your local draft is retained; resolve the conflict before saving.');
+          return;
+        }
+        save.current.discard = true;
+        onReload();
+      } finally { athenaBusyRef.current = false; setAthenaBusy(false); }
     };
   }), [canvasId, draftSession, onReload, queryClient, saveNow]);
 
@@ -2881,20 +2895,33 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, recovered, 
           </div>,
         },
         {
-          id: 'properties', label: 'Properties',
+          id: 'properties', label: 'Properties', keepMounted: true,
           content: <div className="dg-properties">
-        {canvas !== undefined && <DiagramMetadata canvas={canvas} onSaved={(summary) => {
-          queryClient.setQueryData<CanvasFullApi>(['canvas', canvasId], current => current === undefined ? undefined : { ...current, ...summary });
-          void queryClient.invalidateQueries({ queryKey: ['canvases'] });
-        }} />}
-        {canvasPending && <p className="dg-properties__empty" role="status">Loading diagram properties…</p>}
-        {canvasError !== null && <div className="dg-metadata__error" role="alert">
-          Could not load diagram properties: {canvasError.message}
-          <button type="button" className="dg-text-btn" onClick={() => { void refetchCanvas(); }}>Retry diagram properties</button>
-        </div>}
+        {(selectedNodes.length + selectedEdges.length > 0 || singleFootnote !== undefined) && <>
         <details className="dg-section" open>
         <summary className="dg-section__summary">Shape or connector properties</summary>
+        <fieldset className="dg-properties__editable" disabled={athenaBusy}>
+        {athenaBusy && <p className="dg-properties__hint" role="status">Athena is working on the saved diagram. Property editing resumes when the turn finishes.</p>}
         {singleNode !== undefined || singleEdge !== undefined ? <DiagramProperties
+          behaviour={isAiFlow && singleId !== undefined ? <section className="dg-properties__group" aria-label="Behaviour">
+            <h3 className="dg-properties__group-title">Behaviour</h3>
+            <AiFlowProperties
+              key={`ai-${singleId}`} node={singleNode} edge={singleEdge} nextLaneOrder={nextLaneOrder(doc)}
+              gateConnector={singleEdge !== undefined && doc.nodes.some((n) => (n.id === singleEdge.sourceId || n.id === singleEdge.targetId) && n.flow?.stepType === 'decision_gate')}
+              onNodeChange={(next, first) => {
+                const current = docRef.current;
+                const updated = { ...current, nodes: current.nodes.map((n) => n.id === next.id ? next : n) };
+                if (first) commit(updated);
+                else { setDoc(updated); markDirty(SAVE_DELAY_MS); }
+              }}
+              onEdgeChange={(next, first) => {
+                const current = docRef.current;
+                const updated = { ...current, edges: current.edges.map((x) => x.id === next.id ? next : x) };
+                if (first) commit(updated);
+                else { setDoc(updated); markDirty(SAVE_DELAY_MS); }
+              }}
+            />
+          </section> : undefined}
           aiFlow={isAiFlow}
           onIconChange={icon => {
             if (singleNode !== undefined) updateNodes([singleNode.id], node => {
@@ -2960,22 +2987,8 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, recovered, 
           }}
         /> : selectedNodes.length + selectedEdges.length > 1 ? selectionStyle
           : <p className="dg-properties__empty">Select a shape or connector to edit its title and description.</p>}
-        {isAiFlow && singleId !== undefined && <AiFlowProperties
-          key={`ai-${singleId}`} node={singleNode} edge={singleEdge} nextLaneOrder={nextLaneOrder(doc)}
-          gateConnector={singleEdge !== undefined && doc.nodes.some((n) => (n.id === singleEdge.sourceId || n.id === singleEdge.targetId) && n.flow?.stepType === 'decision_gate')}
-          onNodeChange={(next, first) => {
-            const current = docRef.current;
-            const updated = { ...current, nodes: current.nodes.map((n) => n.id === next.id ? next : n) };
-            if (first) commit(updated);
-            else { setDoc(updated); markDirty(SAVE_DELAY_MS); }
-          }}
-          onEdgeChange={(next, first) => {
-            const current = docRef.current;
-            const updated = { ...current, edges: current.edges.map((x) => x.id === next.id ? next : x) };
-            if (first) commit(updated);
-            else { setDoc(updated); markDirty(SAVE_DELAY_MS); }
-          }}
-        />}
+        <section className="dg-properties__group" aria-label="Links and supporting actions">
+        <h3 className="dg-properties__group-title">Links and supporting actions</h3>
         {singleNode?.kind === 'image' && <div className="dg-properties__actions">
           <button type="button" className="dg-text-btn" onClick={() => {
             const asset = singleNode.assetId ? assets[singleNode.assetId] : undefined;
@@ -3014,7 +3027,22 @@ const DiagramSurface: React.FC<SurfaceProps> = ({ canvasId, initial, recovered, 
           </button>}
           <button type="button" className="dg-text-btn" onClick={() => { askAthena(singleId); }}><Chat size={16} /> Ask Athena</button>
         </div>}
+        </section>
+        </fieldset>
         </details>
+        </>}
+        {canvas !== undefined && <DiagramMetadata canvas={canvas}
+          expanded={selectedNodes.length + selectedEdges.length === 0 && singleFootnote === undefined}
+          disabled={athenaBusy} onSaveReady={registerMetadataSave} onSaved={(summary) => {
+          queryClient.setQueryData<CanvasFullApi>(['canvas', canvasId], current => current === undefined ? undefined : { ...current, ...summary });
+          void queryClient.invalidateQueries({ queryKey: ['canvases'] });
+        }} />}
+        {canvasPending && <p className="dg-properties__empty" role="status">Loading diagram properties…</p>}
+        {canvasError !== null && <div className="dg-metadata__error" role="alert">
+          Could not load diagram properties: {canvasError.message}
+          <button type="button" className="dg-text-btn" onClick={() => { void refetchCanvas(); }}>Retry diagram properties</button>
+        </div>}
+        {selectedNodes.length + selectedEdges.length === 0 && <p className="dg-properties__empty">Select a shape or connector to edit its content, behaviour and appearance.</p>}
         <EntityLinks key={canvasId} source={{ type: 'diagram', id: canvasId }} title="Diagram links" onOpenNote={onOpenNote} beforeChange={beforeElementLink} />
           </div>,
         },
@@ -3082,9 +3110,10 @@ function DiagramSelectionStyle({ nodes, edges, onChange }: {
   </div>;
 }
 
-function DiagramProperties({ item, kind, titleLimit, aiFlow, onIconChange, onResetHeader, onChange, onAlignmentChange, onThicknessChange, onEdgeStyleChange, onBorderChange, onBackgroundChange, onFontSizeChange, onCalloutTypeChange, onArrowDirectionChange }: {
+function DiagramProperties({ item, kind, titleLimit, aiFlow, behaviour, onIconChange, onResetHeader, onChange, onAlignmentChange, onThicknessChange, onEdgeStyleChange, onBorderChange, onBackgroundChange, onFontSizeChange, onCalloutTypeChange, onArrowDirectionChange }: {
   item: DiagramNode | DiagramEdge; kind: string; titleLimit: number;
   aiFlow: boolean;
+  behaviour?: React.ReactNode;
   onIconChange: (icon: DiagramIconName | null | undefined) => void;
   onResetHeader: () => void;
   onChange: (field: 'label' | 'description' | 'header', value: string, first: boolean) => void;
@@ -3102,7 +3131,6 @@ function DiagramProperties({ item, kind, titleLimit, aiFlow, onIconChange, onRes
     onChange(field, value, firstEdit.current);
     firstEdit.current = false;
   };
-  const supportsAppearance = 'kind' in item && DIAGRAM_ICON_KINDS.includes(item.kind);
   const titleField = <label className="dg-properties__field">Title
     <textarea aria-label="Shape or connector title" rows={2} maxLength={titleLimit} value={item.label} spellCheck
       onFocus={() => { firstEdit.current = true; }} onChange={(e) => { change('label', e.target.value); }}
@@ -3110,7 +3138,23 @@ function DiagramProperties({ item, kind, titleLimit, aiFlow, onIconChange, onRes
   </label>;
   return <div className="dg-properties__fields">
     <p className="dg-properties__kind">{kind}</p>
-    {supportsAppearance && titleField}
+    <section className="dg-properties__group" aria-label="Content">
+    <h3 className="dg-properties__group-title">Content</h3>
+    {titleField}
+    <DiagramDescriptionEditor key={item.id} value={item.description ?? ''}
+      onFocus={() => { firstEdit.current = true; }}
+      onChange={(value, first) => {
+        if (first) { onChange('description', value, true); firstEdit.current = true; }
+        else change('description', value);
+      }} />
+    <p className="dg-properties__hint">{'kind' in item
+      ? item.kind === 'line' ? 'Title and description are saved but not displayed on the line.'
+        : 'Title is bold by default. Description appears below it with one blank line, or in Notes when a footnote is added. Text wraps and clips within the existing shape.'
+      : 'Title is shown on the connector. Add a footnote to show its description in Notes.'} Changes save automatically.</p>
+    </section>
+    {behaviour}
+    <section className="dg-properties__group" aria-label="Appearance">
+    <h3 className="dg-properties__group-title">Appearance</h3>
     {'kind' in item && DIAGRAM_ICON_KINDS.includes(item.kind) && <>
       <div className="dg-properties__field">
         <label className="dg-properties__field">Header
@@ -3166,7 +3210,6 @@ function DiagramProperties({ item, kind, titleLimit, aiFlow, onIconChange, onRes
           { value: 'left-right', label: 'Double-headed horizontal' }, { value: 'up-down', label: 'Double-headed vertical' }]}
         onChange={onArrowDirectionChange} />
     </div>}
-    {!supportsAppearance && titleField}
     <div className="dg-properties__border">
     {'kind' in item && <>
       {item.kind !== 'line' && <Swatches label="Background colour" colours={FILLS} value={diagramEditorNodeColours(item).fill}
@@ -3203,12 +3246,6 @@ function DiagramProperties({ item, kind, titleLimit, aiFlow, onIconChange, onRes
       </select>
     </label>
     </div>
-    <DiagramDescriptionEditor key={item.id} value={item.description ?? ''}
-      onFocus={() => { firstEdit.current = true; }}
-      onChange={(value, first) => {
-        if (first) { onChange('description', value, true); firstEdit.current = true; }
-        else change('description', value);
-      }} />
     {(!('kind' in item) || item.kind !== 'line') && <div className="dg-properties__alignment">
       <label className="dg-properties__field">Text size
         <select aria-label="Text size" value={item.fontSize ?? 12}
@@ -3228,10 +3265,7 @@ function DiagramProperties({ item, kind, titleLimit, aiFlow, onIconChange, onRes
         onChange={(value) => { onAlignmentChange({ textVerticalAlign: value }); }} />
       </>}
     </div>}
-    <p className="dg-properties__hint">{'kind' in item
-      ? item.kind === 'line' ? 'Title and description are saved but not displayed on the line.'
-        : 'Title is bold by default. Description appears below it with one blank line, or in Notes when a footnote is added. Text wraps and clips within the existing shape.'
-      : 'Title is shown on the connector. Add a footnote to show its description in Notes.'} Changes save automatically.</p>
+    </section>
   </div>;
 }
 

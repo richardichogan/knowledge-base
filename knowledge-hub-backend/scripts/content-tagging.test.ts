@@ -4,8 +4,48 @@ import type { Pool } from 'pg';
 
 process.env['DATABASE_URL'] ??= 'postgresql://isolated.invalid/offline';
 const { isDesignDoc, policyFor, taggingText, tagContent, TAGGABLE_SOURCES } = await import('../src/services/taxonomyService.js');
+const { diagramTagText, autoTagNow } = await import('../src/services/autoTagging.js');
+const { emptyDiagram } = await import('../src/types/diagram.js');
 
 const repo = 'https://github.com/IBM-Project-Imagine/imagine-claims/blob/main';
+
+test('diagrams use the note tagging policy but never enter the Discover tagging sweep', () => {
+  assert.deepEqual(policyFor('diagram'), policyFor('note'));
+  assert.ok(!TAGGABLE_SOURCES.includes('diagram'));
+});
+
+test('diagram tagging uses semantic shape content, not geometry or appearance', () => {
+  const diagram = { ...emptyDiagram(), nodes: [{
+    id: 'shape', kind: 'process' as const, label: 'Leave approval', description: 'Check the employee request with HR.',
+    x: 100, y: 100, width: 120, height: 80, fill: '#ffffff', stroke: '#161616', textColor: '#161616',
+    fontSize: 14, assetId: null, parentId: null,
+  }], footnotes: [{ id: 'footnote', targetId: 'shape', source: 'custom' as const, text: 'Retain the approval audit evidence.' }] };
+  const text = diagramTagText('HR agents', 'Leave of absence workflow', diagram);
+  assert.match(text, /Leave approval/);
+  assert.match(text, /Retain the approval audit evidence/);
+  const moved = { ...diagram, nodes: diagram.nodes.map(node => ({ ...node, x: -300, y: 800, fill: '#000000', fontSize: 18 })) };
+  assert.equal(diagramTagText('HR agents', 'Leave of absence workflow', moved), text);
+  assert.notEqual(diagramTagText('New title', 'Leave of absence workflow', diagram), text);
+  assert.ok(text.length <= 6_000);
+});
+
+test('unchanged and deleted diagrams skip tagging without a provider call', async () => {
+  const document = { ...emptyDiagram(), nodes: [] };
+  const title = Array.from({ length: 45 }, (_, i) => `word${i}`).join(' ');
+  const { createHash } = await import('node:crypto');
+  const hash = createHash('sha1').update(diagramTagText(title, null, document)).digest('hex');
+  const calls: string[] = [];
+  const db = { query: (sql: string) => {
+    calls.push(sql);
+    return Promise.resolve({ rows: sql.includes('FROM canvases')
+      ? [{ title, description: null, document }] : [{ content_hash: hash }] });
+  } } as unknown as Pool;
+  assert.deepEqual(await autoTagNow(db, 'diagram', 'diagram-id'), { applied: 0, skipped: 'unchanged' });
+  assert.match(calls[0] ?? '', /deleted_at IS NULL/);
+  assert.equal(calls.length, 2);
+  const deleted = { query: () => Promise.resolve({ rows: [] }) } as unknown as Pool;
+  assert.deepEqual(await autoTagNow(deleted, 'diagram', 'deleted'), { applied: 0, skipped: 'not found' });
+});
 
 test('design and instructional GitHub docs are recognised', () => {
   for (const path of [

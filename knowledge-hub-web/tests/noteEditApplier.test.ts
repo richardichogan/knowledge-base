@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { applyNoteEdits } from '../src/utils/noteEditApplier';
 import type { NoteEdit } from '../src/types';
 
-type Inline = { type: string; text?: string; styles?: Record<string, unknown>; href?: string; content?: Inline[] };
+type Inline = { type: string; text?: string; styles?: Record<string, unknown>; props?: Record<string, unknown>; href?: string; content?: Inline[] };
 interface Block { id: string; type: string; props?: Record<string, unknown>; content: Inline[]; children?: Block[] }
 const text = (value: string, styles = {}): Inline => ({ type: 'text', text: value, styles });
 const title = (): Block => ({ id: 'title', type: 'heading', props: { level: 1 }, content: [text('Guest guide')] });
@@ -30,9 +30,30 @@ function fixture(document: Block[]) {
     transact(action: () => void): void { action(); },
   };
   // This adapter intentionally implements only the editor operations exercised here.
-  const apply = (edits: NoteEdit[]) => applyNoteEdits(editor as unknown as Parameters<typeof applyNoteEdits>[0], edits);
+  const apply = (edits: NoteEdit[], script = false) => applyNoteEdits(editor as unknown as Parameters<typeof applyNoteEdits>[0], edits, { script });
   return { editor, apply };
 }
+
+test('Athena can edit script wording, colour and cues without disturbing the rest of the paragraph', () => {
+  const cue: Inline = { type: 'scriptCue', props: { cue: 'pause' } };
+  const opening = text('Opening ', { textColor: '#3ddbd9', bold: true });
+  const { editor, apply } = fixture([title(), { id: 'script', type: 'paragraph', content: [opening, cue, text(' Next point.')] }]);
+  assert.equal(apply([{ action: 'replace_text', find: 'Next', markdown: '[colour=pink]New[/colour]', summary: 'Emphasise wording' }], true).applied, 1);
+  assert.deepEqual(editor.document[1]?.content, [opening, cue, text(' '), text('New', { textColor: '#ff7eb6' }), text(' point.')]);
+  assert.equal(apply([{ action: 'replace_text', find: '[pause]', markdown: '[beat]', summary: 'Shorten the cue' }], true).applied, 1);
+  assert.deepEqual(editor.document[1]?.content[1], { type: 'scriptCue', props: { cue: 'beat' } });
+  const before = structuredClone(editor.document);
+  const malformed = apply([{ action: 'replace_text', find: 'point', markdown: '[colour=teal]open', summary: 'Invalid colour' }], true);
+  assert.equal(malformed.applied, 0);
+  assert.match(malformed.failed[0]!, /Close each/);
+  assert.deepEqual(editor.document, before);
+});
+
+test('normal note edits do not interpret script annotation syntax', () => {
+  const { editor, apply } = fixture([title(), { id: 'body', type: 'paragraph', content: [text('Example')] }]);
+  assert.equal(apply([{ action: 'replace_text', find: 'Example', markdown: '[pause]', summary: 'Literal token' }]).applied, 1);
+  assert.deepEqual(editor.document[1]?.content, [text('[pause]')]);
+});
 
 test('wording corrections preserve rich inline styles, links, block identity, list props and children', () => {
   const paragraph: Block = { id: 'instructions', type: 'numberedListItem', props: { start: 3 }, content: [

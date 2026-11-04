@@ -12,7 +12,7 @@ export type GraphNodeType =
   | 'build_spec' | 'risk' | 'question' | 'register_issue';
 
 export const PUBLISHED_POST_TYPES: readonly GraphNodeType[] = ['blog_post', 'podcast_episode'];
-const ANY = '*' as const;
+const ANY = '*';
 type Endpoints = readonly GraphNodeType[] | typeof ANY;
 
 export interface GraphRelationshipDefinition {

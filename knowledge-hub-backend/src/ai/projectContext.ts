@@ -45,7 +45,11 @@ export async function loadCurrentProjectContext(db: Pool, projectId: string): Pr
   );
   const project = rows[0];
   if (!project) return null;
-  const { client_company: _client, partner_companies: _partners, offering_link: _offering, linked_projects: _linked, ...fields } = project;
+  const fields = { ...project };
+  delete fields['client_company'];
+  delete fields['partner_companies'];
+  delete fields['offering_link'];
+  delete fields['linked_projects'];
   return {
     ...fields,
     ...rowToRelations(project),

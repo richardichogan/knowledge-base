@@ -16,7 +16,8 @@ import {
 } from '@carbon/react';
 import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, Menu, Idea, Notebook, Copy, View, Document as DocumentIcon, Compare } from '@carbon/icons-react';
 import { api } from '../services/api';
-import { prepareBuildChat, prepareDesignChat, prepareDiagramChat, preparePodcastChat, prepareTaskChat, prepareUseCaseChat, prepareWorkChat } from '../utils/activeBlockNoteEditor';
+import { getActiveNoteId, runNoteAction, prepareBuildChat, prepareDesignChat, prepareDiagramChat, preparePodcastChat, prepareTaskChat, prepareUseCaseChat, prepareWorkChat } from '../utils/activeBlockNoteEditor';
+import { deliverNoteEdits } from '../utils/noteEditDelivery';
 import { authSession } from '../services/authSession';
 import { describeApiError, requireApiData } from '../services/apiError';
 import { confirmDialog, alertDialog } from '../services/appDialogs';
@@ -867,6 +868,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       let finishDesign: ((changed: boolean) => Promise<void>) | undefined;
       let designChanged = true;
       try {
+        if (resumeTurnId === undefined && isNoteLinkedPanel && currentNoteId && getActiveNoteId() === currentNoteId) {
+          await runNoteAction(currentNoteId, false, () => {});
+        }
         if (currentNoteId?.startsWith('map:')) finishDesign = await prepareDiagramChat(currentNoteId);
         if (!finishDesign) {
           if (ctx?.workContentId) finishDesign = await prepareWorkChat(ctx.workContentId);
@@ -910,6 +914,11 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           const remaining = ATHENA_MIN_THINK_MS - (Date.now() - startedAt);
           if (remaining > 0) await new Promise<void>(resolve => { window.setTimeout(resolve, remaining); });
           if (signal.aborted) throw new axios.CanceledError('Stopped');
+        }
+        if (turnRunRef.current !== run) throw new TurnDetachedError();
+        if (result.success && result.data.noteEdits?.length && result.data.noteEditsFor
+          && result.data.noteEdits.every(edit => edit.delivery !== 'preview')) {
+          result.data.noteEditResult = await deliverNoteEdits(result.data.assistantMessageId, result.data.noteEditsFor, result.data.noteEdits);
         }
         if (result.success && result.data.reply.trim() && notificationTurnId !== undefined) {
           notifyPromptCompleted(notificationTurnId, startedAt, result.data.sessionId,
@@ -961,6 +970,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         memoriesCreated: result.data.memoriesCreated,
         noteEdits: result.data.noteEdits,
         noteEditsFor: result.data.noteEditsFor,
+        noteEditResult: result.data.noteEditResult,
         mapChanges: result.data.mapChanges,
         mapChangesFor: result.data.mapChangesFor,
         localFileWrites: result.data.localFileWrites,
@@ -1269,6 +1279,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       memoriesCreated?: SavedMemory[] | undefined;
       noteEdits?: NoteEdit[] | undefined;
       noteEditsFor?: string | null | undefined;
+      noteEditResult?: ChatMessage['noteEditResult'];
       mapChanges?: MapChange[] | undefined;
       mapChangesFor?: string | null | undefined;
       localFileWrites?: LocalFileWrite[] | undefined;
@@ -1291,6 +1302,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         ...(meta.sources !== undefined && meta.sources.length > 0 && { sources: meta.sources }),
         ...(meta.memoriesCreated !== undefined && meta.memoriesCreated.length > 0 && { memoriesCreated: meta.memoriesCreated }),
         ...(meta.noteEdits !== undefined && meta.noteEdits.length > 0 && typeof meta.noteEditsFor === 'string' && { noteEdits: meta.noteEdits, noteEditsFor: meta.noteEditsFor }),
+        ...(meta.noteEditResult !== undefined && { noteEditResult: meta.noteEditResult }),
         ...(meta.mapChanges !== undefined && meta.mapChanges.length > 0 && typeof meta.mapChangesFor === 'string' && { mapChanges: meta.mapChanges, mapChangesFor: meta.mapChangesFor }),
         ...(meta.localFileWrites !== undefined && meta.localFileWrites.length > 0 && { localFileWrites: meta.localFileWrites }),
         ...(meta.outputsChanged !== undefined && meta.outputsChanged.length > 0 && { outputsChanged: meta.outputsChanged }),
@@ -2409,7 +2421,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
                 </details>
               )}
               {msg.role === 'assistant' && msg.noteEdits !== undefined && msg.noteEditsFor !== undefined && (
-                <NoteEditCard edits={msg.noteEdits} noteId={msg.noteEditsFor} />
+                <NoteEditCard edits={msg.noteEdits} noteId={msg.noteEditsFor} result={msg.noteEditResult} />
               )}
               {msg.role === 'assistant' && msg.mapChanges !== undefined && msg.mapChangesFor !== undefined && (
                 <MapChangeCard changes={msg.mapChanges} mapId={msg.mapChangesFor} />

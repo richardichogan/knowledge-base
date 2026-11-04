@@ -328,10 +328,17 @@ export const NotesPage: React.FC = () => {
   useDesktopCommand('new-diagram', async () => {
     if (!await handleCreateCanvas('diagram')) throw new Error('Could not create the diagram. Check Think before retrying.');
   });
+  const presentationSave = useRef<(() => Promise<boolean>) | null>(null);
+  const registerPresentationSave = useCallback((save: (() => Promise<boolean>) | null): void => { presentationSave.current = save; }, []);
   async function presentNote(): Promise<void> {
     if (authSession.isExpired()) throw new Error('Sign in again before presenting.');
     const presentation = getDesktop()?.presentation;
     if (!presentation) throw new Error('Update Athena Desktop to present on another display.');
+    if (mode === 'notes' && (selectedEpisode || openDoc)) {
+      const save = presentationSave.current;
+      if (!save || !await save()) throw new Error('Save the current document successfully before presenting. Your open edits are retained.');
+      if (presentationSave.current !== save) throw new Error('The open document changed while saving. Present the current document again.');
+    }
     if (mode === 'notes' && selectedEpisode) {
       if (!presentation.present) throw new Error('Install the updated Athena Desktop to present directly without the settings window.');
       const episode = requireApiData(await api.getPodcastEpisode(selectedEpisode));
@@ -352,6 +359,10 @@ export const NotesPage: React.FC = () => {
     if (!saved) throw new Error('Save the note before presenting.');
     const script = presentationScript(saved.contentJson);
     if (!script.text.trim()) throw new Error('Choose a saved note containing text.');
+    if (script.runs.some(run => run.styles.some(style => style.startsWith('cue-') || style.startsWith('colour-')))
+      && !presentation.scriptAnnotations) {
+      throw new Error('Update Athena Desktop to present script colours and delivery cues. Your saved script is unchanged.');
+    }
     await presentation.present({ noteId: saved.id, title: saved.title, text: script.text, runs: script.runs });
   }
   useDesktopCommand('present-note', presentNote);
@@ -585,7 +596,7 @@ export const NotesPage: React.FC = () => {
       // so Athena gets each one's title and id to read or follow.
       const bodyBlock = (): string => {
         const bodyText = Array.isArray(blocks)
-          ? extractNoteBlockText(blocks as NoteContentBlock[], athenaLinkText).slice(0, NOTE_CONTEXT_MAX_CHARS)
+          ? extractNoteBlockText(blocks as NoteContentBlock[], athenaLinkText, openDoc.contentType === 'script').slice(0, NOTE_CONTEXT_MAX_CHARS)
           : '';
         return bodyText !== '' ? `\n\nContent:\n${bodyText}` : '';
       };
@@ -602,7 +613,9 @@ export const NotesPage: React.FC = () => {
         setAthenaContext({
           type: 'note',
           title: doc.title,
-          detail: `Content type: ${doc.contentType}${imageNote}${bodyBlock()}`,
+          detail: `Content type: ${doc.contentType}${imageNote}${doc.contentType === 'script'
+            ? '. Continuous script: [colour=teal|yellow|pink]...[/colour] describes visual emphasis; [pause]/[beat] are nonspoken delivery cues. For replace_text, find the exact visible wording without colour markers; replacement may use these annotations. Read the saved note for full content if this context is partial.'
+            : ''}${bodyBlock()}`,
           id: doc.id,
           ...(['deliverable-brief', 'email-draft'].includes(doc.contentType) ? { workContentId: doc.id } : {}),
           ...(doc.projectId ? { projectId: doc.projectId } : {}),
@@ -943,9 +956,9 @@ export const NotesPage: React.FC = () => {
               workspaceBusy={loadingNoteId !== null} onOpenNote={id => { void handleSelectNote(id); }} onOpenMap={openMap} />
             : selectedEpisode ? <PodcastEpisodeParent key={selectedEpisode} id={selectedEpisode} actionsSlot={docActionsSlot}
               workspaceBusy={loadingNoteId !== null} onOpenNote={id => { void handleSelectNote(id); }} onOpenMap={openMap}
-              onPresent={presentHandler} onStopPresenting={stopPresentingHandler} /> : openDoc !== null ? (
+              onPresent={presentHandler} onStopPresenting={stopPresentingHandler} onSaveReady={registerPresentationSave} /> : openDoc !== null ? (
               <NoteEditor key={openDoc.id} doc={openDoc} campaignRequest={campaignRequest?.noteId === openDoc.id ? campaignRequest.sequence : undefined} externalBusy={loadingNoteId !== null} onSaved={handleNoteSaved} onDelete={(id) => { void handleDeleteNote(id); }} actionsSlot={docActionsSlot} onShowEditor={showEditor} onMapNote={(id) => { void mapNote(id); }} onOpenMap={openMap} onImport={() => { setImportModalOpen(true); }} onRecovery={() => { setRecoveryOpen(true); }}
-                onPresent={presentHandler} onStopPresenting={stopPresentingHandler}
+                onPresent={presentHandler} onStopPresenting={stopPresentingHandler} onSaveReady={registerPresentationSave}
                 onCreateDiagram={async (id) => { if (!await handleCreateCanvas('diagram', id)) throw new Error('Could not create the linked diagram. Please retry.'); }} />
             ) : (
               <div className="notes-empty-state">Select a document or create a new one</div>

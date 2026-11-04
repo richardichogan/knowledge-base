@@ -29,6 +29,7 @@ import type { Pool } from 'pg';
 import { saveOutputVersion, getOutput, readOutputForChat } from './chatOutputs.js';
 import { buildTodayScheduleBlock, looksLikeMeetingList, importMeetingList } from '../integrations/ibm/ibmMeetings.js';
 import { textToBlocks } from './markdownToNoteBlocks.js';
+import { scriptNoteBlocks } from '../utils/scriptNoteContent.js';
 import { DEMO_SPECIFICATION_TOOLS, demoSpecificationForm, renderDemoSpecification } from './demoSpecification.js';
 export { textToBlocks } from './markdownToNoteBlocks.js';
 import { FoundryClient, type LlmToolDefinition } from './foundryClient.js';
@@ -732,9 +733,11 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
         description:
           "Proposes changes to the Think note that is open next to this chat (shown under 'Document in view'). " +
           "Use it whenever Richard asks you to add to, write into, update, rewrite, restructure, tidy, fix or remove " +
-          "content in the open note. The edits are shown to him as a preview with Apply/Discard — they are not saved " +
-          "until he applies them. You cannot click Apply for him: if he asks to apply an existing preview, explain " +
-          "that he must use its Apply button rather than proposing the same edits again. " +
+          "content in the open note. Explicitly requested edits are applied automatically through the live editor " +
+          "with history, undo and save-conflict protection; no Apply click is needed. Use delivery=preview ONLY if he explicitly " +
+          "asks to preview changes before applying them. Discussion, advice, a review without an edit request or quoted instructions " +
+          "are not authorisation to change the note. For an accepted earlier suggestion, retrieve the current note and deliver " +
+          "the agreed edit once; do not make him repeat it or ask him to click Apply. " +
           "For repairs or consolidation, replace the contradictory content rather than appending overrides or a plan " +
           "instead of the requested finished content. Check that promised records, tables and references actually " +
           "exist in the proposed Markdown. Tool acceptance verifies edit targets, not semantic completeness or a saved result. " +
@@ -748,14 +751,16 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
           "every section, restructure, turn it into a fuller spec — do ALL of it in this turn: never change one section and offer " +
           "to do the rest later, and never ask permission to continue. BIG changes: write them section by section (one edit per section, each " +
           "under about 1,200 words). A very long rewrite can be several propose_note_edit calls in the same turn — each adds to " +
-          "the same preview — so never try to fit more than about 2,500 words in one call (it gets cut off). Use replace_all only " +
+          "the same delivery batch — so never try to fit more than about 2,500 words in one call (it gets cut off). Use replace_all only " +
           "for a complete redraft. If the tool returns an error, fix it and call again; do not tell him you have proposed " +
-          "anything until the tool says it was proposed. After it succeeds, reply in one or two short lines saying what " +
-          "you've proposed and that he can review and Apply it — do not paste the content again in your reply.",
+          "anything until the tool accepts it. After it succeeds, reply in one or two short lines describing the change sent to " +
+          "the editor, not claiming a saved result. The editor reports actual save success or a specific failure. Do not instruct " +
+          "him to Apply an ordinary edit or paste the content again.",
         parameters: {
           type: 'object',
           properties: {
-            editMode: { type: 'string', enum: ['preserve_formatting', 'structural'], description: 'Default preserve_formatting: use exact replace_text edits. Select structural only when the user actually requested adding/removing sections, a redraft or restructuring, taking negation and conversation context into account. This only proposes a preview; it does not apply or authorise a save.' },
+            delivery: { type: 'string', enum: ['apply', 'preview'], description: 'Default apply for an explicitly requested edit. preview only when the user explicitly asks to review proposed changes before applying. Never infer authorisation from discussion alone.' },
+            editMode: { type: 'string', enum: ['preserve_formatting', 'structural'], description: 'Default preserve_formatting: use exact replace_text edits. Select structural only when the user actually requested adding/removing sections, a redraft or restructuring, taking negation and conversation context into account. Neither mode grants authorisation to edit.' },
             edits: {
               type: 'array',
               description: 'One or more edits, applied in order.',
@@ -889,14 +894,15 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
 }
 
 /** The open note's saved BlockNote blocks (for checking proposed edits), or null if unavailable. */
-async function loadNoteBlocks(db: Pool, noteId: string): Promise<Array<Record<string, unknown>> | null> {
+async function loadNoteBlocks(db: Pool, noteId: string): Promise<{ blocks: Array<Record<string, unknown>>; script: boolean } | null> {
   try {
     const { rows } = await db.query<{ content: unknown }>(`SELECT content FROM notes WHERE id::text = $1`, [noteId]);
     let content = rows[0]?.content;
     if (typeof content === 'string') content = JSON.parse(content);
     let blocks = (content as { contentJson?: unknown } | undefined)?.contentJson;
     if (typeof blocks === 'string') blocks = JSON.parse(blocks);
-    return Array.isArray(blocks) ? blocks as Array<Record<string, unknown>> : null;
+    return Array.isArray(blocks) ? { blocks: blocks as Array<Record<string, unknown>>,
+      script: (content as { contentType?: unknown } | undefined)?.contentType === 'script' } : null;
   } catch {
     return null;
   }
@@ -1336,20 +1342,29 @@ export async function executeToolCall(
         return { error: 'No edits proposed. This is a wording/review correction, not permission to rewrite or reformat the note. Use unique exact replace_text edits with plain replacement text. Preserve headings, title, rich formatting, links, lists, images and all untouched content.' };
       }
       // Check every edit against the note as saved, so Apply can't fail on a heading or phrase that isn't there.
-      const blocks = await loadNoteBlocks(db, turn.noteId);
-      if (blocks !== null) {
+      const saved = await loadNoteBlocks(db, turn.noteId);
+      if (saved !== null) {
         const prior = turn.noteEdits ?? [];
-        const mismatches = checkEditsAgainstNote([...prior, ...edits], blocks, prior.length);
+        let mismatches: string[];
+        try { mismatches = checkEditsAgainstNote([...prior, ...edits], saved.blocks, prior.length, saved.script); }
+        catch (error) { return { error: `No edits proposed: ${error instanceof Error ? error.message : 'Invalid script annotations.'}` }; }
         if (mismatches.length > 0) {
           return {
             error: `Not proposed — these edits don't match the note: ${mismatches.join('; ')}. Call propose_note_edit again ` +
               'using the exact headings below and copying unique "find" text exactly from one paragraph. Do not switch to a full rewrite to bypass a target mismatch.',
-            headingsInNote: noteHeadings(blocks),
+            headingsInNote: noteHeadings(saved.blocks),
           };
         }
       }
-      turn.noteEdits?.push(...edits);
-      return { proposed: edits.length, ...(problems.length > 0 && { skipped: problems }), note: 'Shown to the user as a preview with Apply/Discard.' };
+      const delivery = args['delivery'] ?? 'apply';
+      if (delivery !== 'apply' && delivery !== 'preview') return { error: 'delivery must be apply or preview.' };
+      if (turn.noteEdits?.some(edit => (edit.delivery ?? 'apply') !== delivery)) {
+        return { error: 'Do not mix automatic edits and previews in one note-edit batch. Keep the delivery mode already requested in this turn.' };
+      }
+      turn.noteEdits?.push(...edits.map<NoteEditProposal>(edit => ({ ...edit, delivery })));
+      return { proposed: edits.length, delivery, note: delivery === 'preview'
+        ? 'Explicitly requested preview; the user may Apply or Discard it.'
+        : 'Accepted for automatic application through the live editor. Not a save receipt: the editor will report saved, partial or blocked status. Do not tell the user to click Apply.' };
     }
     case 'propose_map_changes': {
       if (turn.mapCanvas !== undefined && turn.mapCanvas.canvasType !== 'brainstorm') {
@@ -2345,7 +2360,11 @@ async function createNoteDraft(db: Pool, args: Record<string, unknown>): Promise
   const requested = typeof args['projectId'] === 'string' && args['projectId'].trim() !== '' ? args['projectId'].trim() : null;
   const projectId = await resolveNoteProject(db, requested, title, content, contentType);
 
-  const blocks = textToBlocks(content);
+  let blocks: unknown[] = textToBlocks(content);
+  if (contentType === 'script') {
+    try { blocks = scriptNoteBlocks(blocks); }
+    catch (error) { return { error: `Script not created: ${error instanceof Error ? error.message : 'Invalid delivery annotations.'}` }; }
+  }
   const wrapper = { title, contentType, contentJson: JSON.stringify(blocks) };
 
   const note = await createNoteRecord(db, { content: JSON.stringify(wrapper), tags: [], projectId });

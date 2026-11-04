@@ -2689,7 +2689,7 @@ export class KnowledgeHubApi {
       { responseType: 'blob' })).data;
   }
 
-  async updateCanvas(id: string, patch: { title?: string; description?: string; project?: string | null; usedInProjectIds?: string[]; tagIds?: string[]; viewport?: object; brainstormSettings?: BrainstormSettings }): Promise<ApiResponse<CanvasSummaryApi>> {
+  async updateCanvas(id: string, patch: { title?: string; description?: string; project?: string | null; usedInProjectIds?: string[]; tagIds?: string[]; viewport?: object; brainstormSettings?: BrainstormSettings; expectedMetadata?: { title: string; description: string; project: string; usedInProjectIds: string[]; tagIds: string[] } }): Promise<ApiResponse<CanvasSummaryApi>> {
     const r = await this.client.patch<ApiResponse<CanvasSummaryApi>>(`/api/canvases/${id}`, patch);
     return r.data;
   }

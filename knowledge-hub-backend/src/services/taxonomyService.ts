@@ -23,7 +23,7 @@
  *   isDesignDoc()       — is a GitHub doc URL a design or instructional document?
  *   TAGGABLE_SOURCES    — content types whose policy can apply tags
  */
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import { FoundryClient } from '../ai/foundryClient.js';
 
 export interface ConceptTag { id: string; name: string; parentName: string }
@@ -52,6 +52,7 @@ const POLICY_BY_TYPE: Record<string, TaggingPolicy> = {
   email: { mode: 'ai', mayPropose: false, projectTag: false },
   // Think and Plan: tagged by id through autoTagging.ts (notes carry their own project field)
   note: { mode: 'ai', mayPropose: true, projectTag: false },
+  diagram: { mode: 'ai', mayPropose: true, projectTag: false },
   task: { mode: 'ai', mayPropose: false, projectTag: false },
   // My Work: calendar, to-dos and the user's own published content
   'cms-blog': AI_EXISTING, 'cms-newsletter': AI_EXISTING, 'cms-podcast-show-notes': AI_EXISTING, 'cms-session-summary': AI_EXISTING,
@@ -81,7 +82,7 @@ export function policyFor(contentType: string, url?: string | null): TaggingPoli
 
 /** Content types whose policy can apply a tag (github-doc only for design docs, checked per URL). */
 export const TAGGABLE_SOURCES: readonly string[] = [
-  ...Object.entries(POLICY_BY_TYPE).filter(([type, p]) => p.mode !== 'none' && type !== 'note' && type !== 'task').map(([type]) => type),
+  ...Object.entries(POLICY_BY_TYPE).filter(([type, p]) => p.mode !== 'none' && !['note', 'task', 'diagram'].includes(type)).map(([type]) => type),
   'github-doc',
 ];
 
@@ -233,9 +234,9 @@ export function taggingText(item: { source: string; title: string; summary?: str
   return `${item.title}${path}\n\n${text}`.slice(0, TAG_TEXT_CHARS);
 }
 
-/** Notes and tasks have their own tables; every other type is a content_items row. */
+/** Think/Plan entities have their own tables; every other type is a content_items row. */
 function isContentItem(contentType: string): boolean {
-  return contentType !== 'note' && contentType !== 'task';
+  return !['note', 'task', 'diagram'].includes(contentType);
 }
 
 async function recordOutcome(db: Pool, contentId: string, contentType: string, outcome: TaggingOutcome): Promise<void> {
@@ -348,20 +349,33 @@ function buildTaxonomyListing(tags: ConceptTag[]): string {
 
 const TABLE_FOR_TYPE: Record<string, { table: string; idCol: string }> = {
   note: { table: 'note_tags', idCol: 'note_id' },
+  diagram: { table: 'canvas_tags', idCol: 'canvas_id' },
   task: { table: 'task_tags', idCol: 'task_id' },
 };
 
 /** Applies an auto tag unless the user already removed that tag from this item. Returns true if newly applied. */
 async function applyTag(db: Pool, contentId: string, contentType: string, tagId: string): Promise<boolean> {
-  const rejected = await db.query(`SELECT 1 FROM tag_rejections WHERE content_id = $1 AND tag_id = $2`, [contentId, tagId]);
-  if ((rejected.rowCount ?? 0) > 0) return false;
-  // Every other content type shares discover_item_tags (the column name is historical).
-  const mapping = TABLE_FOR_TYPE[contentType] ?? { table: 'discover_item_tags', idCol: 'discover_item_id' };
-  const result = await db.query(
-    `INSERT INTO ${mapping.table} (${mapping.idCol}, tag_id, source) VALUES ($1, $2, 'auto') ON CONFLICT DO NOTHING`,
-    [contentId, tagId],
-  );
-  return (result.rowCount ?? 0) > 0;
+  const apply = async (connection: Pool | PoolClient): Promise<boolean> => {
+    const rejected = await connection.query(`SELECT 1 FROM tag_rejections WHERE content_id = $1 AND tag_id = $2`, [contentId, tagId]);
+    if ((rejected.rowCount ?? 0) > 0) return false;
+    const mapping = TABLE_FOR_TYPE[contentType] ?? { table: 'discover_item_tags', idCol: 'discover_item_id' };
+    const result = await connection.query(
+      `INSERT INTO ${mapping.table} (${mapping.idCol}, tag_id, source) VALUES ($1, $2, 'auto') ON CONFLICT DO NOTHING`,
+      [contentId, tagId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  };
+  if (contentType !== 'diagram') return apply(db);
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    // Share the metadata-save lock so a concurrent removal cannot be re-applied from an older snapshot.
+    const locked = await client.query(`SELECT id FROM canvases WHERE id = $1 AND canvas_type = 'diagram' AND deleted_at IS NULL FOR UPDATE`, [contentId]);
+    const applied = locked.rows.length > 0 ? await apply(client) : false;
+    await client.query('COMMIT');
+    return applied;
+  } catch (error) { await client.query('ROLLBACK'); throw error; }
+  finally { client.release(); }
 }
 
 const MAX_EVIDENCE_KEYS = 60;

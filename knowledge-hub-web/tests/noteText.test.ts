@@ -26,3 +26,16 @@ test('legacy table cells and blank, image and ordinary paragraph blocks remain s
     { type: 'table', content: { rows: [{ cells: [[{ text: 'Legacy' }], []] }] } },
   ]), 'One paragraph\nLegacy |');
 });
+
+test('Athena script context includes delivery cues and optional visual colour information', () => {
+  const blocks = [{ type: 'paragraph', content: [
+    { type: 'text', text: 'Start ' },
+    { type: 'text', text: 'here', styles: { textColor: '#3ddbd9' } },
+    { type: 'scriptCue', props: { cue: 'pause' } },
+    { type: 'text', text: ' next', styles: { textColor: 'pink' } },
+    { type: 'scriptCue', props: { cue: 'beat' } },
+  ] }];
+  assert.equal(extractNoteBlockText(blocks), 'Start here[pause] next[beat]');
+  assert.equal(extractNoteBlockText(blocks, undefined, true),
+    'Start [colour=teal]here[/colour][pause][colour=pink] next[/colour][beat]');
+});

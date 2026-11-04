@@ -1,9 +1,11 @@
 /**
  * ai/noteEdits.ts — edits Athena *proposes* to the Think note that is open
  * alongside the chat. Nothing here changes the saved note: proposals are
- * returned with the reply and applied in the user's live editor only when
- * they click Apply (so there's no clash with typing/autosave, and ⌘Z undoes).
+ * returned with the reply and applied through the protected live editor.
+ * Explicitly requested previews remain manual; ordinary edit requests apply directly.
  */
+
+import { scriptAnnotationRuns } from '../podcasts/scriptAnnotations.js';
 
 export type NoteEditAction =
   | 'append'           // add to the end of the note
@@ -15,6 +17,7 @@ export type NoteEditAction =
   | 'replace_all';     // rewrite the whole note body with `markdown` (a full redraft)
 
 export interface NoteEditProposal {
+  delivery?: 'apply' | 'preview';
   action: NoteEditAction;
   heading?: string;
   find?: string;
@@ -76,8 +79,9 @@ export function validateNoteEdits(raw: unknown): { edits: NoteEditProposal[]; pr
 interface NoteBlock { type?: string; props?: { level?: number }; content?: unknown; children?: NoteBlock[] }
 
 function blockText(b: NoteBlock): string {
-  const inline = (content: unknown): string => Array.isArray(content) ? content.map((item: { text?: string; content?: unknown }) =>
-    typeof item.text === 'string' ? item.text : inline(item.content)).join('') : '';
+  const inline = (content: unknown): string => Array.isArray(content) ? content.map((item: { type?: string; props?: { cue?: string }; text?: string; content?: unknown }) =>
+    item.type === 'scriptCue' ? `[${item.props?.cue === 'beat' ? 'beat' : 'pause'}]`
+      : typeof item.text === 'string' ? item.text : inline(item.content)).join('') : '';
   return inline(b.content);
 }
 
@@ -109,7 +113,7 @@ function markdownHeadings(markdown: string | undefined): string[] {
  * note as the EARLIER edits will have left it — a section renamed or added by edit 1 can be the
  * target of edit 2, and one removed by edit 1 can't.
  */
-export function checkEditsAgainstNote(edits: NoteEditProposal[], blocks: NoteBlock[], alreadyProposed = 0): string[] {
+export function checkEditsAgainstNote(edits: NoteEditProposal[], blocks: NoteBlock[], alreadyProposed = 0, script = false): string[] {
   let headings = noteHeadings(blocks).map((h) => norm(h));
   let texts = flattenBlocks(blocks).map(blockText);
   const problems: string[] = [];
@@ -118,6 +122,8 @@ export function checkEditsAgainstNote(edits: NoteEditProposal[], blocks: NoteBlo
   const label = (i: number): string => String(i - alreadyProposed + 1);
   const hasHeading = (target: string): boolean => headings.some((h) => h === target || h.includes(target) || (target.includes(h) && h !== ''));
   edits.forEach((e, i) => {
+    const markdown = script && e.markdown !== undefined
+      ? scriptAnnotationRuns(e.markdown).map(run => run.cue ? `[${run.cue}]` : run.text).join('') : e.markdown;
     const n = label(i);
     const reported = i >= alreadyProposed;
     const wanted = e.heading !== undefined ? norm(e.heading) : '';
@@ -136,13 +142,13 @@ export function checkEditsAgainstNote(edits: NoteEditProposal[], blocks: NoteBlo
       const find = e.find;
       const matches = texts.filter(t => t.includes(find));
       if (matches.length !== 1 || matches[0]?.indexOf(find) !== matches[0]?.lastIndexOf(find)) problems.push(`edit ${n}: "find" must match exactly once in a single paragraph or list item; copy a unique passage from the note`);
-      else texts = texts.map(text => text.includes(find) ? text.replace(find, () => e.markdown ?? '') : text);
+      else texts = texts.map(text => text.includes(find) ? text.replace(find, () => markdown ?? '') : text);
     }
     // Carry this edit's effect on the headings forward.
     const written = markdownHeadings(e.markdown);
     if (e.action === 'replace_all') {
       headings = written;
-      texts = (e.markdown ?? '').split('\n').filter((l) => l.trim() !== '');
+      texts = (markdown ?? '').split('\n').filter((l) => l.trim() !== '');
     } else if (e.action === 'replace_section' && wanted !== '') {
       const at = headings.findIndex((h) => h === wanted || h.includes(wanted) || (wanted.includes(h) && h !== ''));
       // A replacement that brings its own heading replaces the heading too; otherwise the heading stays.
@@ -153,7 +159,7 @@ export function checkEditsAgainstNote(edits: NoteEditProposal[], blocks: NoteBlo
     } else if (written.length > 0) {
       headings.push(...written);
     }
-    if (e.action !== 'replace_all' && e.action !== 'replace_text' && e.markdown !== undefined) texts = [...texts, ...e.markdown.split('\n').filter((l) => l.trim() !== '')];
+    if (e.action !== 'replace_all' && e.action !== 'replace_text' && markdown !== undefined) texts = [...texts, ...markdown.split('\n').filter((l) => l.trim() !== '')];
   });
   return problems;
 }

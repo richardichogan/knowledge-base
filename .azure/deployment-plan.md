@@ -2,6 +2,47 @@
 
 **Status:** Validated
 
+**Diagram, Athena and visual script release validation (2026-11-04):**
+- All validation checks pass:
+  - Core validation: verify Azure CLI/authentication and existing application
+    targets; run both TypeScript checks, isolated release suites and lint
+    non-regression. No infrastructure changes: Bicep validation/what-if and
+    policy/template changes are not applicable.
+  - Docker build: verify the existing lockfile and Dockerfile build context;
+    build the backend TypeScript locally, then use the existing ACR remote
+    build after pushing the validated source.
+  - Azure Policy validation: application-only update of existing ACA/SWA
+    resources, with no identity, RBAC, network, location or policy changes.
+- Keep Alliance Tenant Reporting, kh-prod-api-vnet / cad79107555facr and
+  kh-prod-web in rg-knowledge-hub-prod. Do not provision new infrastructure.
+
+**Section 7: Validation Proof — diagram, Athena and visual script release (2026-11-04 11:43 UTC):**
+- `git fetch origin` / `git merge origin/main --no-edit` and `git ls-remote`:
+  main remains 2c1d6cb5. Existing shared packed-refs maintenance lock warnings
+  were left untouched; no remote code was missed.
+- Both app `npx tsc --noEmit` checks and production builds passed. Frontend
+  full isolated release suite passed 316 main checks and all auxiliary bundles.
+  Backend full isolated suite passed 1038/1039; its sole failure was an obsolete
+  preview-label assertion. Corrected context/delivery checks passed 41/41.
+  Additional diagram/tagging/delivery coverage passed after correcting the
+  VM fixture's cross-realm Error constructor; affected diagram/semantic checks
+  passed 62/62. Full suites were not restarted.
+- Lint non-regression passed: backend 544/baseline 623; frontend 21/baseline 41.
+  Narrow release-only fixes name numeric limits, remove an unnecessary literal
+  assertion and omit raw project relation fields without unused bindings.
+- Existing authenticated ACA image is v297, identity None; advance to v298.
+  Existing SWA hostname nice-mud-0f780fb03.7.azurestaticapps.net confirmed.
+  Azure MCP returned no subscriptions; authenticated CLI resource reads succeed.
+- Existing registry credentials, hosting, identity, RBAC and policy remain
+  unchanged. Infrastructure validation/provisioning and AcrPull changes are
+  not applicable to this application-only release. Docker has the lockfile,
+  builds TypeScript and includes normal startup schema/migrations.
+- No dependencies or Desktop files changed. Preserve and exclude unrelated
+  DESIGN.md and .impeccable cache edits. No live Athena mutation or local
+  browser was performed; deployment health and served assets are checked next.
+- Evidence: diagram-athena-{api-tests,web-tests,additional-tests,affected-tests,
+  lint-affected-tests,web-build}.log in the session files.
+
 **Section 7: Task execution, assignment/activity and duplicate-task release validation (2026-11-03 14:15 UTC):**
 - User requested deployment of the completed pending task fixes. Existing AZCLI
   application-only targets retained: Alliance Tenant Reporting

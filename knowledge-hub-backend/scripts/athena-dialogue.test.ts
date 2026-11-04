@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { assembleMessages } from '../src/ai/contextBuilder.js';
-import { DIALOGUE_POLICY_PROMPT, buildDialogueTurnPrompt, dialogueRepairInstruction, dialogueTurnMode, inViewReviewScope, isDialogueOnlyTurn } from '../src/ai/dialoguePolicy.js';
+import { DIALOGUE_POLICY_PROMPT, buildDialogueTurnPrompt, dialogueRepairInstruction, dialogueTurnMode, executionFollowThroughRepair, inViewReviewScope, isDialogueOnlyTurn } from '../src/ai/dialoguePolicy.js';
 import { DIALOGUE_SCENARIOS, SYNTHETIC_DIALOGUE_CONTEXT, dialogueFindings } from './athena-dialogue-fixtures.js';
 import type { AthenaPersona, ConversationMessage } from '../src/types/aiContext.js';
 
@@ -9,6 +9,24 @@ const personas: AthenaPersona[] = [
   'general', 'brainstorming', 'copilot_coach', 'blog_post', 'demo_designer',
   'web_designer', 'podcast_prep', 'podcast_show_notes',
 ];
+
+test('accepting an offered saved-state check requires a read, not speculation or another offer', () => {
+  const history: ConversationMessage[] = [{ role: 'assistant', content: 'If you want, I can check the latest revision and tell you whether the property changes are still there.' }];
+  assert.ok(executionFollowThroughRepair(history, 'yes', 'Yes, likely. We probably clobbered the pass.', new Set()));
+  assert.ok(executionFollowThroughRepair(history, 'yes', 'I can check it if you want.', new Set(['load_tools'])));
+  assert.equal(executionFollowThroughRepair(history, 'yes', 'The saved revision contains the updated properties.', new Set(['read_diagram'])), null);
+  assert.equal(executionFollowThroughRepair([{ role: 'assistant', content: 'Do you prefer teal?' }], 'yes', 'Teal it is.', new Set()), null);
+});
+
+test('promises to execute now receive a bounded repair without treating advice or approval as tool results', () => {
+  assert.ok(executionFollowThroughRepair([], 'redo it', 'I’m going to **re-read the current saved diagram** and update it.', new Set()));
+  assert.ok(executionFollowThroughRepair([], 'update the note', 'I will update the note.', new Set(['read_note'])));
+  assert.equal(executionFollowThroughRepair([], 'What can you do?', 'I can update a note when you ask.', new Set()), null);
+  assert.equal(executionFollowThroughRepair([], 'Review this', 'Ariadne is working on a separate candidate.', new Set(['hand_off_to_specialist'])), null);
+  const instruction = executionFollowThroughRepair([{ role: 'assistant', content: 'Shall I check the current saved revision?' }], 'yes', 'Yes, likely.', new Set());
+  assert.match(instruction ?? '', /accepted read is not permission to write/i);
+  assert.match(instruction ?? '', /Do not repeat a mutation/);
+});
 
 test('review-scope compatibility helpers and model-led prompts preserve the chosen conversational context', async () => {
   const page = { type: 'note', title: 'Walking briefing', detail: 'A source-grounded briefing that resumes after interruptions.' };

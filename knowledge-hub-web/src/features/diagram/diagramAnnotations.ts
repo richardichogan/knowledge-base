@@ -87,17 +87,17 @@ export function cloneFootnotes(doc: Doc, idMap: ReadonlyMap<string, string>, mak
 
 export const FOOTNOTE_RADIUS = 10;
 
-/** Where a footnote marker sits: a shape's top-right corner, or beside a connector's label/midpoint. */
+/** Shape markers sit on the left; connector markers stay beside their label/midpoint. */
 export function footnoteAnchor(doc: Pick<Doc, 'nodes' | 'edges'>, targetId: string, byId: ReadonlyMap<string, DiagramNode> = nodeMap(doc.nodes)): DiagramPoint | null {
   const n = byId.get(targetId);
   if (n !== undefined) {
     if (n.kind === 'line') {
       const [a, b] = linePoints(n);
-      return a.x >= b.x ? a : b;
+      return a.x <= b.x ? a : b;
     }
-    if (n.kind === 'decision') return { x: n.x + n.width * 0.75, y: n.y + n.height * 0.25 - FOOTNOTE_RADIUS * 0.6 };
-    if (n.kind === 'hexagon') return { x: n.x + n.width * (1 - HEXAGON_INSET), y: n.y + 2 };
-    return { x: n.x + n.width - 2, y: n.y + 2 };
+    if (n.kind === 'decision') return { x: n.x + n.width * 0.25, y: n.y + n.height * 0.25 - FOOTNOTE_RADIUS * 0.6 };
+    if (n.kind === 'hexagon') return { x: n.x + n.width * HEXAGON_INSET, y: n.y + 2 };
+    return { x: n.x + 2, y: n.y + 2 };
   }
   const e = doc.edges.find((x) => x.id === targetId);
   if (e === undefined) return null;

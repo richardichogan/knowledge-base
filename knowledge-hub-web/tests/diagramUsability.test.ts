@@ -15,6 +15,39 @@ import { build } from 'esbuild';
 import { createContext, runInContext } from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { prepareDesignChat, setDesignChatBridge } from '../src/utils/activeBlockNoteEditor';
+import { metadataDraft, metadataPatch, reconcileMetadata } from '../src/features/diagram/diagramMetadataState';
+
+test('metadata save acknowledgements preserve typing newer than the submitted properties', () => {
+  const submitted = metadataDraft({ title: 'Architecture', description: 'First description', project: 'ikea', tagIds: ['one'] });
+  const local = { ...submitted, description: 'Newer description', tagIds: ['one', 'manual'] };
+  const accepted = { ...submitted, title: 'Architecture (saved)' };
+  const merged = reconcileMetadata(local, submitted, accepted);
+  assert.equal(merged.draft.title, accepted.title);
+  assert.equal(merged.draft.description, local.description);
+  assert.deepEqual(merged.draft.tagIds, local.tagIds);
+  assert.deepEqual(metadataPatch(merged.draft, accepted), { description: local.description, tagIds: local.tagIds });
+});
+
+test('metadata refresh merges automatic tags without dropping local description edits', () => {
+  const base = metadataDraft({ title: 'Architecture', tagIds: ['manual'] });
+  const local = { ...base, description: 'Unsaved description' };
+  const remote = { ...base, tagIds: ['manual', 'automatic'] };
+  const merged = reconcileMetadata(local, base, remote);
+  assert.deepEqual(merged.conflicts, []);
+  assert.equal(merged.draft.description, local.description);
+  assert.deepEqual(merged.draft.tagIds, remote.tagIds);
+  assert.deepEqual(metadataPatch(merged.draft, remote), { description: local.description });
+  const competing = reconcileMetadata({ ...base, title: 'Local title' }, base, { ...remote, title: 'Athena title' });
+  assert.deepEqual(competing.conflicts, ['title']);
+  assert.equal(competing.draft.title, 'Local title');
+});
+
+test('metadata patches contain only changed fields and do not duplicate the owning workstream', () => {
+  const base = metadataDraft({ title: 'Architecture', project: 'one', tagIds: ['b', 'a'], usedInProjectIds: ['two'] });
+  assert.deepEqual(metadataPatch({ ...base, tagIds: ['a', 'b'] }, base), {});
+  assert.deepEqual(metadataPatch({ ...base, project: 'two' }, base), { project: 'two', usedInProjectIds: [] });
+  assert.deepEqual(metadataPatch({ ...base, project: '' }, base), { project: null, usedInProjectIds: ['two'] });
+});
 
 test('standalone diagram conversations bypass Design preparation, including drill-down conversation owners', async () => {
   const owner = 'map:44444444-4444-4444-8444-444444444444';
@@ -86,7 +119,23 @@ test('hexagon outlines, hit targets, labels and cardinal connectors agree at dif
     assert.ok(aligned.x >= hub.x + hub.width * HEXAGON_INSET);
     assert.ok(aligned.x <= hub.x + hub.width * (1 - HEXAGON_INSET));
   }
-  assert.deepEqual(footnoteAnchor({ nodes: [hub], edges: [] }, hub.id), { x: 228, y: 202 });
+  assert.deepEqual(footnoteAnchor({ nodes: [hub], edges: [] }, hub.id), { x: 132, y: 202 });
+});
+
+test('shape footnotes use the left outline while connector markers keep their existing placement', async () => {
+  const ordinary = node('shape', 100, 200);
+  const decision: DiagramNode = { ...ordinary, id: 'decision', kind: 'decision' };
+  const line: DiagramNode = { ...ordinary, id: 'line', kind: 'line', lineStart: { x: 1, y: 0.5 }, lineEnd: { x: 0, y: 0.5 } };
+  assert.deepEqual(footnoteAnchor({ nodes: [ordinary], edges: [] }, ordinary.id), { x: 102, y: 202 });
+  assert.deepEqual(footnoteAnchor({ nodes: [decision], edges: [] }, decision.id), { x: 125, y: 209 });
+  assert.deepEqual(footnoteAnchor({ nodes: [line], edges: [] }, line.id), { x: 100, y: 230 });
+  const doc = { ...emptyDiagram(), nodes: [ordinary],
+    footnotes: [{ id: 'footnote', targetId: ordinary.id, source: 'custom' as const, text: 'Supporting explanation' }] };
+  const svg = await diagramSvg(doc, new Map(), 'white', false);
+  assert.match(svg, /<circle cx="102" cy="202" r="10"/);
+  const xml = await diagramDrawioXml(doc, new Map());
+  const marker = xml.slice(xml.indexOf('id="footnote-footnote"'));
+  assert.match(marker, /<mxGeometry x="92" y="192" width="20" height="20"/);
 });
 
 test('hexagon SVG and editable draw.io exports preserve the shape and label', async () => {

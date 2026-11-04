@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { Checkmark } from '@carbon/icons-react';
@@ -9,7 +9,8 @@ import { athenaLinkText } from '../../notes/linkLabels';
 import { deferredView } from '../../utils/deferredView';
 import { setPodcastChatBridge } from '../../utils/activeBlockNoteEditor';
 import { parseScriptBullets, SCRIPT_BULLET as BULLET, scriptSentenceLines } from './scriptFormatting';
-import { SCRIPT_COLOURS, type ScriptColour, type ScriptCue } from './scriptAnnotations';
+import { ScriptRichEditor, type ScriptPassage } from './ScriptRichEditor';
+import { scriptRichDocument, scriptRichText } from './scriptRichText';
 import { useAthenaContext } from '../../context/AthenaContext';
 import { confirmDialog } from '../../services/appDialogs';
 import { rememberAgentJob, useAgentJobs } from '../../services/agentJobStore';
@@ -30,7 +31,8 @@ const formatDate = (value: string | null): string => value
 export const PodcastEpisodeParent: React.FC<{
   id: string; actionsSlot: HTMLElement | null; workspaceBusy?: boolean; onOpenNote: (id: string) => void; onOpenMap: (id: string) => void;
   onPresent?: (() => void) | undefined; onStopPresenting?: (() => void) | undefined;
-}> = ({ id, actionsSlot, workspaceBusy = false, onOpenNote, onOpenMap, onPresent, onStopPresenting }) => {
+  onSaveReady?: (save: (() => Promise<boolean>) | null) => void;
+}> = ({ id, actionsSlot, workspaceBusy = false, onOpenNote, onOpenMap, onPresent, onStopPresenting, onSaveReady }) => {
   const qc = useQueryClient();
   const [params, setParams] = useSearchParams();
   const initialTab = params.get('tab');
@@ -133,6 +135,10 @@ export const PodcastEpisodeParent: React.FC<{
     if (noteSave.current && !await noteSave.current()) throw new Error('The document could not be saved. Your draft remains available; retry before continuing.');
     if (scriptSave.current && !await scriptSave.current()) throw new Error('The script could not be saved. Your cards remain available; retry before continuing.');
   }, []);
+  useEffect(() => {
+    onSaveReady?.(async () => { await prepare(); return true; });
+    return () => { onSaveReady?.(null); };
+  }, [onSaveReady, prepare]);
   useEffect(() => setPodcastChatBridge(id, async () => {
     if (scriptChatBusyRef.current || stageBusy) {
       throw new Error('Finish the current episode operation before sending another script request.');
@@ -348,55 +354,24 @@ const AutoTextarea: React.FC<React.TextareaHTMLAttributes<HTMLTextAreaElement> &
     ref={el => { own.current = el; if (inputRef) inputRef.current = el; }} />;
 };
 
-interface ScriptPassage { text: string; start: number; end: number; original: string }
 type PassageAction = 'Rewrite' | 'Rephrase' | 'Add specific content';
 type AskPassage = (passage: ScriptPassage, action: PassageAction, instruction: string) => Promise<void>;
 
-const PassageTextarea: React.FC<React.ComponentProps<typeof AutoTextarea> & {
-  onAsk: AskPassage; onEditText: (text: string, caret: number) => void;
+const PassageEditor: React.FC<{
+  id: string; value: string; disabled: boolean; maxLength?: number; bullets?: boolean;
+  onAsk: AskPassage; onEditText: (text: string) => void;
 }> = ({ onAsk, onEditText, ...props }) => {
   const [selection, setSelection] = useState<ScriptPassage | null>(null);
   const [adding, setAdding] = useState(false);
   const [instruction, setInstruction] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const ownInput = useRef<HTMLTextAreaElement | null>(null);
-  const input = props.inputRef ?? ownInput;
-  const restoreCaret = useRef<number | null>(null);
-  const value = typeof props.value === 'string' ? props.value : '';
-  const selected = selection && scriptSentenceLines(selection.original) === scriptSentenceLines(value) ? selection : null;
-  useLayoutEffect(() => {
-    if (restoreCaret.current === null || !input.current) return;
-    input.current.focus();
-    input.current.setSelectionRange(restoreCaret.current, restoreCaret.current);
-    restoreCaret.current = null;
-  }, [value, input]);
-  const annotate = (kind: ScriptCue | ScriptColour | 'plain'): void => {
-    const el = input.current;
-    if (!el || props.disabled || pending) return;
-    const cue = kind === 'pause' || kind === 'beat';
-    if (!cue && !selected) return;
-    if (!cue && /(?:^|\n)[ \t]*• /.test(selected!.text)) {
-      setError('Colour words within one bullet at a time; leave the bullet markers outside the selection.');
-      return;
-    }
-    let start = cue ? el.selectionEnd : selected!.start;
-    if (cue) {
-      const lineStart = value.lastIndexOf('\n', start - 1) + 1;
-      if (value.startsWith(BULLET, lineStart)) start = Math.max(start, lineStart + BULLET.length);
-    }
-    const end = cue ? start : selected!.end;
-    const inserted = cue ? ` [${kind}] ` : `[colour=${kind}]${value.slice(start, end)}[/colour]`;
-    const next = value.slice(0, start) + inserted + value.slice(end);
-    if (props.maxLength !== undefined && next.length > props.maxLength) {
-      setError(`This annotation would exceed the ${props.maxLength}-character field limit.`);
-      return;
-    }
-    const caret = start + inserted.length;
-    restoreCaret.current = caret;
-    setSelection(null); setError(null);
-    onEditText(next, caret);
-  };
+  const value = props.value;
+  const annotations = useMemo(() => {
+    try { return { text: scriptRichText(scriptRichDocument(value, props.bullets)), error: null }; }
+    catch (error) { return { text: null, error: error instanceof Error ? error.message : 'Invalid script annotations.' }; }
+  }, [value, props.bullets]);
+  const selected = selection && selection.original === annotations.text ? selection : null;
   const ask = async (action: PassageAction): Promise<void> => {
     if (!selected || pending || props.disabled) return;
     setPending(true); setError(null);
@@ -406,28 +381,15 @@ const PassageTextarea: React.FC<React.ComponentProps<typeof AutoTextarea> & {
   };
   return <div className="kh-episode-passage" aria-busy={pending}
     onKeyDown={event => { if (event.key === 'Escape') { setSelection(null); setAdding(false); } }}>
-    <AutoTextarea {...props} inputRef={input} onSelect={event => {
-      props.onSelect?.(event);
-      const el = event.currentTarget;
-      const text = el.value.slice(el.selectionStart, el.selectionEnd);
-      setSelection(text.trim() ? { text, start: el.selectionStart, end: el.selectionEnd, original: el.value } : null);
-      setAdding(false); setError(null);
-    }} />
-    <div className="kh-episode-passage__cues" role="group" aria-label="Insert a visual delivery cue">
-      <span className="kh-episode-passage__label">Add a cue</span>
-      {(['pause', 'beat'] as const).map(cue => <button key={cue} type="button" className="kh-btn-ghost"
-        disabled={props.disabled || pending} title={`Insert ${cue} at the cursor. Visual reminder only; scrolling continues.`}
-        onMouseDown={event => { event.preventDefault(); }} onClick={() => { annotate(cue); }}>{cue === 'pause' ? 'Pause' : 'Beat'}</button>)}
-      <span className="kh-episode-passage__hint">Visual only; not spoken.</span>
-    </div>
+    {annotations.error ? <>
+      <p role="alert" className="kh-uc-error">Visual editing is unavailable: {annotations.error} The original field is shown below so you can repair it.</p>
+      <AutoTextarea id={props.id} value={value} disabled={props.disabled || pending} maxLength={props.maxLength}
+        onChange={event => { onEditText(event.target.value); }} />
+    </> : <ScriptRichEditor {...props} disabled={props.disabled || pending} onChange={text => { setError(null); onEditText(text); }}
+      onSelection={passage => { setSelection(passage); setAdding(false); }}
+      onError={setError} />}
     {selected && <div className="kh-episode-passage__actions" role="group" aria-label="Selected script text">
       <span className="kh-episode-passage__label">Selected text</span>
-      {SCRIPT_COLOURS.map(colour => <button key={colour} type="button"
-        className={`kh-btn-ghost kh-episode-passage__colour kh-episode-passage__colour--${colour}`}
-        disabled={props.disabled || pending} aria-label={`Colour selected text ${colour}`}
-        onMouseDown={event => { event.preventDefault(); }} onClick={() => { annotate(colour); }}>{colour}</button>)}
-      <button type="button" className="kh-btn-ghost" disabled={props.disabled || pending}
-        onMouseDown={event => { event.preventDefault(); }} onClick={() => { annotate('plain'); }}>Clear colour</button>
       {(['Rewrite', 'Rephrase'] as const).map(action => <button key={action} type="button" className="kh-btn-ghost"
         disabled={props.disabled || pending} onMouseDown={event => { event.preventDefault(); }}
         onClick={() => { void ask(action); }}>{action}</button>)}
@@ -447,48 +409,15 @@ const PassageTextarea: React.FC<React.ComponentProps<typeof AutoTextarea> & {
 };
 
 const BulletsField: React.FC<{ bullets: string[]; disabled: boolean; label: string; onChange: (bullets: string[]) => void; onAsk: AskPassage }> = ({ bullets, disabled, label, onChange, onAsk }) => {
-  const input = useRef<HTMLTextAreaElement | null>(null);
-  const caret = useRef<number | null>(null);
   const value = bullets.map(item => BULLET + item).join('\n\n');
-  useLayoutEffect(() => {
-    if (caret.current !== null && input.current && document.activeElement === input.current) input.current.setSelectionRange(caret.current, caret.current);
-    caret.current = null;
-  }, [value]);
-  const edit = (raw: string, position: number): void => {
-    const parsed = parseScriptBullets(raw, position);
-    caret.current = parsed.caret;
+  const edit = (raw: string): void => {
+    const parsed = parseScriptBullets(raw, raw.length);
     onChange(parsed.bullets);
   };
-  const keyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
-    const el = event.currentTarget;
-    const pos = el.selectionStart;
-    if (event.nativeEvent.isComposing) return;
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      const inserted = event.shiftKey ? '\n' : `\n\n${BULLET}`;
-      edit(value.slice(0, pos) + inserted + value.slice(el.selectionEnd), pos + inserted.length);
-      return;
-    }
-    if (pos !== el.selectionEnd || (event.key !== 'Backspace' && event.key !== 'Delete')) return;
-    const lineStart = value.lastIndexOf('\n', pos - 1) + 1;
-    const lineEnd = value.indexOf('\n', pos) === -1 ? value.length : value.indexOf('\n', pos);
-    // Deleting across a bullet marker joins the two bullet points instead of leaving a stray marker in the text.
-    if (event.key === 'Backspace' && value.startsWith(BULLET, lineStart) && pos === lineStart + BULLET.length) {
-      event.preventDefault();
-      if (lineStart === 0) { if (bullets.length === 1 && !bullets[0]) onChange([]); return; }
-      const previousEnd = value.slice(0, lineStart).replace(/\n+$/, '').length;
-      edit(value.slice(0, previousEnd) + value.slice(pos), previousEnd);
-    } else if (event.key === 'Delete' && pos === lineEnd && /^\n+• /.test(value.slice(pos))) {
-      event.preventDefault();
-      edit(value.slice(0, pos) + value.slice(pos).replace(/^\n+• /, ''), pos);
-    }
-  };
   const fieldId = useId();
-  return <div className="kh-uc-field"><label htmlFor={fieldId} className="kh-uc-field__label">{label}</label>
-    <PassageTextarea id={fieldId} inputRef={input} value={value} disabled={disabled} onAsk={onAsk}
-      onEditText={edit}
-      placeholder={`${BULLET}Add a bullet point`} onKeyDown={keyDown}
-      onChange={event => { edit(event.target.value, event.target.selectionStart); }} />
+  return <div className="kh-uc-field"><label id={`${fieldId}-label`} htmlFor={fieldId} className="kh-uc-field__label">{label}</label>
+    <PassageEditor id={fieldId} value={value} disabled={disabled} onAsk={onAsk}
+      bullets onEditText={edit} />
     <span className="kh-episode-passage__hint">Enter starts a bullet; Shift+Enter adds a line within it.</span>
   </div>;
 };
@@ -567,11 +496,11 @@ const ScriptEditor: React.FC<{
     if (!await save()) throw new Error('Save the script successfully before asking Athena to change this passage.');
     const request = `${action === 'Add specific content' ? 'Add the following specific content to' : action} only the selected passage in this Podcast script's ${field} field.`
       + `\nEpisode ID: ${episode.noteId}${cardId ? `\nCard ID: ${cardId}` : ''}`
-      + `\nSelected passage: ${JSON.stringify(passage.text)}`
-      + `\nSelection offsets in the displayed field: ${passage.start}–${passage.end}.`
+      + `\nSelected passage (visible wording, without colour markers): ${JSON.stringify(passage.text)}`
+      + `\nSelection positions in the visual editor (not saved-string offsets): ${passage.start}–${passage.end}.`
       + (field === 'bullets' ? '\nThe displayed field includes bullet markers; use the actual saved bullet array when editing.' : '')
       + (instruction ? `\nRequested addition: ${instruction}` : '')
-      + '\nRead the current script first. Locate this exact passage; if it is ambiguous or has changed, ask rather than guessing.'
+      + '\nRead the current script first. Match the visible wording through colour markers; visual-editor positions are not saved-string offsets. If the passage is ambiguous or has changed, ask rather than guessing.'
       + '\nKeep all other text, cards and fields unchanged. Preserve conversational British English and the enterprise angle.'
       + '\nPreserve inline colour annotations and [pause]/[beat] visual cues, unless the requested edit changes them.'
       + '\nLeave a blank line between every sentence (two newline characters). Keep continuation sentences in the same bullet array item.'
@@ -593,21 +522,20 @@ const ScriptEditor: React.FC<{
     </div>
     <div className="kh-episode-script__body">
     <p className="kh-episode-passage__hint">Select words to add teal, yellow or pink emphasis. Pause and Beat insert visual reminders at the cursor.
-      Colour tags remain editable here; the prompter renders them without showing the tags.</p>
+      Colours appear as you edit; cues are visual reminders, not spoken instructions.</p>
     {error && <p role="alert" className="kh-uc-error">{error}</p>}
     <p className={HIDDEN} aria-live="polite">{announcement}</p>
-    <div className="kh-uc-field kh-episode-intro"><label htmlFor={introId} className="kh-uc-field__label">Intro</label>
-      <PassageTextarea id={introId} value={intro} maxLength={4000} disabled={locked} placeholder="How you open the episode"
+    <div className="kh-uc-field kh-episode-intro"><label id={`${introId}-label`} htmlFor={introId} className="kh-uc-field__label">Intro</label>
+      <PassageEditor id={introId} value={intro} maxLength={4000} disabled={locked}
         onAsk={askPassage('intro')}
-        onEditText={text => { setIntro(text); touch(); }}
-        onChange={event => { setIntro(event.target.value); touch(); }} /></div>
+        onEditText={text => { setIntro(text); touch(); }} /></div>
     {!cards.length ? <div className="kh-design-diagram-empty"><h3>No topic cards yet</h3>
       <p>Draft the script from the Prep document, or add cards yourself. Each card is a short synopsis with a few bullet points.</p></div>
       : <ol className="kh-episode-cards">{cards.map((card, index) => <li key={card.id} className="kh-episode-card" data-dragging={dragging === index || undefined}
         draggable={!locked && cardDragAllowed}
-        onPointerDownCapture={event => { setCardDragAllowed(!(event.target instanceof HTMLElement && event.target.closest('textarea, input, button'))); }}
+        onPointerDownCapture={event => { setCardDragAllowed(!(event.target instanceof HTMLElement && event.target.closest('textarea, input, button, [contenteditable]'))); }}
         onDragStart={event => {
-          if (!cardDragAllowed || (event.target instanceof HTMLElement && event.target.closest('textarea, input, button'))) { event.preventDefault(); return; }
+          if (!cardDragAllowed || (event.target instanceof HTMLElement && event.target.closest('textarea, input, button, [contenteditable]'))) { event.preventDefault(); return; }
           setDragging(index); event.dataTransfer.effectAllowed = 'move';
         }}
         onDragEnd={() => { setDragging(null); }} onDragOver={event => { if (dragging !== null) event.preventDefault(); }}
@@ -625,10 +553,9 @@ const ScriptEditor: React.FC<{
             }}>Delete</button>
           </div>
         </div>
-        <div className="kh-uc-field"><label htmlFor={`${synopsisId}-${card.id}`} className="kh-uc-field__label">Synopsis</label>
-          <PassageTextarea id={`${synopsisId}-${card.id}`} value={card.synopsis} maxLength={6000} disabled={locked} onAsk={askPassage('synopsis', card.id)}
-            onEditText={text => { update(index, { synopsis: text }); }}
-            onChange={event => { update(index, { synopsis: event.target.value }); }} /></div>
+        <div className="kh-uc-field"><label id={`${synopsisId}-${card.id}-label`} htmlFor={`${synopsisId}-${card.id}`} className="kh-uc-field__label">Synopsis</label>
+          <PassageEditor id={`${synopsisId}-${card.id}`} value={card.synopsis} maxLength={6000} disabled={locked} onAsk={askPassage('synopsis', card.id)}
+            onEditText={text => { update(index, { synopsis: text }); }} /></div>
         <BulletsField label="Bullet points" bullets={card.bullets} disabled={locked} onAsk={askPassage('bullets', card.id)}
           onChange={bullets => { update(index, { bullets }); }} />
       </li>)}</ol>}

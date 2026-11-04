@@ -8,6 +8,8 @@
  * (timeline sync, AI chat search results, page-context injection, etc.).
  */
 
+import { annotateScriptText } from '../podcasts/scriptAnnotations.js';
+
 interface BlockContent { text?: string }
 interface BlockProps { url?: string }
 export interface Block { type?: string; content?: BlockContent[] | unknown; children?: Block[]; props?: BlockProps }
@@ -21,13 +23,14 @@ interface NoteContentWrapper { title?: string; contentType?: string; contentJson
  * wants the inline text spans should go through this guard rather than
  * assuming the array shape.
  */
-export function blockContentSpans(block: Block): BlockContent[] {
+export function blockContentSpans(block: Block, scriptAnnotations = false): BlockContent[] {
   const spans: BlockContent[] = [];
   const walk = (value: unknown): void => {
     if (Array.isArray(value)) { value.forEach(walk); return; }
     if (value === null || typeof value !== 'object') return;
-    const item = value as { text?: unknown; content?: unknown; rows?: unknown; cells?: unknown };
-    if (typeof item.text === 'string') spans.push({ text: item.text });
+    const item = value as { type?: unknown; props?: { cue?: unknown }; styles?: unknown; text?: unknown; content?: unknown; rows?: unknown; cells?: unknown };
+    if (item.type === 'scriptCue') { spans.push({ text: `[${item.props?.cue === 'beat' ? 'beat' : 'pause'}]` }); return; }
+    if (typeof item.text === 'string') spans.push({ text: scriptAnnotations ? annotateScriptText(item.text, item.styles) : item.text });
     else if (Array.isArray(item.content)) walk(item.content);
     else if (Array.isArray(item.rows)) walk(item.rows);
     else if (Array.isArray(item.cells)) walk(item.cells);
@@ -103,7 +106,7 @@ export function blobIdFromUrl(url: string): string {
  * model actually knows what a pasted diagram/screenshot shows instead of
  * just seeing an opaque image reference.
  */
-export function blocksToTextWithImages(blocks: Block[], visionByBlobId: Map<string, string>): string {
+export function blocksToTextWithImages(blocks: Block[], visionByBlobId: Map<string, string>, scriptAnnotations = false): string {
   const lines: string[] = [];
   const walk = (list: Block[]): void => {
     for (const block of list) {
@@ -114,8 +117,8 @@ export function blocksToTextWithImages(blocks: Block[], visionByBlobId: Map<stri
         const table = block.content as { rows?: Array<{ cells?: unknown[] }> } | undefined;
         const text = block.type === 'table' && Array.isArray(table?.rows)
           ? table.rows.map(row => (row.cells ?? []).map(cell =>
-            blockContentSpans({ content: [cell] }).map(span => span.text ?? '').join('')).join(' | ')).join('\n').trim()
-          : blockContentSpans(block).map((c) => c.text ?? '').join('').trim();
+            blockContentSpans({ content: [cell] }, scriptAnnotations).map(span => span.text ?? '').join('')).join(' | ')).join('\n').trim()
+          : blockContentSpans(block, scriptAnnotations).map((c) => c.text ?? '').join('').trim();
         if (text) lines.push(text);
       }
       if (Array.isArray(block.children)) walk(block.children);

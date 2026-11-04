@@ -96,10 +96,11 @@ export interface ChatMessage {
   sources?: string[];
   /** Standing instructions Athena saved during this turn (shown as "Remembered: …" with Undo). */
   memoriesCreated?: SavedMemory[];
-  /** Edits Athena proposed to the open Think note (previewed; applied on click). */
+  /** Requested edits delivered to the protected live editor; previews remain opt-in. */
   noteEdits?: NoteEdit[];
   /** The note those edits were written for. */
   noteEditsFor?: string;
+  noteEditResult?: NoteEditDeliveryResult;
   /** Changes Athena proposed to the open mind map (previewed; applied on click). */
   mapChanges?: MapChange[];
   /** The map those changes were written for. */
@@ -238,11 +239,19 @@ export interface MapChange {
 
 /** One edit Athena proposes to the open Think note. */
 export interface NoteEdit {
+  delivery?: 'apply' | 'preview';
   action: 'append' | 'prepend' | 'add_to_section' | 'replace_section' | 'delete_section' | 'replace_text' | 'replace_all';
   heading?: string;
   find?: string;
   markdown?: string;
   summary: string;
+}
+
+export interface NoteEditDeliveryResult {
+  state: 'saved' | 'partial' | 'blocked';
+  applied: number;
+  failed: string[];
+  error?: string;
 }
 
 /** A standing instruction just saved via chat. */
@@ -302,6 +311,8 @@ export interface ChatResponse {
   memoriesCreated?: SavedMemory[];
   noteEdits?: NoteEdit[];
   noteEditsFor?: string | null;
+  /** Client receipt, populated only after protected live-editor application and persistence. */
+  noteEditResult?: NoteEditDeliveryResult;
   mapChanges?: MapChange[];
   mapChangesFor?: string | null;
   localFileWrites?: LocalFileWrite[];

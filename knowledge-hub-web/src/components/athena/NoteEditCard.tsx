@@ -1,13 +1,13 @@
 /**
- * components/athena/NoteEditCard.tsx — preview of edits Athena proposed to
- * the open Think note, with Apply / Discard. Applied inside the live editor
- * (one ⌘Z step); only enabled while the same note is open.
+ * Receipts for directly applied note edits, or Apply/Discard for explicitly
+ * requested previews. All edits use the protected live editor and save path.
  */
 import React, { useState } from 'react';
 import type { NoteEdit } from '../../types';
+import type { NoteEditDeliveryResult } from '../../types/ai';
 import { renderMarkdown } from '../../utils/markdown';
 import { applyNoteEdits } from '../../utils/noteEditApplier';
-import { getActiveBlockNoteEditor, getActiveNoteId, runNoteAction } from '../../utils/activeBlockNoteEditor';
+import { getActiveBlockNoteEditor, getActiveNoteId, isActiveScriptEditor, runNoteAction } from '../../utils/activeBlockNoteEditor';
 
 const ACTION_LABEL: Record<NoteEdit['action'], string> = {
   append: 'Add to end',
@@ -27,7 +27,7 @@ function wordCount(markdown: string | undefined): number {
 
 type Status = { state: 'pending' } | { state: 'applied'; failed: string[] } | { state: 'discarded' };
 
-export const NoteEditCard: React.FC<{ edits: NoteEdit[]; noteId: string }> = ({ edits, noteId }) => {
+export const NoteEditCard: React.FC<{ edits: NoteEdit[]; noteId: string; result?: NoteEditDeliveryResult | undefined }> = ({ edits, noteId, result }) => {
   const [status, setStatus] = useState<Status>({ state: 'pending' });
   const [, rerender] = useState(0);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
@@ -44,15 +44,29 @@ export const NoteEditCard: React.FC<{ edits: NoteEdit[]; noteId: string }> = ({ 
     setError(null);
     try {
       const protect = edits.some(edit => ['replace_all', 'replace_section', 'replace_text', 'delete_section'].includes(edit.action));
+      let failed: string[] = [];
       await runNoteAction(noteId, protect, () => {
-        const result = applyNoteEdits(editor, edits);
-        setStatus({ state: 'applied', failed: result.failed });
+        failed = applyNoteEdits(editor, edits, { script: isActiveScriptEditor() }).failed;
       });
+      setStatus({ state: 'applied', failed });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not preserve the note. No edits applied; retry.');
+      setError(err instanceof Error ? err.message : 'Could not confirm the note save. Check the note before repeating the edit.');
     } finally { setApplying(false); }
   }
 
+  if (result) return (
+    <div className={`note-edit-card note-edit-card--${result.state === 'blocked' ? 'pending' : 'applied'}`}>
+      <div className="note-edit-card__head">
+        <span className="note-edit-card__title">{result.state === 'saved' ? 'Note updated' : result.state === 'partial' ? 'Note partly updated' : 'Note update not confirmed'}</span>
+        {result.state !== 'blocked' && <span className="note-edit-card__done" role="status">Saved — Ctrl/⌘Z in the note to undo</span>}
+      </div>
+      <ol className="note-edit-card__list">
+        {edits.map((edit, index) => <li key={index} className="note-edit-card__item"><p className="note-edit-card__summary">{edit.summary}</p></li>)}
+      </ol>
+      {result.failed.length > 0 && <p className="note-edit-card__failed" role="alert">Couldn’t apply: {result.failed.join('; ')}</p>}
+      {result.error && <p className="note-edit-card__failed" role="alert">{result.error}</p>}
+    </div>
+  );
   return (
     <div className={`note-edit-card note-edit-card--${status.state}`}>
       <div className="note-edit-card__head">

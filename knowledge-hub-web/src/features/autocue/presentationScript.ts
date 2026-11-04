@@ -1,4 +1,5 @@
 import type { PresentationRun, PresentationStyle } from '../../../../athena-desktop/src/elgatoProtocol';
+import { scriptTextColour } from '../../../../knowledge-hub-backend/src/podcasts/scriptAnnotations';
 
 const PRESENTATION_STYLES = ['bold', 'italic', 'underline', 'strike', 'code'] satisfies PresentationStyle[];
 
@@ -11,9 +12,20 @@ function inline(value: unknown, depth = 0, inherited: PresentationStyle[] = []):
   if (Array.isArray(value)) return value.flatMap(v => inline(v, depth + 1, inherited));
   const item = record(value);
   if (!item) return [];
+  if (item.type === 'scriptCue') {
+    const cue = record(item.props)?.cue;
+    if (cue !== 'pause' && cue !== 'beat') throw new Error('This script contains an invalid delivery cue.');
+    return [{ text: cue.toUpperCase(), styles: [`cue-${cue}`] }];
+  }
   if (item.type === 'hardBreak') return [{ text: '\n', styles: [] }];
   const marks = record(item.styles);
-  const styles = PRESENTATION_STYLES.filter(style => inherited.includes(style) || marks?.[style] === true);
+  const styles: PresentationStyle[] = [...inherited, ...PRESENTATION_STYLES.filter(style => !inherited.includes(style) && marks?.[style] === true)];
+  const colour = scriptTextColour(marks);
+  if (colour && !styles.includes(`colour-${colour}`)) {
+    const previous = styles.findIndex(style => style.startsWith('colour-'));
+    if (previous >= 0) styles.splice(previous, 1);
+    styles.push(`colour-${colour}`);
+  }
   if (typeof item.text === 'string') return [{ text: item.text, styles }];
   return inline(item.content, depth + 1, styles);
 }

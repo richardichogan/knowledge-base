@@ -17,6 +17,7 @@
 import { createHash } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { getDb } from '../db/db.js';
+import { queueAutoTag } from './autoTagging.js';
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
 import { emptyDiagram, type CanvasType, type DiagramAsset, type DiagramDocument, type DiagramSnapshot } from '../types/diagram.js';
 import {
@@ -211,6 +212,7 @@ export async function saveDiagram(canvasId: string, body: unknown, transactionCl
           OR (b_type='diagram' AND b_id=$1 AND b_element<>'' AND NOT (b_element=ANY($2::text[])))`, [canvasId, elementIds]);
     await client.query(`UPDATE canvases SET updated_at = NOW() WHERE id = $1`, [canvasId]);
     if (!transactionClient) await client.query('COMMIT');
+    queueAutoTag(getDb(), 'diagram', canvasId);
     return { revision: next, document };
   } catch (err) {
     if (!transactionClient) await client.query('ROLLBACK');

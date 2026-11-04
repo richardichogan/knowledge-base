@@ -25,7 +25,7 @@ export const DIAGRAM_READING_GUIDANCE = [
   'Linked notes are supporting context, not diagram shapes. Asset names identify uploaded icons only: their pixels have not been analysed. Full checkpointed reads contain the stored nodes/edges and footnotes; summaries are derived memory, not verbatim source.',
   'Truncated content is incomplete: do not claim an omitted shape, connector or detail is absent.',
   'To change a diagram (add shapes, connectors, footnotes or key entries), call update_diagram with its id; to draw a new one, call create_diagram.',
-  'You may analyse and recommend changes but cannot modify diagrams. propose_map_changes is for brainstorm canvases only.',
+  'Only the current runtime capability catalogue determines whether editing is available. Use permitted diagram tools for explicitly authorised edits; read-only turns must stay read-only. propose_map_changes is for brainstorm canvases only.',
 ].join('\n');
 
 interface DiagramRow {
