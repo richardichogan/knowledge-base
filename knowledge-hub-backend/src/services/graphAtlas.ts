@@ -296,6 +296,26 @@ raw_edges AS (
     jsonb_build_object('evidence','Saved register task link'),NULL,'explicit' FROM project_register_items WHERE task_id IS NOT NULL
   UNION ALL SELECT 'register-decision:'||id,(CASE kind WHEN 'issue' THEN 'register_issue' ELSE kind END)||':'||id,'decision:'||source_id,'affects',1,
     jsonb_build_object('evidence','Saved register decision link'),NULL,'explicit' FROM project_register_items WHERE source_type='chat_decision'
+  UNION ALL SELECT 'podcast-script:'||note_id,'note:'||note_id,'note:'||script_note_id,'has_asset',1,
+    jsonb_build_object('evidence','Saved podcast script','role','script'),NULL,'explicit' FROM podcast_episodes WHERE script_note_id IS NOT NULL
+  UNION ALL SELECT 'podcast-show-notes:'||note_id,'note:'||note_id,'note:'||show_notes_note_id,'has_asset',1,
+    jsonb_build_object('evidence','Saved podcast show notes','role','show_notes'),NULL,'explicit' FROM podcast_episodes WHERE show_notes_note_id IS NOT NULL
+  UNION ALL SELECT 'brief-task:'||note_id,'note:'||note_id,'task:'||task_id,'references',1,
+    jsonb_build_object('evidence','Saved deliverable brief task'),NULL,'explicit' FROM deliverable_briefs WHERE task_id IS NOT NULL
+  UNION ALL SELECT 'brief-output:'||note_id,'note:'||note_id,'content_item:'||produced_content_id,'developed_into',1,
+    jsonb_build_object('evidence','Saved deliverable output'),produced_modified_at,'explicit' FROM deliverable_briefs WHERE produced_content_id IS NOT NULL
+  UNION ALL SELECT 'email-task:'||note_id,'note:'||note_id,'task:'||task_id,'references',1,
+    jsonb_build_object('evidence','Saved email draft task'),NULL,'explicit' FROM email_drafts WHERE task_id IS NOT NULL
+  UNION ALL SELECT 'email-brief:'||note_id,'note:'||note_id,'note:'||brief_id,'derived_from',1,
+    jsonb_build_object('evidence','Saved email draft brief'),NULL,'explicit' FROM email_drafts WHERE brief_id IS NOT NULL
+  UNION ALL SELECT 'task-assist:'||id,'task:'||task_id,'note:'||result_note_id,'developed_into',1,
+    jsonb_build_object('evidence','Saved Athena task assistance','direction',direction),approved_at,'explicit'
+    FROM task_assistance WHERE result_note_id IS NOT NULL
+  UNION ALL SELECT 'passage-followup:'||note_id||':'||tag_id||':'||task_id,'note:'||note_id,'task:'||task_id,'derived_into',1,
+    jsonb_build_object('evidence','Saved passage follow-up','state',state),created_at,'explicit' FROM note_passage_followups WHERE task_id IS NOT NULL
+  UNION ALL SELECT DISTINCT ON (session_id,source_kind,source_id) 'chat-read:'||session_id||':'||source_kind||':'||source_id,'chat:'||session_id,
+    CASE source_kind WHEN 'diagram' THEN 'canvas' WHEN 'content-item' THEN 'content_item' ELSE source_kind END||':'||source_id,'read',1,
+    jsonb_build_object('evidence','Document Athena read in this conversation','complete',complete),updated_at,'explicit' FROM document_reading_sessions
   UNION ALL SELECT 'semantic:'||id,
     from_kind||':'||from_id,to_kind||':'||to_id,
     relationship, CASE WHEN origin='inferred' THEN 0.5 ELSE 1 END,
