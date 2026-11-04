@@ -10,7 +10,7 @@ export function graphNodeHref(node: GraphNode): string {
   const id = encodeURIComponent(node.refId);
   switch (node.refType) {
     case 'note': return `/think?view=notes&noteId=${id}`;
-    case 'tag': return `/graph?seed=${encodeURIComponent(node.id)}`;
+    case 'tag': case 'category': return `/graph?seed=${encodeURIComponent(node.id)}`;
     case 'company': return `/companies?companyId=${id}`;
     case 'person': return `/people?personId=${id}`;
     case 'project': return `/projects?projectId=${id}`;

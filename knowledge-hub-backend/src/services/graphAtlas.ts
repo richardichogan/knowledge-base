@@ -67,6 +67,20 @@ WITH RECURSIVE content_records AS MATERIALIZED (
     ELSE 'content_item' END AS ref_type
   FROM content_items c WHERE source NOT IN ('note','task') AND ${canonicalContentSql('c')}
 ),
+tag_names AS MATERIALIZED (
+  SELECT DISTINCT ON (lower(trim(name))) lower(trim(name)) AS key, id FROM tags ORDER BY lower(trim(name)), id
+),
+post_categories AS MATERIALIZED (
+  SELECT DISTINCT c.ref_type||':'||c.id AS post, trim(cat) AS name,
+    trim(both '-' from regexp_replace(lower(trim(cat)), '[^a-z0-9]+', '-', 'g')) AS slug,
+    tn.id AS tag_id, c.published_at, c.updated_at
+  FROM content_records c
+  CROSS JOIN LATERAL jsonb_array_elements_text(
+    CASE WHEN jsonb_typeof(c.metadata->'categories')='array' THEN c.metadata->'categories' ELSE '[]'::jsonb END) cat
+  LEFT JOIN tag_names tn ON tn.key=lower(trim(cat))
+  WHERE c.source IN ('cms-blog','cms-newsletter','cms-podcast-show-notes')
+    AND trim(both '-' from regexp_replace(lower(trim(cat)), '[^a-z0-9]+', '-', 'g'))<>''
+),
 live AS (
   SELECT 'project:'||id AS id, id AS ref_id, 'project'::text AS ref_type, name AS title,
     ARRAY[]::text[] AS tags, created_at, updated_at, ARRAY[id] AS project_ids FROM projects
@@ -81,6 +95,8 @@ live AS (
       UNION ALL SELECT t.name FROM note_tags nt JOIN tags t ON t.id=nt.tag_id WHERE nt.note_id=n.id
     ) names ORDER BY name), created_at, updated_at, array_remove(ARRAY[project_id],NULL) FROM notes n WHERE status='active'
   UNION ALL SELECT 'tag:'||t.id, t.id::text, 'tag', t.name, ARRAY[t.name], t.created_at,t.updated_at,'{}'::text[] FROM tags t
+  UNION ALL SELECT 'category:'||slug, slug, 'category', MIN(name), ARRAY[MIN(name)], MIN(published_at), MAX(updated_at), '{}'::text[]
+    FROM post_categories WHERE tag_id IS NULL GROUP BY slug
   UNION ALL SELECT 'spark:'||id,id::text,'spark',LEFT(body,240),tags,created_at,created_at,'{}'::text[] FROM sparks
   UNION ALL SELECT 'spark_theme:'||id,id::text,'spark_theme',theme,'{}',created_at,updated_at,'{}'::text[] FROM spark_clusters
   UNION ALL SELECT 'canvas:'||id,id::text,'canvas',title,'{}',created_at,updated_at,
@@ -316,6 +332,13 @@ raw_edges AS (
   UNION ALL SELECT DISTINCT ON (session_id,source_kind,source_id) 'chat-read:'||session_id||':'||source_kind||':'||source_id,'chat:'||session_id,
     CASE source_kind WHEN 'diagram' THEN 'canvas' WHEN 'content-item' THEN 'content_item' ELSE source_kind END||':'||source_id,'read',1,
     jsonb_build_object('evidence','Document Athena read in this conversation','complete',complete),updated_at,'explicit' FROM document_reading_sessions
+  UNION ALL SELECT DISTINCT 'post-category:'||post||':'||slug, post,
+    CASE WHEN tag_id IS NULL THEN 'category:'||slug ELSE 'tag:'||tag_id END,'in_category',1,
+    jsonb_build_object('evidence','Published post category','category',name),NULL::timestamptz,'explicit' FROM post_categories
+  UNION ALL SELECT DISTINCT 'post-keyword:'||c.ref_type||':'||c.id||':'||tn.id, c.ref_type||':'||c.id, 'tag:'||tn.id,'tagged_with',1,
+    jsonb_build_object('evidence','Published post keyword matches tag','keyword',trim(k)),NULL::timestamptz,'explicit'
+    FROM content_records c CROSS JOIN LATERAL unnest(c.tags) k JOIN tag_names tn ON tn.key=lower(trim(k))
+    WHERE c.source IN ('cms-blog','cms-newsletter','cms-podcast-show-notes')
   UNION ALL SELECT 'semantic:'||id,
     from_kind||':'||from_id,to_kind||':'||to_id,
     relationship, CASE WHEN origin='inferred' THEN 0.5 ELSE 1 END,

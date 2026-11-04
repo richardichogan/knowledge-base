@@ -21,6 +21,7 @@ const TYPES: Record<string, AtlasType> = {
   company: { label: 'Companies', one: 'Company', color: '#82cfff' },
   note: { label: 'Notes', one: 'Note', color: '#a6c8ff' },
   tag: { label: 'Tags', one: 'Tag', color: '#be95ff' },
+  category: { label: 'Categories', one: 'Category', color: '#d4bbff' },
   usecase: { label: 'Use Cases', one: 'Use Case', color: '#be95ff' },
   canvas: { label: 'Canvases', one: 'Canvas', color: '#be95ff' },
   spark_theme: { label: 'Spark themes', one: 'Spark theme', color: '#be95ff' },
