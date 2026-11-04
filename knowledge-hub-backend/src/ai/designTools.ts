@@ -112,7 +112,7 @@ export async function executeDesignTool(db: Pool, name: string, owner: string, a
       accessedAssets.filter(asset => asset.sourceType === 'note').map(asset => asset.sourceId), access.strictProjectId,
       accessedAssets.filter(asset => asset.sourceType === 'canvas').map(asset => asset.sourceId),
     ]);
-    if (outOfScope.rows.length) throw new ValidationError('A selected original is outside the enforced project scope.');
+    if (outOfScope.rows.length) throw new ValidationError('A selected original is outside the enforced workstream scope.');
   }
   if (name.includes('design_readiness')) {
     const offset = args['offset'] ?? 0;
@@ -128,7 +128,7 @@ export async function executeDesignTool(db: Pool, name: string, owner: string, a
       const diagrams = refs.filter(source => source.role === 'diagram').map(source => source.id);
       const invalid = await db.query(`SELECT id FROM notes WHERE id=ANY($1::uuid[]) AND project_id IS DISTINCT FROM $2
         UNION ALL SELECT id FROM canvases WHERE id=ANY($3::uuid[]) AND project IS DISTINCT FROM $2`, [notes, access.strictProjectId, diagrams]);
-      if (invalid.rows.length) throw new ValidationError('Assessment evidence is outside the enforced project scope.');
+      if (invalid.rows.length) throw new ValidationError('Assessment evidence is outside the enforced workstream scope.');
     }
     if (name === 'read_design_readiness_history') return readinessHistory(db, design.id, offset);
     if (name === 'read_design_readiness_repair') {

@@ -42,7 +42,7 @@ export const CONTENT_TYPE_OPTIONS: ContentTypeOption[] = [
   { id: 'email-draft', label: 'Email draft', group: 'Work' },
   { id: 'design',               label: 'Design',             group: 'Work' },
   { id: 'meeting',              label: 'Meeting notes',      group: 'Work' },
-  { id: 'project',              label: 'Project note',       group: 'Work' },
+  { id: 'project',              label: 'Workstream note',       group: 'Work' },
   { id: 'use-case',             label: 'Use case',           group: 'Work' },
   { id: 'spec',                 label: 'Technical spec',     group: 'Work' },
   { id: 'architecture',         label: 'Architecture doc',   group: 'Work' },

@@ -27,15 +27,15 @@ function ProjectLinkPreview({ projectId }: { projectId: string }): React.ReactEl
     staleTime: 15_000,
   });
   return <>
-    {projectQuery.isPending && <p className="link-preview__text" role="status">Loading project...</p>}
-    {projectQuery.error && <DataNotice title="Could not load project information" error={projectQuery.error} onRetry={() => { void projectQuery.refetch(); }} />}
-    {projectQuery.isSuccess && !project && <p className="link-preview__text">This project is no longer available.</p>}
+    {projectQuery.isPending && <p className="link-preview__text" role="status">Loading workstream...</p>}
+    {projectQuery.error && <DataNotice title="Could not load workstream information" error={projectQuery.error} onRetry={() => { void projectQuery.refetch(); }} />}
+    {projectQuery.isSuccess && !project && <p className="link-preview__text">This workstream is no longer available.</p>}
     {project && <>
       {project.description && <p className="link-preview__text">{project.description}</p>}
       {project.goal && <section className="link-preview__section">
         <h3>Goal</h3><p className="link-preview__text">{project.goal}</p>
       </section>}
-      {!project.description && !project.goal && <p className="link-preview__context">No project overview has been recorded.</p>}
+      {!project.description && !project.goal && <p className="link-preview__context">No workstream overview has been recorded.</p>}
       <dl className="link-preview__details">
         <div><dt>Status</dt><dd>{project.lifecycleState}</dd></div>
         {project.role && <div><dt>Your role</dt><dd>{project.role}</dd></div>}
@@ -48,17 +48,17 @@ function ProjectLinkPreview({ projectId }: { projectId: string }): React.ReactEl
         <ul className="link-preview__outputs">{project.expectedOutputs.map((output, index) => <li key={index}>{output}</li>)}</ul>
       </section>}
       {project.links.some(link => /^https?:\/\//i.test(link.url)) && <section className="link-preview__section">
-        <h3>Project resources</h3>
+        <h3>Workstream resources</h3>
         {project.links.filter(link => /^https?:\/\//i.test(link.url)).map((link, index) => <a className="conn-item" key={`${link.url}-${index}`} href={link.url} target="_blank" rel="noopener noreferrer">
           <span className="conn-item__title">{link.label || link.url}</span>
         </a>)}
       </section>}
     </>}
     <section className="link-preview__section">
-      <h3>Project notes</h3>
-      {projectQuery.isSuccess && notesQuery.isPending && <p className="link-preview__context" role="status">Loading project notes...</p>}
-      {notesQuery.error && <DataNotice title="Could not load project notes" error={notesQuery.error} onRetry={() => { void notesQuery.refetch(); }} />}
-      {notesQuery.data?.items.length === 0 && <p className="link-preview__context">No notes are filed to this project.</p>}
+      <h3>Workstream notes</h3>
+      {projectQuery.isSuccess && notesQuery.isPending && <p className="link-preview__context" role="status">Loading workstream notes...</p>}
+      {notesQuery.error && <DataNotice title="Could not load workstream notes" error={notesQuery.error} onRetry={() => { void notesQuery.refetch(); }} />}
+      {notesQuery.data?.items.length === 0 && <p className="link-preview__context">No notes are filed to this workstream.</p>}
       {notesQuery.data?.items.map(note => {
         const href = `/think?noteId=${encodeURIComponent(note.id)}`;
         return <a className="conn-item link-preview__source" href={href} key={note.id} onClick={event => {

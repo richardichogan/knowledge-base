@@ -88,7 +88,7 @@ const snippet = (value: unknown): string => {
 export async function assertProject(db: Pool, projectId: string): Promise<Record<string, unknown>> {
   const r = await db.query('SELECT * FROM projects WHERE id = $1', [projectId]);
   const row = r.rows[0] as Record<string, unknown> | undefined;
-  if (row === undefined) throw new NotFoundError('Project');
+  if (row === undefined) throw new NotFoundError('Workstream');
   return row;
 }
 
@@ -199,7 +199,7 @@ async function checkTask(db: Pool, projectId: string, taskId: unknown): Promise<
   if (taskId === null || taskId === '') return null;
   if (typeof taskId !== 'string') throw new ValidationError('taskId must be text', { taskId: 'invalid' });
   const r = await db.query('SELECT 1 FROM tasks WHERE id = $1 AND project_id = $2', [taskId, projectId]);
-  if (r.rowCount === 0) throw new ValidationError('Linked task must belong to this project', { taskId: 'not in project' });
+  if (r.rowCount === 0) throw new ValidationError('Linked task must belong to this workstream', { taskId: 'not in workstream' });
   return taskId;
 }
 
@@ -281,7 +281,7 @@ export async function promoteDecision(
     `SELECT d.id, d.text FROM chat_decisions d JOIN ai_chat_sessions s ON s.id = d.session_id WHERE d.id::text = $1 AND s.project_id = $2`,
     [decisionId, projectId]);
   const decision = d.rows[0] as { id: string; text: string } | undefined;
-  if (decision === undefined) throw new NotFoundError('Decision in this project');
+  if (decision === undefined) throw new NotFoundError('Decision in this workstream');
   const ins = await db.query(
     `INSERT INTO project_register_items (project_id, kind, title, source_type, source_id)
      VALUES ($1,$2,$3,'chat_decision',$4) ON CONFLICT DO NOTHING RETURNING ${REGISTER_COLUMNS}`,

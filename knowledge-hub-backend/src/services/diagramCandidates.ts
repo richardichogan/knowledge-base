@@ -93,7 +93,7 @@ async function source(db: Pool, id: string, access: DiagramAccess): Promise<Diag
      JOIN canvas_diagrams d ON d.canvas_id=c.id WHERE c.id=$1 AND c.canvas_type='diagram' AND c.deleted_at IS NULL`, [uuid(id)]);
   const found = result.rows[0];
   if (!found) throw new NotFoundError('Diagram');
-  if (access.strictProjectId && found.project !== access.strictProjectId) throw new ValidationError('This diagram is outside the conversation project boundary.');
+  if (access.strictProjectId && found.project !== access.strictProjectId) throw new ValidationError('This diagram is outside the conversation workstream boundary.');
   if (JSON.stringify(found.document).length > MAX_SOURCE_CHARS) throw new ValidationError('This diagram is too large for a single design handoff. Select a smaller diagram or drill-down.');
   return found;
 }

@@ -40,11 +40,11 @@ export const TOOL_GROUPS: NavigationGroup[] = [
   { label: 'Management', items: [
     { id: 'jobs', path: '/jobs', label: 'Jobs', icon: CalendarTools, description: 'Scheduled prompts, imports, publishing and audit history' },
     { id: 'publishing', path: '/publishing', label: 'Publishing', icon: Book, description: 'Drafts, approvals, post scheduling and delivery history' },
-    { id: 'projects', path: '/projects', label: 'Projects', icon: Portfolio, description: 'Project setup, goals and cockpit' },
+    { id: 'projects', path: '/projects', label: 'Workstreams', icon: Portfolio, description: 'Workstream setup, goals and cockpit' },
     { id: 'sync', path: '/my-work?sync=1', label: 'Connections and sync', icon: Renew, description: 'Manage connected sources and synchronisation' },
     { id: 'tags', action: 'tags', label: 'Tag Manager', icon: Tag, description: 'Manage tags and review suggestions' },
     { id: 'repo-tags', action: 'repo-tags', label: 'Repo to Tag Mappings', icon: Settings, description: 'Manage repository-to-tag mappings' },
-    { id: 'repo-projects', path: '/settings/repo-mappings', label: 'Repo project mappings', icon: Settings, description: 'Manage repository filing project tags' },
+    { id: 'repo-projects', path: '/settings/repo-mappings', label: 'Repo workstream mappings', icon: Settings, description: 'Manage repository filing workstream tags' },
     { id: 'health', path: '/health', label: 'Knowledge health', icon: Analytics, description: 'AI usage, sync runs and index freshness' },
   ] },
 ];

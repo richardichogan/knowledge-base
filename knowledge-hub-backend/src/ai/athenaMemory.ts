@@ -203,7 +203,7 @@ export async function buildStandingInstructionsBlock(
   const label = (m: MemoryRow): string => {
     if (m.scope_type === 'output') return ` (when producing: ${m.scope_value ?? 'that output'})`;
     if (m.scope_type === 'persona') return ` (${m.scope_value ?? ''} persona)`;
-    if (m.scope_type === 'project') return ` (project: ${m.scope_value ?? ''})`;
+    if (m.scope_type === 'project') return ` (workstream: ${m.scope_value ?? ''})`;
     return '';
   };
 

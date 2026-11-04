@@ -18,7 +18,7 @@ export async function chatMentionTargets(db: Pool, query: string): Promise<ChatM
       SELECT 'person'::text AS type,id::text,name AS title,
         concat_ws(' / ',NULLIF(organisation,''),emails[1]) AS detail,updated_at AS touched FROM people
       UNION ALL SELECT 'company',id::text,name,'Company',updated_at FROM companies
-      UNION ALL SELECT 'project',id,name,'Project',updated_at FROM projects WHERE lifecycle_state <> 'archived'
+      UNION ALL SELECT 'project',id,name,'Workstream',updated_at FROM projects WHERE lifecycle_state <> 'archived'
       UNION ALL SELECT 'note',id::text,note_list_metadata(content)->>'title',
         COALESCE(note_list_metadata(content)->>'contentType','note'),updated_at FROM notes WHERE status='active'
       UNION ALL SELECT 'document',ci.id::text,ci.title,COALESCE(ci.project_context,'Library'),ci.updated_at

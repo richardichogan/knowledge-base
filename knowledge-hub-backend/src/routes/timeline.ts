@@ -14,7 +14,7 @@ router.get('/:id/preparation', (req, res, next) => {
   const maxProjectChars = 200;
   const projectId = req.query['projectId'];
   if (projectId !== undefined && (typeof projectId !== 'string' || !projectId.trim() || projectId.length > maxProjectChars)) {
-    next(new ValidationError('Choose a valid project.')); return;
+    next(new ValidationError('Choose a valid workstream.')); return;
   }
   void prepareMeeting(getDb(), String(req.params['id']), projectId).then(data => { res.json({ success: true, data }); }).catch(next);
 });

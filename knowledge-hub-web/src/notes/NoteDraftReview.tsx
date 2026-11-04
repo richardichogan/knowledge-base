@@ -59,7 +59,7 @@ export const NoteDraftReview: React.FC<{
       const revision = server.data.revision ?? 0;
       const conflict = revision !== local.draft.baseRevision;
       if (!await confirmDialog(
-        `${conflict ? 'The saved note changed after this local copy began. ' : ''}Replace reviewed saved revision ${revision} with this local title, content type and body? Current saved writing will be preserved in History, and unsaved open writing as another local copy. Project, tags, links and GitHub settings stay unchanged.`,
+        `${conflict ? 'The saved note changed after this local copy began. ' : ''}Replace reviewed saved revision ${revision} with this local title, content type and body? Current saved writing will be preserved in History, and unsaved open writing as another local copy. Workstream, tags, links and GitHub settings stay unchanged.`,
         { title: conflict ? 'Resolve local writing conflict' : 'Restore local writing', confirmLabel: 'Restore reviewed writing', ...(conflict ? { tone: 'danger' as const } : {}) },
       )) return;
       await onRestore(local.draft, local.raw, revision);

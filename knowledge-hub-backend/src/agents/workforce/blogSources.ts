@@ -76,7 +76,7 @@ async function readSource(client: PoolClient, selected: BlogSourceSelection, bri
     data = record(result.rows[0].data, 'Source article');
     const source = data['source'];
     if (selected.type === 'discover' ? source !== 'email' && source !== 'discovered-article' : source !== 'cms-blog') changed('The article no longer belongs to the commissioned source collection.');
-    if (brief.scope.projectId !== null && data['project_context'] !== brief.scope.projectId) changed('The article is outside the commissioned project.');
+    if (brief.scope.projectId !== null && data['project_context'] !== brief.scope.projectId) changed('The article is outside the commissioned workstream.');
     checkExcluded(await aliases(client, [selected.id, text(data['source_id'], 'Article source ID')]), brief.scope);
   } else if (selected.type === 'spark-theme') {
     const result = await client.query<{ data: unknown }>('SELECT to_jsonb(c) AS data FROM spark_clusters c WHERE id=$1 FOR UPDATE', [selected.id]);
@@ -97,11 +97,11 @@ async function readSource(client: PoolClient, selected: BlogSourceSelection, bri
         spark['workforceSourceTitle'] = titles.rows[0]?.title ?? null;
       } else spark['workforceSourceTitle'] = null;
       if (brief.scope.projectId !== null) {
-        if (!sourceId) changed('A Spark has no verifiable project association.');
+        if (!sourceId) changed('A Spark has no verifiable workstream association.');
         const articles = await client.query<{ project_id: string | null }>('SELECT project_context AS project_id FROM content_items WHERE id::text=$1 FOR SHARE', [sourceId]);
         const notes = await client.query<{ project_id: string | null }>('SELECT project_id FROM notes WHERE id::text=$1 FOR SHARE', [sourceId]);
         const projects = [...articles.rows, ...notes.rows];
-        if (!projects.length || projects.some(row => row.project_id !== brief.scope.projectId)) changed('A Spark is outside the commissioned project.');
+        if (!projects.length || projects.some(row => row.project_id !== brief.scope.projectId)) changed('A Spark is outside the commissioned workstream.');
         spark['workforceSourceProjects'] = projects;
       }
       sparks.push(spark);
@@ -128,7 +128,7 @@ async function readSource(client: PoolClient, selected: BlogSourceSelection, bri
         WHERE m.id::text=$1 AND m.role='user' FOR SHARE OF m,s`, [selected.id],
     );
     if (!result.rows[0]) changed('A commissioned user-authored message was removed.');
-    if (brief.scope.projectId !== null && result.rows[0].project_id !== brief.scope.projectId) changed('The commissioned author message is outside the project.');
+    if (brief.scope.projectId !== null && result.rows[0].project_id !== brief.scope.projectId) changed('The commissioned author message is outside the workstream.');
     data = record(result.rows[0].data, 'Author message');
     const conversationId = text(data['session_id'], 'Author conversation ID');
     checkExcluded(await aliases(client, [conversationId, `chat-scope:${conversationId}`]), brief.scope);

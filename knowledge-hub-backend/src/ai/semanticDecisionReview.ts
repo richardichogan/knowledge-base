@@ -9,13 +9,13 @@ export const REVIEW_DECISIONS_DEFINITION: LlmToolDefinition = {
   function: {
     name: REVIEW_DECISIONS_TOOL,
     description:
-      "Read-only review of a project's recorded decisions. Returns, per decision, four separate parts: the recorded decision with acceptance and supersession; " +
+      "Read-only review of a workstream's recorded decisions. Returns, per decision, four separate parts: the recorded decision with acceptance and supersession; " +
       'deterministic facts (review date, linked tasks and risks, rule results); an advisory assessment of newer evidence with counterevidence; and a suggested next step that is NOT executed. ' +
       'Acceptance "unknown" means it was never confirmed by the user. Never present an advisory assessment as fact or say a decision is revoked or invalid.',
     parameters: {
       type: 'object',
       properties: {
-        projectId: { type: 'string', description: 'Project id. Defaults to the active conversation project; when there is none, decisions across ALL projects are reviewed. Never ask the user which project: omit this and call the tool.' },
+        projectId: { type: 'string', description: 'Workstream id. Defaults to the active conversation workstream; when there is none, decisions across ALL workstreams are reviewed. Never ask the user which workstream: omit this and call the tool.' },
         decisionId: { type: 'string', description: 'Review one decision only.' },
       },
       required: [],

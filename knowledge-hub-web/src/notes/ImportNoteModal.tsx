@@ -160,15 +160,15 @@ export const ImportNoteModal: React.FC<ImportNoteModalProps> = ({ open, onClose,
       />
 
       <div className="notes-modal-spacer" />
-      <p className="notes-meta-section-label">Project</p>
+      <p className="notes-meta-section-label">Workstream</p>
       <select
-        title="Project"
+        title="Workstream"
         className="notes-meta-type-select"
         value={projectId}
         disabled={!file}
         onChange={(e) => { setProjectId(e.target.value); }}
       >
-        <option value="">No project</option>
+        <option value="">No workstream</option>
         <ProjectOptions projects={projects} selected={projectId} />
       </select>
 

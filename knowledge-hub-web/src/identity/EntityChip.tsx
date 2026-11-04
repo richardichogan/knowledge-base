@@ -26,7 +26,7 @@ interface ChipProps {
 }
 
 function chipTitle(identity: Identity): string {
-  if (identity.kind === 'project') return identity.parentName ? `${identity.label} · ${identity.parentName}` : `${identity.label} · Project`;
+  if (identity.kind === 'project') return identity.parentName ? `${identity.label} · ${identity.parentName}` : `${identity.label} · Workstream`;
   if (identity.kind === 'topic' && identity.parentName) return `${identity.label} · ${identity.parentName}`;
   return identity.label;
 }

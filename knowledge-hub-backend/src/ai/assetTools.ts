@@ -244,7 +244,7 @@ export function getAssetToolDefinitions(): LlmToolDefinition[] {
       }, ['itemId', 'state']),
     fn('update_spark', 'Edits an existing Spark\'s text and/or tags.',
       { sparkId: { type: 'string' }, body: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } } }, ['sparkId']),
-    fn('create_project', 'Creates a new project. Only when the user asks for a project; check the project catalogue first so you don\'t duplicate one.',
+    fn('create_project', 'Creates a new workstream (stored as a project). Only when the user asks for a workstream; check the workstream catalogue first so you don\'t duplicate one.',
       {
         name: { type: 'string' }, id: { type: 'string', description: 'Optional short kebab-case id.' },
         description: { type: 'string' }, goal: { type: 'string' },
@@ -253,12 +253,12 @@ export function getAssetToolDefinitions(): LlmToolDefinition[] {
         importance: { type: 'string', enum: [...PROJECT_IMPORTANCE] }, tags: { type: 'array', items: { type: 'string' } },
         clientCompany: { type: 'string', description: 'Client company name or id (projects and opportunities). Use an empty string to clear it.' },
         partnerCompanies: { type: 'array', items: { type: 'string' }, description: 'Partner company names or ids; replaces the existing partners.' },
-        offering: { type: 'string', description: 'Offering this sells or is related to (an offering-type project id or name). Empty string clears it.' },
+        offering: { type: 'string', description: 'Offering this sells or is related to (an offering-type workstream id or name). Empty string clears it.' },
         offeringRelation: { type: 'string', enum: ['sells', 'related'], description: 'sells for an opportunity selling the offering; related otherwise. Defaults to sells for opportunities, related for other work.' },
       }, ['name']),
-    fn('update_project', 'Updates a project, opportunity or offering: name, description, goal, work type, category, priority, importance, state (active/paused/completed/archived), tags, client company, partner companies or linked offering. Tags and partners given replace the existing ones.',
+    fn('update_project', 'Updates a workstream: name, description, goal, work type, category, priority, importance, state (active/paused/completed/archived), tags, client company, partner companies or linked offering. Tags and partners given replace the existing ones.',
       {
-        projectId: { type: 'string', description: 'Project id or exact name.' },
+        projectId: { type: 'string', description: 'Workstream id or exact name.' },
         name: { type: 'string' }, description: { type: 'string' }, goal: { type: 'string' },
         projectType: { type: 'string', enum: [...PROJECT_TYPES] },
         category: { type: 'string', enum: [...PROJECT_CATEGORIES] }, priority: { type: 'string', enum: [...PROJECT_PRIORITIES] },
@@ -266,18 +266,18 @@ export function getAssetToolDefinitions(): LlmToolDefinition[] {
         tags: { type: 'array', items: { type: 'string' } },
         clientCompany: { type: 'string', description: 'Client company name or id (projects and opportunities). Use an empty string to clear it.' },
         partnerCompanies: { type: 'array', items: { type: 'string' }, description: 'Partner company names or ids; replaces the existing partners.' },
-        offering: { type: 'string', description: 'Offering this sells or is related to (an offering-type project id or name). Empty string clears it.' },
+        offering: { type: 'string', description: 'Offering this sells or is related to (an offering-type workstream id or name). Empty string clears it.' },
         offeringRelation: { type: 'string', enum: ['sells', 'related'], description: 'sells for an opportunity selling the offering; related otherwise. Defaults to sells for opportunities, related for other work.' },
       }, ['projectId']),
     fn('set_diagram_projects',
-      'Files a saved diagram under its owning project and/or records the other projects or opportunities it is also used in. usedInProjectIds replaces the existing list; the owning project is never listed there.',
+      'Files a saved diagram under its owning workstream and/or records the other workstreams it is also used in. usedInProjectIds replaces the existing list; the owning workstream is never listed there.',
       {
         diagramId: { type: 'string' },
-        projectId: { type: 'string', description: 'Owning project id or exact name. Empty string removes the owner.' },
-        usedInProjectIds: { type: 'array', items: { type: 'string' }, description: 'Project or opportunity ids or exact names the diagram is also used in.' },
+        projectId: { type: 'string', description: 'Owning workstream id or exact name. Empty string removes the owner.' },
+        usedInProjectIds: { type: 'array', items: { type: 'string' }, description: 'Workstream ids or exact names the diagram is also used in.' },
       }, ['diagramId']),
     fn('update_note',
-      'Changes a saved Think note by id, even when it is not open: append content, replace the whole body (a checkpoint of the previous version is kept in its history), rename it, or move it to another project. For the note open beside the chat use propose_note_edit instead.',
+      'Changes a saved Think note by id, even when it is not open: append content, replace the whole body (a checkpoint of the previous version is kept in its history), rename it, or move it to another workstream. For the note open beside the chat use propose_note_edit instead.',
       {
         noteId: { type: 'string' },
         mode: { type: 'string', enum: ['append', 'replace'], description: 'How to apply content. Defaults to append.' },
@@ -294,7 +294,7 @@ export function getAssetToolDefinitions(): LlmToolDefinition[] {
       'fill agent details on AI steps and controls where data is sensitive. Only record agents, tools and controls the user stated or the sources show — leave unknowns out so the governance findings in the result show the gaps. Lanes and steps are laid out as swimlanes.',
       {
         title: { type: 'string' }, description: { type: 'string' },
-        projectId: { type: 'string', description: 'Project to file it under.' },
+        projectId: { type: 'string', description: 'Workstream to file it under.' },
         diagramType: { type: 'string', enum: ['general', 'ai-flow'], description: 'ai-flow for an AI flow / governance swimlane diagram. Defaults to general, or ai-flow when lanes are given.' },
         lanes: laneSchema,
         nodes: { type: 'array', items: diagramNodeSchema },
@@ -478,7 +478,7 @@ async function createProject(db: Pool, args: Record<string, unknown>): Promise<u
   }
   const name = str(args['name']);
   if (name === undefined) return { error: 'name is required.' };
-  if (await resolveProjectId(db, name) !== null) return { error: `A project called "${name}" already exists; use update_project.` };
+  if (await resolveProjectId(db, name) !== null) return { error: `A workstream called "${name}" already exists; use update_project.` };
   const slug = (str(args['id']) ?? name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, MAX_PROJECT_ID_CHARS);
   const id = slug !== '' && await resolveProjectId(db, slug) === null ? slug : randomUUID();
   const tags = cleanTags(args['tags']) ?? [];
@@ -496,7 +496,7 @@ async function createProject(db: Pool, args: Record<string, unknown>): Promise<u
   } catch (error) {
     await db.query('DELETE FROM tags WHERE project_id = $1', [id]);
     await db.query('DELETE FROM projects WHERE id = $1', [id]);
-    return { error: error instanceof Error ? error.message : 'The project links could not be saved.' };
+    return { error: error instanceof Error ? error.message : 'The workstream links could not be saved.' };
   }
   return { success: true, project: { id, name, projectType: projectType ?? 'project' }, url: `${env.FRONTEND_BASE_URL}/projects` };
 }
@@ -509,7 +509,7 @@ async function updateProject(db: Pool, args: Record<string, unknown>): Promise<u
   }
   const ref = str(args['projectId']);
   const id = ref === undefined ? null : await resolveProjectId(db, ref);
-  if (id === null) return { error: 'Project not found. Use the id from the project catalogue.' };
+  if (id === null) return { error: 'Workstream not found. Use the id from the workstream catalogue.' };
   const sets: string[] = [];
   const vals: unknown[] = [];
   const set = (col: string, v: unknown): void => { if (v !== undefined && v !== null) { vals.push(v); sets.push(`${col} = $${vals.length.toString()}`); } };
@@ -533,7 +533,7 @@ async function updateProject(db: Pool, args: Record<string, unknown>): Promise<u
     if (projectType !== undefined) await reconcileOfferingLinks(db, id);
   }
   try { await saveProjectRelations(db, id, relations.input); }
-  catch (error) { return { error: error instanceof Error ? error.message : 'The project links could not be saved.', changedBeforeError: sets.map((s) => s.split(' = ')[0]) }; }
+  catch (error) { return { error: error instanceof Error ? error.message : 'The workstream links could not be saved.', changedBeforeError: sets.map((s) => s.split(' = ')[0]) }; }
   const { rows } = await db.query<{ id: string; name: string; project_type: string }>('SELECT id, name, project_type FROM projects WHERE id = $1', [id]);
   return { success: true, project: rows[0], changed: [...sets.map((s) => s.split(' = ')[0]), ...relations.changed] };
 }
@@ -578,7 +578,7 @@ async function updateNote(db: Pool, args: Record<string, unknown>, openNoteId?: 
   const projectRef = str(args['projectId']);
   if (content === undefined && title === undefined && projectRef === undefined) return { error: 'Give content, a title or a projectId to change.' };
   const projectId = projectRef === undefined ? undefined : await resolveProjectId(db, projectRef);
-  if (projectId === null) return { error: 'Project not found.' };
+  if (projectId === null) return { error: 'Workstream not found.' };
 
   const { writeNote } = await import('../services/noteVersionService.js');
   const { scheduleNoteIndexing } = await import('../routes/notes.js');
@@ -1045,14 +1045,14 @@ async function setDiagramProjects(db: Pool, args: Record<string, unknown>): Prom
   if (typeof args['projectId'] === 'string') {
     const ref = args['projectId'].trim();
     patch.project = ref === '' ? null : await resolveProjectId(db, ref);
-    if (ref !== '' && patch.project === null) return { error: `Project "${ref}" was not found.` };
+    if (ref !== '' && patch.project === null) return { error: `Workstream "${ref}" was not found.` };
   }
   if (Array.isArray(args['usedInProjectIds'])) {
     const ids: string[] = [];
     for (const ref of args['usedInProjectIds'] as unknown[]) {
       if (typeof ref !== 'string' || ref.trim() === '') continue;
       const projectId = await resolveProjectId(db, ref.trim());
-      if (projectId === null) return { error: `Project "${ref}" was not found.` };
+      if (projectId === null) return { error: `Workstream "${ref}" was not found.` };
       ids.push(projectId);
     }
     patch.usedInProjectIds = ids;

@@ -133,7 +133,7 @@ export async function createPacket(db: Pool, projectId: string, input: { title?:
     for (const s of await loadSources(db, projectId, type, ids, null)) found.set(`${type}:${s.sourceId}`, s);
   }
   const missing = refs.filter((r) => !found.has(`${r.sourceType}:${r.sourceId}`));
-  if (missing.length > 0) throw new ValidationError('Some selected items do not exist in this project', { items: 'not in project' });
+  if (missing.length > 0) throw new ValidationError('Some selected items do not exist in this workstream', { items: 'not in workstream' });
 
   const p = await db.query('INSERT INTO review_packets (project_id, title) VALUES ($1, $2) RETURNING id', [projectId, title]);
   const packetId = String((p.rows[0] as { id: string }).id);

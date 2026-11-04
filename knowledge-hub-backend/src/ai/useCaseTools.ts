@@ -19,7 +19,7 @@ export const USE_CASE_TOOL_NAMES = new Set(['read_use_case', ...USE_CASE_WRITE_T
 export const USE_CASE_CHAT_TOOLS: LlmToolDefinition[] = [
   { type: 'function', function: {
     name: 'read_use_case',
-    description: 'Read the selected Think use case’s complete structured record, including summary, stage, product/project/repository settings, exact source identities and links, and linked Design/spec/Build identifiers. Read before editing. If the full record exceeds the bounded read limit, the tool refuses the read instead of silently truncating it.',
+    description: 'Read the selected Think use case’s complete structured record, including summary, stage, product/workstream/repository settings, exact source identities and links, and linked Design/spec/Build identifiers. Read before editing. If the full record exceeds the bounded read limit, the tool refuses the read instead of silently truncating it.',
     parameters: { type: 'object', additionalProperties: false, properties: {} },
   } },
   { type: 'function', function: {
@@ -51,7 +51,7 @@ export async function executeUseCaseTool(db: Pool, name: string, args: Record<st
   }
   const useCase: UseCaseDetail = await getUseCase(db, id);
   if (access.strictProjectId && useCase.projectId !== access.strictProjectId) {
-    throw new ValidationError('The selected use case is outside the enforced project scope.');
+    throw new ValidationError('The selected use case is outside the enforced workstream scope.');
   }
   if (useCase.sources.some(source => access.excludedIds?.has(source.sourceId))) {
     throw new ValidationError('A source linked to the selected use case is excluded from this conversation.');

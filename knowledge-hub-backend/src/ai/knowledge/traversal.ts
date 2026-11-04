@@ -110,7 +110,7 @@ export async function traverseRelationships(input: TraversalInput): Promise<Trav
 /** Wording the model must use for a step: inferred links are suggestions, never dependencies. */
 const DECIMALS = 2;
 export function describeStep(step: TraversalStep): string {
-  const where = step.crossProject ? ' (different project)' : '';
+  const where = step.crossProject ? ' (different workstream)' : '';
   return step.explicit
     ? `Explicit ${step.relation} link${where}`
     : `Inferred (not confirmed) ${step.relation} suggestion${where}${step.confidence !== undefined ? `, confidence ${step.confidence.toFixed(DECIMALS)}` : ''}`;

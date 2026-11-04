@@ -38,23 +38,23 @@ export function validateCompany(value: unknown): CompanyInput {
     if (!['http:', 'https:'].includes(url.protocol)) throw new ValidationError('Website must be an http or https URL');
   }
   const projects = input['projectIds'] ?? [];
-  if (!Array.isArray(projects) || projects.length > MAX_PROJECTS) throw new ValidationError('Choose up to 100 projects');
-  const projectIds = [...new Set(projects.map(id => text(id, NAME_LIMIT, 'Project ID')))];
-  if (projectIds.some(id => !id)) throw new ValidationError('Project IDs cannot be empty');
+  if (!Array.isArray(projects) || projects.length > MAX_PROJECTS) throw new ValidationError('Choose up to 100 workstreams');
+  const projectIds = [...new Set(projects.map(id => text(id, NAME_LIMIT, 'Workstream ID')))];
+  if (projectIds.some(id => !id)) throw new ValidationError('Workstream IDs cannot be empty');
   return { name, description, website, projectIds };
 }
 export function validatePersonRelationships(value: unknown): PersonRelationships {
   const input = object(value);
   const company = companyId(input['companyId']);
   const assignments = input['assignments'];
-  if (!Array.isArray(assignments) || assignments.length > MAX_PROJECTS) throw new ValidationError('Choose up to 100 project roles');
+  if (!Array.isArray(assignments) || assignments.length > MAX_PROJECTS) throw new ValidationError('Choose up to 100 workstream roles');
   const roles = assignments.map(value => {
     const row = object(value);
-    const projectId = text(row['projectId'], NAME_LIMIT, 'Project ID');
-    if (!projectId) throw new ValidationError('Choose a project for each role');
-    return { projectId, role: text(row['role'] ?? '', ROLE_LIMIT, 'Project role'), companyId: companyId(row['companyId'] ?? null) };
+    const projectId = text(row['projectId'], NAME_LIMIT, 'Workstream ID');
+    if (!projectId) throw new ValidationError('Choose a workstream for each role');
+    return { projectId, role: text(row['role'] ?? '', ROLE_LIMIT, 'Workstream role'), companyId: companyId(row['companyId'] ?? null) };
   });
-  if (new Set(roles.map(role => role.projectId)).size !== roles.length) throw new ValidationError('Each project can have only one role per person');
+  if (new Set(roles.map(role => role.projectId)).size !== roles.length) throw new ValidationError('Each workstream can have only one role per person');
   return { companyId: company, assignments: roles };
 }
 
@@ -89,7 +89,7 @@ export async function saveCompany(db: Pool, value: unknown, id?: string): Promis
       if (!updated.rows.length) throw new NotFoundError('Company');
     } else await client.query('INSERT INTO companies(id,name,description,website) VALUES($1,$2,$3,$4)', [key, input.name, input.description, input.website]);
     const projects = await client.query('SELECT id FROM projects WHERE id=ANY($1::text[])', [input.projectIds]);
-    if (projects.rows.length !== input.projectIds.length) throw new ValidationError('One or more selected projects no longer exist');
+    if (projects.rows.length !== input.projectIds.length) throw new ValidationError('One or more selected workstreams no longer exist');
     // Preserve the client/partner role of links that remain selected.
     await client.query('DELETE FROM company_projects WHERE company_id=$1 AND NOT (project_id=ANY($2::text[]))', [key, input.projectIds]);
     for (const projectId of input.projectIds) await client.query('INSERT INTO company_projects(company_id,project_id) VALUES($1,$2) ON CONFLICT (company_id,project_id) DO NOTHING', [key, projectId]);
@@ -118,7 +118,7 @@ export async function savePersonRelationships(db: Pool, id: string, value: unkno
     if (companies.rows.length !== companyIds.length) throw new ValidationError('One or more selected companies no longer exist');
     const projectIds = input.assignments.map(row => row.projectId);
     const projects = await client.query('SELECT id FROM projects WHERE id=ANY($1::text[])', [projectIds]);
-    if (projects.rows.length !== projectIds.length) throw new ValidationError('One or more selected projects no longer exist');
+    if (projects.rows.length !== projectIds.length) throw new ValidationError('One or more selected workstreams no longer exist');
     await client.query('UPDATE people SET company_id=$2,updated_at=now() WHERE id::text=$1', [id, input.companyId]);
     await client.query('DELETE FROM person_project_roles WHERE person_id::text=$1', [id]);
     for (const role of input.assignments) {

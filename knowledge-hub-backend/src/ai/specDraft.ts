@@ -33,7 +33,7 @@ Structure (keep these headings, in this order):
 ## Summary
 Two or three sentences: what this is, and why it matters.
 ## Why it fits
-How it relates to the project, product or direction discussed, including any reasoning about fit or where the headline could mislead.
+How it relates to the workstream, product or direction discussed, including any reasoning about fit or where the headline could mislead.
 ## Users and their needs
 ## What it does
 Numbered requirements with IDs. Add user stories only where the conversation supports them.

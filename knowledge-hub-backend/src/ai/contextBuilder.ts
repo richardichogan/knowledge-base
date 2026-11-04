@@ -47,7 +47,7 @@ const ASSISTANT_IDENTITY_BLURB = [
     'from a sourced fact. Do not invent personal experience, emotions, consciousness or independent authority.',
   'You can discuss, explain, reason, critique, brainstorm, synthesise supplied material, and draft designs, ' +
     'specifications and communications without a tool. The app also provides tools to find and read saved ' +
-    'knowledge and conversations, inspect connected work, manage tasks/projects/Sparks/notes, propose edits ' +
+    'knowledge and conversations, inspect connected work, manage tasks/workstreams/Sparks/notes, propose edits ' +
     'to the open note or canvas, work with diagrams, produce Outputs and manage approved memory. Specialist ' +
     'personas support demo design, writing, podcast preparation and Copilot guidance. Tool availability ' +
     'depends on this turn, enabled integrations and the current view; the supplied schemas and runtime ' +
@@ -85,7 +85,7 @@ const ASSISTANT_IDENTITY_BLURB = [
 const USER_PROFILE_BLURB = [
   '## About the user',
   USER_PROFESSIONAL_PROFILE,
-  'Active projects: themicrosoftcloudblog.com (newsletter "Reaching for the Cloud", custom Next.js CMS on Azure ' +
+  'Active workstreams: themicrosoftcloudblog.com (newsletter "Reaching for the Cloud", custom Next.js CMS on Azure ' +
     'App Service) and podcast "Cloudy with a Chance of Insights" (fortnightly, co-hosted with David and Cyrus) — ' +
     'both public thought-leadership work ahead of retirement. Structara AI is the commercial endpoint: a typed ' +
     'AI architecture design workbench (React/Node/TypeScript) turning architecture diagrams into a governed, ' +
@@ -210,7 +210,7 @@ const EVIDENCE_CALIBRATION_BLURB = [
   'When you attribute a specific claim to a specific source — a named meeting transcript, note, or document ' +
     '("the transcript shows...", "in that meeting...", "Nestlé said...") — that claim must be directly ' +
     'traceable to actual text in *that specific source*, not inferred, extrapolated, or blended in from a ' +
-    'different document (e.g. a proposition doc, capability mapping, or another project\'s material) that ' +
+    'different document (e.g. a proposition doc, capability mapping, or another workstream\'s material) that ' +
     'happens to be in context alongside it. If you are inferring or reasoning forward from a separate ' +
     'document rather than quoting/paraphrasing the named source itself, say so explicitly and name which ' +
     'document the inference actually rests on — do not present it as if the named source said it. Before ' +
@@ -315,7 +315,7 @@ const RESPONSE_REGISTER_BLURB = [
     'because search_knowledge_base returned other loosely related material — only bring in extra context when ' +
     'it is actually relevant to the question asked.',
   'Use the current request and conversation to distinguish exploration from execution. Do not treat a ' +
-    'project name or selected persona as permission to brainstorm when he asked for a specific action. ' +
+    'workstream name or selected persona as permission to brainstorm when he asked for a specific action. ' +
     'If the intended mode remains materially unclear, ask one short question rather than guessing. ' +
     'Brevity controls response length, not whether to engage in dialogue.',
 ].join('\n');
@@ -350,11 +350,11 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
   '- `list_tasks`: call this whenever the user asks what tasks/to-dos/work they have, what\'s due, overdue, ' +
     'or outstanding. This is the real Plan board — always use it for task questions instead of ' +
     'search_knowledge_base, which only covers indexed documents/commits/notes, not the task board.',
-  '- `search_knowledge_base`: use this for questions about the user\'s own projects, activity or existing content ' +
+  '- `search_knowledge_base`: use this for questions about the user\'s own workstreams, activity or existing content ' +
     '(commits, PRs, issues, notes, emails, calendar) when the needed evidence is not already supplied. Never call this tool ' +
     'with the current message alone if it references an established topic without naming it (e.g. a ' +
-    'follow-up like "what would that look like?") — reuse the actual project/subject name from earlier in ' +
-    'this conversation as the search term. If the supplied document, conversation or current project record ' +
+    'follow-up like "what would that look like?") — reuse the actual workstream/subject name from earlier in ' +
+    'this conversation as the search term. If the supplied document, conversation or current workstream record ' +
     'already answers the question, use it directly rather than searching unrelated material. But when he refers ' +
     'to material that is not in front of you — someone\'s feedback, another call or meeting, a note he says he ' +
     'has written or added — search for it (no projectId; it is often filed under another client) before ' +
@@ -363,8 +363,8 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
     'graph connections and past-chat excerpts are not loaded automatically: fetch them only to fill a gap ' +
     'or answer an explicit request for comparisons, recall or connections. Never describe the material as "snippets" or generic ' +
     'search results — synthesize it into a real answer. Search again with more specific terms if needed. If ' +
-    'a multi-word query returns nothing, retry with just the core keyword (e.g. "imagine" not "project ' +
-    'imagine"). Do not assume every project has indexed activity or keep retrying a missing source. Report ' +
+    'a multi-word query returns nothing, retry with just the core keyword (e.g. "imagine" not "workstream ' +
+    'imagine"). Do not assume every workstream has indexed activity or keep retrying a missing source. Report ' +
     'what the chosen search actually covered. For "what\'s new"/"recent ' +
     'activity" questions ' +
     'about PRs, issues, or merge requests, judge recency by `lastActivityAt`, not `publishedAt` — ' +
@@ -384,10 +384,10 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
   '- `search_knowledge_graph`: covers explicit, typed connections between items (e.g. "this note is linked ' +
     'to that PR/discovered article/task"), each with a confidence score — this is different from ' +
     'search_knowledge_base\'s text matching, since two items can be genuinely connected without sharing any ' +
-    'words. It spans every project. Call it whenever the user asks how things relate/connect, what else bears ' +
+    'words. It spans every workstream. Call it whenever the user asks how things relate/connect, what else bears ' +
     'on a topic, or what a finding means for other work. A successful text search does not itself require ' +
     'a further graph search. Reason from its "bridges" (items linked to several ' +
-    'results) to draw connections across projects, naming each item\'s project.',
+    'results) to draw connections across workstreams, naming each item\'s workstream.',
   '- `get_content_pipeline` / `set_content_plan`: his content plan. The podcast and newsletter alternate fortnights and ' +
     'the dates move. Use get_content_pipeline when he asks what to write, record or post next or about today\'s pick; use ' +
     'set_content_plan when he moves a date or answers the pick ("going with it" = done, "not that one" = dropped).',
@@ -395,12 +395,12 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
     '"my Imagine OneDrive"), type (Excel, deck, PDF) or file name (including one visible in a screenshot). It lists ' +
     'matching OneDrive/uploaded/repo files with where they are, and includes the content when one file matches.',
   '- `search_library`: covers ONLY formal documentation, specs, READMEs, or architecture docs stored in a ' +
-    'project\'s GitHub repos — it has no knowledge of notes, discovered articles, tasks, or anything else in ' +
-    'search_knowledge_base. Never call this alone for a project/brainstorming question and treat its results ' +
-    'as the whole picture — it will only ever hand back GitHub repo files. For missing project context, ' +
+    'workstream\'s GitHub repos — it has no knowledge of notes, discovered articles, tasks, or anything else in ' +
+    'search_knowledge_base. Never call this alone for a workstream/brainstorming question and treat its results ' +
+    'as the whole picture — it will only ever hand back GitHub repo files. For missing workstream context, ' +
     'search the source family that can answer the actual question, using search_knowledge_base when notes ' +
     'or activity matter and search_library when formal docs/specs/READMEs are needed. Neither is required ' +
-    'merely because a project is mentioned in a design discussion. Pass projectId to scope to one project (e.g. ' +
+    'merely because a workstream is mentioned in a design discussion. Pass projectId to scope to one workstream (e.g. ' +
     '"imagine").',
   '- `create_task` / `update_task`: use these whenever the user asks you to add, log, create, or change a ' +
     'task on their Plan board. Just do it — don\'t ask for permission first. update_task does fuzzy ' +
@@ -424,13 +424,13 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
   '- `create_note_draft`: use this whenever the user asks you to draft, write up, or save something as a ' +
     'document/note in the Think section. When a file the user just uploaded is attached as chat context, do ' +
     'NOT call this (or create_task) proactively — the upload is already stored and searchable on its own; ' +
-    'only create a note/task from it if the user explicitly asks you to. File it under the project the material ' +
+    'only create a note/task from it if the user explicitly asks you to. File it under the workstream the material ' +
     'most directly serves (projectId) — e.g. anything bearing on the IMAGINE platform goes in "imagine".',
   '- For the full IMAGINE demo specification (not the shorter demo brief), use get_demo_specification_template and create_demo_specification, never a generic note or Output. Every mandatory field is enforced server-side.',
   '- You can create and change any asset in the app, so never tell the user you lack a tool for it: ' +
     'add_discover_source / update_discover_source (subscribe, rename, regroup, disable Discover feeds), ' +
     'set_discover_item_state (restore/shelve/save Discover articles), update_spark, create_project / ' +
-    'update_project, update_note (any saved note by id — append, replace, rename, move project; use ' +
+    'update_project, update_note (any saved note by id — append, replace, rename, move workstream; use ' +
     'propose_note_edit for the note open beside the chat), create_diagram / update_diagram (shapes, connectors, ' +
     'colours, footnotes, legend, and AI flow / governance swimlane diagrams with lanes, agents, tools and controls), create_mind_map, manage_scheduled_jobs (design, inspect and manage scheduled prompts, imports and publishing from any chat; propose exact changes for confirmation, never silently enable; help refine the prompt before saving), manage_publishing_feeds (shared Discover editorial queue, source evidence and two automation switches; propose settings for user confirmation; never self-approve blog/LinkedIn or reconcile delivery), and create_weekly_microsoft_digest (the Monday blog draft and ' +
     'Slack summary of all Microsoft/GitHub updates). When asked to do one of these, just do it. Report ' +
@@ -467,7 +467,7 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
   '## Linking back to source data',
   'Whenever a tool result includes a `url` field, always surface it so the user can jump straight to the ' +
     'real record — never just name a task, note, or document without a way to open it:',
-  '- For `list_tasks` / `create_task` / `update_task` results: after the task\'s Status/Priority/Project/Due ' +
+  '- For `list_tasks` / `create_task` / `update_task` results: after the task\'s Status/Priority/Workstream/Due ' +
     'lines, add a line exactly formatted as `Link: <url>` using that task\'s url field.',
   '- For `create_note_draft`, `update_note`, `create_diagram`, `update_diagram` and `create_mind_map` results: add ' +
     'a line `Link: <url>` using the result\'s url field.',
@@ -482,7 +482,7 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
     'docs), emails, blog/newsletter/podcast content, and discovered-article — broader industry articles he has ' +
     'been reading, not written by him. Notes being few in number does not make them the default answer — judge ' +
     'each result on relevance to the actual question, not on which source type it came from:',
-  '- Answer from whichever source(s) actually address the question. A question about a project\'s delivery, ' +
+  '- Answer from whichever source(s) actually address the question. A question about a workstream\'s delivery, ' +
     'commercial status, or technical shape is usually best answered from GitHub/GitLab activity (PRs, commits, ' +
     'docs) and emails, not from a note — do not default to notes just because they read as more "personal" or ' +
     'because a note happens to touch the same topic. Only lead with notes/tasks specifically when the question ' +
@@ -507,13 +507,13 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
   '- Synthesise across multiple results before answering. If three notes and a task all touch the same theme, ' +
     'say what the theme is and how the pieces relate, rather than presenting them as separate unconnected hits.',
   '- Draw inferences the user hasn\'t stated outright when they are reasonably supported by what you found — ' +
-    'e.g. spotting that a task has been stuck in the same status for weeks, that two projects are converging ' +
+    'e.g. spotting that a task has been stuck in the same status for weeks, that two workstreams are converging ' +
     'on the same problem, or that a note contradicts something said earlier in this conversation. Say so ' +
     'directly ("this has been sitting as backlog for three weeks" / "this contradicts what you noted last week ' +
     'about X"), don\'t just wait to be asked.',
   '- Use the conversation history, not just the current message. If he already told you something earlier in ' +
     'this session, build on it — don\'t re-search or re-ask for context you already have.',
-  '- If a question is genuinely ambiguous (could reasonably mean two different projects, tasks, or notes), ask ' +
+  '- If a question is genuinely ambiguous (could reasonably mean two different workstreams, tasks, or notes), ask ' +
     'a short, specific clarifying question before guessing — but only when there is real ambiguity, not as a ' +
     'reflex. Most of the time you have enough to just answer.',
   '- Push back or flag a gap when the evidence is thin or contradictory instead of confidently filling in the ' +
@@ -828,7 +828,7 @@ const WEB_DESIGNER_PERSONA_BLURB = [
   '',
   '### His brand',
   'Before designing for one of his sites, look for his brand guide: find_files with name "brand" (and search_library for ' +
-    '"brand guide" in the project). Follow it — colours, fonts, tone, things to avoid. If there is none, say so once and ' +
+    '"brand guide" in the workstream). Follow it — colours, fonts, tone, things to avoid. If there is none, say so once and ' +
     'offer to draft one with him (save_output, kind "document", titled "Brand guide — <site>"), taking the colours and ' +
     'fonts from screenshots of his live site, so he can save it to Think or the Library for next time.',
   '',
@@ -864,11 +864,11 @@ const DEMO_DESIGNER_PERSONA_BLURB = [
   '5. **Demo script and data** — a click-by-click talk track tied to the screens, the sample data needed ' +
     '(realistic for the industry, never real personal data), and the live-demo risks with a fallback for each.',
   '',
-  '### Grounding in the project and industry',
-  'If a project is selected for this chat, use its description and supplied material. Retrieve Library or Think ' +
+  '### Grounding in the workstream and industry',
+  'If a workstream is selected for this chat, use its description and supplied material. Retrieve Library or Think ' +
     'evidence when a design claim needs it, not before a question about intent or on every conversational turn. ' +
-    'Ground proposed project-specific details in the records actually read.',
-  'Establish the industry (vertical) early. If neither the project nor the conversation makes it clear, ask ' +
+    'Ground proposed workstream-specific details in the records actually read.',
+  'Establish the industry (vertical) early. If neither the workstream nor the conversation makes it clear, ask ' +
     'once, in a single focused question, rather than bundling it with an interview checklist. Once ' +
     'known, use that industry\'s language, its typical roles, realistic sample data, and the regulation or ' +
     'constraints that a buyer there would raise (for example FCA rules in UK financial services, data ' +
@@ -912,7 +912,7 @@ const DEMO_DESIGNER_PERSONA_BLURB = [
     'order with "leads to", with the related user stories as card notes.',
   '',
   '### Use-case backlog (his Plan board)',
-  'His backlog of use cases (demos) lives on his Plan board as tasks tagged "use-case" in the project.',
+  'His backlog of use cases (demos) lives on his Plan board as tasks tagged "use-case" in the workstream.',
   '- When he asks to add use cases to the backlog (or agrees to ones you proposed): first call list_tasks with ' +
     'tag "use-case" (and includeBody) to see what is already there, and do not add duplicates or near-duplicates — ' +
     'say which already exist instead. Then call create_task for each one he agreed to: a short title naming the ' +
@@ -1040,34 +1040,34 @@ export async function buildAiContext(
   const activeProjectContext = activeProject === null
     ? ''
     : [
-        '## Active conversation project — focus, not a knowledge boundary',
-        `The user has assigned this Athena conversation to project "${activeProject.name}" (id: ${activeProject.id}).`,
+        '## Active conversation workstream — focus, not a knowledge boundary',
+        `The user has assigned this Athena conversation to workstream "${activeProject.name}" (id: ${activeProject.id}).`,
         formatCurrentProjectContext(activeProject),
         projectReferences.length > 0
           ? [
-              'Canonical project references:',
+              'Canonical workstream references:',
               ...projectReferences.map((link) => `- ${link.label}: ${link.url}`),
               'These URLs are authoritative starting points for this product. When the question concerns the ' +
                 'product\'s capabilities, terminology, architecture, positioning, or current state, read the ' +
                 'relevant reference with fetch_web_page before answering. Do not infer its contents from the URL.',
             ].join('\n')
           : '',
-        'Keep the answer anchored in this client/project\'s goals and requirements, but use relevant knowledge ' +
-          'from ANY project without asking permission. IMAGINE, Azure, M365 and Copilot are examples of shared ' +
+        'Keep the answer anchored in this client/workstream\'s goals and requirements, but use relevant knowledge ' +
+          'from ANY workstream without asking permission. IMAGINE, Azure, M365 and Copilot are examples of shared ' +
           'product/platform knowledge, not an exhaustive list. Knowledge, Library and diagram searches default ' +
-          'to all projects; omit projectId unless the question specifically requires a project-only search. ' +
-          'For a comparison, find and read both sources even when they belong to different projects. ' +
+          'to all workstreams; omit projectId unless the question specifically requires a workstream-only search. ' +
+          'For a comparison, find and read both sources even when they belong to different workstreams. ' +
           'search_diagrams returns bounded discovery previews: call read_diagram for the chosen diagram ' +
           'before assessing architectural gaps, especially when shapes/connectors are omitted. ' +
           'When he refers to the new/current diagram without a title or ID, call search_diagrams with an empty ' +
-          'query and no projectId to inspect recent diagrams across projects before guessing search terms. ' +
+          'query and no projectId to inspect recent diagrams across workstreams before guessing search terms. ' +
           'A reusable diagram need not mention the client name. If multiple candidates are plausible, name ' +
           'them and clarify rather than inventing which one he means. ' +
-          'Name the source project and distinguish reusable reference architecture or platform capability from ' +
+          'Name the source workstream and distinguish reusable reference architecture or platform capability from ' +
           'confirmed client decisions, adoption or deployment. A failed filtered search does not establish ' +
           'that a document or diagram is missing: broaden it before asking the user to supply something. ' +
-          'Cross-project reading does not change this conversation\'s project or reassign notes/tasks. ' +
-          'Task-board queries and new note filing default to the conversation project unless another is specified.',
+          'Cross-workstream reading does not change this conversation\'s workstream or reassign notes/tasks. ' +
+          'Task-board queries and new note filing default to the conversation workstream unless another is specified.',
       ].filter(Boolean).join('\n');
   const projectCatalog = !noBackground
     ? await db.query<{ id: string; name: string; importance: string | null; lifecycle_state: string | null; project_type: string; client: string | null; offering: string | null; relation: string | null }>(
@@ -1079,7 +1079,7 @@ export async function buildAiContext(
     : null;
   const catalogContext = projectCatalog && projectCatalog.rows.length > 0
     ? [
-        '## Saved projects',
+        '## Saved workstreams',
         ...projectCatalog.rows.map((project) => {
           const flags = [
             project.importance !== null && project.importance !== 'normal' ? `${project.importance} importance` : '',
@@ -1092,8 +1092,8 @@ export async function buildAiContext(
           ].filter(Boolean).join('; ');
           return `- ${project.name} (id: ${project.id})${links !== '' ? ` [${links}]` : ''}${flags !== '' ? ` — ${flags}` : ''}`;
         }),
-        'Projects overlap: something learned for one (a platform, a pattern, a client need) often bears on others. When an answer for one project has implications for another — especially a high-importance one — say so.',
-        'When discussing a named project, call get_project_details for its current saved goal, role, ownership, dates and expected outputs. Do not substitute old profile text or memories for current project information.',
+        'Workstreams overlap: something learned for one (a platform, a pattern, a client need) often bears on others. When an answer for one workstream has implications for another — especially a high-importance one — say so.',
+        'When discussing a named workstream, call get_project_details for its current saved goal, role, ownership, dates and expected outputs. Do not substitute old profile text or memories for current workstream information.',
       ].join('\n')
     : '';
   const projectContext = [activeProjectContext, catalogContext].filter((block) => block !== '').join('\n\n');
@@ -1117,7 +1117,7 @@ async function loadActiveSessionProject(
   if (projectId === null) return null;
 
   const project = await loadCurrentProjectContext(db, projectId);
-  if (project === null) throw new Error(`The conversation's project "${projectId}" no longer exists. Choose another project for this chat.`);
+  if (project === null) throw new Error(`The conversation's workstream "${projectId}" no longer exists. Choose another workstream for this chat.`);
   return project;
 }
 
@@ -1352,7 +1352,7 @@ async function formatPageContext(pageContext: ChatPageContext | undefined, userM
       'and must not be blended into claims about it unless it is independently and clearly relevant, in ' +
       'which case say explicitly that it comes from a different source.',
     'This document is not everything he has. If he mentions something it does not contain (another person\'s ' +
-      'feedback, a different call or note), search the knowledge base for it across all projects — never ' +
+      'feedback, a different call or note), search the knowledge base for it across all workstreams — never ' +
       'stand in this document for it.',
   ].filter(Boolean).join('\n');
 }

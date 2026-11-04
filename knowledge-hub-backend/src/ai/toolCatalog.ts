@@ -28,7 +28,7 @@ export class ToolCatalog {
       'Choose tools only when needed. A mention of editing, a document, a diagram or a source is not an instruction to act or a restriction to that collection.',
       'The catalogue lists permitted capabilities. Core read tools are already loaded; call load_tools for other schemas, then invoke them in a later round.',
       'Loading a capability does not execute it, authorise a write, create a tag or create an approval task. Existing action and preview safeguards still apply.',
-      'For an explicit user-imposed collection, date or project boundary, declare retrievalScope through load_tools before retrieving. Do not declare a hard boundary merely because a collection was mentioned.',
+      'For an explicit user-imposed collection, date or workstream boundary, declare retrievalScope through load_tools before retrieving. Do not declare a hard boundary merely because a collection was mentioned.',
       'Preserve explicit constraints on retries. Use per-query filters for intermediate lookups in a broader comparison. Do not silently widen an explicit boundary after an empty result.',
       ...[...this.available.values()].map(tool => {
         const description = tool.function.description.replace(/\s+/g, ' ');

@@ -150,8 +150,8 @@ export const SparkThemeCard: React.FC<{
               { label: 'Canvas', disabled: mutation.isPending, onSelect: () => { mutation.mutate({ kind: 'graduate', target: 'canvas' }); } },
               { label: 'Use case…', disabled: theme.sparks.length === 0, onSelect: () => { setUseCaseOpen(true); } },
               { label: 'Tasks (Plan inbox)', disabled: mutation.isPending, onSelect: () => { mutation.mutate({ kind: 'graduate', target: 'tasks' }); } },
-              { label: 'Project', disabled: mutation.isPending, onSelect: () => {
-                void confirmDialog(`Create a new project called "${theme.theme}" from this theme?`, { title: 'Create project', confirmLabel: 'Create project' })
+              { label: 'Workstream', disabled: mutation.isPending, onSelect: () => {
+                void confirmDialog(`Create a new workstream called "${theme.theme}" from this theme?`, { title: 'Create workstream', confirmLabel: 'Create workstream' })
                   .then((ok) => { if (ok) mutation.mutate({ kind: 'graduate', target: 'project' }); });
               } },
             ]} />

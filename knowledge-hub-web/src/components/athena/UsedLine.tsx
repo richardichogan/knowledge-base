@@ -17,7 +17,7 @@ interface UsedLineProps {
   onInclude: (sourceId: string) => void;
 }
 
-const KIND_LABEL: Record<string, string> = { note: 'Think note', document: 'Library', item: 'Synced', node: 'Graph', chat: 'Chat' };
+const KIND_LABEL: Record<string, string> = { project: 'Workstream', note: 'Think note', document: 'Library', item: 'Synced', node: 'Graph', chat: 'Chat' };
 
 function plural(n: number, one: string, many = `${one}s`): string {
   return `${n.toString()} ${n === 1 ? one : many}`;
@@ -88,7 +88,7 @@ export const UsedLine: React.FC<UsedLineProps> = ({ used, excluded, onExclude, o
       {open && (
         <div id={detailId} className="ai-used__detail">
           <ul className="ai-used__facts">
-            {used.project !== null && <li>Project: <strong>{used.project}</strong></li>}
+            {used.project !== null && <li>Workstream: <strong>{used.project}</strong></li>}
             {used.instructions > 0 && <li>{plural(used.instructions, 'standing instruction')} and liked examples (see Memory)</li>}
             {used.inView !== null && <li>In view: <strong>{used.inView}</strong></li>}
             {(used.decisions > 0 || used.outputs > 0 || used.screens > 0) && (

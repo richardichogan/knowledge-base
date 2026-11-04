@@ -96,19 +96,19 @@ export function projectBoost(fits: ProjectFit[], projects: FocusProject[]): numb
 
 export function buildProjectFitPrompt(projects: FocusProject[]): string {
   return [
-    'You decide which of Richard Hogan\'s live projects each article is useful to. Richard is Global Chief Architect in IBM\'s Microsoft Practice.',
-    'This is NOT an editorial judgement about whether he should write about it — only whether reading it helps a project\'s actual work.',
+    'You decide which of Richard Hogan\'s live workstreams each article is useful to. Richard is Global Chief Architect in IBM\'s Microsoft Practice.',
+    'This is NOT an editorial judgement about whether he should write about it — only whether reading it helps a workstream\'s actual work.',
     '',
-    'Projects:',
+    'Workstreams:',
     ...projects.map((p) => `- id "${p.id}" — ${p.name}${p.importance === 'high' ? ' (HIGH importance)' : ''}: ${p.brief || '(no description)'}`),
     '',
-    'For each article, list only the projects it genuinely serves:',
-    '- fit 2 = directly relevant: the platform, pattern, risk, capability or market move bears on what the project is designing, building, governing or selling now.',
-    '- fit 1 = useful background for the project.',
-    'Omit a project when the link is only a shared buzzword. Most articles serve no project; an empty list is normal.',
-    'Return exactly one result for every supplied article key, including projects: [] when none fit. Use only supplied article/project IDs, without duplicates.',
+    'For each article, list only the workstreams it genuinely serves:',
+    '- fit 2 = directly relevant: the platform, pattern, risk, capability or market move bears on what the workstream is designing, building, governing or selling now.',
+    '- fit 1 = useful background for the workstream.',
+    'Omit a workstream when the link is only a shared buzzword. Most articles serve no workstream; an empty list is normal.',
+    'Return exactly one result for every supplied article key, including projects: [] when none fit. Use only supplied article/workstream IDs, without duplicates.',
     '',
-    'Reply with ONLY JSON, no fences: {"results":[{"key":"<article key>","projects":[{"id":"<project id>","fit":1|2,"why":"<one short clause>"}]}]}',
+    'Reply with ONLY JSON, no fences: {"results":[{"key":"<article key>","projects":[{"id":"<workstream id>","fit":1|2,"why":"<one short clause>"}]}]}',
   ].join('\n');
 }
 
@@ -119,29 +119,29 @@ export function parseProjectFitResponse(raw: string, keys: Map<string, string>, 
   const cleaned = raw.trim().replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
   const parsed: unknown = JSON.parse(cleaned);
   if (!parsed || typeof parsed !== 'object' || !('results' in parsed) || !Array.isArray(parsed.results)) {
-    throw new Error('Project fit response did not contain assessments.');
+    throw new Error('Workstream fit response did not contain assessments.');
   }
   const byId = new Map(projects.map((p) => [p.id, p]));
   const out = new Map<string, ProjectFit[]>();
   for (const r of parsed.results as unknown[]) {
     if (!r || typeof r !== 'object' || !('key' in r) || !('projects' in r) || !Array.isArray(r.projects)) {
-      throw new Error('Project fit returned an invalid assessment.');
+      throw new Error('Workstream fit returned an invalid assessment.');
     }
     const articleId = typeof r.key === 'string' ? keys.get(r.key) : undefined;
-    if (articleId === undefined || out.has(articleId)) throw new Error('Project fit returned an unknown or repeated article.');
+    if (articleId === undefined || out.has(articleId)) throw new Error('Workstream fit returned an unknown or repeated article.');
     const fits: ProjectFit[] = [];
     for (const f of r.projects as unknown[]) {
-      if (!f || typeof f !== 'object' || !('id' in f) || !('fit' in f)) throw new Error('Project fit returned an invalid project.');
+      if (!f || typeof f !== 'object' || !('id' in f) || !('fit' in f)) throw new Error('Workstream fit returned an invalid workstream.');
       const project = typeof f.id === 'string' ? byId.get(f.id) : undefined;
       const fit = f.fit;
       if (project === undefined || (fit !== 1 && fit !== DIRECT_FIT) || fits.some((x) => x.projectId === project.id)) {
-        throw new Error('Project fit returned an unknown, repeated or invalid project assessment.');
+        throw new Error('Workstream fit returned an unknown, repeated or invalid workstream assessment.');
       }
       fits.push({ projectId: project.id, name: project.name, fit, why: 'why' in f && typeof f.why === 'string' ? f.why.slice(0, WHY_CHARS) : '' });
     }
     out.set(articleId, fits.sort((a, b) => b.fit - a.fit));
   }
-  if (out.size !== keys.size) throw new Error('Project fit omitted one or more articles. No incomplete batch was saved.');
+  if (out.size !== keys.size) throw new Error('Workstream fit omitted one or more articles. No incomplete batch was saved.');
   return out;
 }
 
@@ -196,7 +196,7 @@ export async function runProjectFitPass(db: Pool): Promise<number> {
       }
       for (const article of chunk) {
         const fits = results.get(article.id);
-        if (fits === undefined) throw new Error('Project fit omitted an article after validation.');
+        if (fits === undefined) throw new Error('Workstream fit omitted an article after validation.');
         await saveProjectFit(db, article.id, fits, projectBoost(fits, projects), key);
         assessed++;
       }

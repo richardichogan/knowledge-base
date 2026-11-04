@@ -49,7 +49,7 @@ export const GraphTooltip: React.FC<GraphTooltipProps> = ({ node, edges, x, y })
       data-y={y}
       /* Position is applied imperatively in GraphCanvas after mount */
     >
-      <span className="graph-tooltip__type">{node.refType}</span>
+      <span className="graph-tooltip__type">{node.refType === 'project' ? 'Workstream' : node.refType}</span>
       <p className="graph-tooltip__title">{node.title}</p>
       <div className="graph-tooltip__meta">
         <span>{node.tags.length} tag{node.tags.length !== 1 ? 's' : ''}</span>

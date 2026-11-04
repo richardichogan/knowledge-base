@@ -40,7 +40,7 @@ export function NoteHistoryPanel({ noteId, refresh, onRestore }: {
   }, [history.data, selected]);
   async function restore(): Promise<void> {
     if (!selected || restoring || previewFailed) return;
-    if (!await confirmDialog('Restore this checkpoint\'s title, content type and body? Your current writing will be preserved as a checkpoint. Project, tags, links and GitHub settings will stay unchanged.', {
+    if (!await confirmDialog('Restore this checkpoint\'s title, content type and body? Your current writing will be preserved as a checkpoint. Workstream, tags, links and GitHub settings will stay unchanged.', {
       title: 'Restore Think writing', confirmLabel: 'Restore writing',
     })) return;
     setRestoring(true);

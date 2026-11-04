@@ -93,7 +93,7 @@ export async function saveProjectRelations(db: Pool, projectId: string, input: P
 
 async function applyRelations(client: PoolClient, projectId: string, input: ProjectRelationsInput): Promise<void> {
   const project = (await client.query<{ project_type: string }>('SELECT project_type FROM projects WHERE id = $1 FOR UPDATE', [projectId])).rows[0];
-  if (!project) throw new NotFoundError(`Project '${projectId}' not found`);
+  if (!project) throw new NotFoundError(`Workstream '${projectId}' not found`);
   const current = (await client.query<{ company_id: string; role: string }>(
     'SELECT company_id::text, role FROM company_projects WHERE project_id = $1', [projectId])).rows;
   const clientId = input.clientCompanyId !== undefined ? input.clientCompanyId : current.find(r => r.role === 'client')?.company_id ?? null;
@@ -120,7 +120,7 @@ async function applyRelations(client: PoolClient, projectId: string, input: Proj
     if (input.offeringLink === null) await client.query('DELETE FROM project_offering_links WHERE project_id = $1', [projectId]);
     else {
       if (project.project_type === 'offering') throw new ValidationError('An offering cannot be linked to another offering');
-      if (input.offeringLink.offeringId === projectId) throw new ValidationError('A project cannot be linked to itself');
+      if (input.offeringLink.offeringId === projectId) throw new ValidationError('A workstream cannot be linked to itself');
       const offering = (await client.query<{ project_type: string }>('SELECT project_type FROM projects WHERE id = $1', [input.offeringLink.offeringId])).rows[0];
       if (!offering) throw new ValidationError('The selected offering no longer exists');
       if (offering.project_type !== 'offering') throw new ValidationError('The selected record is not an offering');

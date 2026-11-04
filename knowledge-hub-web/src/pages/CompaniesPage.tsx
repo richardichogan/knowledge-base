@@ -59,8 +59,8 @@ export function CompaniesPage(): React.ReactElement {
           <h2>{company.data.name}</h2><p>{company.data.description || 'No description recorded.'}</p>
           {/^https?:\/\//i.test(company.data.website) && <a href={company.data.website} target="_blank" rel="noopener noreferrer">{company.data.website}</a>}
           <div className="people-page__actions"><button className="people-page__button" onClick={() => { setEditing({ id, input: company.data }); }}>Edit company</button></div>
-          <h3>Programmes / projects</h3>
-          {projects.error && <p role="alert">Project names could not be loaded. <button className="people-page__button" onClick={() => { void projects.refetch(); }}>Retry</button></p>}
+          <h3>Programmes / workstreams</h3>
+          {projects.error && <p role="alert">Workstream names could not be loaded. <button className="people-page__button" onClick={() => { void projects.refetch(); }}>Retry</button></p>}
           {company.data.projectIds.length ? company.data.projectIds.map(key => <Link key={key} to={`/projects?projectId=${encodeURIComponent(key)}`}>{projectName(key)}</Link>) : <p>No programme links recorded.</p>}
           <h3>People and representatives</h3>
           {people.isPending && <p role="status">Loading people...</p>}
@@ -88,8 +88,8 @@ function CompanyForm({ initial, projects, projectsError, busy, onSave, onCancel 
     <label>Name<input required maxLength={200} value={draft.name} disabled={busy} onChange={event => { setDraft({ ...draft, name: event.target.value }); }} /></label>
     <label>Description<textarea maxLength={10000} rows={4} value={draft.description} disabled={busy} onChange={event => { setDraft({ ...draft, description: event.target.value }); }} /></label>
     <label>Website<input type="url" maxLength={2000} value={draft.website} disabled={busy} onChange={event => { setDraft({ ...draft, website: event.target.value }); }} /></label>
-    <fieldset disabled={busy || !!projectsError}><legend>Programmes / projects</legend>
-      {projectsError ? <p role="alert">Project lookup failed. Existing links will be retained.</p> : projects.map(project => <label key={project.id} className="people-page__checkbox">
+    <fieldset disabled={busy || !!projectsError}><legend>Programmes / workstreams</legend>
+      {projectsError ? <p role="alert">Workstream lookup failed. Existing links will be retained.</p> : projects.map(project => <label key={project.id} className="people-page__checkbox">
         <input type="checkbox" checked={draft.projectIds.includes(project.id)} onChange={event => {
           setDraft({ ...draft, projectIds: event.target.checked ? [...draft.projectIds, project.id] : draft.projectIds.filter(key => key !== project.id) });
         }} />{project.name}

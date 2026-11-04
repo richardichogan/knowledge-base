@@ -198,7 +198,7 @@ export function WorkContentProperties({ work, disabled }: { work: WorkContentCon
         </div>
         <p>Downloads save pending edits first. No M365 access or upload is required; the linked task remains open.</p>
         <label><span>OneDrive folder</span><input value={value.targetFolder} spellCheck={false} maxLength={1000}
-          disabled={disabled || work.busy || work.recoveryConflict} placeholder="Athena/Project"
+          disabled={disabled || work.busy || work.recoveryConflict} placeholder="Athena/Workstream"
           onChange={event => { work.edit({ targetFolder: event.target.value }); }} /></label>
         <label><span>Exact file name</span><input value={value.fileName} spellCheck={false} maxLength={200}
           disabled={disabled || work.busy || work.recoveryConflict} placeholder="Requirements.docx"

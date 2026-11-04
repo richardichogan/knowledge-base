@@ -236,7 +236,7 @@ export function parseAssignmentBrief(value: unknown): AssignmentBrief {
     origin: parsedOrigin,
     scope: {
       sources, excludedSourceIds: exclusions, readOnly: scope['readOnly'],
-      projectId: scope['projectId'] === null ? null : text(scope['projectId'], 'Project ID'),
+      projectId: scope['projectId'] === null ? null : text(scope['projectId'], 'Workstream ID'),
     },
   };
 }

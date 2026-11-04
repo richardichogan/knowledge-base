@@ -26,7 +26,7 @@ export const UpcomingMeetings: React.FC<{ projects: readonly Project[] }> = ({ p
   }, [contextDetail, selectedMeetingId, selectedTitle, setAthenaContext]);
   return <section className="today-brief__meetings kh-work-context" aria-label="Upcoming meetings">
     <h2>Meeting preparation</h2>
-    <p>Upcoming indexed calendar entries in the next seven days. Choose a meeting, then its project; no automatic AI calls.</p>
+    <p>Upcoming indexed calendar entries in the next seven days. Choose a meeting, then its workstream; no automatic AI calls.</p>
     {meetings.isPending && <p role="status">Reading calendar entries...</p>}
     {meetings.isError && <p role="alert">{describeApiError(meetings.error)} <button type="button" className="kh-btn-ghost" onClick={() => { void meetings.refetch(); }}>Retry calendar</button></p>}
     {!meetings.isPending && !meetings.isError && !items.length && <p>No upcoming entries found in the indexed calendar. This does not confirm that the calendar connection is current.</p>}

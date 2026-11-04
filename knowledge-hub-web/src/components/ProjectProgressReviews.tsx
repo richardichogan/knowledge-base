@@ -8,7 +8,7 @@ import { useAthenaContext } from '../context/AthenaContext';
 import type { ProgressEvidence, ProgressFinding, ProgressReview, ProgressReviewSummary } from '../types/progressReview';
 
 const dateTime = (value: string): string => new Date(value).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
-const WORK_TYPE_LABEL = { project: 'Project', opportunity: 'Opportunity', offering: 'Offering', bau: 'BAU', aspiration: 'Aspiration', exploration: 'Exploration', 'side-project': 'Side project' };
+export const WORK_TYPE_LABEL: Record<string, string> = { project: 'Project', opportunity: 'Opportunity', offering: 'Offering', bau: 'BAU', aspiration: 'Aspiration', exploration: 'Exploration', 'side-project': 'Side project' };
 
 function EvidenceLinks({ ids, evidence }: { ids: string[]; evidence: ProgressEvidence[] }): React.ReactElement | null {
   const sources = ids.flatMap(id => {
@@ -124,7 +124,7 @@ export function ProjectProgressReviews({ projectId }: { projectId: string }): Re
   const pending = generate.isPending;
   useEffect(() => {
     if (pageContext?.id !== projectId) return;
-    const marker = '\nActive project progress review:\n';
+    const marker = '\nActive workstream progress review:\n';
     const detail = `${(pageContext.detail ?? '').split(marker)[0]}${marker}${JSON.stringify({
       projectId, reviewId: expanded, generating: pending, latestReviewId: latest,
       access: activeReview.isError ? 'Selected review could not be loaded.' : activeReview.isFetching ? 'Reading selected review.' : 'Saved review context.',

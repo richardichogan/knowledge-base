@@ -102,7 +102,7 @@ async function selectedSpec(db: Pool, selectedId: string | undefined, access: {
   const spec = await store.getSpec(selectedId, db);
   if (!spec) throw new NotFoundError('Build spec');
   if (access.strictProjectId && spec.projectId !== access.strictProjectId) {
-    throw new ValidationError('The selected Build spec is outside the enforced project scope.');
+    throw new ValidationError('The selected Build spec is outside the enforced workstream scope.');
   }
   return spec;
 }

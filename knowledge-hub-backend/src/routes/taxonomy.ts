@@ -192,7 +192,7 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       if (existing.rows.length === 0) throw new NotFoundError(`Tag ${id} not found`);
       const projectId = existing.rows[0]!.project_id;
       if (projectId !== null && colour !== undefined) {
-        throw new ValidationError('This tag is a project — change its colour on the project', { colour: 'project' });
+        throw new ValidationError('This tag is a workstream — change its colour on the workstream', { colour: 'project' });
       }
       if (name !== undefined) await validateName(db, name, existing.rows[0]!.parent_id);
       if (projectId !== null && name !== undefined) {

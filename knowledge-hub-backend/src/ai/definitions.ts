@@ -65,7 +65,7 @@ export async function formatDefinitionsContext(text: string, viewingTitle?: stri
   });
   return [
     '## Authoritative definitions',
-    'These are his own definitions and apply across every project. When you use one of these terms, use this meaning and wording. '
+    'These are his own definitions and apply across every workstream. When you use one of these terms, use this meaning and wording. '
       + 'If his message or the document uses a term in a way that conflicts with its definition, point out the difference briefly '
       + 'rather than silently adopting either version.',
     ...entries,

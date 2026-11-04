@@ -71,7 +71,7 @@ export const TodayGitHubCard: React.FC = () => {
 
       {!query.isLoading && !hasMappings && (
         <p className="today-github-empty">
-          No repos mapped yet. Set up repo-to-project mapping in{' '}
+          No repos mapped yet. Set up repo-to-workstream mapping in{' '}
           <SettingsLink to="/settings/repo-mappings">settings</SettingsLink>.
         </p>
       )}

@@ -35,7 +35,7 @@ const family = (
 ): KnowledgeFamily => ({
   kind, storage, capabilities, projection: { allowed, excluded: SECRETS },
   identity: 'canonical ref kind:id; aliases via content_items and graph node ids',
-  scope: 'project preference, session exclusions, archived/completed filters explicit',
+  scope: 'workstream preference, session exclusions, archived/completed filters explicit',
   freshness, provenance, entryPoint, availability, reason, tests,
 });
 
@@ -47,7 +47,7 @@ export const KNOWLEDGE_FAMILIES: readonly KnowledgeFamily[] = [
   family('discover-article', 'discovered articles + content_items(discovered-article)', ['discover', 'read', 'structured'], 'title, body, summary, publisher, dates, state', 'synced', ['imported'], 'search_knowledge_base (source/state/date filters); read_knowledge_record', 'partial', 'bounded scoped retrieval; legacy publication provenance and extraction completeness not fully measured', ['SRC-10', 'SRC-11']),
   family('youtube', 'youtube discovery records', ['discover', 'read'], 'metadata and description only', 'synced', ['imported'], 'search_knowledge_base', 'partial', 'no transcript: must never imply video was watched', ['READ-08']),
   family('connected-activity', 'content_items (gitlab-*, github-*, email, graph-*, cms-*)', ['discover', 'read'], 'title, body, dates, links', 'synced', ['imported'], 'search_knowledge_base', 'partial', 'last-sync disclosure required; remote state not claimed', ['STATE-04', 'STATE-05']),
-  family('task', 'tasks table', ['discover', 'read', 'structured'], 'status, priority, due, project, notes, links', 'live', ['human'], 'list_tasks', 'supported', 'live structured tool exists; archived/completed filters to verify', ['STATE-01', 'STATE-03', 'SRC-12']),
+  family('task', 'tasks table', ['discover', 'read', 'structured'], 'status, priority, due, workstream, notes, links', 'live', ['human'], 'list_tasks', 'supported', 'live structured tool exists; archived/completed filters to verify', ['STATE-01', 'STATE-03', 'SRC-12']),
   family('person', 'people table', ['discover', 'read'], 'name, aliases, organisation, role, approved contact fields', 'live', ['human'], 'none (no AI people tool found)', 'unavailable', 'no chat tool; explicit-link identity rule required', ['SRC-13']),
   family('spark', 'sparks + themes', ['discover', 'read', 'related'], 'body, source refs, theme, lifecycle', 'live', ['human', 'derived'], 'create_spark only (write)', 'unavailable', 'no read tool', ['REL-05']),
   family('canvas', 'diagrams/maps', ['discover', 'read', 'related'], 'structure, labels, connections, annotations, drilldowns', 'live', ['human'], 'search_diagrams; read_diagram', 'supported', 'read tools exist', ['COV-02']),
@@ -56,9 +56,9 @@ export const KNOWLEDGE_FAMILIES: readonly KnowledgeFamily[] = [
   family('chat', 'ai_chat_sessions + messages', ['discover', 'read'], 'role, timestamp, session, summaries labelled', 'live', ['human', 'ai-generated'], 'search_past_chats; read_past_chat', 'supported', 'targeted retrieval exists', ['EVD-09']),
   family('output-decision', 'chat_outputs/versions + chat_decisions', ['read', 'structured'], 'current version, author; decided/open decisions', 'live', ['human', 'ai-generated'], 'read_output', 'partial', 'chat_decisions has no acceptance/project/review/supersession: acceptance is unknown', ['READ-10', 'EVD-02', 'SEM-05']),
   family('memory', 'athena memories', ['discover', 'read'], 'active scoped memories', 'live', ['human', 'ai-generated'], 'list_memories', 'supported', 'revoked memories must stay excluded', ['COV-02']),
-  family('use-case', 'use_cases + Design use-case documents', ['read', 'related'], 'stage, project, source links, spec, handoff', 'live', ['human'], 'read_design_package (open Design only)', 'partial', 'open Design sections are readable; global use-case discovery is not provided by this scoped reader', ['REL-05']),
+  family('use-case', 'use_cases + Design use-case documents', ['read', 'related'], 'stage, workstream, source links, spec, handoff', 'live', ['human'], 'read_design_package (open Design only)', 'partial', 'open Design sections are readable; global use-case discovery is not provided by this scoped reader', ['REL-05']),
   family('build', 'build specs/tasks', ['discover', 'read'], 'specs, tasks, status, issue/PR links', 'live', ['human', 'ai-generated'], 'none', 'unavailable', 'no chat reader found', ['REL-05']),
-  family('governance', 'project register/review packets', ['discover', 'read', 'structured'], 'questions, risks, issues, owners, dates, status', 'live', ['human'], 'none', 'unavailable', 'no chat reader found', ['REL-01']),
+  family('governance', 'workstream register/review packets', ['discover', 'read', 'structured'], 'questions, risks, issues, owners, dates, status', 'live', ['human'], 'none', 'unavailable', 'no chat reader found', ['REL-01']),
   family('podcast-content', 'podcast prep, episodes, content picks', ['discover', 'read'], 'prep, evidence, show notes, picks', 'live', ['human', 'ai-generated'], 'get_content_pipeline', 'partial', 'partial tool coverage', ['COV-02']),
   family('cfp-practice', 'CFP and practice score tables', ['discover', 'read', 'structured'], 'dates, status, scores', 'live', ['human'], 'none', 'unavailable', 'no chat reader found', ['COV-04']),
   family('knowledge-health', 'health aggregates', ['structured'], 'availability, last sync/index, aggregate failures', 'live', ['derived'], 'src/health/knowledgeHealth.ts', 'partial', 'reports per-family state, indexed counts and extraction; eligible/pending/failed per family are not recorded, so they read as not measured', ['UI-01']),

@@ -103,10 +103,10 @@ export const CreateUseCaseDialog: React.FC<{
             </select>
           </label>
           <label className="kh-uc-field" htmlFor={`${id}-project`}>
-            <span className="kh-uc-field__label">Project</span>
+            <span className="kh-uc-field__label">Workstream</span>
             <select id={`${id}-project`} className="kh-uc-input kh-uc-select" value={projectId}
               onChange={(e) => { setProjectId(e.target.value); }}>
-              <option value="">No project</option>
+              <option value="">No workstream</option>
               <ProjectOptions projects={projects} selected={projectId} />
             </select>
           </label>

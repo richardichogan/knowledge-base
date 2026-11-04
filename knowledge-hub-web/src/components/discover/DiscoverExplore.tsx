@@ -36,7 +36,7 @@ const FIT_LABEL = ['', 'Possible fit', 'Good fit', 'Strong fit'];
 function anglePrompt(item: DiscoverItem): string {
   return [
     `Help me find my angle on “${item.title}” (${item.sourceTitle}).`,
-    'Connect it to what I have written recently and to my active projects. Tell me what I could argue that most coverage will miss,',
+    'Connect it to what I have written recently and to my active workstreams. Tell me what I could argue that most coverage will miss,',
     'whether it is worth a standalone piece or better as supporting evidence, and which format suits it best.',
   ].join(' ');
 }
@@ -203,12 +203,12 @@ export const DiscoverExplore: React.FC<DiscoverExploreProps> = ({ item, tagNames
             ) : <p>No format recommendation has been saved.</p>} />
           </div>
           <div className="dc-article-recommendation__projects">
-            <h3>Project fit</h3>
+            <h3>Workstream fit</h3>
             {fits.length ? <dl className="dc-project-fits">
               {fits.map(fit => <div key={fit.projectId}>
                 <dt>{fit.name}</dt><dd><strong>{fit.fit === 2 ? 'Direct' : 'Background'}.</strong> {fit.why}</dd>
               </div>)}
-            </dl> : <p>No direct link to an active project.</p>}
+            </dl> : <p>No direct link to an active workstream.</p>}
           </div>
         </section>
         <div className="dc-article-information">
@@ -232,7 +232,7 @@ export const DiscoverExplore: React.FC<DiscoverExploreProps> = ({ item, tagNames
           <h3>Your angle</h3>
           {item.alreadyCovered === 2 && item.coveredBy && <p>You’ve already made this argument in <em>{item.coveredBy}</em>. Only pick it up if there’s something new to add.</p>}
           {item.alreadyCovered === 1 && item.coveredBy && <p>This is a fresh angle on your piece <em>{item.coveredBy}</em>.</p>}
-          <p className="dc-explore__hint">Athena can read this against your recent writing and projects and suggest what you would argue.</p>
+          <p className="dc-explore__hint">Athena can read this against your recent writing and workstreams and suggest what you would argue.</p>
           <button type="button" className="dc-explore__primary" onClick={() => {
             openAthena(anglePrompt(item), {
               type: 'discover item',

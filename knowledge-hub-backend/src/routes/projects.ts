@@ -200,10 +200,10 @@ function validateInput(input: Record<string, unknown>, requireName: boolean): vo
       try {
         parsed = new URL(rawUrl);
       } catch {
-        throw new ValidationError('each project reference must use a valid URL', { links: 'invalid' });
+        throw new ValidationError('each workstream reference must use a valid URL', { links: 'invalid' });
       }
       if (label === '' || !['http:', 'https:'].includes(parsed.protocol)) {
-        throw new ValidationError('each project reference needs a label and an http(s) URL', { links: 'invalid' });
+        throw new ValidationError('each workstream reference needs a label and an http(s) URL', { links: 'invalid' });
       }
     }
   }
@@ -221,7 +221,7 @@ async function assertGroup(db: Db, groupId: string): Promise<void> {
   const r = await db.query(
     `SELECT 1 FROM tags WHERE id = $1 AND role = 'filing' AND parent_id IS NULL AND project_id IS NULL`, [groupId],
   );
-  if (r.rows.length === 0) throw new ValidationError('groupId must be a project group', { groupId: 'invalid' });
+  if (r.rows.length === 0) throw new ValidationError('groupId must be a workstream group', { groupId: 'invalid' });
 }
 
 /**
@@ -260,7 +260,7 @@ export async function syncProjectTag(db: Db, projectId: string, groupId: string 
 
 async function loadProject(db: Db, id: string): Promise<Project> {
   const r = await db.query<Record<string, unknown>>(`SELECT ${PROJECT_COLUMNS} FROM projects WHERE id = $1`, [id]);
-  if (r.rows.length === 0) throw new NotFoundError(`Project '${id}' not found`);
+  if (r.rows.length === 0) throw new NotFoundError(`Workstream '${id}' not found`);
   return rowToProject(r.rows[0] as Record<string, unknown>);
 }
 
@@ -408,7 +408,7 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
            FROM projects WHERE id = $1`,
           [id],
         );
-        if (current.rows.length === 0) throw new NotFoundError(`Project '${id}' not found`);
+        if (current.rows.length === 0) throw new NotFoundError(`Workstream '${id}' not found`);
         const startDate = input['startDate'] !== undefined
           ? validateOptionalDate(input['startDate'], 'startDate')
           : current.rows[0]?.start_date ?? null;
@@ -426,7 +426,7 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
         `UPDATE projects SET ${fields.join(', ')} WHERE id = $${params.length} RETURNING id`,
         params,
       );
-      if (result.rows.length === 0) throw new NotFoundError(`Project '${id}' not found`);
+      if (result.rows.length === 0) throw new NotFoundError(`Workstream '${id}' not found`);
       await syncProjectTag(db, id ?? '', input['groupId'] as string | null | undefined);
       if (input['projectType'] !== undefined) await reconcileOfferingLinks(db, id ?? '');
       await saveProjectRelations(db, id ?? '', relations);
@@ -448,7 +448,7 @@ router.delete('/:id', (req: Request, res: Response, next: NextFunction): void =>
       const db = getDb();
       const { id } = req.params;
       const result = await db.query('DELETE FROM projects WHERE id = $1', [id]);
-      if (result.rowCount === 0) throw new NotFoundError(`Project '${id}' not found`);
+      if (result.rowCount === 0) throw new NotFoundError(`Workstream '${id}' not found`);
       const body: ApiSuccess<void> = { success: true, data: undefined };
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) { next(err); }

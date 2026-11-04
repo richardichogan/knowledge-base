@@ -28,16 +28,16 @@ export const MeetingPreparation: React.FC<{ eventId: string; projects: readonly 
     setAthenaContext({ type: 'calendar event', title: data?.meeting.title ?? 'Meeting preparation', id: eventId,
       ...(projectId ? { projectId } : {}),
       detail: preparation.isError ? 'Meeting preparation could not be retrieved. Do not claim to have read it.'
-        : `Current retrieved meeting invitation and project evidence:\n${JSON.stringify(data ?? null)}\n${data ? 'This is a saved evidence snapshot, not a generated recommendation.' : 'Meeting evidence is still loading.'}` });
+        : `Current retrieved meeting invitation and workstream evidence:\n${JSON.stringify(data ?? null)}\n${data ? 'This is a saved evidence snapshot, not a generated recommendation.' : 'Meeting evidence is still loading.'}` });
   }, [broadcastContext, open, data, eventId, projectId, preparation.isError, setAthenaContext]);
   return <div className="kh-meeting-preparation">
     <button type="button" className="kh-btn-ghost" aria-expanded={open} onClick={() => { setOpen(value => !value); }}>{open ? 'Close preparation' : 'Prepare meeting'}</button>
     {open && <section className="kh-work-context" aria-label="Meeting preparation">
       <h3>Meeting preparation</h3>
-      <p>Read the indexed invitation and selected project evidence. Nothing is sent, saved as a note or generated automatically.</p>
-      <label className="kh-work-context__field">Project context
+      <p>Read the indexed invitation and selected workstream evidence. Nothing is sent, saved as a note or generated automatically.</p>
+      <label className="kh-work-context__field">Workstream context
         <select value={projectId} onChange={event => { setProjectId(event.target.value); }}>
-          <option value="">Invitation only: choose a project to include its context</option>
+          <option value="">Invitation only: choose a workstream to include its context</option>
           {projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
         </select>
       </label>
@@ -49,8 +49,8 @@ export const MeetingPreparation: React.FC<{ eventId: string; projects: readonly 
         <p>{data.meeting.attendees.length ? `Attendees: ${data.meeting.attendees.join(', ')}` : 'No attendees recorded.'}</p>
         <p className="kh-work-context__excerpt">{data.meeting.body || 'No invitation description recorded.'}</p>
         {data.cockpit && <>
-          <h4>Project goal</h4>
-          <p>{data.cockpit.outcome.available ? data.cockpit.outcome.data.goal || 'No project goal recorded.' : 'Project goal unavailable.'}</p>
+          <h4>Workstream goal</h4>
+          <p>{data.cockpit.outcome.available ? data.cockpit.outcome.data.goal || 'No workstream goal recorded.' : 'Workstream goal unavailable.'}</p>
           <EvidenceLinks title="Open commitments" section={data.cockpit.commitments} />
           <EvidenceLinks title="Waiting on others" section={data.cockpit.blockers} />
           <EvidenceLinks title="Recorded decisions" section={data.cockpit.decisions} />
@@ -61,7 +61,7 @@ export const MeetingPreparation: React.FC<{ eventId: string; projects: readonly 
             <span className="kh-work-context__meta">{item.kind}{item.owner ? ` · ${item.owner}` : ''}{item.dueDate ? ` · due ${item.dueDate}` : ''}</span>
             {item.detail && <p>{item.detail}</p>}
           </li>)}</ul>
-          <h4>Recent project notes</h4>
+          <h4>Recent workstream notes</h4>
           {data.notes.map(note => <details className="kh-work-context__note" key={note.id}>
             <summary>{note.title} · {new Date(note.updatedAt).toLocaleDateString('en-GB')}</summary>
             <p className="kh-work-context__excerpt">{note.text}</p>

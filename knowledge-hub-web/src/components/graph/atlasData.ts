@@ -13,7 +13,7 @@ export interface AtlasData {
 }
 
 const TYPES: Record<string, AtlasType> = {
-  project: { label: 'Projects', one: 'Project', color: '#08bdba' },
+  project: { label: 'Workstreams', one: 'Workstream', color: '#08bdba' },
   person: { label: 'People', one: 'Person', color: '#ff7eb6' },
   idea: { label: 'Ideas', one: 'Idea', color: '#be95ff' },
   doc: { label: 'Documents', one: 'Document', color: '#78a9ff' },
@@ -27,7 +27,7 @@ const TYPES: Record<string, AtlasType> = {
   build_spec: { label: 'Build specs', one: 'Build spec', color: '#42be65' },
   chat_output: { label: 'Chat outputs', one: 'Chat output', color: '#33b1ff' },
   question: { label: 'Questions', one: 'Question', color: '#ffb784' },
-  register_issue: { label: 'Project issues', one: 'Project issue', color: '#ff8389' },
+  register_issue: { label: 'Workstream issues', one: 'Workstream issue', color: '#ff8389' },
   task: { label: 'Tasks', one: 'Task', color: '#42be65' },
   decision: { label: 'Decisions', one: 'Decision', color: '#d4bbff' },
   chat: { label: 'Conversations', one: 'Conversation', color: '#33b1ff' },
@@ -145,7 +145,7 @@ export function atlasInsights(data: AtlasData): AtlasInsight[] {
     node: n, projects: new Set([n.project, ...(adjacency.get(n.id) ?? []).map(e => by.get(e.id)?.project)].filter((id): id is string => !!id)),
   })).filter(c => c.projects.size > 1).sort((a, b) => b.projects.size - a.projects.size || a.node.id.localeCompare(b.node.id));
   const connector = connectors[0];
-  if (connector) result.push({ id: 'connector', title: 'Connector', text: `${connector.node.name} connects ${connector.projects.size} loaded projects.`, action: 'Explore connections', node: connector.node.id });
+  if (connector) result.push({ id: 'connector', title: 'Connector', text: `${connector.node.name} connects ${connector.projects.size} loaded workstreams.`, action: 'Explore connections', node: connector.node.id });
   const pairs = new Map<string, AtlasConnection[]>();
   for (const edge of data.edges.filter(e => e.kind === 'cross' && !e.inferred)) {
     const a = by.get(edge.a)?.project, b = by.get(edge.b)?.project;
@@ -156,9 +156,9 @@ export function atlasInsights(data: AtlasData): AtlasInsight[] {
   const single = [...pairs.values()].find(edges => edges.length === 1)?.[0];
   if (single) result.push({ id: 'single', title: 'Single link', text: `${by.get(by.get(single.a)!.project!)!.name} and ${by.get(by.get(single.b)!.project!)!.name} have one recorded cross-link in this view.`, action: 'Show the link', path: [single.a, single.b] });
   const quiet = data.nodes.filter(n => n.hub && n.last > 14).sort((a, b) => b.last - a.last)[0];
-  if (quiet) result.push({ id: 'quiet', title: 'Going quiet', text: `${quiet.name} has no loaded activity in ${quiet.last} days.`, action: 'Explore project', node: quiet.id });
+  if (quiet) result.push({ id: 'quiet', title: 'Going quiet', text: `${quiet.name} has no loaded activity in ${quiet.last} days.`, action: 'Explore workstream', node: quiet.id });
   const unlinked = data.nodes.filter(n => !n.project);
-  if (unlinked.length) result.push({ id: 'unlinked', title: 'Unlinked', text: `${unlinked.length} items in ${data.islandCount} groups have no project assignment in this view.`, action: 'Show them', islands: true });
+  if (unlinked.length) result.push({ id: 'unlinked', title: 'Unlinked', text: `${unlinked.length} items in ${data.islandCount} groups have no workstream assignment in this view.`, action: 'Show them', islands: true });
   return result;
 }
 

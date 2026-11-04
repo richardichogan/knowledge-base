@@ -215,7 +215,7 @@ const MappingFormFields: React.FC<FormFieldsProps> = ({ form, onChange, tags }) 
   return (
     <div className="project-form__fields">
       <label className="project-form__label">
-        Tag (project area)
+        Tag (workstream area)
         <select className="project-form__select" value={form.tagId} onChange={set('tagId')}>
           <option value="">— select a tag —</option>
           {tags.map((t) => (

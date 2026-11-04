@@ -84,11 +84,11 @@ export async function prepareMeeting(db: Pool, eventId: string, projectId?: stri
       attendees: Array.isArray(event.metadata.attendees) ? event.metadata.attendees.filter((value): value is string => typeof value === 'string') : [],
       cancelled: event.metadata.isCancelled === true },
     projectId: projectId ?? null, cockpit: null, register: [], registerTruncated: false, notes: [],
-    limitations: ['This is indexed calendar and saved project evidence, not a live mailbox read or a generated account of previous meetings.'],
+    limitations: ['This is indexed calendar and saved workstream evidence, not a live mailbox read or a generated account of previous meetings.'],
   };
   if (result.meeting.bodyTruncated) result.limitations.push('The calendar description is excerpted at 8,000 characters.');
   if (result.meeting.cancelled) result.limitations.push('This calendar event is marked cancelled.');
-  if (!projectId) { result.limitations.push('No project selected. Project decisions, actions and notes have not been assessed.'); return result; }
+  if (!projectId) { result.limitations.push('No workstream selected. Workstream decisions, actions and notes have not been assessed.'); return result; }
   result.cockpit = await getProjectCockpit(db, projectId, now);
   const register = await listRegister(db, projectId, { status: 'open', limit: 25 });
   result.register = register.items;
@@ -101,8 +101,8 @@ export async function prepareMeeting(db: Pool, eventId: string, projectId?: stri
     result.notes.push({ id: note.id, title: parseNoteContent(note.content).title ?? 'Untitled note',
       text: text.slice(0, NOTE_EXCERPT_CHARS), updatedAt: iso(note.updated_at), truncated: text.length > NOTE_EXCERPT_CHARS });
   }
-  result.limitations.push('Only the six most recently updated project notes are included, with at most 3,000 characters each. They are not verified minutes or a complete project review.');
-  if (!notes.rows.length) result.limitations.push('No active notes are filed to this project.');
+  result.limitations.push('Only the six most recently updated workstream notes are included, with at most 3,000 characters each. They are not verified minutes or a complete workstream review.');
+  if (!notes.rows.length) result.limitations.push('No active notes are filed to this workstream.');
   if (notes.rows.some(note => now.getTime() - new Date(note.updated_at).getTime() > STALE_NOTE_DAYS * DAY_MS)) result.limitations.push('Some included notes have not been updated in over 14 days. Confirm that their contents still apply.');
   if (result.registerTruncated) result.limitations.push('Only the first 25 open register items are shown.');
   return result;

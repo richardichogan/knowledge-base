@@ -182,14 +182,14 @@ export const ProjectCockpitContent: React.FC<{ projectId: string; compact?: bool
 
   return (
       <div className={`pcp${compact ? ' pcp--compact' : ''}${embedded ? ' pcp--embedded' : ''}`}>
-        {cockpit.isLoading && <InlineLoading description={embedded ? 'Loading project work…' : 'Loading cockpit…'} />}
-        {cockpit.error && <DataNotice title={embedded ? 'Project work could not be loaded.' : 'The cockpit could not be loaded.'} error={cockpit.error} onRetry={() => { void cockpit.refetch(); }} />}
+        {cockpit.isLoading && <InlineLoading description={embedded ? 'Loading workstream work…' : 'Loading cockpit…'} />}
+        {cockpit.error && <DataNotice title={embedded ? 'Workstream work could not be loaded.' : 'The cockpit could not be loaded.'} error={cockpit.error} onRetry={() => { void cockpit.refetch(); }} />}
         {data && (
           <>
             {!embedded && <section className="pcp-outcome" aria-label="Outcome">
               {data.outcome.available ? (
                 <>
-                  <p className={data.outcome.data.goal ? 'pcp-goal' : 'pcp-empty'}>{data.outcome.data.goal || 'No goal recorded for this project yet.'}</p>
+                  <p className={data.outcome.data.goal ? 'pcp-goal' : 'pcp-empty'}>{data.outcome.data.goal || 'No goal recorded for this workstream yet.'}</p>
                   <p className="pcp-meta">
                     {data.outcome.data.lifecycleState}
                     {data.outcome.data.targetEndDate ? ` · target ${data.outcome.data.targetEndDate}` : ''}
@@ -207,21 +207,21 @@ export const ProjectCockpitContent: React.FC<{ projectId: string; compact?: bool
             {embedded && <ProjectProgressReviews key={projectId} projectId={projectId} />}
             <ProjectChanges key={projectId} projectId={projectId} />
             <LinkList title="Waiting" section={data.blockers} empty="Nothing waiting on others." compact={compact} />
-            <LinkList title="Open commitments" section={data.commitments} empty="No open tasks linked to this project." compact={compact} />
+            <LinkList title="Open commitments" section={data.commitments} empty="No open tasks linked to this workstream." compact={compact} />
             {compact ? <CollapsibleSection label="Questions, risks and issues" defaultExpanded={false}><Register projectId={projectId} /></CollapsibleSection> : <Register projectId={projectId} />}
             {compact ? <CollapsibleSection label="Review packets" defaultExpanded={false}><ReviewPackets projectId={projectId} /></CollapsibleSection> : <ReviewPackets projectId={projectId} />}
 
             <details className="pcp-evidence">
               <summary>Supporting evidence</summary>
               {promoteError && <DataNotice title="The decision was not promoted." error={promoteError} />}
-              <LinkList title="Chat decisions" section={data.decisions} empty="No chat decisions for this project." compact={compact}
+              <LinkList title="Chat decisions" section={data.decisions} empty="No chat decisions for this workstream." compact={compact}
                 action={(link) => link.sourceId === undefined ? null : (
                   <Button kind="ghost" size="sm" disabled={promoted.has(link.sourceId)} onClick={() => { void promote(link); }}>
                     {promoted.has(link.sourceId) ? 'In register' : 'Add to register'}
                   </Button>
                 )} />
-              <LinkList title="Recent notes" section={data.notes} empty="No notes filed to this project." compact={compact} />
-              <LinkList title="Outputs" section={data.outputs} empty="No chat outputs for this project." compact={compact} />
+              <LinkList title="Recent notes" section={data.notes} empty="No notes filed to this workstream." compact={compact} />
+              <LinkList title="Outputs" section={data.outputs} empty="No chat outputs for this workstream." compact={compact} />
             </details>
           </>
         )}
@@ -232,7 +232,7 @@ export const ProjectCockpitContent: React.FC<{ projectId: string; compact?: bool
 export const ProjectCockpitModal: React.FC<{ projectId: string | null; projectName: string; onClose: () => void }> = ({ projectId, projectName, onClose }) => {
   if (projectId === null) return null;
   return createPortal(
-    <Modal open passiveModal size="lg" hasScrollingContent modalLabel="Project Cockpit"
+    <Modal open passiveModal size="lg" hasScrollingContent modalLabel="Workstream Cockpit"
       modalHeading={projectName} onRequestClose={onClose} className="pcp-modal">
       <ProjectCockpitContent key={projectId} projectId={projectId} />
     </Modal>,

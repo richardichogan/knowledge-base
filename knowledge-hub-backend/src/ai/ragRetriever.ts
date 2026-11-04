@@ -156,7 +156,7 @@ export function formatRagContext(items: ContentItem[], query = ''): string {
     return [
       `[${index + 1}] ${item.source.toUpperCase()} — ${date}${url}`,
       `Title: ${item.title}`,
-      `Source project: ${item.projectContext ?? 'Unassigned'}`,
+      `Source workstream: ${item.projectContext ?? 'Unassigned'}`,
       isCopilotImport(item.title) ? COPILOT_IMPORT_CAUTION : '',
       `Summary: ${item.summary}`,
       excerpt ? `Relevant content: ${excerpt}` : '',

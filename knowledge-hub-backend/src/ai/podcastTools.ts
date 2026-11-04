@@ -91,7 +91,7 @@ export async function executePodcastTool(db: Pool, name: string, owner: string, 
   if (access.exclusionsFailed || access.excludedIds?.has(owner)) throw new ValidationError('This episode is unavailable in the current conversation scope.');
   if (access.strictProjectId) {
     const allowed = await db.query("SELECT id FROM notes WHERE id=$1 AND project_id=$2 AND status='active'", [owner, access.strictProjectId]);
-    if (!allowed.rowCount) throw new ValidationError('This episode is outside the enforced project scope.');
+    if (!allowed.rowCount) throw new ValidationError('This episode is outside the enforced workstream scope.');
   }
   const episode = await getEpisode(db, owner);
   const jobs = await listAgentJobs(db, { subjectType: 'podcast-episode', subjectId: owner, limit: 10 });

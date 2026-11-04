@@ -74,7 +74,7 @@ async function projectRepositories(db: QueryDb): Promise<string[]> {
 async function requireProjectRepository(db: QueryDb, repo: unknown): Promise<string> {
   const name = validateRepo(repo);
   if (!(await projectRepositories(db)).includes(name.toLowerCase())) {
-    throw new ForbiddenError('Choose a GitHub repository configured in Projects.');
+    throw new ForbiddenError('Choose a GitHub repository configured in Workstreams.');
   }
   return name;
 }

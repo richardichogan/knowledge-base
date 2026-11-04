@@ -53,7 +53,7 @@ export const CreateTaskFromSelectionModal: React.FC<Props> = ({
 Return ONLY a JSON object with these fields:
 - title: short action-oriented task title (max 10 words)
 - description: a 1-3 sentence description of what needs to be done
-- projectId: the best matching project id from this list: ${projects.map((p) => `${p.id} (${p.name})`).join(', ')}
+- projectId: the best matching workstream id from this list: ${projects.map((p) => `${p.id} (${p.name})`).join(', ')}
 
 Text:
 """
@@ -169,7 +169,7 @@ Respond with only the JSON object, no markdown, no explanation.`;
 
         <div className="ctsm-row">
           <div className="ctsm-field ctsm-field--half">
-            <label className="ctsm-label" htmlFor="ctsm-project">Project</label>
+            <label className="ctsm-label" htmlFor="ctsm-project">Workstream</label>
             <select
               id="ctsm-project"
               className="ctsm-select"

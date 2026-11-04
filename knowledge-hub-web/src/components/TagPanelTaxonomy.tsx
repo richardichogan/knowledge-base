@@ -146,7 +146,7 @@ const TagRowDisplay: React.FC<{ tag: TaxonomyTag; onEdit: () => void; onDelete: 
     <div className="tag-panel-row-content">
       <span className="tag-panel-mark"><IdentityMark identity={identity} size={12} /></span>
       <span className="tag-panel-name">{tag.name}</span>
-      {tag.projectId && <span className="tag-panel-note">Project</span>}
+      {tag.projectId && <span className="tag-panel-note">Workstream</span>}
       <span className="tag-panel-count">{tag.usageCount}</span>
       <button className="tag-panel-action" onClick={onEdit} aria-label="Edit"><Edit size={14} /></button>
       <button className="tag-panel-action tag-panel-action--danger" onClick={onDelete} aria-label="Delete"><TrashCan size={14} /></button>

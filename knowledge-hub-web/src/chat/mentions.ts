@@ -8,7 +8,7 @@ export interface ChatMentionTarget {
 }
 
 export const CHAT_MENTION_LABELS: Record<ChatMentionType, string> = {
-  person: 'Person', company: 'Company', project: 'Project', note: 'Think note', document: 'Library document',
+  person: 'Person', company: 'Company', project: 'Workstream', note: 'Think note', document: 'Library document',
 };
 
 export function insertChatMention(input: string, query: { start: number; end: number }, target: ChatMentionTarget): { input: string; cursor: number } {

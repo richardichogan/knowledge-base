@@ -172,7 +172,7 @@ const WatchlistForm: React.FC<{ existing: Watchlist | null; onClose: () => void;
         <input maxLength={120} value={config.searchContext ?? ''} onChange={e => patch({ searchContext: e.target.value })} /></label>
       <label className="dw-field">Comparison criteria (one per line)<textarea required rows={3} data-watchlist-field="criteria" aria-invalid={submitted && !lines(criteria).length} value={criteria} onChange={e => setCriteria(e.target.value)} />
         {submitted && !lines(criteria).length && <span className="dw-field-error">Enter at least one comparison criterion.</span>}</label>
-      <label className="dw-field">Our position (optional)<span className="dw-hint">Athena uses saved project information and indexed project notes and documents. Add text only for a specific comparison.</span><textarea rows={5} maxLength={16000} value={config.baseline.text}
+      <label className="dw-field">Our position (optional)<span className="dw-hint">Athena uses saved workstream information and indexed workstream notes and documents. Add text only for a specific comparison.</span><textarea rows={5} maxLength={16000} value={config.baseline.text}
         onChange={e => patch({ baseline: { ...config.baseline, text: e.target.value } })} /></label>
       {existing && <p className="dw-hint">Current baseline: v{existing.baselineVersion}. Editing the baseline or its links creates a new version. Existing runs keep their original version.</p>}
       <label className="dw-field">Links to supporting material (one http(s) URL per line, optional)<textarea rows={2} spellCheck={false} value={links} onChange={e => setLinks(e.target.value)} /></label>
@@ -184,9 +184,9 @@ const WatchlistForm: React.FC<{ existing: Watchlist | null; onClose: () => void;
           onChange={e => patch({ sourceIds: e.target.checked ? [...config.sourceIds, s.id] : config.sourceIds.filter(id => id !== s.id) })} />
           {s.title}{!s.isActive && ' (disabled — coverage will be incomplete)'}</label>)}
       </fieldset>
-      <fieldset className="dw-fieldset"><legend>Linked projects (optional)</legend>
-        <p className="dw-hint">Choose projects to focus the impact assessment. If none are selected, Athena considers your active projects.</p>
-        {projects.isError && <DataNotice title="Projects unavailable" error={projects.error} />}
+      <fieldset className="dw-fieldset"><legend>Linked workstreams (optional)</legend>
+        <p className="dw-hint">Choose workstreams to focus the impact assessment. If none are selected, Athena considers your active workstreams.</p>
+        {projects.isError && <DataNotice title="Workstreams unavailable" error={projects.error} />}
         {groupProjectsByParent(projects.data ?? [], config.projectIds).map(group => <fieldset key={group.label} className="dw-project-group">
           <legend>{group.label}</legend>
           {group.projects.map(p => <label key={p.id} className="dw-check"><input type="checkbox" checked={config.projectIds.includes(p.id)}
@@ -293,13 +293,13 @@ const FindingItem: React.FC<{ run: WatchRun; finding: Finding; open: boolean; on
         <div><dt>Saved observation</dt><dd>{finding.changed}</dd></div>
         {finding.uncertainty && <div><dt>Not yet established</dt><dd>{finding.uncertainty}</dd></div>}
         <div><dt>Microsoft involvement</dt><dd>{finding.microsoftInvolvement || 'Not separately assessed in this saved analysis.'}</dd></div>
-        <div><dt>Project impact</dt><dd>
+        <div><dt>Workstream impact</dt><dd>
           {finding.projectAssessments?.length ? <ul className="dw-impacts">{finding.projectAssessments.map(a => <li key={a.projectId}>
             <span className="dw-impacts__project">{a.projectName} · {assessmentLabel(a)}</span>{a.impact}
             {a.watchNext && <span className="dw-impacts__note">Watch: {a.watchNext}</span>}
           </li>)}</ul>
-            : finding.projectImpact ? <>{finding.projectImpact}<span className="dw-impacts__note">Saved assessment · project-by-project comparison was not recorded.</span></>
-              : 'No project impact was recorded.'}
+            : finding.projectImpact ? <>{finding.projectImpact}<span className="dw-impacts__note">Saved assessment · workstream-by-workstream comparison was not recorded.</span></>
+              : 'No workstream impact was recorded.'}
         </dd></div>
       </dl>
       <FindingSources run={run} finding={finding} />
@@ -419,7 +419,7 @@ const NowSection: React.FC<{
           <h6 className="dw-now__headline">{f.headline ?? f.changed}</h6>
           {f.matters && <p className="dw-now__matters"><span className="dw-label">Why it matters</span>{f.matters}</p>}
           {f.evidenceHighlight && <p className="dw-now__evidence"><span className="dw-label">Key evidence</span>{f.evidenceHighlight.text}</p>}
-          {!!f.projectAssessments?.length && <ul className="dw-plain-list dw-now__projects" aria-label="Projects affected">
+          {!!f.projectAssessments?.length && <ul className="dw-plain-list dw-now__projects" aria-label="Workstreams affected">
             {[...f.projectAssessments].sort(compareAssessments).slice(0, 3).map(a => <li key={a.projectId}
               className={`dw-now__project dw-now__project--${a.relevance ?? 'unrated'}`}>{a.projectName}</li>)}
           </ul>}
@@ -432,9 +432,9 @@ const NowSection: React.FC<{
       </section>}
       <section className="dw-now__block dw-project-insights" aria-label="Impact on your work" id={`${summaryId}-projects`} tabIndex={-1}>
         <h5>Impact on your work</h5>
-        {projects.length === 0 && <p className="dw-hint">No project-by-project assessment was saved. This does not establish that there is no impact.</p>}
+        {projects.length === 0 && <p className="dw-hint">No workstream-by-workstream assessment was saved. This does not establish that there is no impact.</p>}
         {projects.slice(0, PROJECT_LIMIT).map(projectGroup)}
-        {projects.length > PROJECT_LIMIT && <details className="dw-details"><summary>{count(projects.length - PROJECT_LIMIT, 'more project')}</summary>
+        {projects.length > PROJECT_LIMIT && <details className="dw-details"><summary>{count(projects.length - PROJECT_LIMIT, 'more workstream')}</summary>
           {projects.slice(PROJECT_LIMIT).map((items, index) => projectGroup(items, index + PROJECT_LIMIT))}
         </details>}
       </section>
@@ -443,9 +443,9 @@ const NowSection: React.FC<{
     {children}
     </div>
     {briefing && <aside className="dw-rail" aria-label="Personal intelligence context">
-      <section className="dw-rail__section" aria-label="Project impact summary">
+      <section className="dw-rail__section" aria-label="Workstream impact summary">
         <h5>Impact on your work</h5>
-        {projects.length === 0 && <p className="dw-hint">Project impact has not been assessed in this saved review.</p>}
+        {projects.length === 0 && <p className="dw-hint">Workstream impact has not been assessed in this saved review.</p>}
         {projects.slice(0, RAIL_PROJECT_LIMIT).map((items, index) => <button type="button" className="dw-rail__project" key={items[0]!.projectId}
           onClick={() => focusSection(`${summaryId}-project-${index}`)}>
           <strong>{items[0]!.projectName}</strong>
@@ -454,7 +454,7 @@ const NowSection: React.FC<{
           <span className="dw-rail__link">View assessment{items.length > 1 ? 's' : ''}</span>
         </button>)}
         {projects.length > RAIL_PROJECT_LIMIT && <button type="button" className="dw-link-button"
-          onClick={() => focusSection(`${summaryId}-projects`)}>All {projects.length} project assessments</button>}
+          onClick={() => focusSection(`${summaryId}-projects`)}>All {projects.length} workstream assessments</button>}
       </section>
       <section className="dw-rail__section" aria-label="Watch next">
         <h5>Watch next</h5>
@@ -708,11 +708,11 @@ const WatchlistDetail: React.FC<{ watchlist: Watchlist; onEdit: () => void; broa
         <dl className="dw-scope">
           <dt>Comparison criteria</dt><dd>{watchlist.config.criteria.join(' · ')}</dd>
           <dt>Companies and references</dt><dd>{watchlist.config.entities.map(e => `${e.name} (${relationshipLabel(e.relationship)})`).join(', ')}</dd>
-          {watchlist.config.projectIds.length > 0 && <><dt>Linked projects</dt><dd>{watchlist.config.projectIds.map((id, i) => <React.Fragment key={id}>{i > 0 && ', '}<a href={`/projects?projectId=${encodeURIComponent(id)}`}>{id}</a></React.Fragment>)}</dd></>}
+          {watchlist.config.projectIds.length > 0 && <><dt>Linked workstreams</dt><dd>{watchlist.config.projectIds.map((id, i) => <React.Fragment key={id}>{i > 0 && ', '}<a href={`/projects?projectId=${encodeURIComponent(id)}`}>{id}</a></React.Fragment>)}</dd></>}
         </dl>
       </details>
       <details className="dw-details"><summary>Comparison context &amp; version history</summary>
-        <p className="dw-pre">{watchlist.config.baseline.text || 'No manual comparison text. Athena uses saved project information.'}</p>
+        <p className="dw-pre">{watchlist.config.baseline.text || 'No manual comparison text. Athena uses saved workstream information.'}</p>
         {baselines.isError && <DataNotice title="Comparison history unavailable" error={baselines.error} />}
         {baselines.data?.map(b => <details className="dw-details" key={b.version}><summary>Version {b.version} · {date(b.createdAt)}</summary>
           <p className="dw-pre">{b.baseline.text}</p>

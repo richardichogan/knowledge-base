@@ -17,7 +17,7 @@ export const ProjectChanges: React.FC<{ projectId: string }> = ({ projectId }) =
   useEffect(() => {
     if (changes.data) writeStored(key, changes.data.until);
   }, [changes.data, key]);
-  return <section className="kh-work-context" aria-label="Project changes">
+  return <section className="kh-work-context" aria-label="Workstream changes">
     <h3>What changed since you last looked?</h3>
     <p>{baseline ? 'Since your previous successful visit on this browser' : 'First visit on this browser: showing the last 24 hours'}.
       {' '}Current changed records, not a version-by-version diff. Repeated indexing alone does not count as a new development.</p>
@@ -35,7 +35,7 @@ export const ProjectChanges: React.FC<{ projectId: string }> = ({ projectId }) =
       </label>
       <button type="button" className="kh-btn-ghost" disabled={changes.isFetching} onClick={() => { void changes.refetch(); }}>Refresh changes</button>
     </div>
-    {changes.isFetching && <p role="status">Reading linked project changes...</p>}
+    {changes.isFetching && <p role="status">Reading linked workstream changes...</p>}
     {changes.isError && <p role="alert">{describeApiError(changes.error)}</p>}
     {changes.data && !changes.isError && <>
       <p className="kh-work-context__meta">{new Date(changes.data.since).toLocaleString('en-GB')} to {new Date(changes.data.until).toLocaleString('en-GB')}</p>

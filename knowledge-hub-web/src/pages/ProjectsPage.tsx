@@ -57,7 +57,7 @@ const PROJECT_TYPES: { value: ProjectType; label: string }[] = [
   { value: 'side-project', label: 'Side project' },
 ];
 const LIFECYCLE_STATES: { value: ProjectLifecycleState | 'all'; label: string }[] = [
-  { value: 'all', label: 'All project states' },
+  { value: 'all', label: 'All workstream states' },
   { value: 'active', label: 'Active' },
   { value: 'paused', label: 'Paused' },
   { value: 'completed', label: 'Completed' },
@@ -190,7 +190,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, groups, offe
       .filter((link) => link.label !== '' || link.url !== '');
     for (const link of normalizedLinks) {
       if (link.label === '' || link.url === '') {
-        setErr('Each project reference needs both a label and a URL.');
+        setErr('Each workstream reference needs both a label and a URL.');
         return;
       }
       try {
@@ -240,14 +240,14 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, groups, offe
   };
 
   const preview: Identity = {
-    tagId: null, label: name.trim() || 'New project', kind: 'project', hex: colourHex(colour), icon,
+    tagId: null, label: name.trim() || 'New workstream', kind: 'project', hex: colourHex(colour), icon,
     projectId: null, parentName: groups.find((g) => g.id === groupId)?.name ?? null,
   };
 
   return (
     <Modal
       open={open}
-      modalHeading={isEdit ? `Edit — ${initial?.name}` : 'New Project'}
+      modalHeading={isEdit ? `Edit — ${initial?.name}` : 'New Workstream'}
       primaryButtonText={saving ? 'Saving…' : 'Save'}
       secondaryButtonText="Cancel"
       primaryButtonDisabled={saving}
@@ -256,7 +256,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, groups, offe
       onSecondarySubmit={() => { if (!saving) onClose(); }}
       size="sm"
     >
-      <fieldset className="proj-modal-body" disabled={saving} aria-label="Project fields">
+      <fieldset className="proj-modal-body" disabled={saving} aria-label="Workstream fields">
         {err && (
           <InlineNotification kind="error" title={err} lowContrast hideCloseButton />
         )}
@@ -277,7 +277,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, groups, offe
         />
 
         <div className="proj-context-editor">
-          <h3 className="proj-context-editor__title">Project context</h3>
+          <h3 className="proj-context-editor__title">Workstream context</h3>
           <TextArea
             id="pm-goal"
             labelText="Goal"
@@ -351,7 +351,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, groups, offe
           </Select>
         </div>
 
-        <Select id="pm-project-type" labelText="Project type" value={projectType} onChange={(e) => {
+        <Select id="pm-project-type" labelText="Workstream type" value={projectType} onChange={(e) => {
           const next = e.target.value as ProjectType;
           setProjectType(next);
           if (!initial?.offeringLink) setOfferingRelation(next === 'opportunity' ? 'sells' : 'related');
@@ -396,7 +396,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, groups, offe
           ) : (
             <div className="proj-modal-row">
               <Select id="pm-offering" labelText="Offering" value={offeringId} onChange={(e) => setOfferingId(e.target.value)}
-                helperText={offeringOptions.length === 0 ? 'No offerings yet. Create a project with type Offering.' : undefined}>
+                helperText={offeringOptions.length === 0 ? 'No offerings yet. Create a workstream with type Offering.' : undefined}>
                 <SelectItem value="" text="No offering" />
                 {offeringOptions.map((offering) => <SelectItem key={offering.id} value={offering.id} text={offering.name} />)}
               </Select>
@@ -412,7 +412,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, groups, offe
         <div className="proj-ica-panel">
           <Checkbox
             id="pm-has-ica"
-            labelText="This project has an ICA document collection"
+            labelText="This workstream has an ICA document collection"
             checked={hasIcaCollection}
             onChange={(_, data) => { setHasIcaCollection(data.checked); }}
           />
@@ -442,8 +442,8 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, groups, offe
             <p className="proj-identity-editor__title">Identity</p>
             <IdentityChip identity={preview} size="md" />
           </div>
-          <p className="proj-identity-editor__help">How this project looks on every tag, card and graph node.</p>
-          <div className="proj-swatches" role="radiogroup" aria-label="Project colour">
+          <p className="proj-identity-editor__help">How this workstream looks on every tag, card and graph node.</p>
+          <div className="proj-swatches" role="radiogroup" aria-label="Workstream colour">
             {IDENTITY_COLOURS.map((c) => (
               <button key={c} type="button" role="radio" aria-checked={colour === c} aria-label={COLOUR_LABEL[c]} title={COLOUR_LABEL[c]}
                 className={`proj-swatch${colour === c ? ' proj-swatch--active' : ''}`}
@@ -451,7 +451,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, groups, offe
                 onClick={() => setColour(c)} />
             ))}
           </div>
-          <div className="proj-icon-grid" role="radiogroup" aria-label="Project icon" style={{ '--kh-id': colourHex(colour) } as React.CSSProperties}>
+          <div className="proj-icon-grid" role="radiogroup" aria-label="Workstream icon" style={{ '--kh-id': colourHex(colour) } as React.CSSProperties}>
             {Object.entries(IDENTITY_ICONS).map(([key, { label }]) => {
               const Icon = identityIcon(key);
               return (
@@ -490,7 +490,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ open, initial, groups, offe
             <div>
               <p className="proj-reference-editor__title">Canonical references</p>
               <p className="proj-reference-editor__help">
-                Product sites or documentation Athena should consult for this project.
+                Product sites or documentation Athena should consult for this workstream.
               </p>
             </div>
             <Button
@@ -631,8 +631,8 @@ export const ProjectsPage: React.FC = () => {
   return (
     <main className="page-root proj-page kh-review-page">
 
-      <PageHeader title="Projects" subtitle={`${visible.length} of ${projects.length} projects`} actions={
-          <button type="button" className="docs-upload-btn" onClick={openCreate}><Add size={16} /> New project</button>
+      <PageHeader title="Workstreams" subtitle={`${visible.length} of ${projects.length} workstreams`} actions={
+          <button type="button" className="docs-upload-btn" onClick={openCreate}><Add size={16} /> New workstream</button>
       } />
       <div className="dc-toolbar">
         <div className="dc-tabs kh-command-row">
@@ -662,33 +662,33 @@ export const ProjectsPage: React.FC = () => {
         </div>
       </div>
 
-      {error && <DataNotice title="Projects could not be refreshed." error={error} onRetry={() => { void reload(); }} />}
-      {groupsError && <DataNotice title="Project groups are unavailable." error={groupsError} onRetry={() => { void reloadGroups(); }} />}
+      {error && <DataNotice title="Workstreams could not be refreshed." error={error} onRetry={() => { void reload(); }} />}
+      {groupsError && <DataNotice title="Workstream groups are unavailable." error={groupsError} onRetry={() => { void reloadGroups(); }} />}
 
-      <ReviewWorkspace storageKey="projects" label="Projects"
+      <ReviewWorkspace storageKey="projects" label="Workstreams"
         context={selectedProject ? {
           type: 'project', id: selectedProject.id, projectId: selectedProject.id, title: selectedProject.name,
-          detail: `Selected project's current saved properties and references:\n${JSON.stringify(selectedProject)}\nThe main record includes dated direction/progress reviews, changes, waiting work, open commitments, questions/risks/issues, review packets and supporting evidence. Use read_project_progress_reviews for saved review history and reviewId for the full assessment, captured evidence and rationale. generate_project_progress_review appends a last-seven-days review only when requested; it does not change tasks/goals/deliverables. Use get_project_details with includeWork=true for current bounded work; use packetId to retrieve a full review packet and saved-content retrieval for linked documents. Use update_project to change the work type only when requested. Do not infer progress, require a finish date for BAU/aspirations, or treat repository links as read source content.`,
-        } : { type: 'project', title: 'Projects', detail: 'No project selected. Do not infer project details.' }}
+          detail: `Selected workstream's current saved properties and references:\n${JSON.stringify(selectedProject)}\nThe main record includes dated direction/progress reviews, changes, waiting work, open commitments, questions/risks/issues, review packets and supporting evidence. Use read_project_progress_reviews for saved review history and reviewId for the full assessment, captured evidence and rationale. generate_project_progress_review appends a last-seven-days review only when requested; it does not change tasks/goals/deliverables. Use get_project_details with includeWork=true for current bounded work; use packetId to retrieve a full review packet and saved-content retrieval for linked documents. Use update_project to change the work type only when requested. Do not infer progress, require a finish date for BAU/aspirations, or treat repository links as read source content.`,
+        } : { type: 'project', title: 'Workstreams', detail: 'No workstream selected. Do not infer workstream details.' }}
         list={<>
-          <h2>Projects</h2>
-          {loading && <p className="proj-loading" role="status">Loading projects...</p>}
+          <h2>Workstreams</h2>
+          {loading && <p className="proj-loading" role="status">Loading workstreams...</p>}
           {!loading && visible.length === 0 && !error && <p className="proj-empty">
-            {projects.length === 0 ? 'No projects yet. Create a project to organise your work.' : 'No projects match these filters. Try another group or project state.'}
+            {projects.length === 0 ? 'No workstreams yet. Create a workstream to organise your work.' : 'No workstreams match these filters. Try another group or workstream state.'}
           </p>}
           {visible.map(project => <ReviewItem key={project.id} title={project.name}
             meta={[project.groupName, LIFECYCLE_LABEL[project.lifecycleState ?? 'active'], `${project.priority ?? 'medium'} priority`].filter(Boolean).join(' · ')}
             selected={selectedProject?.id === project.id} onSelect={() => { selectProject(project.id); }} />)}
         </>}
         detail={loading ? (
-        <p className="proj-loading" role="status">Loading projects...</p>
+        <p className="proj-loading" role="status">Loading workstreams...</p>
       ) : (
         <>
         {!selectedProject && !error && (
           <p className="proj-empty" role={linkedProjectId ? 'alert' : undefined}>
-            {linkedProjectId ? 'The linked project is no longer available.' : projects.length === 0
-              ? 'No projects yet. Create a project to organise your work.'
-              : 'Select a project to view its details.'}
+            {linkedProjectId ? 'The linked workstream is no longer available.' : projects.length === 0
+              ? 'No workstreams yet. Create a workstream to organise your work.'
+              : 'Select a workstream to view its details.'}
           </p>
         )}
         <div className="proj-detail">
@@ -770,7 +770,7 @@ export const ProjectsPage: React.FC = () => {
                         type="button"
                         className="proj-icon-btn"
                         aria-label={`Edit ${project.name}`}
-                        title="Edit project"
+                        title="Edit workstream"
                         onClick={() => openEdit(project)}
                       >
                         <Edit size={16} />
@@ -779,7 +779,7 @@ export const ProjectsPage: React.FC = () => {
                         type="button"
                         className="proj-icon-btn proj-icon-btn--danger"
                         aria-label={`Delete ${project.name}`}
-                        title="Delete project"
+                        title="Delete workstream"
                         onClick={() => { setDeleteError(null); setDeleteConfirm(project); }}
                       >
                         <TrashCan size={16} />
@@ -926,8 +926,8 @@ export const ProjectsPage: React.FC = () => {
         onSecondarySubmit={() => { if (!deletePending.current) setDeleteConfirm(null); }}
         size="xs"
       >
-        <p>This removes the project from Athena. GitLab and GitHub data is unaffected.</p>
-        {deleteError && <DataNotice title="Project was not deleted. Please try again." error={deleteError} />}
+        <p>This removes the workstream from Athena. GitLab and GitHub data is unaffected.</p>
+        {deleteError && <DataNotice title="Workstream was not deleted. Please try again." error={deleteError} />}
       </Modal>
 
     </main>

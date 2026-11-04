@@ -79,12 +79,12 @@ export function planContextDetail(tasks: PlanTask[], projectName: (id: string) =
 export function taskAthenaPrompt(task: PlanTask, projectName: string): string {
   const facts = [
     `Task: ${task.title}`,
-    `Status: ${STATUS_LABEL[task.status]}${task.status === 'waiting' && task.waitingOn ? ` on ${task.waitingOn}` : ''} · Priority: ${task.priority} · Project: ${projectName}`,
+    `Status: ${STATUS_LABEL[task.status]}${task.status === 'waiting' && task.waitingOn ? ` on ${task.waitingOn}` : ''} · Priority: ${task.priority} · Workstream: ${projectName}`,
     task.dueDate ? `Due: ${task.dueDate}` : 'No due date',
     task.body ? `Details: ${task.body}` : '',
   ].filter(Boolean).join('\n');
   return `Discuss how you can advance this task, not automate away my responsibility. Assess actual capabilities and missing evidence.
-Research, review, investigation and comparison mean source-backed research, not an email request. Prioritise project artefacts and diagrams.
+Research, review, investigation and comparison mean source-backed research, not an email request. Prioritise workstream artefacts and diagrams.
 Email tasks mean drafting only, never sending. Explain the proposed output and decisions I retain.
 Do not start jobs, create briefs or emails, change deadlines, complete the task, or overwrite diagrams from this discussion.
 Execution requires me to approve a saved assistance proposal through the task's Help me flow.\n\nTask ID: ${task.id}\n${facts}`;

@@ -213,7 +213,7 @@ export const DocumentsPage: React.FC = () => {
       return;
     }
     const meta = [
-      `Project: ${selectedDoc.sourceLabel}`,
+      `Workstream: ${selectedDoc.sourceLabel}`,
       `Repo: ${selectedDoc.repo}`,
       `Path: ${selectedDoc.path}`,
       `Type: ${TYPE_LABEL[selectedDoc.type]}`,
@@ -305,14 +305,14 @@ export const DocumentsPage: React.FC = () => {
           </div>
 
           <div className="docs-project-filter">
-            <label className="docs-project-filter__label" htmlFor="docs-project-filter">Project</label>
+            <label className="docs-project-filter__label" htmlFor="docs-project-filter">Workstream</label>
             <select
               id="docs-project-filter"
               className="docs-project-filter__select"
               value={activeProjectId}
               onChange={(e) => { setActiveProjectId(e.target.value); }}
             >
-              <option value="">All projects</option>
+              <option value="">All workstreams</option>
               <ProjectOptions projects={projectOptions} selected={activeProjectId} />
             </select>
           </div>
@@ -540,7 +540,7 @@ export const DocumentsPage: React.FC = () => {
         <div className="docs-upload-dialog-overlay">
           <div className="docs-upload-dialog">
             <h2 className="docs-upload-dialog__title">Upload Document</h2>
-            <p className="docs-upload-dialog__subtitle">PDF, DOCX, XLSX, or PPTX files will be stored in Sources under the selected project and indexed automatically.</p>
+            <p className="docs-upload-dialog__subtitle">PDF, DOCX, XLSX, or PPTX files will be stored in Sources under the selected workstream and indexed automatically.</p>
 
             {/* File input */}
             <div className="docs-upload-dialog__section">
@@ -576,7 +576,7 @@ export const DocumentsPage: React.FC = () => {
             </div>
 
             <div className="docs-upload-dialog__section">
-              <label className="docs-upload-dialog__label" htmlFor="docs-upload-project">Project</label>
+              <label className="docs-upload-dialog__label" htmlFor="docs-upload-project">Workstream</label>
               <select
                 id="docs-upload-project"
                 className="docs-upload-dialog__select"

@@ -19,7 +19,7 @@ export const HEALTH_TOOL: LlmToolDefinition = {
 };
 
 export async function executeHealthTool(db: Pool, args: Record<string, unknown>, restricted: boolean): Promise<unknown> {
-  if (restricted) throw new ValidationError('Global health aggregates are unavailable under enforced collection/project restrictions.');
+  if (restricted) throw new ValidationError('Global health aggregates are unavailable under enforced collection/workstream restrictions.');
   const section = SECTIONS.find(name => name === args.section);
   if (!section) throw new ValidationError('Choose a supported Health section.');
   const query: HealthQuery = {};

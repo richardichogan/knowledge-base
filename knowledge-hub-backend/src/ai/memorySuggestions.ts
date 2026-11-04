@@ -49,7 +49,7 @@ export async function draftInstructionFromFeedback(note: string, reply: string, 
         'Turn the user\'s feedback on an AI reply into ONE standing instruction the assistant should follow in future. ' +
         CORRECTION_LEARNING_RULES +
         'Imperative, specific, self-contained, max 30 words. Choose the narrowest scope: "global" (everywhere), ' +
-        `"persona" (the "${persona}" persona), "project" (a project id, only if clearly project-specific), or ` +
+        `"persona" (the "${persona}" persona), "project" (a workstream id, only if clearly workstream-specific), or ` +
         '"output" (a kind of output such as "blog post", "newsletter", "task summary"). ' +
         'Reply with JSON only: {"instruction": "...", "scope": "...", "scopeValue": "..."}',
     },

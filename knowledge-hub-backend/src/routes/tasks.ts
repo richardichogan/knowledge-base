@@ -562,7 +562,7 @@ Rules:
 - Include the owner's name in the body if mentioned.
 - Infer dueDate from any deadline mentioned near the action ("by Friday", "end of week", "before the 15th"). Resolve relative dates against TODAY. If none, set null.
 - Priority: "urgent" if described as urgent/ASAP/critical; "high" if important; otherwise "normal".
-- Status: "backlog". Infer projectId from context if a project name is mentioned; otherwise "personal".
+- Status: "backlog". Infer projectId from context if a workstream name is mentioned; otherwise "personal".
 Return ONLY a valid JSON array. No markdown fences. Each object: { "title": string, "body": string, "dueDate": "YYYY-MM-DD" | null, "priority": "urgent"|"high"|"normal"|"low", "status": "backlog", "projectId": string }`,
 
   general: `You are a task extraction assistant.

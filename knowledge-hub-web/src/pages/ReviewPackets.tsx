@@ -119,7 +119,7 @@ const Builder: React.FC<{ projectId: string; onCreated: (id: string) => void }> 
   return (
     <form className="pcp-builder" onSubmit={(e) => { e.preventDefault(); if (title.trim() !== '' && selected.length > 0) create.mutate(); }}>
       <TextInput id="pk-title" labelText="Packet title" size="sm" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} />
-      {items.length === 0 ? <p className="pcp-empty">This project has no notes, outputs or decisions to include yet.</p> : (
+      {items.length === 0 ? <p className="pcp-empty">This workstream has no notes, outputs or decisions to include yet.</p> : (
         <fieldset className="pcp-builder__sources">
           <legend>Choose what to include (the order you pick is the packet order)</legend>
           {items.map((c) => {

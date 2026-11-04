@@ -71,7 +71,7 @@ export function targetPath(folder: unknown, name: unknown): { targetFolder: stri
   if ((targetFolder && (!targetFolder.startsWith(`${root}/`) || targetFolder.split('/').length < PROJECT_PATH_PARTS))
     || (targetFolder !== '' && targetFolder.split('/').some(part => part === '.' || part === '..' || !part.trim()))
     || /[\\:*?"<>|]/.test(targetFolder) || hasControlCharacters(targetFolder)) {
-    throw new ValidationError(`Choose a folder under OneDrive/${root}/<Project>/.`);
+    throw new ValidationError(`Choose a folder under OneDrive/${root}/<Workstream>/.`);
   }
   if (fileName && (!/\.(docx|pptx|xlsx|pdf)$/i.test(fileName) || /[/\\:*?"<>|]/.test(fileName) || hasControlCharacters(fileName))) {
     throw new ValidationError('Choose an exact Word, PowerPoint, Excel or PDF file name without path separators.');
@@ -120,7 +120,7 @@ async function validateLinks(client: PoolClient, input: Record<string, unknown>,
   if (input.taskId) {
     const task = await client.query<{ project_id: string | null }>('SELECT project_id FROM tasks WHERE id=$1 AND NOT archived FOR SHARE', [input.taskId]);
     if (!task.rows[0]) throw new ValidationError('Linked task is unavailable.');
-    if (project && task.rows[0].project_id !== project) throw new ValidationError('Link a task from this note’s project.');
+    if (project && task.rows[0].project_id !== project) throw new ValidationError('Link a task from this note’s workstream.');
   }
   if (input.briefId) {
     const brief = await client.query(`SELECT b.note_id FROM deliverable_briefs b JOIN notes n ON n.id=b.note_id

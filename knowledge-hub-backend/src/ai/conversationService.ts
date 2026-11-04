@@ -647,7 +647,7 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
             if (declaredScopeKey !== undefined && declaredScopeKey !== key) throw new Error('The explicit retrieval boundary cannot be changed within this turn. Preserve it; report limited coverage rather than widening it.');
             if (declaration.projectId !== null) {
               const project = await db.query('SELECT id FROM projects WHERE id=$1', [declaration.projectId]);
-              if (project.rows.length === 0) throw new Error('The declared project ID does not exist.');
+              if (project.rows.length === 0) throw new Error('The declared workstream ID does not exist.');
             }
             declaredScopeKey = key;
             retrievalScope = declaration.scope;

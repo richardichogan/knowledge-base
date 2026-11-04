@@ -158,7 +158,7 @@ export const HomePage: React.FC = () => {
         <span>Changes since {new Date(brief.since).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
       </div>
       {brief.storageError && <p className="today-brief__error" role="status">Your browser cannot save the Today visit time. Changes use the last 24 hours.</p>}
-      {brief.projects.isError && <p className="today-brief__error" role="alert">Project names are unavailable. <button type="button" onClick={() => { void brief.projects.refetch(); }}>Retry projects</button></p>}
+      {brief.projects.isError && <p className="today-brief__error" role="alert">Workstream names are unavailable. <button type="button" onClick={() => { void brief.projects.refetch(); }}>Retry workstreams</button></p>}
       <ReviewWorkspace storageKey="today" label="Today" context={selectedContext}
         detail={selectedPick ? <><h2 className="kh-review-detail-heading">Worth posting today</h2>
           <DiscoverPickDetail key={selectedPick.id} pick={selectedPick} onAsk={() => { openAthena('Help me shape a social post from this article using the suggested angle.', selectedContext); }} /></>
@@ -213,7 +213,7 @@ export const HomePage: React.FC = () => {
           {model.exploration.map(renderItem)}
         </section>
         <h2>Preparation</h2>
-        <ReviewItem title="Meeting preparation" meta="Indexed calendar · next seven days" description="Choose a meeting and its project context."
+        <ReviewItem title="Meeting preparation" meta="Indexed calendar · next seven days" description="Choose a meeting and its workstream context."
           selected={selection === 'today-meetings'} onSelect={() => { setSelectedId('today-meetings'); }} />
         <ReviewItem title="Podcast preparation" meta={podcast.data?.nextRecording ? `Next recording · ${podcast.data.nextRecording}` : 'Recording schedule'}
           description={podcast.isPending ? 'Checking your recording schedule…' : podcast.isError ? 'Preparation unavailable — select to retry.'

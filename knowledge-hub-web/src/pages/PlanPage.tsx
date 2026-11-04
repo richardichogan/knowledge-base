@@ -88,11 +88,11 @@ export const PlanPage: React.FC = () => {
       <PageHeader title="Plan" className="plan-page-header" actions={<>
           {(
             <>
-              <Select id="plan-filter-project" labelText="Filter by project" hideLabel size="sm"
+              <Select id="plan-filter-project" labelText="Filter by workstream" hideLabel size="sm"
                 value={filterProject} onChange={(e) => updatePreferences({ project: e.target.value })}>
-                <SelectItem value="" text="All projects" />
+                <SelectItem value="" text="All workstreams" />
                 {filterProject !== '' && !projects.some(project => project.id === filterProject)
-                  && <SelectItem value={filterProject} text="Saved project scope (not available)" />}
+                  && <SelectItem value={filterProject} text="Saved workstream scope (not available)" />}
                 <ProjectOptions projects={projects} selected={filterProject} />
               </Select>
               {view !== 'use-cases' && <Select id="plan-filter-tag" labelText="Filter by tag" hideLabel size="sm"

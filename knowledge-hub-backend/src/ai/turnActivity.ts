@@ -5,9 +5,9 @@
  */
 
 const LABELS: Record<string, string> = {
-  get_project_details: 'Reading current project details',
-  read_project_progress_reviews: 'Reading saved project progress reviews',
-  generate_project_progress_review: 'Reviewing the last seven days of project evidence',
+  get_project_details: 'Reading current workstream details',
+  read_project_progress_reviews: 'Reading saved workstream progress reviews',
+  generate_project_progress_review: 'Reviewing the last seven days of workstream evidence',
   search_past_chats: 'Searching your past conversations',
   read_past_chat: 'Reading an earlier conversation',
   get_discover_sources: 'Reading your Discover feed subscriptions',
@@ -50,12 +50,12 @@ const LABELS: Record<string, string> = {
   update_discover_source: 'Updating a Discover source',
   set_discover_item_state: 'Moving a Discover article',
   update_spark: 'Updating a Spark',
-  create_project: 'Creating a project',
-  update_project: 'Updating a project',
+  create_project: 'Creating a workstream',
+  update_project: 'Updating a workstream',
   update_note: 'Updating a Think note',
   create_diagram: 'Drawing a diagram',
   update_diagram: 'Updating a diagram',
-  set_diagram_projects: 'Updating a diagram\'s projects',
+  set_diagram_projects: 'Updating a diagram\'s workstreams',
   create_mind_map: 'Creating a mind map',
   create_weekly_microsoft_digest: 'Collating this week\'s Microsoft updates',
   manage_scheduled_jobs: 'Working with scheduled jobs',

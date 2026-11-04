@@ -15,7 +15,7 @@ export interface WorkTurnState {
 const sourceSchema = { type: 'array', maxItems: 12, items: { type: 'object', additionalProperties: false,
   properties: { type: { type: 'string', enum: ['note', 'document'] }, id: { type: 'string' } }, required: ['type', 'id'] } };
 const briefFields = {
-  taskId: { type: 'string' }, targetFolder: { type: 'string', description: 'Exact OneDrive/Athena/<Project>/folder; no guessed destination.' },
+  taskId: { type: 'string' }, targetFolder: { type: 'string', description: 'Exact OneDrive/Athena/<Workstream>/folder; no guessed destination.' },
   fileName: { type: 'string', description: 'Exact .docx, .pptx, .xlsx or .pdf name approved by Richard.' }, sources: sourceSchema,
 };
 const emailFields = { taskId: { type: 'string' }, briefId: { type: 'string' },
@@ -68,7 +68,7 @@ export async function executeWorkTool(db: Pool, name: string, args: Record<strin
     if (excluded.has(id) || aliases.rows.some(alias => excluded.has(alias.id))) throw new ValidationError('This note is excluded from this conversation.');
     if (access.strictProjectId) {
       const match = await db.query("SELECT id FROM notes WHERE id=$1 AND project_id=$2 AND status='active'", [id, access.strictProjectId]);
-      if (!match.rowCount) throw new ValidationError('The note is outside the enforced project scope.');
+      if (!match.rowCount) throw new ValidationError('The note is outside the enforced workstream scope.');
     }
   };
   if (args.sources !== undefined) for (const ref of parseSources(args.sources)) {
@@ -80,13 +80,13 @@ export async function executeWorkTool(db: Pool, name: string, args: Record<strin
     if (ref.type === 'note') await checkNote(ref.id);
     else if (access.strictProjectId) {
       const match = await db.query('SELECT id FROM content_items WHERE id=$1 AND project_context=$2', [ref.id, access.strictProjectId]);
-      if (!match.rowCount) throw new ValidationError('A source is outside the enforced project scope.');
+      if (!match.rowCount) throw new ValidationError('A source is outside the enforced workstream scope.');
     }
   }
   if (name.startsWith('create_')) {
     if (access.strictProjectId) {
       const task = await db.query('SELECT id FROM tasks WHERE id=$1 AND project_id=$2 AND NOT archived', [args.taskId, access.strictProjectId]);
-      if (!task.rowCount) throw new ValidationError('The task is outside the enforced project scope.');
+      if (!task.rowCount) throw new ValidationError('The task is outside the enforced workstream scope.');
     }
     const created = await createWorkContent(db, name === 'create_deliverable_brief' ? 'deliverable-brief' : 'email-draft', args);
     access.workState?.changedNoteIds.push(created.noteId);

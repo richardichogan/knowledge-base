@@ -56,7 +56,7 @@ export const NoteRecoveryCentre: React.FC<{ onClose: () => void; onOpenNote: (id
     const reviewed = preview.data;
     pending.current = true; setBusy(true); setError(null); setNotice('');
     try {
-      if (!await confirmDialog('Restore this archived note to Think? Writing, History, project, tags, links and GitHub settings stay unchanged. Normal indexing resumes; this does not publish anything.', {
+      if (!await confirmDialog('Restore this archived note to Think? Writing, History, workstream, tags, links and GitHub settings stay unchanged. Normal indexing resumes; this does not publish anything.', {
         title: 'Restore archived note', confirmLabel: 'Restore note',
       })) return;
       const result = requireApiData(await api.restoreArchivedNote(reviewed.id, reviewed.revision ?? 0));
@@ -174,7 +174,7 @@ export const NoteRecoveryCentre: React.FC<{ onClose: () => void; onOpenNote: (id
       </section>
       <section aria-label="Device-local writing copies">
         <h3>Device-local writing copies</h3>
-        <p>Plain-text copies for this account on this browser only. Title, content type and rich body are retained; project changes, tags, links, publication settings and image files are not backed up. Sign-out removes local copies.</p>
+        <p>Plain-text copies for this account on this browser only. Title, content type and rich body are retained; workstream changes, tags, links, publication settings and image files are not backed up. Sign-out removes local copies.</p>
         {!owned && <p role="alert">Return to the original account to review these local copies.</p>}
         {owned && <>
           <button type="button" disabled={busy} onClick={() => { setSelectedDraft(null); refreshLocal(); }}>Refresh local copies</button>

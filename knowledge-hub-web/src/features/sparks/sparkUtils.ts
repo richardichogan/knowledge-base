@@ -5,7 +5,7 @@
 import type { Spark, SparkCluster, SparkOutputType } from '../../services/api';
 
 export const OUTPUT_LABELS: Record<SparkOutputType, string> = {
-  note: 'Note', blog: 'Blog post', canvas: 'Canvas', project: 'Project', tasks: 'Tasks',
+  note: 'Note', blog: 'Blog post', canvas: 'Canvas', project: 'Workstream', tasks: 'Tasks',
 };
 
 export function formatSparkDate(iso: string): string {
@@ -46,7 +46,7 @@ export function developPrompt(theme: SparkCluster): string {
     `Help me develop my Spark theme "${theme.theme}". These are the ${theme.sparks.length} ideas I've captured on it:`,
     ...theme.sparks.map(ideaLine),
     '',
-    'Find the thread that connects them and the strongest angle, tell me what is missing or worth checking, and recommend the best thing to turn this into (a note, a blog post, a canvas or a project) with a first outline.',
+    'Find the thread that connects them and the strongest angle, tell me what is missing or worth checking, and recommend the best thing to turn this into (a note, a blog post, a canvas or a workstream) with a first outline.',
   ].join('\n');
 }
 
@@ -55,7 +55,7 @@ export function sparksContextDetail(themes: SparkCluster[], loose: Spark[]): str
   const active = themes.filter((t) => t.status === 'active');
   const developed = themes.filter((t) => t.status === 'developed');
   const lines = [
-    'The Sparks page: an incubator for captured ideas. Related sparks are grouped into themes, which grow as new sparks arrive and can be turned into a note, blog post, canvas or project.',
+    'The Sparks page: an incubator for captured ideas. Related sparks are grouped into themes, which grow as new sparks arrive and can be turned into a note, blog post, canvas or workstream.',
   ];
   if (active.length > 0) {
     lines.push('', 'Growing themes:');

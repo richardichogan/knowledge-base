@@ -70,10 +70,10 @@ export const GraphPage: React.FC = () => {
   }
   function toggle(type: string): void { setHidden(current => current.includes(type) ? current.filter(t => t !== type) : [...current, type]); setPath([]); }
   return <main className="atlas atlas--handoff" aria-label="Knowledge atlas">
-    <PageHeader title="Knowledge atlas" subtitle="Projects, people and the ideas between them" actions={
+    <PageHeader title="Knowledge atlas" subtitle="Workstreams, people and the ideas between them" actions={
       <div className="atlas__summary">
         <span title={`${data?.stats.truncated ? 'Partial graph: explore a record to load its neighbourhood.' : 'Loaded graph; not exhaustive coverage.'} Activity uses latest saved updates, not a historical event log.`}>
-          {visibleNodes.length === nodes.length ? nodes.length : `${visibleNodes.length} of ${nodes.length}`} entities · {visibleEdges.length} connections · {atlas.nodes.filter(n => n.hub).length} projects{data?.stats.truncated ? ' · partial graph' : ''}</span>
+          {visibleNodes.length === nodes.length ? nodes.length : `${visibleNodes.length} of ${nodes.length}`} entities · {visibleEdges.length} connections · {atlas.nodes.filter(n => n.hub).length} workstreams{data?.stats.truncated ? ' · partial graph' : ''}</span>
         {!!history.length && <button className="kh-btn-ghost" onClick={() => {
           setParams(history.at(-1) ? { seed: history.at(-1)! } : {}); setHistory(h => h.slice(0, -1)); reset();
         }}>Back</button>}
@@ -89,16 +89,16 @@ export const GraphPage: React.FC = () => {
     } />
     <div className="atlas__toolbar">
       <div className="atlas__search"><label className="atlas__sr" htmlFor="atlas-search">Find in loaded graph</label>
-        <input id="atlas-search" placeholder="Find a project, person or idea..." value={query} onChange={e => { setQuery(e.target.value); }} />
+        <input id="atlas-search" placeholder="Find a workstream, person or idea..." value={query} onChange={e => { setQuery(e.target.value); }} />
         {query.trim() && <div className="atlas__results" aria-label="Search results">
           <p>{matches.length ? `${matches.length} loaded matches` : 'No matches in this loaded subset.'}</p>
           {matches.slice(0, 12).map(n => <button key={n.id} onClick={() => { select(n); setQuery(''); }}>
-            <strong>{n.title}</strong><span>{n.refType}</span></button>)}
+            <strong>{n.title}</strong><span>{n.refType === 'project' ? 'Workstream' : n.refType}</span></button>)}
         </div>}
       </div>
       <div className="atlas__types" role="group" aria-label="Entity types">
         {types.map(([type, meta]) => <button key={type} className={`atlas__type${hidden.includes(type) ? ' atlas__type--off' : ''}`}
-          aria-pressed={!hidden.includes(type)} disabled={type === 'project'} title={type === 'project' ? 'Project anchors stay visible' : `Toggle ${meta.label.toLowerCase()}`}
+          aria-pressed={!hidden.includes(type)} disabled={type === 'project'} title={type === 'project' ? 'Workstream anchors stay visible' : `Toggle ${meta.label.toLowerCase()}`}
           onClick={() => { toggle(type); }}><span className="atlas__dot" style={{ backgroundColor: meta.color }} />
           {meta.label}<span>{atlas.nodes.filter(n => n.type === type).length}</span></button>)}
       </div>
@@ -136,7 +136,7 @@ export const GraphPage: React.FC = () => {
           {(selected || path.length > 0 || hidden.length > 0 || query || group || range !== 9999) && <button className="atlas__show-all" onClick={reset}>Show everything</button>}
           <div className="atlas__legend" aria-label="Graph legend">{types.map(([type, meta]) => <span key={type}>
             <i className="atlas__dot" style={{ backgroundColor: meta.color }} />{meta.one}</span>)}
-            <span>Dashed: cross-project / inferred links</span></div>
+            <span>Dashed: cross-workstream / inferred links</span></div>
         </>}
       </section>
       <aside id="atlas-inspector" className="atlas__inspector" aria-label="Selected connection details" hidden={!inspectorOpen}>
@@ -144,7 +144,7 @@ export const GraphPage: React.FC = () => {
           <button className="atlas__close" aria-label="Close details" onClick={() => { select(null); }}>×</button>
           <span className="atlas__kind"><i className="atlas__dot" style={{ backgroundColor: atlas.types[item.type]!.color }} />{atlas.types[item.type]!.one}</span>
           <h2>{node.title}</h2><p className={item.last > 14 ? 'atlas__quiet' : ''}>
-            {item.project ? `${items.get(item.project)?.name ?? 'Project'} · ` : 'No loaded project assignment · '}
+            {item.project ? `${items.get(item.project)?.name ?? 'Workstream'} · ` : 'No loaded workstream assignment · '}
             {item.last > 14 ? `quiet ${item.last} days` : `active ${item.last} days ago`} · {connections.length} loaded connections
           </p>
           <div className="atlas__actions"><Link to={graphNodeHref(node)}>Open record</Link>

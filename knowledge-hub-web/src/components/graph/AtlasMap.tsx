@@ -108,7 +108,7 @@ export function AtlasMap({ nodes, edges, layout, selected, onSelect, onEdge, foc
         if (!point) return null;
         const isSelected = node.id === selected;
         const radius = isSelected ? 9 * scale : compact ? 6 * scale : Math.max(1.7 * scale, Math.min((node.refType === 'project' ? 9 : 6) * scale, 13));
-        return <g key={node.id} role="button" tabIndex={0} aria-label={`${node.title}, ${node.refType}`}
+        return <g key={node.id} role="button" tabIndex={0} aria-label={`${node.title}, ${node.refType === 'project' ? 'Workstream' : node.refType}`}
           className={`atlas-map__node${isSelected ? ' atlas-map__node--selected' : ''}${active?.has(node.id) ? ' atlas-map__node--active' : ''}`}
           transform={`translate(${point.x} ${point.y})`} opacity={lit && !neighbours.has(node.id) ? 0.24 : 1}
           onPointerDown={event => { event.stopPropagation(); }} onClick={() => { onSelect(node); }}

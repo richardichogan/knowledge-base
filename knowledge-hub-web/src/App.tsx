@@ -45,7 +45,7 @@ const DocumentsPage = deferredView('Library', async () => ({ default: (await imp
 const Presenter = deferredView('Presentation', async () => ({ default: (await import('./features/autocue/Presenter')).Presenter }));
 const GraphPage = deferredView('Graph', async () => ({ default: (await import('./pages/GraphPage')).GraphPage }));
 const AIChatPage = deferredView('Athena', async () => ({ default: (await import('./pages/AIChatPage')).AIChatPage }));
-const ProjectsPage = deferredView('Projects', async () => ({ default: (await import('./pages/ProjectsPage')).ProjectsPage }));
+const ProjectsPage = deferredView('Workstreams', async () => ({ default: (await import('./pages/ProjectsPage')).ProjectsPage }));
 const PeoplePage = deferredView('People', async () => ({ default: (await import('./pages/PeoplePage')).PeoplePage }));
 const CompaniesPage = deferredView('Companies', async () => ({ default: (await import('./pages/CompaniesPage')).CompaniesPage }));
 const BuildPage = deferredView('Build', async () => ({ default: (await import('./features/build/BuildPage')).BuildPage }));

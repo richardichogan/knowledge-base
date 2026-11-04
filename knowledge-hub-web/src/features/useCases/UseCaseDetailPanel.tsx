@@ -171,12 +171,12 @@ const Detail: React.FC<{ useCase: UseCaseDetail; onClosed: () => void }> = ({ us
           </select>
         </label>
         <label className="kh-uc-field" htmlFor={`${fid}-project`}>
-          <span className="kh-uc-field__label">Project</span>
+          <span className="kh-uc-field__label">Workstream</span>
           <select id={`${fid}-project`} className="kh-uc-input kh-uc-select" value={useCase.projectId ?? ''}
             onChange={(e) => { patch({ projectId: e.target.value || null }); }}>
-            <option value="">No project</option>
+            <option value="">No workstream</option>
             {useCase.projectId !== null && !projects.some((p) => p.id === useCase.projectId)
-              && <option value={useCase.projectId}>{useCase.projectName ?? 'Unavailable project'}</option>}
+              && <option value={useCase.projectId}>{useCase.projectName ?? 'Unavailable workstream'}</option>}
             <ProjectOptions projects={projects} selected={useCase.projectId ?? ''} />
           </select>
         </label>

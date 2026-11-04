@@ -31,7 +31,7 @@ export const RETRIEVAL_VOCABULARY = [
   { family: 'watchlist', aliases: 'watchlists, competitor monitoring', pattern: /\bwatchlists?\b/i,
     tool: 'get_discover_watchlist_records', sources: [], meaning: 'Dated monitoring runs, findings and versioned baselines; not the article inbox.' },
   { family: 'discover-source', aliases: 'Discover sources, RSS/Atom feeds, subscriptions', pattern: /\b(?:rss|atom|subscriptions?)\b|\b(?:discover(?:y)?|feeds?)\b[\s\S]{0,80}\b(?:sources?|subscriptions?)\b|\b(?:sources?|soruces)\b[\s\S]{0,80}\b(?:discover(?:y)?|article\s+discovery)\b|\b(?:suggest|recommend|additional|configured|enabled|disabled|subscribe)\b[\s\S]{0,70}\bfeeds?\b/i,
-    tool: 'get_discover_sources', sources: [], meaning: 'Configured feed subscriptions, including disabled feeds; not articles or project documents.' },
+    tool: 'get_discover_sources', sources: [], meaning: 'Configured feed subscriptions, including disabled feeds; not articles or workstream documents.' },
   { family: 'connected-activity', aliases: 'Activity, connected-system updates', pattern: /\b(?:activity|what['’]?s\s+new|what\s+is\s+new|what\s+(?:has\s+)?changed)\b/i,
     tool: 'search_knowledge_base', sources: Object.keys(CONTENT_SOURCE_DISPOSITIONS) as ContentSource[], meaning: 'Broad saved-hub updates when no narrower collection is named; not proof of the complete current remote system.' },
   { family: 'email', aliases: 'emails, mailbox', pattern: /\b(?:emails?|mailbox)\b/i,
@@ -200,7 +200,7 @@ export const RETRIEVAL_SCOPE_PARAMETERS = {
       },
       additionalProperties: false,
     },
-    projectId: { type: 'string', description: 'Exact saved project ID, only when the user restricts retrieval to this project. The active project is otherwise a preference, not a boundary.' },
+    projectId: { type: 'string', description: 'Exact saved workstream ID, only when the user restricts retrieval to this workstream. The active workstream is otherwise a preference, not a boundary.' },
   },
   additionalProperties: false,
 };
@@ -212,7 +212,7 @@ export function declaredRetrievalScope(value: unknown, now = new Date()): { scop
   const keys = new Set(Object.keys(RETRIEVAL_SCOPE_PARAMETERS.properties));
   if (Object.keys(args).some(key => !keys.has(key))) throw new RetrievalScopeError('Unknown retrievalScope field.');
   const projectId = args['projectId'];
-  if (projectId !== undefined && (typeof projectId !== 'string' || !projectId.trim())) throw new RetrievalScopeError('projectId must be a saved project ID.');
+  if (projectId !== undefined && (typeof projectId !== 'string' || !projectId.trim())) throw new RetrievalScopeError('projectId must be a saved workstream ID.');
   const filter = resolveSearchFilter(args, undefined, now);
   const families = [...new Set((filter.sources ?? []).map(source =>
     CONTENT_SOURCE_DISPOSITIONS[source as ContentSource].family))];

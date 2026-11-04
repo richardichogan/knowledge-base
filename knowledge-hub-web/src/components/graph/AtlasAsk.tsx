@@ -78,7 +78,7 @@ export function AtlasAsk({ data, selected, path, onPath, onSelect }: {
         onClick={() => { void ask([from || selected!, to]); }}>Trace connection</button>
     </details>
     {selected && data.nodes.some(n => n.hub && n.id !== by.get(selected)?.project) && <details>
-      <summary>Connect to another project</summary>
+      <summary>Connect to another workstream</summary>
       {data.nodes.filter(n => n.hub && n.id !== by.get(selected)?.project).map(n => <button key={n.id}
         className="atlas-ask__project" disabled={busy} onClick={() => { void ask([selected, n.id]); }}>How does this connect to {n.name}?</button>)}
     </details>}

@@ -472,7 +472,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   }
   for (const id of [uploadProjectId, activeProjectId]) {
     if (id !== '' && !uploadProjectOptions.some((project) => project.id === id)) {
-      uploadProjectOptions.push({ id, name: `Legacy / unknown project: ${id}` });
+      uploadProjectOptions.push({ id, name: `Legacy / unknown workstream: ${id}` });
     }
   }
   const uploadProjectName = uploadProjectOptions.find((p) => p.id === uploadProjectId)?.name ?? uploadProjectId;
@@ -1690,7 +1690,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       ));
     } catch (error) {
       setActiveProjectId(previousProjectId);
-      setProjectError(error instanceof Error ? error.message : 'Could not update the conversation project');
+      setProjectError(error instanceof Error ? error.message : 'Could not update the conversation workstream');
     }
   }
 
@@ -1745,7 +1745,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         'Source: Athena response',
         `Captured: ${new Date().toLocaleString()}`,
         `Persona: ${persona.replace(/_/g, ' ')}`,
-        `Project: ${save.projectName}`,
+        `Workstream: ${save.projectName}`,
         `Content type: ${contentType === 'newsletter' ? 'Newsletter edition' : 'Blog draft'}`,
         pageContext ? `Page context: ${pageContext.title}` : '',
       ].filter((line) => line !== '');
@@ -2083,27 +2083,27 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       </ComposerControl>
 
       {!isNoteLinkedPanel && (
-      <ComposerControl label={`Project: ${chipProjectName || 'No project'}`} icon={<Notebook size={16} />} active={chipProjectId !== ''}>
-      <div title="Project to ground this chat in. Shortcut: type @project anywhere in your message" className={`kh-composer-chip kh-composer-chip--project${chipProjectId === '' ? ' kh-composer-chip--empty' : ''}${isProjectInferred ? ' kh-composer-chip--inferred' : ''}`}>
+      <ComposerControl label={`Workstream: ${chipProjectName || 'No workstream'}`} icon={<Notebook size={16} />} active={chipProjectId !== ''}>
+      <div title="Workstream to ground this chat in. Shortcut: type @project anywhere in your message" className={`kh-composer-chip kh-composer-chip--project${chipProjectId === '' ? ' kh-composer-chip--empty' : ''}${isProjectInferred ? ' kh-composer-chip--inferred' : ''}`}>
         <Notebook size={14} className="kh-composer-chip__icon" />
         <span className="kh-composer-chip__value">
-          {chipProjectId !== '' ? chipProjectName : 'No project'}
+          {chipProjectId !== '' ? chipProjectName : 'No workstream'}
           {isProjectInferred && <span className="kh-composer-chip__hint">suggested</span>}
         </span>
         <select
           className="kh-composer-chip__select"
-          aria-label="Conversation project"
+          aria-label="Conversation workstream"
           value={chipProjectId}
           onChange={(event) => { handleProjectChipChange(event.target.value); }}
         >
-          <option value="">No project</option>
+          <option value="">No workstream</option>
           <ProjectOptions projects={uploadProjectOptions} selected={chipProjectId} />
         </select>
         {chipProjectId !== '' && (
           <button
             type="button"
             className="kh-composer-chip__remove"
-            aria-label="Clear project grounding"
+            aria-label="Clear workstream grounding"
             onClick={() => { handleProjectChipChange(''); }}
           >
             <Close size={12} />
@@ -2554,7 +2554,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
                 className="ai-pending-file__project-select"
                 value={uploadProjectId}
                 onChange={(e) => { setUploadProjectId(e.target.value); }}
-                aria-label="Project for attached file"
+                aria-label="Workstream for attached file"
               >
                 <ProjectOptions projects={uploadProjectOptions} selected={uploadProjectId} />
               </select>
@@ -2575,7 +2575,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           {sessionId !== null && <Button kind="ghost" size="sm" onClick={() => handleSelectSession(sessionId, true)}>Retry loading conversation</Button>}
         </div>}
 
-        {projectsQuery.error !== null && <DataNotice title="Project choices could not be refreshed." error={projectsQuery.error}
+        {projectsQuery.error !== null && <DataNotice title="Workstream choices could not be refreshed." error={projectsQuery.error}
           onRetry={() => { void projectsQuery.refetch(); }} />}
         <form onSubmit={handleSend} className="ai-input-row">
           <input

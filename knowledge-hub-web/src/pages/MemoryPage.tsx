@@ -22,7 +22,7 @@ type MemoryAction = (key: string, action: () => Promise<ApiResponse<unknown>>, o
 const SCOPE_TITLES: Record<MemoryScopeType, string> = {
   global: 'Everywhere',
   persona: 'Per persona',
-  project: 'Per project',
+  project: 'Per workstream',
   output: 'Per kind of output',
   agent: 'Per agent (lessons from reviewing its work)',
 };
@@ -50,7 +50,7 @@ function scopeLabel(m: Pick<AthenaMemory, 'scopeType' | 'scopeValue'>, projects:
   if (m.scopeType === 'persona') return PERSONAS.find((p) => p.id === m.scopeValue)?.label ?? m.scopeValue ?? '';
   if (m.scopeType === 'output') return `When producing: ${m.scopeValue ?? ''}`;
   if (m.scopeType === 'agent') return `Agent: ${agentName(m.scopeValue)}`;
-  return `Project: ${projects.find((project) => project.id === m.scopeValue)?.name ?? m.scopeValue ?? ''}`;
+  return `Workstream: ${projects.find((project) => project.id === m.scopeValue)?.name ?? m.scopeValue ?? ''}`;
 }
 
 function when(iso: string | null): string {
@@ -69,13 +69,13 @@ const ScopeFields: React.FC<{ scopeType: MemoryScopeType; scopeValue: string; di
   const options = groupProjectsByParent(projects, [scopeValue]).flatMap(group =>
     group.projects.map(project => ({ id: project.id, name: `${group.label} / ${project.name}` })));
   if (scopeValue !== '' && !options.some((project) => project.id === scopeValue)) {
-    options.push({ id: scopeValue, name: `Legacy / unknown project: ${scopeValue}` });
+    options.push({ id: scopeValue, name: `Legacy / unknown workstream: ${scopeValue}` });
   }
   return <>
     <select className="memory-select" disabled={disabled} value={scopeType} aria-label="Applies to" onChange={(e) => { onChange(e.target.value as MemoryScopeType, ''); }}>
       <option value="global">Everywhere</option>
       <option value="persona">One persona</option>
-      <option value="project">One project</option>
+      <option value="project">One workstream</option>
       <option value="output">One kind of output</option>
       <option value="agent">One agent</option>
     </select>
@@ -86,12 +86,12 @@ const ScopeFields: React.FC<{ scopeType: MemoryScopeType; scopeValue: string; di
       </select>
     )}
     {scopeType === 'project' && <div className="memory-project-picker">
-      <ComboBox id={projectPickerId} titleText="Project" disabled={disabled} items={options}
+      <ComboBox id={projectPickerId} titleText="Workstream" disabled={disabled} items={options}
         selectedItem={options.find((project) => project.id === scopeValue) ?? null}
-        itemToString={(project) => project?.name ?? ''} placeholder="Search projects"
+        itemToString={(project) => project?.name ?? ''} placeholder="Search workstreams"
         onChange={({ selectedItem }) => { onChange(scopeType, selectedItem?.id ?? ''); }} />
       {error !== null && <div className="memory-notice" role="alert">
-        Could not load projects. <button type="button" className="kb-import-btn" onClick={() => { void refetch(); }}>Retry</button>
+        Could not load workstreams. <button type="button" className="kb-import-btn" onClick={() => { void refetch(); }}>Retry</button>
       </div>}
     </div>}
     {scopeType === 'agent' && (

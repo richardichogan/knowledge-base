@@ -59,8 +59,8 @@ export async function loadCurrentProjectContext(db: Pool, projectId: string): Pr
 
 export function formatCurrentProjectContext(project: CurrentProjectContext): string {
   return [
-    'Current saved project information (refreshed this turn; takes precedence over older chat history, memories and project notes):',
-    `Project: ${project.name} (id: ${project.id})`,
+    'Current saved workstream information (refreshed this turn; takes precedence over older chat history, memories and workstream notes):',
+    `Workstream: ${project.name} (id: ${project.id})`,
     project.description && `Description: ${project.description}`,
     project.goal && `Goal: ${project.goal}`,
     project.role && `User's role: ${project.role}`,

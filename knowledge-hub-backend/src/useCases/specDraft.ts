@@ -39,7 +39,7 @@ Structure (keep these headings, in this order):
 ## Summary
 Two or three sentences: what this is, and why it matters.
 ## Why it fits
-How it relates to the product and project described.
+How it relates to the product and workstream described.
 ## Users and their needs
 ## What it does
 The capabilities, in plain terms. Add user stories ("As a …, I want …, so that …") only where the sources support them.
@@ -74,9 +74,9 @@ export function buildSpecPrompt(useCase: Pick<UseCaseDetail, 'title' | 'summary'
     `Use case: ${useCase.title}`,
     useCase.summary.trim() !== '' ? `Richard's summary: ${useCase.summary.trim()}` : '',
     `Kind: ${useCase.productKind === 'product' ? 'a product' : useCase.productKind === 'imagine_demo' ? 'a new IMAGINE demo' : 'an update to the IMAGINE demo platform'}`,
-    product.projectName !== null ? `Project: ${product.projectName}` : '',
-    product.projectDescription.trim() !== '' ? `Project description: ${product.projectDescription.trim()}` : '',
-    product.projectGoal.trim() !== '' ? `Project goal: ${product.projectGoal.trim()}` : '',
+    product.projectName !== null ? `Workstream: ${product.projectName}` : '',
+    product.projectDescription.trim() !== '' ? `Workstream description: ${product.projectDescription.trim()}` : '',
+    product.projectGoal.trim() !== '' ? `Workstream goal: ${product.projectGoal.trim()}` : '',
     product.repo !== null ? `Repository: ${product.repo}` : '',
   ].filter(Boolean).join('\n');
 

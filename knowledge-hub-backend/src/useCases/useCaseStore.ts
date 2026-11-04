@@ -130,7 +130,7 @@ export function parseCreate(b: Record<string, unknown>): UseCaseCreate {
   const projectId = (text(b['projectId'], 'projectId', MAX_ID, false) ?? '') || null;
   const repo = parseRepo(b['repo']) ?? null;
   if (productKind === 'product' && projectId === null && repo === null) {
-    throw new ValidationError('Choose a project or a repo for this product', { projectId: 'project or repo required' });
+    throw new ValidationError('Choose a workstream or a repo for this product', { projectId: 'project or repo required' });
   }
   const raw = b['sources'];
   if (raw !== undefined && !Array.isArray(raw)) throw new ValidationError('sources must be a list', { sources: 'list' });
@@ -208,7 +208,7 @@ function toUseCase(r: Row): UseCase {
 async function assertProjectExists(db: Pool, projectId: string | null | undefined): Promise<void> {
   if (projectId === null || projectId === undefined) return;
   const { rows } = await db.query('SELECT 1 FROM projects WHERE id = $1', [projectId]);
-  if (rows.length === 0) throw new ValidationError('Project not found', { projectId: 'unknown project' });
+  if (rows.length === 0) throw new ValidationError('Workstream not found', { projectId: 'unknown project' });
 }
 
 export async function listUseCases(db: Pool, filter: { productKind?: ProductKind; stage?: UseCaseStage } = {}): Promise<UseCase[]> {
@@ -313,7 +313,7 @@ export async function updateUseCase(db: Pool, id: string, patch: UseCasePatch): 
   const projectId = patch.projectId !== undefined ? patch.projectId : current.projectId;
   const repo = patch.repo !== undefined ? patch.repo : current.repo;
   if (kind === 'product' && projectId === null && repo === null) {
-    throw new ValidationError('Choose a project or a repo for this product', { projectId: 'project or repo required' });
+    throw new ValidationError('Choose a workstream or a repo for this product', { projectId: 'project or repo required' });
   }
   const sets: string[] = [];
   const params: unknown[] = [];

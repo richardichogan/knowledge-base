@@ -99,8 +99,8 @@ async function capture(db: Pool, filename: string, text: string, sourcePath: str
       const project = projects.rows.find(p => normaliseIdentity(p.name) === normaliseIdentity(task.project)
         || normaliseIdentity(p.id) === normaliseIdentity(task.project))?.id ?? null;
       if (project === null) result.warnings.push(task.project
-        ? `Project needs filing: ${task.project} — ${task.title}`
-        : `Project not stated: ${task.title}`);
+        ? `Workstream needs filing: ${task.project} — ${task.title}`
+        : `Workstream not stated: ${task.title}`);
       const tracked = await client.query<{ task_id: string | null; snapshot: unknown; last_report_date: string }>(
         `SELECT task_id, snapshot, to_char(last_report_date,'YYYY-MM-DD') AS last_report_date FROM daily_insights_tasks WHERE identity_key=$1`, [task.key]);
       const prior = tracked.rows[0];
@@ -110,7 +110,7 @@ async function capture(db: Pool, filename: string, text: string, sourcePath: str
       }
       const body = [
         task.owner && `Owner: ${task.owner}`,
-        task.project && `Project: ${task.project}`,
+        task.project && `Workstream: ${task.project}`,
         task.dueText && `Due (as reported): ${task.dueText}`,
         task.source && `Source: ${task.source}`,
         `Daily Insights: ${parsed.date} (${filename})`,

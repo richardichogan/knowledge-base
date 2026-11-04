@@ -15,7 +15,7 @@ export interface EntityDefinition {
 export const ENTITY_DEFINITIONS: Record<SemanticKind, EntityDefinition> = {
   project: {
     kind: 'project', schemaVersion: SEMANTIC_SCHEMA_VERSION, binding: 'projects',
-    meaning: 'Saved project: current goal, lifecycle and expected outputs',
+    meaning: 'Saved workstream: current goal, lifecycle and expected outputs',
     approvedFields: ['name', 'goal', 'lifecycleState', 'expectedOutputs'],
   },
   decision: {
@@ -56,7 +56,7 @@ const EXPLICIT: readonly EdgeOrigin[] = ['explicit', 'user_confirmed'];
 export const RELATIONSHIP_DEFINITIONS: Record<RelationshipName, RelationshipDefinition> = {
   belongs_to: {
     name: 'belongs_to', from: ['decision', 'task', 'risk'], to: ['project'], cardinality: 'many-to-one',
-    evidence: 'Explicit saved project association', satisfyingOrigins: EXPLICIT,
+    evidence: 'Explicit saved workstream association', satisfyingOrigins: EXPLICIT,
     storage: 'ai_chat_sessions.project_id | tasks.project_id | project_register_items.project_id',
   },
   supported_by: {

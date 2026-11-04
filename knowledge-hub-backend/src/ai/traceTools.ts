@@ -44,7 +44,7 @@ export async function executeTraceTool(db: Pool, name: string, args: Record<stri
     throw new ValidationError('Full chat diagnostics cannot safely be read under an enforced collection filter. No trace content was retrieved.');
   }
   if (access.exclusionsFailed || (access.excludedIds?.size ?? 0) > 0 || access.strictProjectId) {
-    throw new ValidationError('Full chat diagnostics cannot safely be read under source exclusions or a restricted project scope. No trace content was retrieved.');
+    throw new ValidationError('Full chat diagnostics cannot safely be read under source exclusions or a restricted workstream scope. No trace content was retrieved.');
   }
   const sessionId = args['sessionId'] ?? access.sessionId;
   if (typeof sessionId !== 'string') throw new ValidationError('Supply the original chat session ID.');

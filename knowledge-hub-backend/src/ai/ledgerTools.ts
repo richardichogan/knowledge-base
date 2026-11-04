@@ -82,7 +82,7 @@ export async function executeLedgerTool(db: Pool, name: string, args: Record<str
   // Recorded prompts can contain any source text, so they cannot honour a narrowed retrieval scope.
   if ((access.retrievalScope && Object.keys(access.retrievalScope.filter).length > 0)
     || access.exclusionsFailed || (access.excludedIds?.size ?? 0) > 0 || access.strictProjectId) {
-    throw new ValidationError('The AI ledger cannot safely be read under source exclusions, a collection filter or a restricted project scope. Nothing was retrieved.');
+    throw new ValidationError('The AI ledger cannot safely be read under source exclusions, a collection filter or a restricted workstream scope. Nothing was retrieved.');
   }
   const offset = typeof args['offset'] === 'number' && args['offset'] >= 0 ? Math.floor(args['offset']) : 0;
 

@@ -46,7 +46,7 @@ export const GraphNodeDetail: React.FC<GraphNodeDetailProps> = ({ node, edges, o
   return (
     <div ref={panelRef} className="graph-detail-panel" role="region" aria-label="Graph node details" tabIndex={-1}>
       <div className="graph-detail-panel__header">
-        <span className="graph-detail-panel__type">{node.refType}</span>
+        <span className="graph-detail-panel__type">{node.refType === 'project' ? 'Workstream' : node.refType}</span>
         <button className="graph-detail-panel__close" onClick={onClose} aria-label="Close detail panel">✕</button>
       </div>
 

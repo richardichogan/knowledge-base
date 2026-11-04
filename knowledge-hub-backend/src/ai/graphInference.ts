@@ -128,7 +128,7 @@ function bridgesFrom(links: RawLink[], seeds: Map<string, string>): GraphBridge[
 export async function searchKnowledgeGraph(db: Pool, query: string, limit: number): Promise<unknown> {
   const seeds = await findGraphSeeds(db, query, limit);
   if (seeds.length === 0) {
-    return { resultCount: 0, results: [], message: 'No knowledge graph items matched — try a shorter or different term (a project, product or note name).' };
+    return { resultCount: 0, results: [], message: 'No knowledge graph items matched — try a shorter or different term (a workstream, product or note name).' };
   }
   const links = await linksFrom(db, seeds.map((s) => s.nodeId), 0.5);
   const seedTitles = new Map(seeds.map((s) => [s.nodeId, s.title]));
@@ -142,7 +142,7 @@ export async function searchKnowledgeGraph(db: Pool, query: string, limit: numbe
     results,
     bridges: bridgesFrom(links, seedTitles),
     projectsSpanned: projects,
-    note: 'Connections span all projects. "bridges" are items linked to more than one of the results — use them to reason about how separate pieces of work relate. Read an item (search_knowledge_base with its title) before quoting it; a thematic link is a lead, not proof.',
+    note: 'Connections span all workstreams. "bridges" are items linked to more than one of the results — use them to reason about how separate pieces of work relate. Read an item (search_knowledge_base with its title) before quoting it; a thematic link is a lead, not proof.',
   };
 }
 
@@ -183,8 +183,8 @@ const TYPE_LABEL: Record<string, string> = {
 export function formatGraphConnections(bridges: GraphBridge[]): string {
   if (bridges.length === 0) return '';
   return [
-    '## Knowledge graph connections to the retrieved items (all projects)',
-    ...bridges.map((b) => `- ${TYPE_LABEL[b.type] ?? b.type}: "${b.title}"${b.project !== null ? ` [project: ${b.project}]` : ''} — linked to ${b.links.map((t) => `"${t}"`).join(', ')}`),
+    '## Knowledge graph connections to the retrieved items (all workstreams)',
+    ...bridges.map((b) => `- ${TYPE_LABEL[b.type] ?? b.type}: "${b.title}"${b.project !== null ? ` [workstream: ${b.project}]` : ''} — linked to ${b.links.map((t) => `"${t}"`).join(', ')}`),
     'These are graph links, not retrieved content: when one bears on the question, read it (search_knowledge_base with its title, or search_knowledge_graph) and say how it connects. Do not quote them unread.',
   ].join('\n');
 }

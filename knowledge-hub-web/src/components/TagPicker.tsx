@@ -150,7 +150,7 @@ export const TagPicker: React.FC<TagPickerProps> = ({ selectedIds, onChange, tri
                   disabled={disabled}
                   className={`tag-picker-item${isSelected ? ' tag-picker-item--selected' : ''}${identity.byTagId(parent.id)?.kind === 'group' ? ' tag-picker-item--group' : ''}`}
                   onClick={() => { if (identity.byTagId(parent.id)?.kind === 'group') toggleExpand(parent.id); else toggle(parent.id); }}
-                  title={identity.byTagId(parent.id)?.kind === 'group' ? 'A project group — pick a project inside it' : undefined}
+                  title={identity.byTagId(parent.id)?.kind === 'group' ? 'A workstream group — pick a workstream inside it' : undefined}
                 >
                   <IdentityMark identity={identity.byTagId(parent.id)} />
                   <span className="tag-picker-name">{parent.name}</span>

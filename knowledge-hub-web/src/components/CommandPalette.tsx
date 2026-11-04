@@ -309,7 +309,7 @@ const OpenCommandPalette: React.FC<Props> = ({ open, onClose, onNavigationAction
           <input
             ref={inputRef}
             className="cmd-input"
-            placeholder="Search notes, projects, tasks, chats… or run an action"
+            placeholder="Search notes, workstreams, tasks, chats… or run an action"
             value={query}
             onChange={(e) => { setQuery(e.target.value); }}
             aria-label="Command palette search"

@@ -49,8 +49,8 @@ export function PersonRelationships({ personId }: { personId: string }): React.R
       </select></label>
       {draft.assignments.map((row, index) => <fieldset key={index} disabled={busy}>
         <legend>Programme role {index + 1}</legend>
-        <label>Project<select required value={row.projectId} onChange={event => { setDraft({ ...draft, assignments: draft.assignments.map((item, i) => i === index ? { ...item, projectId: event.target.value } : item) }); }}>
-          <option value="">Choose project</option><ProjectOptions projects={projects.data ?? []} selected={row.projectId} />
+        <label>Workstream<select required value={row.projectId} onChange={event => { setDraft({ ...draft, assignments: draft.assignments.map((item, i) => i === index ? { ...item, projectId: event.target.value } : item) }); }}>
+          <option value="">Choose workstream</option><ProjectOptions projects={projects.data ?? []} selected={row.projectId} />
         </select></label>
         <label>Representing<select value={row.companyId ?? ''} onChange={event => { setDraft({ ...draft, assignments: draft.assignments.map((item, i) => i === index ? { ...item, companyId: event.target.value || null } : item) }); }}>
           <option value="">No company specified</option>{companies.data?.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}

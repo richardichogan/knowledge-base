@@ -32,6 +32,7 @@ import { launchFromRef } from '../features/useCases/useCaseView';
 import type { PaneWidthOptions } from '../hooks/usePersistedState';
 import { NoteBacklinks } from './NoteBacklinks';
 import { ProjectOptions } from '../components/ProjectOptions';
+import { WORK_TYPE_LABEL } from '../components/ProjectProgressReviews';
 import { UnlinkedMentions } from './UnlinkedMentions';
 import { NoteMiniGraph } from '../components/graph/NoteMiniGraph';
 import { PodcastCampaign, PodcastEpisodeLinks } from './PodcastCampaign';
@@ -139,6 +140,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
   const { pageContext, registerAthenaLauncher, request: athenaRequest } = useAthenaContext();
   const qc = useQueryClient();
   const [retagging, setRetagging] = useState(false);
+  const selectedProject = projectId === '' ? undefined : projects.find((project) => project.id === projectId);
   const tagSignature = [...taxonomyTagIds].sort().join(',');
   useEffect(() => {
     void qc.invalidateQueries({ queryKey: ['graph'] });
@@ -314,14 +316,14 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
             <CollapsibleSection label="Organisation">
               <div className="notes-meta-section notes-meta-pair">
                 <label className="notes-meta-pair__field">
-                  <span className="notes-meta-section-label">Project</span>
+                  <span className="notes-meta-section-label">Workstream</span>
                   <select
                     className="notes-meta-type-select"
                     value={projectId}
-                    title={projects.find((project) => project.id === projectId)?.name ?? 'No project'}
+                    title={projects.find((project) => project.id === projectId)?.name ?? 'No workstream'}
                     onChange={(e) => { onProjectChange(e.target.value); }}
                   >
-                    <option value="">No project</option>
+                    <option value="">No workstream</option>
                     <ProjectOptions projects={projects} selected={projectId} />
                   </select>
                 </label>
@@ -343,6 +345,18 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
                   </select>
                 </label>
               </div>
+              {selectedProject && (
+                <dl className="notes-meta-workstream" aria-label="Workstream details">
+                  <div><dt className="notes-meta-section-label">Type</dt>
+                    <dd className="notes-meta-section-value">{WORK_TYPE_LABEL[selectedProject.projectType] ?? selectedProject.projectType}</dd></div>
+                  {selectedProject.client && <div><dt className="notes-meta-section-label">Client</dt>
+                    <dd className="notes-meta-section-value">{selectedProject.client.name}</dd></div>}
+                  {selectedProject.offeringLink && <div><dt className="notes-meta-section-label">Offering</dt>
+                    <dd className="notes-meta-section-value">
+                      {selectedProject.offeringLink.relation === 'sells' ? 'Sells' : 'Related to'} {selectedProject.offeringLink.offeringName}
+                    </dd></div>}
+                </dl>
+              )}
               <div className="notes-meta-section">
                 <p className="notes-meta-section-label">Tags</p>
                 <div className="notes-meta-tags-chips">

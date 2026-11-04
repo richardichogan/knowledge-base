@@ -20,6 +20,7 @@ function confidenceDots(confidence: number): [boolean, boolean, boolean] {
 const TYPE_LABELS: Record<string, string> = {
   discover_item: 'Article',
   note: 'Note',
+  project: 'Workstream',
   task: 'Task',
   document: 'Doc',
   spark: 'Spark',

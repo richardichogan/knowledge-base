@@ -43,7 +43,7 @@ export const KnowledgeFamilies: React.FC<{ section: HealthSection<HealthFamilies
           }
           rows={families.map((family) => (
               <tr key={family.kind}>
-                <td><strong>{family.kind}</strong><div className="kh-health__note">{family.reason}</div></td>
+                <td><strong>{family.kind === 'project' ? 'Workstream' : family.kind}</strong><div className="kh-health__note">{family.reason}</div></td>
                 <td><span className={`kh-health__state kh-health__state--${stateTone(family.state)}`}>{FAMILY_STATE_LABEL[family.state]}</span></td>
                 <td>{family.capabilities.join(', ')}</td>
                 <td>{countCell(family.counts.indexed, number.format)}</td>

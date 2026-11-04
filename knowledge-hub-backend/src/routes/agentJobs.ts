@@ -51,7 +51,7 @@ const assignmentRevision = (body: Record<string, unknown>): number => {
 function appCommissionContext(req: Request, scopeValue: unknown, requestId: unknown): TrustedBlogCommissionContext {
   if (!hasManualBlogExecutor()) throw new ForbiddenError('The manual blog workforce pilot has not been enabled.');
   const scope = record(scopeValue, 'Commission scope');
-  if (scope['projectId'] !== null && typeof scope['projectId'] !== 'string') throw new ValidationError('The exact project boundary is required.');
+  if (scope['projectId'] !== null && typeof scope['projectId'] !== 'string') throw new ValidationError('The exact workstream boundary is required.');
   if (scope['readOnly'] !== false || !Array.isArray(scope['excludedSourceIds'])
     || !scope['excludedSourceIds'].every((id: unknown) => typeof id === 'string')) throw new ValidationError('An explicit mutating action and exact source exclusions are required.');
   return {

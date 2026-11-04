@@ -56,14 +56,14 @@ export const RepoProjectMappingsPage: React.FC<{ embedded?: boolean }> = ({ embe
 
   return (
     <main className="page-root today-settings-page">
-      {!embedded && <PageHeader title="Manage repo mapping" subtitle="Map each connected repo/path to a filing project tag." actions={
+      {!embedded && <PageHeader title="Manage repo mapping" subtitle="Map each connected repo/path to a filing workstream tag." actions={
         <Link className="today-settings-page__back" to="/">Back to Today</Link>
       } />}
-      {embedded && <p className="kh-settings-description">Map each connected repo/path to a filing project tag.</p>}
+      {embedded && <p className="kh-settings-description">Map each connected repo/path to a filing workstream tag.</p>}
 
       <div className="today-section-card">
         <div className="today-section-card__header">
-          <span className="today-section-card__title">Repo → project mappings</span>
+          <span className="today-section-card__title">Repo → workstream mappings</span>
         </div>
 
         {configQuery.isLoading && <InlineLoading description="Loading repo mappings…" className="kh-loading-inset" />}

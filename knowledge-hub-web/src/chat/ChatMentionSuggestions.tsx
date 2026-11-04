@@ -135,15 +135,15 @@ export function ChatMentionSuggestions({ input, textarea, onChange, onProject }:
   const host = textarea.current?.closest('dialog, [data-carbon-theme], .cds--g100') ?? document.body;
   return createPortal(<div ref={menu} className={`people-mentions people-mentions--floating${geometry.above ? ' people-mentions--above' : ''}`}
     style={{ left: geometry.left, top: geometry.top, width: geometry.width, maxHeight: geometry.maxHeight }}
-    role="listbox" id={id} aria-label="Mention a person, company, project, note or document">
-    <div className="people-mentions__heading">People, companies, projects &amp; documents</div>
+    role="listbox" id={id} aria-label="Mention a person, company, workstream, note or document">
+    <div className="people-mentions__heading">People, companies, workstreams &amp; documents</div>
     {results.isFetching || debounced !== query.query ? <p role="status">Finding matches...</p>
       : results.error ? <p role="alert">Mention lookup failed. <button type="button" onMouseDown={event => { event.preventDefault(); }} onClick={() => { void results.refetch(); }}>Retry</button></p>
         : items.length ? items.map((target, index) => <button key={`${target.type}:${target.id}`} id={`${id}-${index}`} type="button" role="option"
           aria-selected={selected === index} className={`people-mentions__item${selected === index ? ' people-mentions__item--selected' : ''}`}
           onMouseDown={event => { event.preventDefault(); }} onClick={() => { choose(target); }}>
           <strong>{target.title}</strong><small>{CHAT_MENTION_LABELS[target.type]}{target.detail ? ` / ${target.detail}` : ''}</small>
-        </button>) : <p>No matches. Try a saved note, document title, person or project name.</p>}
+        </button>) : <p>No matches. Try a saved note, document title, person or workstream name.</p>}
     {createError && <p role="alert">{createError}</p>}
     {creatable.map((type, index) =>
       <button key={`create-${type}`} id={`${id}-${items.length + index}`} type="button" role="option" aria-selected={selected === items.length + index}

@@ -149,7 +149,7 @@ export const SparkPanel: React.FC<{ onDevelop: (prompt: string) => void }> = ({ 
             <p className="spark-panel__empty">
               {needle ? 'No themes match your search.'
                 : filter === 'active' ? 'No growing themes yet. When three or more related sparks come together, Athena groups them into a theme here. You can also start one from any spark with “Add to theme…”.'
-                : filter === 'developed' ? 'Nothing developed yet. Turn a theme into a note, blog post, canvas or project and it moves here.'
+                : filter === 'developed' ? 'Nothing developed yet. Turn a theme into a note, blog post, canvas or workstream and it moves here.'
                 : 'No dismissed themes.'}
             </p>
           ) : (

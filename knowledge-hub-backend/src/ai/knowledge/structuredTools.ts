@@ -33,7 +33,7 @@ const INTERVAL_SCHEMA = {
 } as const;
 
 const TASK_FILTER_PROPERTIES = {
-  projectIds: { type: 'array', items: { type: 'string' }, description: 'Only these project ids.' },
+  projectIds: { type: 'array', items: { type: 'string' }, description: 'Only these workstream ids.' },
   statuses: { type: 'array', items: { type: 'string' }, description: 'Only these task statuses.' },
   includeArchived: { type: 'boolean', description: 'Include archived tasks (default false).' },
   includeCompleted: { type: 'boolean', description: 'Set false to leave out completed tasks.' },

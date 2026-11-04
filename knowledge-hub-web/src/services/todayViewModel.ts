@@ -307,7 +307,7 @@ export function buildTodayModel(data: TodayInputs, now: Date, since: string): To
   for (const cluster of data.clusters.filter((c) => c.status === 'active' && c.sparkCount >= MIN_THEME_SIZE)) exploration.push({
     id: `cluster:${cluster.id}`, title: cluster.theme, type: 'Spark theme',
     reason: cluster.surfaced
-      ? `${cluster.sparkCount} related sparks are ready to develop into a note, blog post, canvas or project.`
+      ? `${cluster.sparkCount} related sparks are ready to develop into a note, blog post, canvas or workstream.`
       : `${cluster.sparkCount} related sparks — ${cluster.lastGrownAt ? 'this theme has grown' : 'a new theme'} since you last looked.`,
     tone: 'normal', date: cluster.lastGrownAt ?? cluster.updatedAt, href: '/think?view=sparks', action: 'Open in Sparks',
     score: Math.min(cluster.sparkCount, 10) + (cluster.surfaced ? 0 : 5), source: 'Sparks', clusterId: cluster.id,

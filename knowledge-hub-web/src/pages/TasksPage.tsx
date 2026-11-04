@@ -881,9 +881,9 @@ export const TaskEditor: React.FC<TaskEditorProps & { inline?: boolean }> = ({
 
         {/* Project + Status — side by side */}
         <div className="kb-modal-form__row">
-          <Select id="t-project" labelText="Project" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+          <Select id="t-project" labelText="Workstream" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
             {projectId !== '' && !projects.some(project => project.id === projectId)
-              && <SelectItem value={projectId} text={`Unavailable project: ${projectId}`} />}
+              && <SelectItem value={projectId} text={`Unavailable workstream: ${projectId}`} />}
             <ProjectOptions projects={projects} selected={projectId} />
           </Select>
           <Select id="t-status" labelText="Status" value={status} onChange={(e) => setStatus(e.target.value as TaskStatus)}>
@@ -1258,7 +1258,7 @@ export const TasksPage: React.FC<{
       {selectedTaskId ? <ReviewWorkspace storageKey="plan-task" label="Plan tasks"
         context={{ type: 'task', id: selectedTaskId, title: selectedTask?.title ?? 'Task',
           ...(selectedTask?.projectId ? { projectId: selectedTask.projectId } : {}),
-          detail: `${JSON.stringify(selectedTask)}\nVisible ${view} task groups, with the same project/tag and completed-task filters as the normal Plan view:\n${JSON.stringify({
+          detail: `${JSON.stringify(selectedTask)}\nVisible ${view} task groups, with the same workstream/tag and completed-task filters as the normal Plan view:\n${JSON.stringify({
             filterProject, filterTag, showOlderDone,
             groups: reviewFocusGroups
               ? [{ label: 'Inbox', ids: inboxTasks.map(task => task.id) }, ...FOCUS_GROUPS.map(group => ({

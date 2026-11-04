@@ -401,11 +401,11 @@ export async function updateCanvas(
   if (patch.usedInProjectIds !== undefined) {
     if (!Array.isArray(patch.usedInProjectIds) || patch.usedInProjectIds.length > 50
       || patch.usedInProjectIds.some(value => typeof value !== 'string' || value.trim() === '')) {
-      throw new ValidationError('Used in must be a list of up to 50 projects');
+      throw new ValidationError('Used in must be a list of up to 50 workstreams');
     }
     const ids = [...new Set(patch.usedInProjectIds.map(value => value.trim()))];
     const found = await db.query('SELECT id FROM projects WHERE id = ANY($1::text[])', [ids]);
-    if (found.rows.length !== ids.length) throw new ValidationError('One or more selected projects no longer exist');
+    if (found.rows.length !== ids.length) throw new ValidationError('One or more selected workstreams no longer exist');
     patch = { ...patch, usedInProjectIds: ids };
   }
   const sets: string[] = ['updated_at = NOW()'];

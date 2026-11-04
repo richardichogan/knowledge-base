@@ -9,7 +9,7 @@ import type { SavedMemory } from '../../types';
 function scopeLabel(m: SavedMemory): string {
   if (m.scopeType === 'output') return `when producing ${m.scopeValue ?? 'that output'}`;
   if (m.scopeType === 'persona') return `${m.scopeValue ?? ''} persona`;
-  if (m.scopeType === 'project') return `project ${m.scopeValue ?? ''}`;
+  if (m.scopeType === 'project') return `workstream ${m.scopeValue ?? ''}`;
   return 'everywhere';
 }
 

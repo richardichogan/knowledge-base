@@ -5,13 +5,13 @@ import type { SettingsView } from '../navigation/settings';
 
 const Memory = deferredView('Memory', async () => ({ default: (await import('../pages/MemoryPage')).MemoryPage }));
 const Connections = deferredView('Connections and sync', async () => ({ default: (await import('../pages/TimelinePage')).TimelinePage }));
-const RepoMappings = deferredView('Repo project mappings', async () => ({ default: (await import('../pages/RepoProjectMappingsPage')).RepoProjectMappingsPage }));
+const RepoMappings = deferredView('Repo workstream mappings', async () => ({ default: (await import('../pages/RepoProjectMappingsPage')).RepoProjectMappingsPage }));
 const Jobs = deferredView('Jobs', async () => ({ default: (await import('../pages/JobsPage')).JobsPage }));
 const Learning = deferredView('Quick learning', async () => ({ default: (await import('../pages/LearningPage')).LearningPage }));
 const Publishing = deferredView('Publishing', async () => ({ default: (await import('./discover/DiscoverPublishing')).DiscoverPublishing }));
 
 const TITLES: Record<SettingsView, string> = {
-  memory: 'Memory', sync: 'Connections and sync', 'repo-projects': 'Repo project mappings', jobs: 'Jobs', learning: 'Quick learning', publishing: 'Publishing',
+  memory: 'Memory', sync: 'Connections and sync', 'repo-projects': 'Repo workstream mappings', jobs: 'Jobs', learning: 'Quick learning', publishing: 'Publishing',
 };
 
 export function SettingsDialog({ view, onClose }: { view: SettingsView; onClose: () => void }): React.ReactElement {
