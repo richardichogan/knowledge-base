@@ -27,6 +27,10 @@
 - Evidence: browser-visuals-web-tests.log and browser-visuals-web-build.log
   in this session's files. Physical Desktop/Prompter interaction remains for
   the user's testing; no local browser was launched.
+- Released 00c31fc1 to branch/main and deployed the existing production SWA:
+  https://nice-mud-0f780fb03.7.azurestaticapps.net.
+  Served HTML references index-D-nYcs4h.js; the entrypoint returns HTTP 200
+  and its SHA-256 matches the local production build exactly.
 
 **Checkpointed Daily Insights recovery release (2026-11-05):**
 - All validation checks pass:
