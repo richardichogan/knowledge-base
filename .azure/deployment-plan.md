@@ -2,6 +2,37 @@
 
 **Status:** Validated
 
+**Checkpointed Daily Insights recovery release (2026-11-05):**
+- All validation checks pass:
+  - [x] 1. Core validation: main synced; backend/frontend `npx tsc --noEmit`;
+    affected isolated intake, model-control and worker tests; backend lint.
+  - [x] 2. Docker build: backend production compilation succeeds; unchanged
+    Dockerfile and package-lock.json; startup migration 144 is copied into the image.
+  - [x] 3. Azure Policy validation: image-only update to existing ACA; no
+    infrastructure, networking, model, role or policy changes.
+- Deploy backend v306. Frontend and Desktop are unchanged; retain v305's
+  successful unaffected release validation instead of repeating those suites.
+
+**Section 7: Validation Proof — checkpointed Daily Insights (2026-11-05):**
+- Main is already current after fetch/merge. Shared packed-refs maintenance
+  lock warnings remain untouched.
+- Backend/frontend `npx tsc --noEmit` pass. Backend `npm run build` and
+  `npm run lint:check` pass (543 existing violations; baseline 623).
+- Intake tests: 31/31 pass, covering stage timeout retries, cancellation,
+  durable PostgreSQL-compatible JSONB checkpoints, resume, changed-source
+  invalidation, complete long-history comparisons and atomic saves.
+  Initial unknown-match fixture had no saved history, so no comparison ran;
+  seeded existing work and reran only the affected intake file.
+- Shared model-control and worker tests: 35/35 pass. Unchanged frontend,
+  Desktop and unrelated backend validation reuse the successful v305 release.
+- Dockerfile copies src/db/migrations/*.sql to dist/db/migrations, including
+  idempotent migration 144. Lockfile and container dependencies unchanged.
+- Existing target currently serves kh-prod-api:v305. Advance only its image
+  to v306; no provisioning or RBAC/template changes need validation.
+- Evidence: daily-intake-stages-tests.log and daily-intake-model-tests.log
+  in this session's files. Production recovery is performed only after the
+  new revision is healthy and its checkpoint migration has completed.
+
 **Teleprompter sentence/section breaks and Desktop 0.1.15 release (2026-11-05):**
 - All validation checks pass:
   - [x] 1. Core validation: sync main; frontend/backend/Desktop type checks,

@@ -2,7 +2,7 @@ import { registerSpecialist } from '../registry.js';
 import { NotFoundError, ValidationError } from '../../types/errors.js';
 import { captureDailyInsights } from '../../services/dailyInsights.js';
 import {
-  dailyInsightsImportSpecialist, deleteStagedDailyInsightsImport, getStagedDailyInsightsImport, parseDailyInsightsImportInput,
+  dailyInsightsImportSpecialist, dailyInsightsStageStore, deleteStagedDailyInsightsImport, getStagedDailyInsightsImport, parseDailyInsightsImportInput,
   resolveDailyInsightsImport,
 } from '../../services/dailyInsightsImport.js';
 import { extractDailyInsights } from '../../services/dailyInsightsExtraction.js';
@@ -23,7 +23,8 @@ registerSpecialist({
     context.progress(`Reviewing the ${staged.date} briefing for high-confidence actions and supported diary entries.`);
     const result = await captureDailyInsights(context.db, staged.filename, staged.report, staged.sourcePath,
       staged.sourceModifiedAt.toISOString(), async (filename, report, _signal, existingTasks) =>
-        extractDailyInsights(filename, report, context.signal, existingTasks));
+        extractDailyInsights(filename, report, context.signal, existingTasks, context.progress,
+          dailyInsightsStageStore(context.db, staged.id)));
     context.signal.throwIfAborted();
     await deleteStagedDailyInsightsImport(context.db, staged.id);
     const taskCount = result.tasksCreated + result.tasksUpdated;

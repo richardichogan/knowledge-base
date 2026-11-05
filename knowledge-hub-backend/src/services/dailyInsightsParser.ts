@@ -18,6 +18,7 @@ export interface DailyTask {
   source: string;
   existingTaskId?: string;
   duplicateReason?: string;
+  evidence?: string;
 }
 export interface ExistingDailyTask {
   id: string;

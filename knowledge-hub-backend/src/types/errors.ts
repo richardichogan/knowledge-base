@@ -80,6 +80,14 @@ export class AiOutputLimitError extends AiError {
     super('Structured response reached its output token limit.');
     this.name = 'AiOutputLimitError';
   }
+
+}
+
+export class AiTimeoutError extends AiError {
+  public constructor(detail: string) {
+    super(detail);
+    this.name = 'AiTimeoutError';
+  }
 }
 
 export class WriteActionNotConfirmedError extends KnowledgeHubError {

@@ -4,6 +4,7 @@ import { ConflictError, NotFoundError, ValidationError } from '../types/errors.j
 import { dailyReportDate } from './dailyInsightsExtraction.js';
 import { digest } from './dailyInsightsParser.js';
 import type { DailyInsightsResult } from './dailyInsights.js';
+import type { DailyInsightsStageStore } from './dailyInsightsStages.js';
 
 const MAX_REPORT_CHARS = 250_000;
 const MAX_SOURCE_PATH_CHARS = 2_048;
@@ -100,6 +101,23 @@ export async function getStagedDailyInsightsImport(db: Pool, id: string): Promis
 
 export async function deleteStagedDailyInsightsImport(db: Pool, id: string): Promise<void> {
   await db.query('DELETE FROM daily_insights_import_staging WHERE id=$1', [id]);
+}
+
+export function dailyInsightsStageStore(db: Pool, id: string): DailyInsightsStageStore {
+  return {
+    async read(key): Promise<unknown> {
+      const result = await db.query<{ value: unknown }>(
+        'SELECT extraction_stages->$2 AS value FROM daily_insights_import_staging WHERE id=$1', [id, key]);
+      if (!result.rows.length) throw new NotFoundError('Daily Insights import');
+      return result.rows[0]?.value ?? undefined;
+    },
+    async write(key, value): Promise<void> {
+      const result = await db.query(`UPDATE daily_insights_import_staging
+        SET extraction_stages=jsonb_set(extraction_stages,ARRAY[$2]::text[],$3::jsonb) WHERE id=$1 RETURNING id`,
+      [id, key, JSON.stringify(value)]);
+      if (!result.rows.length) throw new NotFoundError('Daily Insights import');
+    },
+  };
 }
 
 export async function resolveDailyInsightsImport(db: Pool, id: string): Promise<{ id: string; title: string; url: string }> {

@@ -4,10 +4,12 @@ import { test } from 'node:test';
 import type { Pool } from 'pg';
 import { PGlite } from '@electric-sql/pglite';
 import { captureDailyInsights as captureReport } from '../src/services/dailyInsights.js';
-import { londonTime, parseDailyInsights } from '../src/services/dailyInsightsParser.js';
+import { londonTime, parseDailyInsights, type ExistingDailyTask } from '../src/services/dailyInsightsParser.js';
 import { extractDailyInsights, validateDailyExtraction } from '../src/services/dailyInsightsExtraction.js';
 import { FoundryClient } from '../src/ai/foundryClient.js';
-import { AiOutputLimitError } from '../src/types/errors.js';
+import { AiError, AiOutputLimitError, AiTimeoutError } from '../src/types/errors.js';
+import { dailyInsightsStage, reviewDailyTaskDuplicates, type DailyInsightsStageStore } from '../src/services/dailyInsightsStages.js';
+import { dailyInsightsStageStore } from '../src/services/dailyInsightsImport.js';
 
 const filename = 'Daily-Briefing-2026-10-20.md';
 const captureDailyInsights = (pool: Pool, name: string, text: string, path: string, modified?: string) =>
@@ -153,11 +155,27 @@ function extraction() {
   };
 }
 
+function stageResponse(messages: { content: string }[], value = extraction()): string {
+  const stage = /^Stage: (\w+)/.exec(messages[0]?.content ?? '')?.[1];
+  if (!stage) {
+    const content = messages[1]?.content ?? '';
+    const candidates = JSON.parse(content.split('Candidates:\n')[1]!.split('\nSaved task history batch:')[0]!) as Array<{ key: string }>;
+    const match = value.tasks[0];
+    return JSON.stringify({ decisions: candidates.map(candidate => ({ key: candidate.key, confidence: 'high',
+      existingTaskId: match?.existingTaskId ?? null, duplicateReason: match?.duplicateReason ?? null })) });
+  }
+  return JSON.stringify({ ...value,
+    tasks: stage === 'actions' ? value.tasks.map(task => ({ ...task, existingTaskId: null, duplicateReason: null })) : [],
+    meetings: stage === 'diary' ? value.meetings : [],
+    knowledgeStartLine: stage === 'knowledge' ? value.knowledgeStartLine : null,
+    knowledgeEndLine: stage === 'knowledge' ? value.knowledgeEndLine : null });
+}
+
 test('AI extraction handles semantic prose without Markdown contracts and retains grounded identities', async context => {
   context.mock.method(FoundryClient.prototype, 'chatBulk', async (messages: { content: string }[]) => {
     assert.match(messages[0]?.content ?? '', /untrusted data/);
     assert.ok(messages[1]?.content.includes(`4: ${semanticTask}`));
-    return JSON.stringify(extraction());
+    return stageResponse(messages);
   });
   const parsed = await extractDailyInsights(filename, semanticReport);
   assert.equal(parsed.tasks.length, 1);
@@ -171,7 +189,164 @@ test('AI extraction handles semantic prose without Markdown contracts and retain
 test('Metis passes the complete saved task history into its cancellation-aware extraction', () => {
   const specialist = readFileSync(new URL('../src/agents/specialists/metis.ts', import.meta.url), 'utf8');
   assert.match(specialist, /async \(filename, report, _signal, existingTasks\)/);
-  assert.match(specialist, /extractDailyInsights\(filename, report, context\.signal, existingTasks\)/);
+  assert.match(specialist, /extractDailyInsights\(filename, report, context\.signal, existingTasks,/);
+});
+
+test('a timed-out stage gets one full five-minute retry with unchanged input', async context => {
+  let now = 0;
+  let calls = 0;
+  let retries = 0;
+  let original = '';
+  context.mock.method(Date, 'now', () => now);
+  context.mock.method(FoundryClient.prototype, 'chatBulk', async (messages: unknown, _tokens: number, timeout: number) => {
+    calls++;
+    assert.equal(timeout, 300_000);
+    const payload = JSON.stringify(messages);
+    if (calls === 1) {
+      original = payload;
+      now = 300_000;
+      throw new AiTimeoutError('Bulk request timed out after 300000ms');
+    }
+    assert.equal(payload, original);
+    return '{}';
+  });
+  await dailyInsightsStage('Briefing actions', [{ role: 'user', content: semanticReport }],
+    { name: 'test', schema: { type: 'object' } }, 1000, value => value, undefined,
+    message => { if (message.includes('timed out')) retries++; });
+  assert.equal(calls, 2);
+  assert.equal(retries, 1);
+});
+
+test('two AI timeouts fail explicitly without any partial Daily Insights writes', async context => {
+  const { db, pool } = await fixture();
+  let calls = 0;
+  context.mock.method(FoundryClient.prototype, 'chatBulk', async () => {
+    calls++;
+    throw new AiTimeoutError('Bulk request timed out after 300000ms');
+  });
+  try {
+    await assert.rejects(captureReport(pool, filename, semanticReport, 'fixture'), AiTimeoutError);
+    assert.equal(calls, 2);
+    for (const table of ['tasks', 'content_items', 'daily_insights_reports']) {
+      assert.equal((await db.query(`SELECT * FROM ${table}`)).rows.length, 0);
+    }
+  } finally { await db.close(); }
+});
+
+test('cancellation and non-timeout provider errors never trigger an automatic retry', async context => {
+  const stopped = new Error('Specialist cancelled');
+  const controller = new AbortController();
+  let calls = 0;
+  let retries = 0;
+  const mock = context.mock.method(FoundryClient.prototype, 'chatBulk', async () => {
+    calls++;
+    controller.abort(stopped);
+    throw new AiTimeoutError('Bulk request timed out after 300000ms');
+  });
+  await assert.rejects(extractDailyInsights(filename, semanticReport, controller.signal, [],
+    message => { if (message.includes('timed out')) retries++; }), error => error === stopped);
+  assert.equal(calls, 1);
+  assert.equal(retries, 0);
+  mock.mock.mockImplementation(async () => {
+    calls++;
+    throw new AiError('403 Forbidden');
+  });
+  await assert.rejects(extractDailyInsights(filename, semanticReport), /403 Forbidden/);
+  assert.equal(calls, 2);
+});
+
+test('bulk transport timeouts are typed so extraction can retry without matching error text', async context => {
+  context.mock.method(globalThis, 'fetch', async () => {
+    throw new DOMException('Deadline reached', 'TimeoutError');
+  });
+  await assert.rejects(new FoundryClient('daily-insights-test').chatBulk([
+    { role: 'user', content: 'fixture' },
+  ], 1000, 1000), AiTimeoutError);
+});
+
+test('a failed stage preserves completed checkpoints and an explicit retry resumes without partial domain writes', async context => {
+  const { db, pool } = await fixture();
+  const saved = new Map<string, unknown>();
+  const store: DailyInsightsStageStore = {
+    read: async key => saved.get(key),
+    write: async (key, value) => { saved.set(key, value); },
+  };
+  const calls: string[] = [];
+  let failDiary = true;
+  context.mock.method(FoundryClient.prototype, 'chatBulk', async (messages: { content: string }[]) => {
+    const stage = /^Stage: (\w+)/.exec(messages[0]?.content ?? '')?.[1] ?? 'duplicates';
+    calls.push(stage);
+    if (stage === 'diary' && failDiary) throw new AiTimeoutError('Bulk request timed out after 300000ms');
+    return stageResponse(messages);
+  });
+  const extract = (file: string, text: string, signal?: AbortSignal, history: readonly ExistingDailyTask[] = []) =>
+    extractDailyInsights(file, text, signal, history, undefined, store);
+  try {
+    await assert.rejects(captureReport(pool, filename, semanticReport, 'fixture', undefined, extract), AiTimeoutError);
+    assert.equal(saved.size, 1);
+    assert.equal((await db.query('SELECT * FROM tasks')).rows.length, 0);
+    assert.equal((await db.query('SELECT * FROM content_items')).rows.length, 0);
+    assert.equal((await db.query('SELECT * FROM daily_insights_reports')).rows.length, 0);
+    failDiary = false;
+    const result = await captureReport(pool, filename, semanticReport, 'fixture', undefined, extract);
+    assert.equal(result.tasksCreated, 1);
+    assert.deepEqual(calls, ['actions', 'diary', 'diary', 'diary', 'knowledge']);
+    assert.equal(saved.size, 3);
+    const changed = `${semanticReport}\nUpdated context.`;
+    await extractDailyInsights(filename, changed, undefined, [], undefined, store);
+    assert.equal(calls.filter(stage => stage === 'actions').length, 2);
+  } finally { await db.close(); }
+});
+
+test('bounded duplicate stages review every character of long saved bodies and retain completed comparisons on retry', async context => {
+  const tasks = validateDailyExtraction(filename, semanticReport, extraction()).tasks;
+  const body = 'Saved task context. '.repeat(1800);
+  const history = [{ id: 'older', title: 'Other work', body, status: 'completed',
+    archived: true, project_id: null, due_date: null }];
+  const saved = new Map<string, unknown>();
+  const store: DailyInsightsStageStore = { read: async key => saved.get(key),
+    write: async (key, value) => { saved.set(key, value); } };
+  let failSecond = true;
+  const seenBodies: string[] = [];
+  context.mock.method(FoundryClient.prototype, 'chatBulk', async (messages: { content: string }[]) => {
+    const batch = JSON.parse(messages[1]!.content.split('\nSaved task history batch:\n')[1]!) as typeof history;
+    assert.ok(JSON.stringify(batch).length <= 16_000);
+    assert.equal(batch[0]?.archived, true);
+    assert.equal(batch[0]?.status, 'completed');
+    if (messages[0] && seenBodies.length === 1 && failSecond) {
+      throw new AiTimeoutError('Bulk request timed out after 300000ms');
+    }
+    seenBodies.push(batch.map(task => task.body).join(''));
+    return stageResponse(messages);
+  });
+  await assert.rejects(reviewDailyTaskDuplicates(tasks, history, undefined, undefined, store), AiTimeoutError);
+  assert.equal(saved.size, 1);
+  failSecond = false;
+  const result = await reviewDailyTaskDuplicates(tasks, history, undefined, undefined, store);
+  assert.equal(result.tasks.length, 1);
+  assert.equal(seenBodies.join(''), body);
+});
+
+test('stage checkpoints persist in the retained import and disappear only when that import is removed', async () => {
+  const db = new PGlite();
+  try {
+    await db.exec(readFileSync(new URL('../src/db/migrations/139_daily_insights_import_staging.sql', import.meta.url), 'utf8'));
+    const migration = readFileSync(new URL('../src/db/migrations/144_daily_insights_stage_checkpoints.sql', import.meta.url), 'utf8');
+    await db.exec(migration);
+    await db.exec(migration);
+    const row = (await db.query<{ id: string }>(`INSERT INTO daily_insights_import_staging
+      (report_date,content_hash,filename,source_path,report_text,source_modified_at)
+      VALUES ('2026-10-20','fixture','Daily-Briefing-2026-10-20.md','fixture','source',NOW()) RETURNING id`)).rows[0]!;
+    const pool = { query: (sql: string, params?: unknown[]) => db.query(sql, params) } as unknown as Pool;
+    const store = dailyInsightsStageStore(pool, row.id);
+    assert.equal(await store.read('first'), undefined);
+    await store.write('first', { tasks: ['completed'] });
+    await store.write('second', { meetings: ['completed'] });
+    assert.deepEqual(await dailyInsightsStageStore(pool, row.id).read('first'), { tasks: ['completed'] });
+    assert.deepEqual(await store.read('second'), { meetings: ['completed'] });
+    await db.query('DELETE FROM daily_insights_import_staging WHERE id=$1', [row.id]);
+    await assert.rejects(store.read('first'), /not found/);
+  } finally { await db.close(); }
 });
 
 test('invalid source references request one AI correction before saving', async context => {
@@ -179,14 +354,14 @@ test('invalid source references request one AI correction before saving', async 
   let extractions = 0;
   context.mock.method(FoundryClient.prototype, 'chatBulk', async (messages: { content: string }[]) => {
     extractions++;
-    if (extractions === 1) return JSON.stringify({ ...extraction(), tasks: [{ ...extraction().tasks[0], evidenceLines: [999] }] });
-    assert.match(messages.at(-1)?.content ?? '', /invalid source line/);
-    return JSON.stringify(extraction());
+    if (extractions === 1) return stageResponse(messages, { ...extraction(), tasks: [{ ...extraction().tasks[0]!, evidenceLines: [999] }] });
+    if (extractions === 2) assert.match(messages.at(-1)?.content ?? '', /invalid source line/);
+    return stageResponse(messages);
   });
   try {
     const result = await captureReport(pool, filename, semanticReport, 'fixture');
     assert.equal(result.tasksCreated, 1);
-    assert.equal(extractions, 2);
+    assert.equal(extractions, 4);
   } finally { await db.close(); }
 });
 
@@ -390,13 +565,14 @@ test('semantic duplicate review includes every column, completed work and reject
         const before = (await db.query('SELECT * FROM tasks')).rows;
         const mock = context.mock.method(FoundryClient.prototype, 'chatBulk', async (messages: { content: string }[]) => {
           const prompt = messages.map(message => message.content).join('\n');
+          if (prompt.startsWith('Stage:')) return stageResponse(messages);
           assert.ok(prompt.includes(JSON.stringify(status)));
           assert.ok(prompt.includes(`"archived":${archived}`));
           assert.match(prompt, /Email from Joel: draft review/);
           assert.match(prompt, /ALL columns\/statuses/);
           assert.match(prompt, /genuinely different follow-up/);
-          return JSON.stringify({ ...extraction(), tasks: [{
-            ...extraction().tasks[0], existingTaskId: id,
+          return stageResponse(messages, { ...extraction(), tasks: [{
+            ...extraction().tasks[0]!, existingTaskId: id,
             duplicateReason: 'Same review of the draft requested by Joel; only the title and project label changed.',
           }] });
         });
@@ -420,7 +596,7 @@ test('duplicate review retains genuinely different follow-up actions on the same
   try {
     await db.exec(`INSERT INTO tasks(id,title,body,status,archived)
       VALUES ('prior','Send Joel the draft','Email from Joel','completed',true)`);
-    context.mock.method(FoundryClient.prototype, 'chatBulk', async () => JSON.stringify(extraction()));
+    context.mock.method(FoundryClient.prototype, 'chatBulk', async (messages: { content: string }[]) => stageResponse(messages));
     const result = await captureReport(pool, filename, semanticReport, 'fixture');
     assert.equal(result.tasksCreated, 1);
     assert.equal((await db.query('SELECT * FROM tasks')).rows.length, 2);
@@ -430,12 +606,13 @@ test('duplicate review retains genuinely different follow-up actions on the same
 
 test('unknown semantic matches fail explicitly and never suppress or create work', async context => {
   const { db, pool } = await fixture();
-  context.mock.method(FoundryClient.prototype, 'chatBulk', async () => JSON.stringify({
-    ...extraction(), tasks: [{ ...extraction().tasks[0], existingTaskId: 'invented-id', duplicateReason: 'Unverified match' }],
+  context.mock.method(FoundryClient.prototype, 'chatBulk', async (messages: { content: string }[]) => stageResponse(messages, {
+    ...extraction(), tasks: [{ ...extraction().tasks[0]!, existingTaskId: 'invented-id', duplicateReason: 'Unverified match' }],
   }));
   try {
+    await db.exec("INSERT INTO tasks(id,title,status) VALUES ('prior','A saved action','completed')");
     await assert.rejects(captureReport(pool, filename, semanticReport, 'fixture'), /unknown saved task/);
-    assert.equal((await db.query('SELECT * FROM tasks')).rows.length, 0);
+    assert.equal((await db.query('SELECT * FROM tasks')).rows.length, 1);
     assert.equal((await db.query('SELECT * FROM daily_insights_reports')).rows.length, 0);
   } finally { await db.close(); }
 });

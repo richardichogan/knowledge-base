@@ -578,6 +578,17 @@ file is late, ingestion waits until the next scheduled occurrence, then records
 the old one as missed. Library file indexing continues separately. The initial
 Daily Insights job is a paused draft until its device, folder and desired
 schedule are confirmed; existing legacy capture continues until this transition.
+Metis reads the complete staged briefing in separate action, diary and learning
+stages, then compares grounded actions with every saved task in bounded batches.
+Long saved task bodies span batches without truncation; completed, rejected and
+archived work remains part of duplicate review. Each stage is checkpointed in the
+retained import after validation and has up to two five-minute attempts. A timeout
+retries only that stage, reported in job progress. An explicit retry resumes valid
+checkpoints; changed inputs invalidate affected stages. Cancellation and other
+provider failures do not retry. Evidence validation and the final atomic
+task/diary/knowledge save still apply, including the task-history conflict check.
+Successful imports remove their staging record and checkpoints; terminal failures
+retain them for recovery.
 Markdown output files use `athena-<run-id>.md` and never overwrite user edits.
 
 Run history records per-step outcomes, source evidence, artifacts, publishing

@@ -1,5 +1,5 @@
 import { env } from '../config/env.js';
-import { AiError, AiOutputLimitError, ConfigurationError, KnowledgeHubError, ValidationError } from '../types/errors.js';
+import { AiError, AiOutputLimitError, AiTimeoutError, ConfigurationError, KnowledgeHubError, ValidationError } from '../types/errors.js';
 import {
   AI_DEFAULT_MAX_TOKENS,
   AI_REQUEST_TIMEOUT_MS,
@@ -312,8 +312,8 @@ export class FoundryClient {
       const isTimeout = signal.aborted || err instanceof Error && err.name === 'TimeoutError'
         || code === 'UND_ERR_HEADERS_TIMEOUT' || code === 'UND_ERR_BODY_TIMEOUT';
       const failure = callerSignal?.aborted ? stoppedReason(callerSignal) : budget?.signal.aborted ? stoppedReason(budget.signal) : err instanceof KnowledgeHubError ? err
-        : new AiError(isTimeout ? `Bulk request timed out after ${timeoutMs.toString()}ms${code ? ` (${code})` : ''}`
-        : `Bulk request failed: ${err instanceof Error ? err.message : String(err)}${code ? ` (${code})` : ''}`);
+        : isTimeout ? new AiTimeoutError(`Bulk request timed out after ${timeoutMs.toString()}ms${code ? ` (${code})` : ''}`)
+        : new AiError(`Bulk request failed: ${err instanceof Error ? err.message : String(err)}${code ? ` (${code})` : ''}`);
       this.logCall('bulk', deployment, 'chat', startedAt, usage, failure);
       throw failure;
     } finally { await budget?.finish(usage); }
@@ -611,11 +611,9 @@ export class FoundryClient {
       // entirely and only showed up in logs as "[Unhandled error]" with no
       // indication it was an AI timeout.
       const isTimeout = err instanceof Error && err.name === 'TimeoutError';
-      throw new AiError(
-        isTimeout
-          ? `Request to ${model} timed out after ${timeoutMs}ms`
-          : `Request to ${model} failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      throw isTimeout
+        ? new AiTimeoutError(`Request to ${model} timed out after ${timeoutMs}ms`)
+        : new AiError(`Request to ${model} failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     if (!response.ok) {
@@ -665,11 +663,9 @@ export class FoundryClient {
       });
     } catch (err) {
       const isTimeout = err instanceof Error && err.name === 'TimeoutError';
-      throw new AiError(
-        isTimeout
-          ? `Request to ${model} timed out after ${timeoutMs}ms`
-          : `Request to ${model} failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      throw isTimeout
+        ? new AiTimeoutError(`Request to ${model} timed out after ${timeoutMs}ms`)
+        : new AiError(`Request to ${model} failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     if (!response.ok) {
       const text = await response.text();
