@@ -9,6 +9,12 @@ interface PresentationOptions {
   resolveMention?: (mention: unknown) => string;
 }
 
+export function requiresVisualMotion(scenes: PresentationVisualScene[]): boolean {
+  return scenes.some(scene => scene.presenterLayout
+    || scene.composition?.nodes.some(node => node.entrance || node.emphasis)
+    || scene.composition?.links.some(link => link.motion || link.route));
+}
+
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }

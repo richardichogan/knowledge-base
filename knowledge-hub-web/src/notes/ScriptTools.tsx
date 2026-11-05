@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Tooltip } from '@carbon/react';
-import { Add, Erase, Launch, MagicWand, Pause, Renew, TextColor, Time } from '@carbon/icons-react';
+import { Add, Erase, Launch, MagicWand, Pause, PresentationFile, Renew, StopFilled, TextColor, Time, UserAvatar } from '@carbon/icons-react';
 import type { BlockNoteEditor } from '@blocknote/core';
 import type { editorSchema } from './editorSchema';
 import { SCRIPT_COLOURS } from '../features/podcasts/scriptAnnotations';
@@ -13,6 +13,7 @@ import { applyNoteEdits } from '../utils/noteEditApplier';
 import { runNoteAction } from '../utils/activeBlockNoteEditor';
 import { getDesktop } from '../types/desktop';
 import { scriptBackspace } from './scriptBackspace';
+import { parseScriptVisuals, readSectionVisuals, scriptVisualSource } from '../../../knowledge-hub-backend/src/utils/scriptVisuals';
 
 type Editor = BlockNoteEditor<typeof editorSchema.blockSchema, typeof editorSchema.inlineContentSchema, typeof editorSchema.styleSchema>;
 
@@ -24,7 +25,10 @@ function ScriptToolButton({ title, disabled, ...props }: React.ButtonHTMLAttribu
   </Tooltip>;
 }
 
-export function ScriptTools({ editor, disabled, noteId, save }: { editor: Editor; disabled: boolean; noteId: string; save: () => Promise<boolean> }): React.ReactElement {
+export function ScriptTools({ editor, disabled, noteId, save, onPresent, onStopPresenting }: {
+  editor: Editor; disabled: boolean; noteId: string; save: () => Promise<boolean>;
+  onPresent?: (() => void) | undefined; onStopPresenting?: (() => void) | undefined;
+}): React.ReactElement {
   const [designing, setDesigning] = useState(false);
   const designingRef = React.useRef(false);
   const [selected, setSelected] = useState(false);
@@ -32,6 +36,23 @@ export function ScriptTools({ editor, disabled, noteId, save }: { editor: Editor
   const [blockStyle, setBlockStyle] = useState('0');
   const [canStyle, setCanStyle] = useState(true);
   const [sectionError, setSectionError] = useState<string | null>(null);
+  const [presenterLayout, setPresenterLayout] = useState(false);
+  const [hasVisuals, setHasVisuals] = useState(false);
+  useEffect(() => {
+    const refresh = (): void => {
+      try {
+        const scenes = editor.document.filter(block => block.type === 'heading' && block.props.scriptSection)
+          .flatMap(block => readSectionVisuals(block)?.scenes ?? []);
+        setHasVisuals(scenes.length > 0);
+        setPresenterLayout(scenes.length > 0 && scenes.every(scene => scene.presenterLayout));
+      } catch (error) {
+        setHasVisuals(false);
+        setSectionError(error instanceof Error ? error.message : 'Could not read the visual layout.');
+      }
+    };
+    refresh();
+    return editor.onChange(refresh);
+  }, [editor]);
   useEffect(() => {
     const element = editor._tiptapEditor.view.dom;
     const backspace = (event: KeyboardEvent): void => {
@@ -98,6 +119,35 @@ export function ScriptTools({ editor, disabled, noteId, save }: { editor: Editor
   }, [editor]);
   return <>
   <div className="kh-script-tools kh-script-tools--sticky kh-script-tools--icons" role="group" aria-label="Script block styles, emphasis and delivery cues">
+    <ScriptToolButton type="button" className="kh-btn-ghost" title="Presenter layout: reserve space for your video"
+      aria-label="Presenter layout" aria-pressed={presenterLayout} disabled={disabled || designing || !hasVisuals}
+      onClick={() => {
+        try {
+          const edits = editor.document.flatMap(block => {
+            if (block.type !== 'heading' || !block.props.scriptSection) return [];
+            const visuals = readSectionVisuals(block);
+            if (visuals?.scenes.length) {
+              parseScriptVisuals(visuals, block);
+              if (visuals.source !== scriptVisualSource(block)) throw new Error('Update the stale section visuals before changing the presenter layout.');
+            }
+            return visuals?.scenes.length ? [{
+              action: 'set_script_visuals' as const, sectionId: block.id,
+              expectedVisuals: block.props.scriptVisuals,
+              visuals: { ...visuals, scenes: visuals.scenes.map(scene => ({ ...scene, presenterLayout: !presenterLayout })) },
+              summary: presenterLayout ? 'Use full-frame visuals' : 'Reserve presenter video space',
+            }] : [];
+          });
+          const result = applyNoteEdits(editor, edits, { script: true });
+          if (result.failed.length) throw new Error(result.failed.join('; '));
+          setSectionError(null);
+        } catch (error) {
+          setSectionError(error instanceof Error ? error.message : 'Could not change the visual layout.');
+        }
+      }}><UserAvatar size={18} aria-hidden="true" /></ScriptToolButton>
+    {onPresent && <ScriptToolButton type="button" className="kh-btn-ghost" title="Present" aria-label="Present"
+      disabled={disabled} onClick={onPresent}><PresentationFile size={18} aria-hidden="true" /></ScriptToolButton>}
+    {onStopPresenting && <ScriptToolButton type="button" className="kh-btn-ghost" title="Stop presenting" aria-label="Stop presenting"
+      onClick={onStopPresenting}><StopFilled size={18} aria-hidden="true" /></ScriptToolButton>}
     <ScriptToolButton type="button" className="kh-btn-ghost" title={designing ? 'Ariadne is designing visuals…' : 'Generate visuals'}
       aria-label={designing ? 'Ariadne is designing visuals' : 'Generate visuals'} aria-busy={designing}
       disabled={disabled || designing} onClick={() => {

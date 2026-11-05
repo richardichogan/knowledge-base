@@ -54,7 +54,7 @@ test('visual-only edits preserve the section, rich spoken blocks and unrelated m
     content: [text('Opening')], children: [{ id: 'spoken', type: 'paragraph', content: [text('Explain this idea.', { bold: true })] }] };
   const original = structuredClone(section);
   const visuals = { version: 1 as const, source: scriptVisualSource(section), scenes: [{
-    id: 'scene', template: 'title' as const, title: 'One clear idea', subtitle: '', imageUrl: '', imageAlt: '',
+    id: 'scene', template: 'title' as const, title: 'One clear idea', subtitle: '', imageUrl: '', imageAlt: '', presenterLayout: true,
     cue: { blockId: 'spoken', quote: '' }, items: [],
   }] };
   const { editor, apply } = fixture([section]);
@@ -63,6 +63,7 @@ test('visual-only edits preserve the section, rich spoken blocks and unrelated m
   assert.deepEqual(editor.document[0]?.children, original.children);
   assert.deepEqual(editor.document[0]?.content, original.content);
   assert.equal(editor.document[0]?.props?.['textColor'], 'default');
+  assert.equal(JSON.parse(String(editor.document[0]?.props?.['scriptVisuals'])).scenes[0].presenterLayout, true);
   assert.equal(apply([edit], true).applied, 0);
   const changed = fixture([{ ...section, children: [{ id: 'spoken', type: 'paragraph', content: [text('New wording.')] }] }]);
   assert.equal(changed.apply([edit], true).applied, 0);

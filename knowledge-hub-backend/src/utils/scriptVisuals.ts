@@ -33,6 +33,7 @@ export interface ScriptVisualScene {
   artwork?: VisualArtwork;
   layout?: 'hero' | 'split' | 'diagram';
   composition?: VisualComposition;
+  presenterLayout?: boolean;
 }
 export interface ScriptVisuals { version: 1; source: string; scenes: ScriptVisualScene[] }
 export interface VisualScriptBlock {
@@ -74,9 +75,13 @@ export function parseVisualComposition(value: unknown, reveals: number): VisualC
     const x = number(node.x, CONTENT_AREA.left, CONTENT_AREA.right), y = number(node.y, CONTENT_AREA.top, CONTENT_AREA.lastTop);
     const width = number(node.width, CONTENT_AREA.minSize, CONTENT_AREA.maxWidth), height = number(node.height, CONTENT_AREA.minSize, CONTENT_AREA.maxHeight);
     if (x + width > CONTENT_AREA.right || y + height > CONTENT_AREA.bottom) throw new Error('Composition nodes must stay inside the presentation content area.');
+    if (node.entrance !== undefined && !['fade', 'rise', 'left', 'right', 'scale', 'wipe'].includes(String(node.entrance))) throw new Error('Invalid composition entrance.');
+    if (node.emphasis !== undefined && !['highlight', 'underline', 'strike'].includes(String(node.emphasis))) throw new Error('Invalid composition emphasis.');
     return { id, kind: node.kind as VisualNode['kind'], x, y, width, height,
       label: text(node.label, LIMITS.nodeLabel, 'node label', true), detail: text(node.detail, LIMITS.nodeDetail, 'node detail', true),
-      icon: node.icon as VisualNode['icon'], tone: tone(node.tone), reveal: reveal(node.reveal) };
+      icon: node.icon as VisualNode['icon'], tone: tone(node.tone), reveal: reveal(node.reveal),
+      ...(node.entrance === undefined ? {} : { entrance: node.entrance as NonNullable<VisualNode['entrance']> }),
+      ...(node.emphasis === undefined ? {} : { emphasis: node.emphasis as NonNullable<VisualNode['emphasis']> }) };
   });
   const links = data.links.map((raw): VisualLink => {
     const link = object(raw);
@@ -84,7 +89,11 @@ export function parseVisualComposition(value: unknown, reveals: number): VisualC
     if (!ids.has(from) || !ids.has(to) || from === to || !['solid', 'dashed'].includes(String(link.style))) throw new Error('Invalid composition connection.');
     const at = reveal(link.reveal);
     if (nodes.some(node => (node.id === from || node.id === to) && node.reveal > at)) throw new Error('Connections cannot appear before their endpoints.');
-    return { from, to, label: text(link.label, LIMITS.nodeId, 'connection label', true), tone: tone(link.tone), reveal: at, style: link.style as VisualLink['style'] };
+    if (link.motion !== undefined && !['draw', 'flow'].includes(String(link.motion))) throw new Error('Invalid composition connection motion.');
+    if (link.route !== undefined && !['direct', 'arc'].includes(String(link.route))) throw new Error('Invalid composition connection route.');
+    return { from, to, label: text(link.label, LIMITS.nodeId, 'connection label', true), tone: tone(link.tone), reveal: at, style: link.style as VisualLink['style'],
+      ...(link.motion === undefined ? {} : { motion: link.motion as NonNullable<VisualLink['motion']> }),
+      ...(link.route === undefined ? {} : { route: link.route as NonNullable<VisualLink['route']> }) };
   });
   return { label: text(data.label, LIMITS.sceneLabel, 'scene label', true), imagePrompt: text(data.imagePrompt, LIMITS.imagePrompt, 'image brief', true), nodes, links };
 }
@@ -169,6 +178,7 @@ export function parseScriptVisuals(value: unknown, section?: VisualScriptBlock):
     ids.add(id);
     const imageUrl = text(scene.imageUrl, LIMITS.imageUrl, 'image URL', true);
     if (scene.layout !== undefined && !['hero', 'split', 'diagram'].includes(String(scene.layout))) throw new Error('Invalid visual layout.');
+    if (scene.presenterLayout !== undefined && typeof scene.presenterLayout !== 'boolean') throw new Error('Invalid presenter layout.');
     if (imageUrl && !/^https:\/\//i.test(imageUrl)) throw new Error('Visual images require an HTTPS URL.');
     if (template === 'image' && !imageUrl && !scene.composition) throw new Error('An image scene requires an existing image.');
     return { id, template, title: text(scene.title, LIMITS.title, 'title'), subtitle: text(scene.subtitle, LIMITS.subtitle, 'subtitle', true),
@@ -176,6 +186,7 @@ export function parseScriptVisuals(value: unknown, section?: VisualScriptBlock):
       ...(scene.artwork === undefined ? {} : { artwork: parseVisualArtwork(scene.artwork) }),
       ...(scene.composition === undefined ? {} : { composition: parseVisualComposition(scene.composition, scene.items.length) }),
       ...(scene.layout === undefined ? {} : { layout: scene.layout as NonNullable<ScriptVisualScene['layout']> }),
+      ...(scene.presenterLayout === undefined ? {} : { presenterLayout: scene.presenterLayout }),
       items: scene.items.map(value => {
         const item = object(value);
         return { label: text(item.label, LIMITS.nodeLabel, 'item label'), detail: text(item.detail, LIMITS.itemDetail, 'item detail', true), cue: cue(item.cue) };

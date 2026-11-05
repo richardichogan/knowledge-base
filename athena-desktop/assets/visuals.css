@@ -10,7 +10,14 @@
 * { box-sizing: border-box; }
 body, .visual-root { margin: 0; height: 100vh; overflow: hidden; }
 .visual-root { position: relative; height: 100%; }
-.scene { position: relative; isolation: isolate; height: 100%; width: 100%; padding: 8vh 6vw 13vh; overflow: hidden; text-align: left; }
+.scene { position: relative; isolation: isolate; height: 100%; width: 100%; overflow: hidden; text-align: left; }
+.visual-canvas { position: relative; isolation: isolate; height: 100%; width: 100%; padding: 8vh 6vw 13vh; }
+.scene--composed .visual-canvas { padding: 0; }
+.scene--presenter .visual-canvas { transform: scale(0.68); transform-origin: left center; }
+.presenter-rail { position: absolute; top: 8%; right: 4%; width: 24%; max-height: 43%; overflow: hidden; border-left: 1px solid #525252; padding-left: 2vw; text-align: left; }
+.presenter-rail__chapter { color: var(--visual-blue); font: 400 clamp(10px, 1.25vw, 24px) 'IBM Plex Mono', monospace; line-height: 1.4; overflow-wrap: break-word; }
+.presenter-rail__label { color: #a8a8a8; font-size: clamp(9px, 1vw, 18px); text-transform: uppercase; letter-spacing: 0.1em; margin-top: 3vh; }
+.presenter-rail__key { font-size: clamp(14px, 2.2vw, 40px); font-weight: 400; line-height: 1.25; margin-top: 1.5vh; overflow-wrap: break-word; text-wrap: balance; }
 .scene-content { position: relative; z-index: 1; height: 100%; display: flex; flex-direction: column; justify-content: center; animation: reveal 400ms ease-out; }
 h1, h2, p { margin: 0; text-align: left; }
 h1 { font-size: clamp(20px, 4.4vw, 88px); font-weight: 600; line-height: 1.12; letter-spacing: -0.035em; max-width: 24ch; text-wrap: balance; overflow-wrap: break-word; }
@@ -76,10 +83,25 @@ h1 { font-size: clamp(20px, 4.4vw, 88px); font-weight: 600; line-height: 1.12; l
 .composition-link { stroke: var(--node-tone); fill: none; stroke-width: 2; stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset 600ms cubic-bezier(0.16, 1, 0.3, 1); }
 .composition-visible .composition-link { stroke-dashoffset: 0; }
 .composition-link--dashed .composition-link { stroke-dasharray: 0.04 0.025; }
+.composition-token { fill: var(--node-tone); }
 .composition-arrow { fill: var(--node-tone); }
 .composition-link-label { fill: var(--node-tone); font-size: 32px; font-weight: 500; paint-order: stroke; stroke: #161616; stroke-width: 12px; stroke-linejoin: round; }
 .composition-subject { transform: translateY(10px); transition: opacity 300ms ease-out, transform 450ms cubic-bezier(0.16, 1, 0.3, 1); }
 .composition-subject.composition-visible { transform: none; }
+.composition-entrance--fade { transform: none; }
+.composition-entrance--left { transform: translateX(-36px); }
+.composition-entrance--right { transform: translateX(36px); }
+.composition-entrance--scale { transform: scale(0.92); transform-box: fill-box; transform-origin: center; }
+.composition-entrance--wipe { transform: none; clip-path: inset(0 100% 0 0); transition: opacity 240ms ease-out, clip-path 600ms cubic-bezier(0.2, 0, 0.38, 0.9); }
+.composition-entrance--wipe.composition-visible { clip-path: inset(0); }
+.visual-emphasis { position: relative; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.visual-emphasis--highlight { padding: 0 0.1em; background: linear-gradient(#0f62fe, #0f62fe) left center / 0% 100% no-repeat; transition: background-size 600ms cubic-bezier(0.2, 0, 0.38, 0.9); }
+.composition-visible .visual-emphasis--highlight { background-size: 100% 100%; }
+.visual-emphasis--underline { padding-bottom: 6px; background: linear-gradient(var(--node-tone), var(--node-tone)) left bottom / 0% 4px no-repeat; transition: background-size 600ms cubic-bezier(0.2, 0, 0.38, 0.9); }
+.composition-visible .visual-emphasis--underline { background-size: 100% 4px; }
+.visual-emphasis--strike::after { content: ""; position: absolute; left: 0; right: 0; top: 52%; height: 4px; background: #fa4d56; transform: scaleX(0); transform-origin: left; transition: transform 600ms cubic-bezier(0.2, 0, 0.38, 0.9); }
+.composition-visible .visual-emphasis--strike { color: #a8a8a8; }
+.composition-visible .visual-emphasis--strike::after { transform: scaleX(1); }
 .visual-node { width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 16px; padding: 24px; overflow: hidden; text-align: left; }
 .visual-node--panel { background: #262626; border: 1px solid #525252; }
 .visual-node--text, .visual-node--icon { padding: 8px; }
@@ -93,4 +115,6 @@ h1 { font-size: clamp(20px, 4.4vw, 88px); font-weight: 600; line-height: 1.12; l
 .visual-node--image img { width: 100%; height: 100%; object-fit: cover; }
 @media (prefers-reduced-motion: reduce) {
   .composition-reveal, .composition-link, .composition-subject { transition: none; transform: none; }
+  .visual-emphasis, .visual-emphasis--strike::after, .composition-entrance--wipe { transition: none; }
+  .composition-token { display: none; }
 }

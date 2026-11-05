@@ -5,6 +5,7 @@ import { nextNotesPage } from '../../notes/noteListState';
 import { desktopErrorMessage, getDesktop, type DesktopCommand, type DesktopCommandState } from '../../types/desktop';
 import type { PresentationDisplay } from '../../../../athena-desktop/src/elgatoProtocol';
 import { preparePresentationScript } from './preparePresentationScript';
+import { requiresVisualMotion } from './presentationScript';
 import { authSession } from '../../services/authSession';
 import { api } from '../../services/api';
 import { requireApiData } from '../../services/apiError';
@@ -59,7 +60,8 @@ export function Presenter(): React.JSX.Element {
     && !desktop?.scriptAnnotations;
   const visualScenes = script && 'visuals' in script ? script.visuals : undefined;
   const visualsUnsupported = !!visualScenes?.length && (!desktop?.scriptVisuals
-    || visualScenes.some(scene => scene.composition) && !desktop?.scriptVisualCompositions);
+    || visualScenes.some(scene => scene.composition) && !desktop?.scriptVisualCompositions
+    || requiresVisualMotion(visualScenes) && !desktop?.scriptVisualMotion);
 
   async function action(fn: () => Promise<unknown>, message?: string): Promise<void> {
     if (busyRef.current) return;
@@ -114,6 +116,7 @@ export function Presenter(): React.JSX.Element {
         const visuals = 'visuals' in script ? script.visuals : undefined;
         if (visuals?.length && !desktop.scriptVisuals) throw new Error('Update Athena Desktop to present synchronised browser visuals.');
         if (visuals?.some(scene => scene.composition) && !desktop.scriptVisualCompositions) throw new Error('Update Athena Desktop to present layered visuals. Web preview remains available.');
+        if (visuals && requiresVisualMotion(visuals) && !desktop.scriptVisualMotion) throw new Error('Update Athena Desktop to present the new visual animations and presenter layout. Web preview remains available.');
         await desktop.start({ noteId: selected.id, title: selected.title, text: script.text, runs: script.runs, ...(visuals ? { visuals } : {}), displayId: Number(displayId) });
       }
       await desktop.command({ id: crypto.randomUUID(), command: 'play', issuedAt: Date.now() });

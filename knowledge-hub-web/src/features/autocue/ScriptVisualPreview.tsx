@@ -68,11 +68,13 @@ export function ScriptVisualPreview({ section, ask, proposed = false, presentati
         if (playing) setPlaying(false);
         else { setStep(0); setPlaying(true); }
       }}>{playing ? 'Pause preview' : 'Play preview'}</button>}
+      {plan && <span>{current?.scene.presenterLayout ? 'Presenter layout' : 'Full frame'}</span>}
       <button type="button" onClick={() => { ask(current?.scene.id); }}>Ask Athena to {raw ? 'update' : 'create'}</button>
     </div>
     {error ? <p role="alert">{error}</p> : plan
       ? <><div ref={frame} className="kh-script-visuals__stage" role="img" aria-label={[
           current?.scene.title, current?.scene.subtitle, current?.scene.artwork?.description, current?.scene.imageAlt,
+          current?.scene.presenterLayout ? 'Presenter layout: video space reserved at lower right' : '',
           ...(current?.scene.composition
             ? current.scene.composition.nodes.filter(node => node.reveal <= current.revealed).map(node => [node.label, node.detail].filter(Boolean).join(': '))
             : current?.scene.items.slice(0, current.revealed).map(item => [item.label, item.detail].filter(Boolean).join(': ')) ?? []),

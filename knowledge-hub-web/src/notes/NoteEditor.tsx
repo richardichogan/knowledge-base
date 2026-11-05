@@ -5,7 +5,6 @@
 
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
-import { IconButton } from '@carbon/react';
 import { useCreateBlockNote } from '@blocknote/react';
 import { useQueryClient } from '@tanstack/react-query';
 import '@blocknote/mantine/style.css';
@@ -17,7 +16,7 @@ import { ShareEmailModal } from '../components/ShareEmailModal';
 import type { ShareEmailContent } from '../types/shareEmail';
 import { setActiveBlockNoteEditor, getActiveBlockNoteEditor, setNoteActionBridge, setWorkChatBridge } from '../utils/activeBlockNoteEditor';
 import { EmailDraftFields, useWorkContent, WorkContentProperties } from './WorkContent';
-import { TrashCan, ChevronDown, DocumentExport, DocumentImport, Idea, Renew, Image as ImageIcon, LogoGithub, Diagram, Code, Copy, Launch, PresentationFile, StopFilled, TextBold, TextItalic, ListChecked, ListBulleted, ListNumbered, Quotes } from '@carbon/icons-react';
+import { TrashCan, ChevronDown, DocumentExport, DocumentImport, Idea, Renew, Image as ImageIcon, LogoGithub, Diagram, Code, Copy, Launch, PresentationFile, TextBold, TextItalic, ListChecked, ListBulleted, ListNumbered, Quotes } from '@carbon/icons-react';
 import { SendToBuildDialog } from '../features/build/buildShared';
 import { pushToGitHub } from './githubSync';
 import { noteFilename } from './noteFilename';
@@ -1156,14 +1155,6 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   const showMetadata = !hideProperties || showingHtml;
   const actions = (
         <div className={actionsSlot ? 'notes-doc-actions kh-command-row' : 'notes-top-bar'}>
-          {onPresent && <IconButton className="notes-presentation-action" kind="ghost" size="sm"
-            label="Present" align="bottom" autoAlign disabled={historyBusy || externalBusy} onClick={onPresent}>
-            <PresentationFile size={16} />
-          </IconButton>}
-          {onStopPresenting && <IconButton className="notes-presentation-action" kind="ghost" size="sm"
-            label="Stop presenting" align="bottom" autoAlign onClick={onStopPresenting}>
-            <StopFilled size={16} />
-          </IconButton>}
           <div className="notes-export-anchor kh-command-row" ref={exportMenuRef}>
             <button
               type="button"
@@ -1433,7 +1424,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
           {!showingHtml && bodyContent}
           {!showingHtml && contentType === 'email-draft' && <EmailDraftFields work={work} disabled={historyBusy || externalBusy || work.busy || work.recoveryConflict} />}
           <div className={`notes-editor-inner${contentType === 'script' ? ' notes-editor-inner--script' : ''}`} hidden={showingHtml || bodyContent !== undefined}>
-            {contentType === 'script' && <ScriptTools editor={editor} disabled={historyBusy || externalBusy} noteId={doc.id} save={doSave} />}
+            {contentType === 'script' && <ScriptTools editor={editor} disabled={historyBusy || externalBusy} noteId={doc.id} save={doSave} onPresent={onPresent} onStopPresenting={onStopPresenting} />}
             <BlockNoteViewWrapper
               editor={editor}
               theme={BLOCKNOTE_G100_THEME}

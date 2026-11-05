@@ -11,6 +11,7 @@ export function createVisualRenderer(stage, status, footerHost) {
   footer.append(presentationTitle, pageNumber);
   footerHost.append(footer);
   let signature = '';
+  let canvas = stage;
   const svgNamespace = 'http://www.w3.org/2000/svg';
   const iconPaths = {
     person: 'M16 15a6 6 0 1 0 0-12 6 6 0 0 0 0 12ZM5 29v-4a11 8 0 0 1 22 0v4',
@@ -29,8 +30,13 @@ export function createVisualRenderer(stage, status, footerHost) {
   function setReveals(revealed) {
     stage.querySelectorAll('[data-reveal]').forEach(element => {
       const visible = Number(element.getAttribute('data-reveal')) <= revealed;
+      const changed = element.classList.contains('composition-visible') !== visible;
       element.classList.toggle('composition-visible', visible);
       element.setAttribute('aria-hidden', String(!visible));
+      if (changed) element.querySelectorAll('animateMotion').forEach(motion => {
+        if (visible && !document.defaultView?.matchMedia('(prefers-reduced-motion: reduce)').matches) motion.beginElement();
+        else motion.endElement();
+      });
     });
   }
   function composed(scene, revealed) {
@@ -74,15 +80,30 @@ export function createVisualRenderer(stage, status, footerHost) {
         ? [to.x + (dx >= 0 ? 0 : to.width), to.y + to.height / 2]
         : [to.x + to.width / 2, to.y + (dy >= 0 ? 0 : to.height)];
       const mx = (start[0] + end[0]) / 2, my = (start[1] + end[1]) / 2;
-      const path = horizontal
+      let path = horizontal
         ? `M${start}C${mx},${start[1]} ${mx},${end[1]} ${end}`
         : `M${start}C${start[0]},${my} ${end[0]},${my} ${end}`;
+      let labelX = mx, labelY = my;
+      if (link.route === 'arc') {
+        const distance = Math.hypot(end[0] - start[0], end[1] - start[1]) || 1;
+        const bend = Math.min(140, distance / 3);
+        const cx = mx - (end[1] - start[1]) / distance * bend;
+        const cy = my + (end[0] - start[0]) / distance * bend;
+        path = `M${start}Q${cx},${cy} ${end}`;
+        labelX = (mx + cx) / 2; labelY = (my + cy) / 2;
+      }
       const group = svgElement('g', { 'data-reveal': link.reveal });
       group.classList.add('composition-reveal', `visual-tone--${link.tone}`, `composition-link--${link.style}`);
       group.append(svgElement('path', { d: path, class: 'composition-link', pathLength: 1,
         'marker-end': `url(#${rendererId}-${link.tone})` }));
+      if (link.motion === 'flow') {
+        const token = svgElement('circle', { r: 7, class: 'composition-token' });
+        const motion = svgElement('animateMotion', { path, dur: '700ms', begin: 'indefinite', fill: 'freeze', calcMode: 'paced' });
+        token.append(motion);
+        group.append(token);
+      }
       if (link.label) {
-        const label = svgElement('text', { x: mx, y: my - 18, 'text-anchor': 'middle', class: 'composition-link-label' });
+        const label = svgElement('text', { x: labelX, y: labelY - 18, 'text-anchor': 'middle', class: 'composition-link-label' });
         label.textContent = link.label;
         group.append(label);
       }
@@ -91,7 +112,7 @@ export function createVisualRenderer(stage, status, footerHost) {
     for (const node of composition.nodes) {
       const holder = svgElement('foreignObject', { x: node.x, y: node.y, width: node.width, height: node.height,
         'data-reveal': node.reveal });
-      holder.classList.add('composition-reveal', 'composition-subject');
+      holder.classList.add('composition-reveal', 'composition-subject', `composition-entrance--${node.entrance || 'rise'}`);
       const element = document.createElementNS('http://www.w3.org/1999/xhtml', 'div');
       element.className = `visual-node visual-node--${node.kind} visual-tone--${node.tone}`;
       if (node.kind === 'image') {
@@ -111,7 +132,12 @@ export function createVisualRenderer(stage, status, footerHost) {
         }
         if (node.label) {
           const label = document.createElement('h2');
-          label.textContent = node.label;
+          if (node.emphasis) {
+            const emphasis = document.createElement('span');
+            emphasis.className = `visual-emphasis visual-emphasis--${node.emphasis}`;
+            emphasis.textContent = node.label;
+            label.append(emphasis);
+          } else label.textContent = node.label;
           element.append(label);
         }
         if (node.detail) {
@@ -123,7 +149,7 @@ export function createVisualRenderer(stage, status, footerHost) {
       holder.append(element);
       svg.append(holder);
     }
-    stage.append(svg);
+    canvas.append(svg);
     setReveals(revealed);
   }
   function illustration(artwork) {
@@ -176,13 +202,33 @@ export function createVisualRenderer(stage, status, footerHost) {
     signature = key;
     stage.replaceChildren();
     if (!scene) return;
+    canvas = document.createElement('div');
+    canvas.className = 'visual-canvas';
+    stage.append(canvas);
+    const presenterClass = scene.presenterLayout ? ' scene--presenter' : '';
+    if (scene.presenterLayout) {
+      const rail = document.createElement('aside');
+      rail.className = 'presenter-rail';
+      rail.setAttribute('aria-label', 'Chapter and key point');
+      const chapter = document.createElement('p');
+      chapter.className = 'presenter-rail__chapter';
+      chapter.textContent = scene.composition?.label || packet.presentationTitle;
+      const label = document.createElement('p');
+      label.className = 'presenter-rail__label';
+      label.textContent = 'Key point';
+      const takeaway = document.createElement('p');
+      takeaway.className = 'presenter-rail__key';
+      takeaway.textContent = scene.title;
+      rail.append(chapter, label, takeaway);
+      stage.append(rail);
+    }
     if (scene.composition) {
-      stage.className = 'scene scene--composed';
+      stage.className = `scene scene--composed${presenterClass}`;
       composed(scene, packet.revealed);
       return;
     }
-    stage.className = `scene scene--${scene.template} scene--${scene.layout || (scene.template === 'title' ? 'hero' : 'diagram')}${scene.artwork ? ' scene--illustrated' : ''}`;
-    if (scene.artwork) stage.append(illustration(scene.artwork));
+    stage.className = `scene scene--${scene.template} scene--${scene.layout || (scene.template === 'title' ? 'hero' : 'diagram')}${scene.artwork ? ' scene--illustrated' : ''}${presenterClass}`;
+    if (scene.artwork) canvas.append(illustration(scene.artwork));
     if (scene.template === 'image' && /^https:\/\//i.test(scene.imageUrl)) {
       const image = document.createElement('img');
       image.className = 'scene-image';
@@ -190,7 +236,7 @@ export function createVisualRenderer(stage, status, footerHost) {
       image.alt = scene.imageAlt;
       image.referrerPolicy = 'no-referrer';
       image.onerror = () => { status.hidden = false; status.textContent = 'The scene image could not be loaded.'; };
-      stage.append(image);
+      canvas.append(image);
     }
     const content = document.createElement('div');
     content.className = 'scene-content';
@@ -228,7 +274,7 @@ export function createVisualRenderer(stage, status, footerHost) {
       items.append(card);
     });
     if (scene.items.length) content.append(items);
-    stage.append(content);
+    canvas.append(content);
   }
   return render;
 }

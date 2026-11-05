@@ -37,6 +37,24 @@ test('desktop validates composed nodes, geometry and connections at its independ
   const scene = { id: 'scene', template: 'concept', title: 'Human authority', subtitle: '', imageUrl: '', imageAlt: '', at: 0,
     items: [{ label: 'Exception', detail: '', at: 10 }], composition };
   assert.deepEqual(parsePresentationVisuals([scene], 20)?.[0]?.composition, composition);
+  const animated = { ...scene, presenterLayout: true, composition: { ...composition,
+    nodes: composition.nodes.map(node => ({ ...node, entrance: 'wipe', emphasis: 'underline' })),
+    links: composition.links.map(link => ({ ...link, motion: 'flow', route: 'arc' })),
+  } };
+  assert.deepEqual(parsePresentationVisuals([animated], 20)?.[0], animated);
+  assert.throws(() => parsePresentationVisuals([{ ...animated, presenterLayout: 'true' }], 20), /presenter layout/);
+  assert.throws(() => parsePresentationVisuals([{ ...scene, composition: { ...composition,
+    nodes: [{ ...node, entrance: 'execute' }],
+  } }], 20), /entrance/);
+  assert.throws(() => parsePresentationVisuals([{ ...scene, composition: { ...composition,
+    nodes: [{ ...node, emphasis: 'html' }],
+  } }], 20), /emphasis/);
+  assert.throws(() => parsePresentationVisuals([{ ...scene, composition: { ...composition,
+    links: [{ ...composition.links[0], motion: 'forever' }],
+  } }], 20), /motion/);
+  assert.throws(() => parsePresentationVisuals([{ ...scene, composition: { ...composition,
+    links: [{ ...composition.links[0], route: 'url(secret)' }],
+  } }], 20), /route/);
   assert.throws(() => parsePresentationVisuals([{ ...scene, composition: { ...composition, nodes: [{ ...node, x: Infinity }] } }], 20), /geometry/);
   assert.throws(() => parsePresentationVisuals([{ ...scene, composition: { ...composition, nodes: [{ ...node, kind: 'script' }] } }], 20), /type/);
   assert.throws(() => parsePresentationVisuals([{ ...scene, composition: { ...composition, links: [

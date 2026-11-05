@@ -8,12 +8,16 @@ export interface VisualNode {
   tone: VisualTone;
   icon: VisualIcon;
   reveal: number;
+  entrance?: 'fade' | 'rise' | 'left' | 'right' | 'scale' | 'wipe';
+  emphasis?: 'highlight' | 'underline' | 'strike';
 }
 export interface VisualLink {
   from: string; to: string; label: string;
   tone: VisualTone;
   reveal: number;
   style: 'solid' | 'dashed';
+  motion?: 'draw' | 'flow';
+  route?: 'direct' | 'arc';
 }
 export interface VisualComposition {
   label: string;

@@ -14,6 +14,7 @@ import { NoteList } from './NoteList';
 import { QuickSparkModal } from '../components/sparks/QuickSparkModal';
 import { fetchNotesPage, fetchNote, createNote, deleteNote, extractNoteBlockText, buildPreview } from './noteStorage';
 import { preparePresentationScript } from '../features/autocue/preparePresentationScript';
+import { requiresVisualMotion } from '../features/autocue/presentationScript';
 import { annotatedPresentation } from '../features/podcasts/scriptAnnotations';
 import { episodeScriptText } from '../types/podcastEpisodes';
 import type { NoteContentBlock, NoteListPage } from './noteStorage';
@@ -370,6 +371,7 @@ export const NotesPage: React.FC = () => {
     }
     if (script.visuals.length && !presentation.scriptVisuals) throw new Error('Update Athena Desktop to present this script with synchronised browser visuals.');
     if (script.visuals.some(scene => scene.composition) && !presentation.scriptVisualCompositions) throw new Error('Update Athena Desktop to present layered visuals. Web preview remains available.');
+    if (requiresVisualMotion(script.visuals) && !presentation.scriptVisualMotion) throw new Error('Update Athena Desktop to present the new visual animations and presenter layout. Web preview remains available.');
     await presentation.present({ noteId: saved.id, title: saved.title, text: script.text, runs: script.runs, visuals: script.visuals });
   }
   useDesktopCommand('present-note', presentNote);

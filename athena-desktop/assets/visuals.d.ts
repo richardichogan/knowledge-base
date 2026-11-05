@@ -7,6 +7,7 @@ export interface VisualPacket {
     artwork?: PresentationArtwork;
     layout?: PresentationVisualScene['layout'];
     composition?: VisualComposition;
+    presenterLayout?: boolean;
   } | null;
   revealed: number;
   error: string | null;

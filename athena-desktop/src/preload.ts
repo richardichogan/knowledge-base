@@ -16,6 +16,7 @@ if (process.isMainFrame && athenaOrigin !== '' && window.location.origin === ath
       scriptAnnotations: true,
       scriptVisuals: true,
       scriptVisualCompositions: true,
+      scriptVisualMotion: true,
       openVisuals: () => ipcRenderer.invoke('presentation:visuals'),
       open: (noteId?: string) => ipcRenderer.invoke('presentation:open', noteId),
       displays: () => ipcRenderer.invoke('presentation:displays'),

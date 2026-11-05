@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import { build } from 'esbuild';
-import { presentationScript } from '../src/features/autocue/presentationScript';
+import { presentationScript, requiresVisualMotion } from '../src/features/autocue/presentationScript';
 import { appendVoiceTranscript, finishVoiceTranscript, submitVoiceTranscript } from '../src/services/voiceTranscript';
 import { encodeWav, resampleVoiceAudio } from '../src/components/athena/speech';
 import { parseScriptBullets, scriptSentenceLines } from '../src/features/podcasts/scriptFormatting';
@@ -27,6 +27,25 @@ test('layered compositions preserve semantic links and reject unsafe geometry an
   assert.throws(() => parseVisualComposition({ ...composition, nodes: [node, node] }, 2), /unique/);
   assert.throws(() => parseVisualComposition({ ...composition, links: [{ ...composition.links[0], reveal: 1 }] }, 2), /endpoints/);
   assert.throws(() => parseVisualComposition(composition, 1), /reveal/);
+});
+
+test('visual motion is typed, reversible by reveal index and backward compatible with existing compositions', () => {
+  const node = { id: 'worker', kind: 'icon', x: 100, y: 300, width: 340, height: 240,
+    label: 'Delegated work', detail: '', icon: 'worker', tone: 'teal', reveal: 0 };
+  const base = { label: 'Workforce', imagePrompt: '', nodes: [node, { ...node, id: 'owner', x: 1000, reveal: 1 }],
+    links: [{ from: 'worker', to: 'owner', label: 'Exception', tone: 'warning', reveal: 1, style: 'solid' }] };
+  for (const entrance of ['fade', 'rise', 'left', 'right', 'scale', 'wipe']) {
+    for (const emphasis of ['highlight', 'underline', 'strike']) {
+      const composition = { ...base, nodes: [{ ...node, entrance, emphasis }, base.nodes[1]],
+        links: [{ ...base.links[0], route: 'arc', motion: 'flow' }] };
+      assert.deepEqual(parseVisualComposition(composition, 1), composition);
+    }
+  }
+  assert.deepEqual(parseVisualComposition(base, 1), base);
+  assert.throws(() => parseVisualComposition({ ...base, nodes: [{ ...node, entrance: 'url(secret)' }] }, 1), /entrance/);
+  assert.throws(() => parseVisualComposition({ ...base, nodes: [{ ...node, emphasis: 'html' }] }, 1), /emphasis/);
+  assert.throws(() => parseVisualComposition({ ...base, links: [{ ...base.links[0], motion: 'forever' }] }, 1), /motion/);
+  assert.throws(() => parseVisualComposition({ ...base, links: [{ ...base.links[0], route: 'javascript:run()' }] }, 1), /route/);
 });
 
 test('illustrated scenes retain bounded vector art and reject executable paths and invalid geometry', () => {
@@ -62,7 +81,7 @@ test('visual cues map exact script blocks into the presented text without copyin
     { id: 'second', type: 'bulletListItem', content: [{ type: 'text', text: 'Show the result.' }] },
   ] };
   const visuals = { version: 1, source: scriptVisualSource(section), scenes: [{
-    id: 'concept', template: 'concept', title: 'Connected thinking', subtitle: '', imageUrl: '', imageAlt: '', layout: 'split',
+    id: 'concept', template: 'concept', title: 'Connected thinking', subtitle: '', imageUrl: '', imageAlt: '', layout: 'split', presenterLayout: true,
     artwork: { description: 'Connected ideas', shapes: [{ kind: 'circle', x: 1100, y: 450, width: 0, height: 0, radius: 120, d: '', tone: 'teal', opacity: 0.5 }] },
     composition: { label: '', imagePrompt: '', nodes: [
       { id: 'connection', kind: 'icon', x: 100, y: 300, width: 350, height: 240, label: 'Connection', detail: '', tone: 'teal', icon: 'system', reveal: 1 },
@@ -80,6 +99,13 @@ test('visual cues map exact script blocks into the presented text without copyin
   assert.deepEqual(result.runs, plain.runs);
   assert.equal(result.visuals[0]?.at, 0);
   assert.equal(result.visuals[0]?.layout, 'split');
+  assert.equal(result.visuals[0]?.presenterLayout, true);
+  assert.equal(requiresVisualMotion(result.visuals), true);
+  assert.equal(requiresVisualMotion(result.visuals.map(scene => ({ ...scene, presenterLayout: false }))), false);
+  assert.equal(requiresVisualMotion(result.visuals.map(scene => ({ ...scene, presenterLayout: false,
+    composition: { ...scene.composition!, nodes: scene.composition!.nodes.map(node => ({ ...node, emphasis: 'highlight' as const })) },
+  }))), true);
+  assert.throws(() => parseScriptVisuals({ ...visuals, scenes: [{ ...visuals.scenes[0], presenterLayout: 'true' }] }, section), /presenter layout/);
   assert.deepEqual(result.visuals[0]?.artwork, visuals.scenes[0]?.artwork);
   assert.deepEqual(result.visuals[0]?.composition, visuals.scenes[0]?.composition);
   assert.equal(result.visuals[0]?.items[0]?.at, result.text.indexOf('Then connect'));

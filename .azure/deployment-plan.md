@@ -2,6 +2,43 @@
 
 **Status:** Validated
 
+**Presenter layout and visual motion release (2026-11-05):**
+- All validation checks pass:
+  - Core validation: sync main; frontend/backend/Desktop type checks; isolated
+    backend/frontend release suites, Desktop core and Elgato suites, lint baseline.
+  - Docker build: retain backend Dockerfile/lockfile and existing ACR context;
+    compile backend locally, then build the image from merged main.
+  - Azure Policy validation: application-only update of existing ACA/SWA;
+    no provisioning, network, identity, role or policy changes.
+- Desktop advances to 0.1.13 for the scriptVisualMotion capability. Existing
+  scenes stay readable; new animation/layout fields require updated Desktop.
+- Local application inspection used dedicated 5196/3196 ports; backend readiness
+  was blocked by the existing local credential-encryption configuration.
+  No production credential or saved script changes are part of this release.
+
+**Section 7: Validation Proof — presenter layout and visual motion (2026-11-05):**
+- `git fetch origin`, merge and `git ls-remote` confirm main at 8cacef0b;
+  shared packed-refs maintenance lock warnings left untouched.
+- Backend isolated release suite: 1049/1049 pass. Frontend isolated release:
+  347 main tests and every auxiliary bundle pass. Desktop core 13/13 and
+  Elgato 10/10 pass. Full suites ran once; no failures required reruns.
+- Frontend/backend/Desktop `npx tsc --noEmit` pass. Both application production
+  builds and Desktop 0.1.13 Windows NSIS packaging pass. Existing unsigned
+  Desktop packaging configuration is unchanged.
+- Lint non-regression passes: frontend 21/baseline 41, backend 543/baseline 623.
+  The first invocation used the root directory; rerunning from the existing
+  package directories resolved module lookup without installing dependencies.
+- Existing Azure CLI target read confirms v302 / ready revision 0000299.
+  Advance to v303, retain existing roles, registry credentials and startup
+  migrations. No infrastructure or role definition changes need provisioning.
+- Validation workflow uses its original instructions with an in-memory
+  Enum.Parse compatibility substitution for Windows PowerShell 5; the shipped
+  Enum.TryParse overload requires newer .NET. Installed skill files unchanged.
+- Evidence: visual-motion-{api-tests,web-tests,web-build,desktop-package}.log
+  in this session's files. Signed-in authoring/browser and physical Elgato
+  playback remain unverified due the local credential blocker noted above.
+- Unrelated DESIGN.md and .impeccable cache modifications remain excluded.
+
 **Script visuals, editor and Desktop 0.1.12 release validation (2026-11-05):**
 - All validation checks pass:
   - Core validation: fetched origin and merged origin/main (already current);

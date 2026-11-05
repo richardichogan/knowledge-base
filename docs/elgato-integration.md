@@ -146,6 +146,25 @@ An initial generation starts with an illustrated title scene. Each scene keeps
 its own headline, while a consistent footer shows the script title and its
 scene number across the whole script (for example **03 / 12**).
 
+The visual language also includes cue-driven highlight, underline and strike-through
+emphasis; directional, scale and wipe entrances; drawn connectors; and a single
+travelling token for a process handoff. Directed arc connections can describe a
+lifecycle returning to its start. All builds use the existing spoken-block cues,
+not recording timestamps. Reverse reading hides later builds again. Motion is
+bounded rather than perpetually looping, and reduced-motion preferences remove
+transitions and travelling tokens. Existing saved scenes remain readable unchanged;
+regenerate or request a revision to use the new visual vocabulary.
+
+**Presenter layout** is a pressed-state icon in the sticky script toolbar,
+available once visuals exist. It defaults off (full-frame). Turning it on updates
+all existing section scenes through normal note editing/autosave and undo, without
+changing spoken text or cue positions. The shared preview and audience renderer
+scale the composition to the left, show the chapter and key takeaway at upper
+right, and leave the lower-right area clear for an externally composited camera
+feed. Athena does not capture or embed video. The mode is saved with each scene,
+visible to Athena's existing read/design tools and retained during visual redesign.
+Changing it does not replace an already-running saved presentation snapshot.
+
 Each section shows its visual preview. **Play preview** demonstrates its scenes
 and reveals independently of the teleprompter; it does not start live playback.
 Viewing, reviewing and playing these previews works in the normal web app
@@ -160,7 +179,7 @@ visuals stale rather than silently moving cues or overwriting a draft.
 
 Use **Present** first, then **Open browser visuals** in the script toolbar or
 Presentation controls. Share that browser window in Riverside. The
-Electron note toolbar includes **Present** and **Stop presenting** icons with
+script toolbar includes **Present** and **Stop presenting** icons with
 tooltips, alongside the existing Actions menu entries. Stop closes the output
 without closing the note; these controls are absent in the normal web app.
 The actual Prompter reading line drives scene and reveal cues through exact spoken-block
@@ -175,6 +194,9 @@ backend/frontend. An older installation reports
 the update requirement instead of pretending to synchronise. No Stream Deck
 plugin change is needed. The feature is not installed merely by updating the
 hosted site.
+The motion vocabulary and presenter layout additionally require Desktop **0.1.13 or later** and its
+`scriptVisualMotion` capability. Older installations report an update requirement
+instead of silently dropping those scene properties.
 
 The audience page uses an independent read-only HTTP/SSE server bound to
 `127.0.0.1` on an ephemeral port, with a fresh unguessable path for each output

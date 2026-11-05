@@ -38,6 +38,7 @@ export interface PresentationVisualScene {
   artwork?: PresentationArtwork;
   layout?: 'hero' | 'split' | 'diagram';
   composition?: VisualComposition;
+  presenterLayout?: boolean;
 }
 export interface PresentationScript { noteId: string; title: string; text: string; runs?: PresentationRun[]; visuals?: PresentationVisualScene[] }
 
@@ -78,9 +79,13 @@ export function parsePresentationVisuals(value: unknown, length: number): Presen
       const x = number(node.x, 80, 1520), y = number(node.y, 240, 790);
       const width = number(node.width, 40, 1440), height = number(node.height, 40, 550);
       if (x + width > 1520 || y + height > 800) throw new Error('Presentation composition is outside the stage.');
+      if (node.entrance !== undefined && !['fade', 'rise', 'left', 'right', 'scale', 'wipe'].includes(String(node.entrance))) throw new Error('Invalid presentation composition entrance.');
+      if (node.emphasis !== undefined && !['highlight', 'underline', 'strike'].includes(String(node.emphasis))) throw new Error('Invalid presentation composition emphasis.');
       return { id, kind: node.kind as VisualNode['kind'], x, y, width, height,
         label: string(node.label, 120), detail: string(node.detail, 240), icon: node.icon as VisualNode['icon'],
-        tone: tone(node.tone), reveal: reveal(node.reveal) };
+        tone: tone(node.tone), reveal: reveal(node.reveal),
+        ...(node.entrance === undefined ? {} : { entrance: node.entrance as NonNullable<VisualNode['entrance']> }),
+        ...(node.emphasis === undefined ? {} : { emphasis: node.emphasis as NonNullable<VisualNode['emphasis']> }) };
     });
     const links = data.links.map((raw: unknown): VisualLink => {
       if (!raw || typeof raw !== 'object') throw new Error('Invalid presentation composition connection.');
@@ -88,7 +93,11 @@ export function parsePresentationVisuals(value: unknown, length: number): Presen
       const from = string(link.from, 80), to = string(link.to, 80), at = reveal(link.reveal);
       if (!ids.has(from) || !ids.has(to) || from === to || !['solid', 'dashed'].includes(String(link.style))
         || nodes.some(node => (node.id === from || node.id === to) && node.reveal > at)) throw new Error('Invalid presentation composition connection.');
-      return { from, to, label: string(link.label, 80), tone: tone(link.tone), reveal: at, style: link.style as VisualLink['style'] };
+      if (link.motion !== undefined && !['draw', 'flow'].includes(String(link.motion))) throw new Error('Invalid presentation composition connection motion.');
+      if (link.route !== undefined && !['direct', 'arc'].includes(String(link.route))) throw new Error('Invalid presentation composition connection route.');
+      return { from, to, label: string(link.label, 80), tone: tone(link.tone), reveal: at, style: link.style as VisualLink['style'],
+        ...(link.motion === undefined ? {} : { motion: link.motion as NonNullable<VisualLink['motion']> }),
+        ...(link.route === undefined ? {} : { route: link.route as NonNullable<VisualLink['route']> }) };
     });
     return { label: string(data.label, 100), imagePrompt: string(data.imagePrompt, 1800), nodes, links };
   };
@@ -126,11 +135,13 @@ export function parsePresentationVisuals(value: unknown, length: number): Presen
     const imageUrl = string(scene.imageUrl, 2000);
     if (imageUrl && !/^https:\/\//i.test(imageUrl)) throw new Error('Invalid presentation image URL.');
     if (scene.layout !== undefined && !['hero', 'split', 'diagram'].includes(String(scene.layout))) throw new Error('Invalid presentation layout.');
+    if (scene.presenterLayout !== undefined && typeof scene.presenterLayout !== 'boolean') throw new Error('Invalid presenter layout.');
     return { id: string(scene.id, 100), template: template as PresentationVisualScene['template'],
       title: string(scene.title, 160), subtitle: string(scene.subtitle, 500), imageUrl, imageAlt: string(scene.imageAlt, 500),
       ...(scene.artwork === undefined ? {} : { artwork: artwork(scene.artwork) }),
       ...(scene.composition === undefined ? {} : { composition: composition(scene.composition, scene.items.length) }),
       ...(scene.layout === undefined ? {} : { layout: scene.layout as NonNullable<PresentationVisualScene['layout']> }),
+      ...(scene.presenterLayout === undefined ? {} : { presenterLayout: scene.presenterLayout }),
       at: at(scene.at), items: scene.items.map((raw: unknown) => {
         if (!raw || typeof raw !== 'object') throw new Error('Invalid visual reveal.');
         const item = raw as Record<string, unknown>;
