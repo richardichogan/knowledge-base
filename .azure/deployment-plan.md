@@ -41,6 +41,17 @@
 - Evidence: teleprompter-{web-validation,backend-validation,presentation-rerun,
   web-build,desktop-tests,desktop-package}.log in this session's files.
   Physical Elgato playback remains for the user's post-release testing.
+- Released 24e0e50f to the branch and main after transient GitHub commit_refs
+  failures (non-force retries only). ACR run ca9k built kh-prod-api:v305;
+  revision kh-prod-api-vnet--0000302 is Healthy/RunningAtMaxScale. Startup
+  logs confirm listening, migration complete, warm pool and specialist worker.
+- Production frontend serves index-BUe8eULu.js, matching local dist (HTML and
+  entrypoint asset HTTP 200).
+- Desktop 0.1.15 published as the latest release:
+  https://github.com/richardichogan/knowledge-base/releases/tag/v0.1.15.
+  Uploaded the hyphenated installer, blockmap and latest.yml from one packaging
+  run; downloaded published manifest matches installer filename, SHA-512 and
+  111940540-byte size. Existing unsigned packaging remains unchanged.
 
 **Slide master, end page and Desktop 0.1.14 release (2026-11-05):**
 - All validation checks pass:
