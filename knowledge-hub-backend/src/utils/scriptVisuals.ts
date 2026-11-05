@@ -207,6 +207,6 @@ export function readSectionVisuals(section: VisualScriptBlock): ScriptVisuals | 
   const raw = section.props?.scriptVisuals;
   return typeof raw === 'string' && raw ? parseScriptVisuals(raw) : null;
 }
-import type { VisualComposition, VisualNode, VisualLink } from '../../../athena-desktop/assets/visualComposition.js';
+import type { VisualComposition, VisualNode, VisualLink } from '../types/visualComposition.js';
 
-export type { VisualComposition } from '../../../athena-desktop/assets/visualComposition.js';
+export type { VisualComposition } from '../types/visualComposition.js';
