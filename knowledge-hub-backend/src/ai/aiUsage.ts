@@ -25,7 +25,7 @@ export interface UsageRecord extends Partial<TokenUsage> {
   /** 'standard' | 'light' | 'reasoning' | 'bulk' | 'embeddings' */
   slot: string;
   deployment: string;
-  api: 'chat' | 'responses';
+  api: 'chat' | 'responses' | 'images';
   durationMs: number;
   ok: boolean;
   error?: string | undefined;

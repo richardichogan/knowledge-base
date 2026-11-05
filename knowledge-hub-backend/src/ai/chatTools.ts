@@ -17,6 +17,8 @@
 
 import { validateNoteEdits, checkEditsAgainstNote, noteHeadings } from './noteEdits.js';
 import { JOB_TOOL, executeJobTool } from './jobTools.js';
+import { designScriptVisuals, scriptVisualNarration } from '../services/scriptVisualDesigner.js';
+import { readSectionVisuals, scriptVisualSource, visualSourceBlocks, SCRIPT_VISUAL_SOURCE_BUDGET, SCRIPT_VISUAL_INSTRUCTION_LIMIT, type VisualScriptBlock } from '../utils/scriptVisuals.js';
 import { getDiscoverPicks, refreshDiscoverPicks } from '../services/discoverPicks.js';
 import { PUBLISHING_TOOL, executePublishingTool } from './publishingTools.js';
 import { executeDesignTool, type DesignTurnState } from './designTools.js';
@@ -729,6 +731,24 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
     {
       type: 'function',
       function: {
+        name: 'read_script_visuals',
+        description: 'Read actual saved Script visuals and cue state. Omit sectionId to list stable section ids; provide it to read the full spoken blocks and all scenes/reveals for that section. Never infer visuals from the title.',
+        parameters: { type: 'object', properties: { sectionId: { type: 'string' } } },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'design_script_visuals',
+        description: 'Ask Ariadne (configured standard visual-design model) to generate or revise visuals for one Script section. Only use for an explicit visual edit request. Preserves spoken text; routes typed scene edits through the protected live editor with conflict checks and persistence. Default apply, preview only when requested. Concepts and meaningful animation first, bullet points only exceptionally. Read current visuals first for revisions.',
+        parameters: { type: 'object', properties: {
+          sectionId: { type: 'string' }, instruction: { type: 'string' }, delivery: { type: 'string', enum: ['apply', 'preview'] },
+        }, required: ['sectionId', 'instruction'] },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'propose_note_edit',
         description:
           "Proposes changes to the Think note that is open next to this chat (shown under 'Document in view'). " +
@@ -1331,7 +1351,61 @@ export async function executeToolCall(
         return { error: err instanceof Error ? err.message : 'Could not save the output.' };
       }
     }
+      case 'read_script_visuals':
+      case 'design_script_visuals': {
+        try {
+          if (!turn.noteId || turn.designOwner || turn.podcastOwner) throw new ValidationError('Open a Script note in Think first.');
+          if (turn.exclusionsFailed) return EXCLUSIONS_UNAVAILABLE_RESULT;
+          if (turn.retrievalScope && Object.keys(turn.retrievalScope.filter).length) throw new ValidationError('Script visual operations are outside the enforced collection scope.');
+          const access = await executeReadKnowledgeRecord(db, { kind: 'note', id: turn.noteId, maxChars: 256 }, turn);
+          if (!access || typeof access !== 'object' || !('record' in access)) return access;
+          const saved = await loadNoteBlocks(db, turn.noteId);
+          if (!saved?.script) throw new ValidationError('The current saved note is not a Script.');
+          const sections = (saved.blocks as VisualScriptBlock[]).filter(block => block.props?.scriptSection);
+          const sectionId = args['sectionId'];
+          const section = sections.find(block => block.id === sectionId);
+          if (name === 'read_script_visuals' && !sectionId) return { sections: sections.map(block => ({
+            sectionId: block.id, title: block.content, hasVisuals: !!block.props?.scriptVisuals,
+          })), note: 'Read one section by id to retrieve its full spoken blocks, scenes and reveal cues.' };
+          if (!section) throw new ValidationError('Choose an existing stable script section id.');
+          if (scriptVisualSource(section).length > SCRIPT_VISUAL_SOURCE_BUDGET) throw new ValidationError('Split this section into smaller script sections before visual design.');
+          if (name === 'read_script_visuals') {
+            const visuals = readSectionVisuals(section);
+            const imageUrls = [...new Set(visuals?.scenes.map(scene => scene.imageUrl).filter(Boolean) ?? [])];
+            const images = imageUrls.length ? await db.query<{ blob_url: string; caption: string; vision_analysis: string }>(
+              'SELECT blob_url, caption, vision_analysis FROM kb_images WHERE blob_url = ANY($1::text[])', [imageUrls],
+            ) : { rows: [] };
+            return { sectionId, blocks: await scriptVisualNarration(section), cueBlocks: visualSourceBlocks(section), scenes: visuals?.scenes ?? [],
+              imageEvidence: imageUrls.map(url => {
+                const image = images.rows.find(image => image.blob_url === url);
+                return { url, caption: image?.caption ?? '', visualAnalysis: image?.vision_analysis ?? '',
+                  accessed: !!image?.vision_analysis?.trim() };
+              }),
+              note: 'Scene composition is complete structured content. Only images with accessed:true have a saved pixel-based visual analysis; image briefs and alt text alone are not evidence of what is visible.',
+              stale: !!visuals && visuals.source !== scriptVisualSource(section) };
+          }
+          if (turn.readOnly) throw new ValidationError('This turn is read-only. No visual design was generated.');
+          if (!turn.noteEdits || turn.noteEdits.some(edit => edit.action !== 'set_script_visuals' || edit.sectionId === sectionId)) {
+            throw new ValidationError('Complete the pending editor changes before revising this section in another turn.');
+          }
+          const instruction = args['instruction'];
+          const delivery = args['delivery'] ?? 'apply';
+          if (typeof instruction !== 'string' || !instruction.trim() || instruction.length > SCRIPT_VISUAL_INSTRUCTION_LIMIT || !['apply', 'preview'].includes(String(delivery))) {
+            throw new ValidationError('Provide a bounded visual revision request and apply or preview delivery.');
+          }
+          if (turn.noteEdits.some(edit => (edit.delivery ?? 'apply') !== delivery)) throw new ValidationError('Do not mix previews and automatic edits.');
+          const visuals = await designScriptVisuals(section, instruction, turn.signal, sections[0]?.id === section.id);
+          turn.noteEdits.push({ action: 'set_script_visuals', sectionId: section.id!, visuals,
+            expectedVisuals: typeof section.props?.scriptVisuals === 'string' ? section.props.scriptVisuals : '',
+            delivery: delivery === 'preview' ? 'preview' : 'apply', summary: 'Ariadne revised the section visuals' });
+          return { proposed: true, scenes: visuals.scenes, note: 'Accepted for protected live-editor delivery. This is not a save receipt. Spoken text is unchanged.' };
+        } catch (error) {
+          console.error('[Script visuals] Athena operation failed:', error);
+          return { error: error instanceof Error ? error.message : 'Visual operation failed. No completion is confirmed.' };
+        }
+      }
     case 'propose_note_edit': {
+      if (turn.noteEdits?.some(edit => edit.action === 'set_script_visuals')) return { error: 'Finish the pending visual edits before changing spoken text in a separate turn.' };
       if (turn.noteId === undefined || turn.noteId === '' || turn.noteId.startsWith('doc:') || turn.noteId.startsWith('map:')) {
         return { error: 'No editable Think note is open next to this chat. Library documents are read-only.' };
       }

@@ -1,19 +1,51 @@
 import React, { useEffect, useState } from 'react';
+import { Tooltip } from '@carbon/react';
+import { Add, Erase, Launch, MagicWand, Pause, Renew, TextColor, Time } from '@carbon/icons-react';
 import type { BlockNoteEditor } from '@blocknote/core';
 import type { editorSchema } from './editorSchema';
 import { SCRIPT_COLOURS } from '../features/podcasts/scriptAnnotations';
 import { SCRIPT_BLOCK_STYLES, SCRIPT_COLOUR_VALUES } from '../features/podcasts/scriptRichText';
 import { groupScriptSections, splitScriptSectionTail } from '../../../knowledge-hub-backend/src/utils/scriptSections';
 import { preserveScriptSelection } from './scriptSectionSelection';
+import { api } from '../services/api';
+import { describeApiError, requireApiData } from '../services/apiError';
+import { applyNoteEdits } from '../utils/noteEditApplier';
+import { runNoteAction } from '../utils/activeBlockNoteEditor';
+import { getDesktop } from '../types/desktop';
+import { scriptBackspace } from './scriptBackspace';
 
 type Editor = BlockNoteEditor<typeof editorSchema.blockSchema, typeof editorSchema.inlineContentSchema, typeof editorSchema.styleSchema>;
 
-export function ScriptTools({ editor, disabled }: { editor: Editor; disabled: boolean }): React.ReactElement {
+function ScriptToolButton({ title, disabled, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { title: string }): React.ReactElement {
+  return <Tooltip className="kh-script-tools__action" description={title} align="bottom" autoAlign>
+    <span tabIndex={disabled ? 0 : undefined} aria-label={disabled ? title : undefined} aria-disabled={disabled || undefined}>
+      <button {...props} disabled={disabled} />
+    </span>
+  </Tooltip>;
+}
+
+export function ScriptTools({ editor, disabled, noteId, save }: { editor: Editor; disabled: boolean; noteId: string; save: () => Promise<boolean> }): React.ReactElement {
+  const [designing, setDesigning] = useState(false);
+  const designingRef = React.useRef(false);
   const [selected, setSelected] = useState(false);
   const [colour, setColour] = useState('');
   const [blockStyle, setBlockStyle] = useState('0');
   const [canStyle, setCanStyle] = useState(true);
   const [sectionError, setSectionError] = useState<string | null>(null);
+  useEffect(() => {
+    const element = editor._tiptapEditor.view.dom;
+    const backspace = (event: KeyboardEvent): void => {
+      if (disabled || !editor.isEditable || event.key !== 'Backspace' || event.isComposing
+        || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      const view = editor._tiptapEditor.view;
+      if (scriptBackspace(view.state, transaction => { view.dispatch(transaction); })) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+    element.addEventListener('keydown', backspace, true);
+    return () => { element.removeEventListener('keydown', backspace, true); };
+  }, [editor, disabled]);
   useEffect(() => {
     let active = true;
     let queued = false;
@@ -25,7 +57,7 @@ export function ScriptTools({ editor, disabled }: { editor: Editor; disabled: bo
         if (body.length && body.every(block => block.type === 'heading' && block.props.scriptSection && block.children.length > 0)) return;
         const sections = groupScriptSections(body, (): Editor['document'][number] => ({
           id: crypto.randomUUID(), type: 'heading', props: {
-            level: 2, isToggleable: false, scriptSection: true, scriptDirection: '',
+            level: 2, isToggleable: false, scriptSection: true, scriptDirection: '', scriptVisuals: '',
             textColor: 'default', backgroundColor: 'default', textAlignment: 'left',
           }, content: [], children: [],
         })).map(section => section.children.length ? section : { ...section, children: [{
@@ -65,8 +97,37 @@ export function ScriptTools({ editor, disabled }: { editor: Editor; disabled: bo
     return () => { offSelection(); offChange(); };
   }, [editor]);
   return <>
-  <div className="kh-script-tools kh-script-tools--sticky" role="group" aria-label="Script block styles, emphasis and delivery cues">
-    <button type="button" className="kh-btn-ghost" disabled={disabled}
+  <div className="kh-script-tools kh-script-tools--sticky kh-script-tools--icons" role="group" aria-label="Script block styles, emphasis and delivery cues">
+    <ScriptToolButton type="button" className="kh-btn-ghost" title={designing ? 'Ariadne is designing visuals…' : 'Generate visuals'}
+      aria-label={designing ? 'Ariadne is designing visuals' : 'Generate visuals'} aria-busy={designing}
+      disabled={disabled || designing} onClick={() => {
+      if (designingRef.current) return;
+      designingRef.current = true; setDesigning(true); setSectionError(null);
+      void (async () => {
+        if (!await save()) throw new Error('Save the current script successfully before generating visuals.');
+        const sections = editor.document.filter(block => block.type === 'heading' && block.props.scriptSection);
+        if (!sections.length || sections.length > 20) throw new Error('Generate visuals for 1–20 script sections at a time.');
+        const snapshot = JSON.stringify(editor.document);
+        const edits: import('../types').NoteEdit[] = [];
+        for (const section of sections) {
+          const draft = requireApiData(await api.draftScriptVisuals(noteId, section.id,
+            `Redesign this section as composed Carbon scenes using Astra and Sunburst imagery. Use conceptual visuals and meaningful animation, not the talk track: far less text, large readable labels, no paragraphs. ${section.id === sections[0]?.id ? 'Include a distinct illustrated opening title scene before the explanation.' : 'Continue the presentation without another opening title.'} Preserve the spoken script.`));
+          edits.push({ action: 'set_script_visuals', sectionId: section.id, ...draft, summary: 'Generate section visuals' });
+        }
+        await runNoteAction(noteId, true, () => {
+          if (JSON.stringify(editor.document) !== snapshot) throw new Error('The script changed during generation. No visuals were applied.');
+          const result = applyNoteEdits(editor, edits, { script: true });
+          if (result.failed.length) throw new Error(result.failed.join('; '));
+        });
+      })().catch(error => { setSectionError(describeApiError(error)); })
+        .finally(() => { designingRef.current = false; setDesigning(false); });
+    }}>{designing ? <Renew size={18} aria-hidden="true" /> : <MagicWand size={18} aria-hidden="true" />}</ScriptToolButton>
+    <ScriptToolButton type="button" className="kh-btn-ghost" title="Open browser visuals" aria-label="Open browser visuals" disabled={disabled || designing} onClick={() => {
+      const desktop = getDesktop()?.presentation;
+      if (!desktop?.openVisuals) { setSectionError('Use an updated Athena Desktop to open the synchronised local browser output.'); return; }
+      void desktop.openVisuals().catch(error => { setSectionError(error instanceof Error ? error.message : 'Could not open browser visuals.'); });
+    }}><Launch size={18} aria-hidden="true" /></ScriptToolButton>
+    <ScriptToolButton type="button" className="kh-btn-ghost" title="Add section" aria-label="Add section" disabled={disabled}
       onMouseDown={event => { event.preventDefault(); }}
       onClick={() => {
         try {
@@ -81,7 +142,7 @@ export function ScriptTools({ editor, disabled }: { editor: Editor; disabled: bo
         } catch (error) {
           setSectionError(error instanceof Error ? error.message : 'Could not add a script section.');
         }
-      }}>Add section</button>
+      }}><Add size={18} aria-hidden="true" /></ScriptToolButton>
     <label className="kh-script-tools__style">Block style
       <select value={blockStyle} disabled={disabled || !canStyle}
         onChange={event => {
@@ -100,22 +161,24 @@ export function ScriptTools({ editor, disabled }: { editor: Editor; disabled: bo
         {Number(blockStyle) > 3 && <option value={blockStyle}>Heading {blockStyle}</option>}
       </select>
     </label>
-    {SCRIPT_COLOURS.map(item => <button key={item} type="button" className={`kh-btn-ghost kh-script-text--${item}`}
+    {SCRIPT_COLOURS.map(item => <ScriptToolButton key={item} type="button" className={`kh-btn-ghost kh-script-text--${item}`}
+      title={`Colour selected text ${item}`}
       disabled={disabled || !selected} aria-label={`Colour selected text ${item}`} aria-pressed={colour === SCRIPT_COLOUR_VALUES[item]}
       onMouseDown={event => { event.preventDefault(); }}
-      onClick={() => { editor.focus(); editor.addStyles({ textColor: SCRIPT_COLOUR_VALUES[item] }); setColour(SCRIPT_COLOUR_VALUES[item]); }}>{item}</button>)}
-    <button type="button" className="kh-btn-ghost" disabled={disabled || !selected}
+      onClick={() => { editor.focus(); editor.addStyles({ textColor: SCRIPT_COLOUR_VALUES[item] }); setColour(SCRIPT_COLOUR_VALUES[item]); }}><TextColor size={18} aria-hidden="true" /></ScriptToolButton>)}
+    <ScriptToolButton type="button" className="kh-btn-ghost" title="Clear colour" aria-label="Clear colour" disabled={disabled || !selected}
       onMouseDown={event => { event.preventDefault(); }}
-      onClick={() => { editor.focus(); editor.removeStyles({ textColor: '' }); setColour(''); }}>Clear colour</button>
-    {(['pause', 'beat'] as const).map(cue => <button key={cue} type="button" className="kh-btn-ghost" disabled={disabled}
-      title="Visual reminder only; scrolling continues." onMouseDown={event => { event.preventDefault(); }}
+      onClick={() => { editor.focus(); editor.removeStyles({ textColor: '' }); setColour(''); }}><Erase size={18} aria-hidden="true" /></ScriptToolButton>
+    {(['pause', 'beat'] as const).map(cue => <ScriptToolButton key={cue} type="button" className="kh-btn-ghost" disabled={disabled}
+      aria-label={cue === 'pause' ? 'Insert pause cue' : 'Insert beat cue'}
+      title={`${cue === 'pause' ? 'Pause' : 'Beat'}: visual reminder only; scrolling continues.`} onMouseDown={event => { event.preventDefault(); }}
       onClick={() => {
         editor._tiptapEditor.commands.setTextSelection(editor._tiptapEditor.state.selection.to);
         editor.focus();
         editor.insertInlineContent([{ type: 'scriptCue', props: { cue } }]);
-      }}>{cue === 'pause' ? 'Pause' : 'Beat'}</button>)}
+      }}>{cue === 'pause' ? <Pause size={18} aria-hidden="true" /> : <Time size={18} aria-hidden="true" />}</ScriptToolButton>)}
   </div>
-  <p className="kh-script-tools__hint">Each card is a section. Titles are editor-only; the text inside each card is read on the autocue.</p>
+  <p className="kh-script-tools__hint" role="status">{designing ? 'Ariadne is designing visuals…' : 'Each card is a section. Titles are editor-only; the text inside each card is read on the autocue.'}</p>
   {sectionError && <p className="kh-script-section__error" role="alert">{sectionError}</p>}
   </>;
 }

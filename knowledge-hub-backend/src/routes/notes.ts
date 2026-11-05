@@ -37,6 +37,8 @@ import { linkNamedReferences } from '../services/noteLinks.js';
 import { invalidateDefinitions } from '../ai/definitions.js';
 import { getFoundryClient } from '../ai/foundryClient.js';
 import { prepareAutomaticTaskAssistance } from '../work/taskAssistanceQueue.js';
+import { designScriptVisuals } from '../services/scriptVisualDesigner.js';
+import { SCRIPT_VISUAL_INSTRUCTION_LIMIT, type VisualScriptBlock } from '../utils/scriptVisuals.js';
 
 const router = Router();
 // Any note write can add, edit or remove a definition Athena relies on.
@@ -48,6 +50,29 @@ const PASSAGE_SEARCH_MAX_RESULTS = 100;
 const FOLLOWUP_PASSAGE_MAX_LENGTH = 3000;
 const FOLLOWUP_TITLE_MAX_LENGTH = 300;
 const FOLLOWUP_BODY_MAX_LENGTH = 5000;
+
+router.post('/:id/script-visuals/:sectionId/draft', (req, res, next) => {
+  const controller = new AbortController();
+  const cancel = (): void => { if (!res.writableEnded) controller.abort(); };
+  res.once('close', cancel);
+  void (async (): Promise<void> => {
+    try {
+      const result = await getDb().query<{ content: string }>("SELECT content FROM notes WHERE id::text = $1 AND status = 'active'", [req.params['id']]);
+      if (!result.rows[0]) throw new NotFoundError('Script not found');
+      const parsed = parseNoteContent(result.rows[0].content);
+      if (parsed.contentType !== 'script') throw new ValidationError('Visuals belong to Script notes.');
+      const section = (parsed.blocks as VisualScriptBlock[]).find(block => block.id === req.params['sectionId'] && block.props?.scriptSection);
+      if (!section) throw new ConflictError('The script section is no longer available.', 'SECTION_NOT_FOUND');
+      const body: unknown = req.body;
+      const instruction = body && typeof body === 'object' && 'instruction' in body ? body.instruction : undefined;
+      if (typeof instruction !== 'string' || instruction.length > SCRIPT_VISUAL_INSTRUCTION_LIMIT) throw new ValidationError('Provide a bounded visual design request.');
+      const visuals = await designScriptVisuals(section, instruction, controller.signal,
+        (parsed.blocks as VisualScriptBlock[]).find(block => block.props?.scriptSection)?.id === section.id);
+      res.json({ success: true, data: { visuals, expectedVisuals: section.props?.scriptVisuals ?? '' } });
+    } catch (error) { next(error); }
+    finally { res.removeListener('close', cancel); }
+  })();
+});
 
 router.get('/passage-tags/search', (req, res, next) => {
   void (async (): Promise<void> => {

@@ -368,7 +368,9 @@ export const NotesPage: React.FC = () => {
       && !presentation.scriptAnnotations) {
       throw new Error('Update Athena Desktop to present script colours and delivery cues. Your saved script is unchanged.');
     }
-    await presentation.present({ noteId: saved.id, title: saved.title, text: script.text, runs: script.runs });
+    if (script.visuals.length && !presentation.scriptVisuals) throw new Error('Update Athena Desktop to present this script with synchronised browser visuals.');
+    if (script.visuals.some(scene => scene.composition) && !presentation.scriptVisualCompositions) throw new Error('Update Athena Desktop to present layered visuals. Web preview remains available.');
+    await presentation.present({ noteId: saved.id, title: saved.title, text: script.text, runs: script.runs, visuals: script.visuals });
   }
   useDesktopCommand('present-note', presentNote);
   const presentHandler = getDesktop()?.presentation ? (): void => { void presentNote().catch(err => {
@@ -611,7 +613,8 @@ export const NotesPage: React.FC = () => {
         const selection = editor ? scriptSectionContext(editor.document,
           focusedId ?? editor.getTextCursorPosition().block.id,
           document.activeElement instanceof HTMLTextAreaElement ? '' : editor.getSelectedText()) : '';
-        return (bodyText !== '' ? `\n\nContent:\n${bodyText}` : '') + selection;
+        const scene = document.activeElement?.closest('.bn-block-outer')?.querySelector('[data-visual-scene]')?.getAttribute('data-visual-scene');
+        return (bodyText !== '' ? `\n\nContent:\n${bodyText}` : '') + selection + (scene ? `\n[Preview scene id: ${scene}]` : '');
       };
       const imageUrls = extractImageUrls(blocks);
       const imagesKey = imageUrls.join('|');
@@ -645,12 +648,14 @@ export const NotesPage: React.FC = () => {
       if (doc.contentType === 'script') {
         document.addEventListener('selectionchange', refreshSelection);
         document.addEventListener('focusin', refreshSelection);
+        window.addEventListener('athena:script-visual-context', refreshSelection);
       }
       const cleanup = (): void => {
         cancelled = true;
         clearTimeout(selectionTimer);
         document.removeEventListener('selectionchange', refreshSelection);
         document.removeEventListener('focusin', refreshSelection);
+        window.removeEventListener('athena:script-visual-context', refreshSelection);
         setAthenaContext(null);
       };
       const cached = imageDescriptionsRef.current.get(imagesKey);

@@ -3,21 +3,36 @@ import { defaultBlockSpecs, type BlockSpec } from '@blocknote/core';
 import { createReactBlockSpec } from '@blocknote/react';
 import { confirmDialog } from '../services/appDialogs';
 import { preserveScriptSelection } from './scriptSectionSelection';
+import { ScriptVisualPreview } from '../features/autocue/ScriptVisualPreview';
+import { useAthenaContext } from '../context/AthenaContext';
+import { getActiveNoteId } from '../utils/activeBlockNoteEditor';
+import { readSectionVisuals } from '../../../knowledge-hub-backend/src/utils/scriptVisuals';
 
 type HeadingProps = Omit<typeof defaultBlockSpecs.heading.config.propSchema, 'isToggleable'> & {
   isToggleable: NonNullable<typeof defaultBlockSpecs.heading.config.propSchema.isToggleable>;
 };
 const nativeHeading = defaultBlockSpecs.heading as BlockSpec<'heading', HeadingProps, 'inline'>;
 const config = { ...nativeHeading.config, propSchema: { ...nativeHeading.config.propSchema,
-  scriptSection: { default: false }, scriptDirection: { default: '' } } } as const;
+  scriptSection: { default: false }, scriptDirection: { default: '' }, scriptVisuals: { default: '' } } } as const;
 
 const sectionHeading = createReactBlockSpec(config, {
   render: function ScriptSectionHeading({ block, editor, contentRef }) {
     const [, refreshOrder] = React.useReducer((value: number) => value + 1, 0);
-    React.useEffect(() => editor.onChange(() => { refreshOrder(); }), [editor]);
+    const { openAthena, pageContext } = useAthenaContext();
+    React.useEffect(() => editor.onChange(() => { refreshOrder(); window.dispatchEvent(new Event('athena:script-visual-context')); }), [editor]);
     const siblings = editor.document.filter(item => item.type === 'heading' && item.props.scriptSection);
     const index = siblings.findIndex(item => item.id === block.id);
     const [error, setError] = React.useState<string | null>(null);
+    let pageOffset = 0;
+    let totalScenes = 0;
+    let visualError: string | null = null;
+    try {
+      for (const [position, section] of siblings.entries()) {
+        const count = readSectionVisuals(section)?.scenes.length ?? 0;
+        if (position < index) pageOffset += count;
+        totalScenes += count;
+      }
+    } catch (err) { visualError = err instanceof Error ? err.message : 'Presentation numbering could not be read.'; }
     const perform = (operation: () => void): void => {
       try {
         if (!editor.isEditable) throw new Error('Wait for the current note operation to finish before changing this section.');
@@ -57,6 +72,12 @@ const sectionHeading = createReactBlockSpec(config, {
         }}>Remove</button>
       </div>
       <div className="kh-script-section__title" ref={contentRef} role="textbox" aria-label="Section title (not spoken)" />
+      <ScriptVisualPreview section={block} presentationTitle={pageContext?.title ?? ''} pageOffset={pageOffset} totalScenes={totalScenes} ask={sceneId => {
+        const noteId = getActiveNoteId();
+        if (!noteId || !pageContext || pageContext.id !== noteId) { setError('Reopen the script before asking Athena to change its visuals.'); return; }
+        openAthena(`Please ${block.props.scriptVisuals ? 'update' : 'create'} the visuals for script section ${block.id}${sceneId ? `, scene ${sceneId}` : ''}. Read its current scenes first. Keep the spoken script unchanged. Use concepts and meaningful animation, not narration repeated as bullet points. ${block.props.scriptVisuals ? 'The change I want is: ' : ''}`, pageContext);
+      }} />
+      {visualError && <p className="kh-script-section__error" role="alert" contentEditable={false}>{visualError}</p>}
       {error && <p className="kh-script-section__error" role="alert" contentEditable={false}>{error}</p>}
     </div>;
   },
@@ -74,6 +95,7 @@ const nativeBlock = (block: ScriptHeadingBlock): ScriptHeadingBlock => {
   const props: Record<string, unknown> = { ...block.props };
   delete props['scriptSection'];
   delete props['scriptDirection'];
+  delete props['scriptVisuals'];
   return { ...block, props: props as ScriptHeadingBlock['props'] };
 };
 

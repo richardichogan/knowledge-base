@@ -4,10 +4,86 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createContext, runInContext } from 'node:vm';
 import { ElgatoBridge } from '../src/elgatoBridge';
-import { initialPresentation, parseCommand, parsePresentationRuns, playbackCommand } from '../src/elgatoProtocol';
+import { initialPresentation, parseCommand, parsePresentationRuns, parsePresentationVisuals, playbackCommand } from '../src/elgatoProtocol';
 import { createServer } from 'node:net';
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
+import { VisualOutput } from '../src/visualOutput';
+
+test('visual output validates bounded templates, finite positions and reveal ordering', () => {
+  const scene = { id: 'one', template: 'concept', title: 'The idea', subtitle: '', imageUrl: '', imageAlt: '', at: 2,
+    items: [{ label: 'Part', detail: '', at: 10 }] };
+  assert.equal(parsePresentationVisuals([scene], 20)?.[0]?.items[0]?.at, 10);
+  assert.throws(() => parsePresentationVisuals([{ ...scene, template: 'html' }], 20), /template/);
+  assert.throws(() => parsePresentationVisuals([{ ...scene, at: NaN }], 20), /cues/);
+  assert.throws(() => parsePresentationVisuals([{ ...scene, items: [{ label: 'Part', detail: '', at: 1 }] }], 20), /cues/);
+  assert.throws(() => parsePresentationVisuals([{ ...scene, imageUrl: 'file:///secret' }], 20), /image/);
+  assert.throws(() => parsePresentationVisuals([scene], 5), /cues/);
+  const artwork = { description: 'An authority boundary', shapes: [{ kind: 'circle', x: 1100, y: 450,
+    width: 0, height: 0, radius: 200, d: '', tone: 'teal', opacity: 0.4 }] };
+  assert.deepEqual(parsePresentationVisuals([{ ...scene, artwork, layout: 'hero' }], 20)?.[0]?.artwork, artwork);
+  assert.throws(() => parsePresentationVisuals([{ ...scene, layout: 'html' }], 20), /layout/);
+  assert.throws(() => parsePresentationVisuals([{ ...scene, artwork: { ...artwork,
+    shapes: [{ ...artwork.shapes[0], kind: 'path', d: 'url(secret)' }] } }], 20), /path/);
+  assert.throws(() => parsePresentationVisuals([{ ...scene, artwork: { ...artwork,
+    shapes: [{ ...artwork.shapes[0], opacity: NaN }] } }], 20), /geometry/);
+});
+
+test('desktop validates composed nodes, geometry and connections at its independent trust boundary', () => {
+  const node = { id: 'work', kind: 'panel', x: 100, y: 300, width: 320, height: 240,
+    label: 'Work', detail: '', tone: 'teal', icon: 'worker', reveal: 0 };
+  const composition = { label: '', imagePrompt: '', nodes: [node, { ...node, id: 'owner', x: 1000, reveal: 1 }],
+    links: [{ from: 'work', to: 'owner', label: 'Exception', tone: 'warning', style: 'solid', reveal: 1 }] };
+  const scene = { id: 'scene', template: 'concept', title: 'Human authority', subtitle: '', imageUrl: '', imageAlt: '', at: 0,
+    items: [{ label: 'Exception', detail: '', at: 10 }], composition };
+  assert.deepEqual(parsePresentationVisuals([scene], 20)?.[0]?.composition, composition);
+  assert.throws(() => parsePresentationVisuals([{ ...scene, composition: { ...composition, nodes: [{ ...node, x: Infinity }] } }], 20), /geometry/);
+  assert.throws(() => parsePresentationVisuals([{ ...scene, composition: { ...composition, nodes: [{ ...node, kind: 'script' }] } }], 20), /type/);
+  assert.throws(() => parsePresentationVisuals([{ ...scene, composition: { ...composition, links: [
+    { ...composition.links[0], reveal: 0 },
+  ] } }], 20), /connection/);
+});
+
+test('read-only local output holds scenes, reverses reveals and rejects cross-origin, wrong-token and write access', async () => {
+  const output = new VisualOutput(join(__dirname, '../../assets'));
+  try {
+    const [url, same] = await Promise.all([output.open(), output.open()]);
+    assert.equal(url, same);
+    assert.equal(new URL(url).hostname, '127.0.0.1');
+    const page = await fetch(url);
+    assert.equal(page.status, 200);
+    assert.equal(page.headers.get('cache-control'), 'no-store');
+    assert.match(page.headers.get('content-security-policy') ?? '', /frame-ancestors 'none'/);
+    assert.equal(page.headers.get('access-control-allow-origin'), null);
+    await page.text();
+    assert.equal((await fetch(new URL('/wrong/', url))).status, 404);
+    assert.equal((await fetch(url, { headers: { Origin: 'https://untrusted.example' } })).status, 403);
+    assert.equal((await fetch(url, { method: 'POST' })).status, 403);
+    const scenes = [{ id: 'one', template: 'concept' as const, title: 'Concept', subtitle: '', imageUrl: '', imageAlt: '', at: 0,
+      items: [{ label: 'First', detail: '', at: 10 }, { label: 'Second', detail: '', at: 30 }] }];
+    const packet = async (): Promise<{ revealed: number; scene: { id: string }; page: number; total: number; presentationTitle: string }> => {
+      const response = await fetch(new URL('events', url));
+      const reader = response.body!.getReader();
+      const first = await reader.read();
+      await reader.cancel();
+      return JSON.parse(new TextDecoder().decode(first.value).replace(/^data: /, '').trim());
+    };
+    output.update(scenes, 35, null, 'Delegation explained');
+    const first = await packet();
+    assert.equal(first.revealed, 2);
+    assert.equal(first.page, 1);
+    assert.equal(first.total, 1);
+    assert.equal(first.presentationTitle, 'Delegation explained');
+    output.update(scenes, 15, null);
+    const reversed = await packet();
+    assert.equal(reversed.scene.id, 'one');
+    assert.equal(reversed.revealed, 1);
+    output.update(scenes, 0, null);
+    assert.equal((await packet()).revealed, 0);
+    output.close();
+    await assert.rejects(fetch(url));
+  } finally { output.close(); }
+});
 
 test('desktop commands reject stale, unknown and unbounded input', () => {
   const command = { id: 'test', command: 'new-note', issuedAt: Date.now() };
@@ -52,12 +128,12 @@ test('presentation formatting accepts only bounded text and supported styles wit
 test('formatted output uses literal text nodes and style classes, and clears marks for a plain script', async () => {
   let update: (value: unknown) => void = () => {};
   type Span = { textContent: string; classList: { add: (value: string) => void; remove: (value: string) => void };
-    classes: string[]; children: Span[]; offsetTop: number; appendChild: (child: Span) => void };
+    classes: string[]; children: Span[]; dataset: Record<string, string>; offsetTop: number; appendChild: (child: Span) => void };
   const node = (value = ''): Span => {
     const classes: string[] = [];
     const children: Span[] = [];
     return { get textContent() { return value + children.map(child => child.textContent).join(''); },
-      set textContent(text: string) { value = text; }, classes, children, offsetTop: 0,
+      set textContent(text: string) { value = text; }, classes, children, dataset: {}, offsetTop: 0,
       classList: { add: name => { classes.push(name); }, remove: name => { const i = classes.indexOf(name); if (i >= 0) classes.splice(i, 1); } },
       appendChild: child => { children.push(child); } };
   };
@@ -70,9 +146,12 @@ test('formatted output uses literal text nodes and style classes, and clears mar
     replaceChildren: (fragment: { children: Span[] }) => { children = fragment.children; },
   };
   const context = createContext({
+    NodeFilter: { SHOW_TEXT: 4 },
     window: { athenaOutput: { onUpdate: (fn: typeof update) => { update = fn; }, report: () => {} } },
     document: {
-      getElementById: (id: string) => id === 'viewport' ? { clientHeight: 100, scrollHeight: 100, scrollTop: 0 } : script,
+      getElementById: (id: string) => id === 'viewport' ? { clientHeight: 100, scrollHeight: 100, scrollTop: 0,
+        addEventListener: () => {}, getBoundingClientRect: () => ({ top: 0, bottom: 100 }) } : script,
+      createTreeWalker: () => ({ nextNode: () => null }),
       body: { classList: { toggle: () => {} } },
       createElement: (tag: string): Span => {
         assert.equal(tag, 'span');
@@ -108,18 +187,21 @@ test('output acknowledges commands, maintains fractional pace, pauses immediatel
   let top = 0;
   const viewport = {
     clientHeight: 100, scrollHeight: 1100,
+    addEventListener: () => {}, getBoundingClientRect: () => ({ top: 0, bottom: 100 }),
     get scrollTop(): number { return top; },
     set scrollTop(value: number) { top = Math.max(0, Math.min(1000, Math.round(value))); },
   };
   const reports: { progress: number; ack?: number }[] = [];
   const script = { style: {}, textContent: '', replaceChildren(fragment: { text: string }) { this.textContent = fragment.text; } };
   const context = createContext({
+    NodeFilter: { SHOW_TEXT: 4 },
     window: { athenaOutput: {
       onUpdate: (fn: typeof update) => { update = fn; },
       report: (value: typeof reports[number]) => reports.push(value),
     } },
     document: { getElementById: (id: string) => id === 'viewport' ? viewport : script, body: { classList: { toggle: () => {} } },
-      createElement: () => ({ textContent: '', offsetTop: 0, classList: { add: () => {}, remove: () => {} },
+      createTreeWalker: () => ({ nextNode: () => null }),
+      createElement: () => ({ textContent: '', dataset: {}, offsetTop: 0, classList: { add: () => {}, remove: () => {} },
         appendChild(child: { textContent: string }) { this.textContent += child.textContent; } }),
       createTextNode: (textContent: string) => ({ textContent }),
       createDocumentFragment: () => {

@@ -57,6 +57,9 @@ export function Presenter(): React.JSX.Element {
   }, [note.data, episode.data, episode.error, preparedScript.data, preparedScript.error]);
   const annotationUnsupported = !!script?.runs.some(run => run.styles.some(style => style.startsWith('colour-') || style.startsWith('cue-')))
     && !desktop?.scriptAnnotations;
+  const visualScenes = script && 'visuals' in script ? script.visuals : undefined;
+  const visualsUnsupported = !!visualScenes?.length && (!desktop?.scriptVisuals
+    || visualScenes.some(scene => scene.composition) && !desktop?.scriptVisualCompositions);
 
   async function action(fn: () => Promise<unknown>, message?: string): Promise<void> {
     if (busyRef.current) return;
@@ -103,12 +106,15 @@ export function Presenter(): React.JSX.Element {
   const rows = notes.data?.pages.flatMap(page => page.items) ?? [];
   const selected = note.data;
   const currentListed = rows.some(item => item.id === noteId);
-  const canStart = !expired && !!selected && !!script?.text.trim() && !!displayId && !note.isFetching && !episode.isFetching && !preparedScript.isFetching && !annotationUnsupported;
+  const canStart = !expired && !!selected && !!script?.text.trim() && !!displayId && !note.isFetching && !episode.isFetching && !preparedScript.isFetching && !annotationUnsupported && !visualsUnsupported;
   const play = (): void => {
     if (!desktop || !canStart || !selected || !script) return;
     void action(async () => {
       if (!connected || (desktop.present && playback?.noteId !== selected.id) || playback?.displayId !== Number(displayId)) {
-        await desktop.start({ noteId: selected.id, title: selected.title, text: script.text, runs: script.runs, displayId: Number(displayId) });
+        const visuals = 'visuals' in script ? script.visuals : undefined;
+        if (visuals?.length && !desktop.scriptVisuals) throw new Error('Update Athena Desktop to present synchronised browser visuals.');
+        if (visuals?.some(scene => scene.composition) && !desktop.scriptVisualCompositions) throw new Error('Update Athena Desktop to present layered visuals. Web preview remains available.');
+        await desktop.start({ noteId: selected.id, title: selected.title, text: script.text, runs: script.runs, ...(visuals ? { visuals } : {}), displayId: Number(displayId) });
       }
       await desktop.command({ id: crypto.randomUUID(), command: 'play', issuedAt: Date.now() });
     });
@@ -150,8 +156,12 @@ export function Presenter(): React.JSX.Element {
             : 'Choose a saved note with text to see its script here.'}</p>
         <p>The output uses a saved snapshot. Edits will not change a live presentation.</p>
         {annotationUnsupported && <p className="kh-presenter__error" role="alert">Update Athena Desktop to present script colours and visual delivery cues.</p>}
+        {visualsUnsupported && <p className="kh-presenter__error" role="alert">Update Athena Desktop to present synchronised browser visuals.</p>}
       </section>
       <aside className="kh-presenter__controls" aria-label="Presenter controls">
+        <button type="button" disabled={busy || !connected || !desktop.openVisuals} onClick={() => {
+          if (desktop.openVisuals) void action(() => desktop.openVisuals!());
+        }}>Open browser visuals</button>
         <section>
           <h2>Output display</h2>
           <label>Display<select value={displayId} onChange={e => setDisplayId(e.target.value)}>
@@ -164,7 +174,8 @@ export function Presenter(): React.JSX.Element {
           </div>
           <button className="kh-presenter__primary" disabled={!canStart || busy} onClick={() => {
             if (!selected || !script) return;
-            void action(() => desktop.start({ noteId: selected.id, title: selected.title, text: script.text, runs: script.runs, displayId: Number(displayId) }), 'Script opened, paused and ready.');
+            void action(() => desktop.start({ noteId: selected.id, title: selected.title, text: script.text, runs: script.runs,
+              ...(visualScenes ? { visuals: visualScenes } : {}), displayId: Number(displayId) }), 'Script opened, paused and ready.');
           }}>Open script on display</button>
           <button disabled={!selected || busy} onClick={() => { void action(async () => {
             if (connected) await desktop.command({ id: crypto.randomUUID(), command: 'pause', issuedAt: Date.now() });

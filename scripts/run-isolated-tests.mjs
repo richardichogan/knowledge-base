@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 const backend = resolve(import.meta.dirname, '../knowledge-hub-backend');
@@ -29,6 +30,7 @@ const tests = frontend ? [
   '../knowledge-hub-web/tests/imageClipboard.test.ts',
   '../knowledge-hub-web/tests/spellingTarget.test.ts',
   '../knowledge-hub-web/tests/presentation.test.ts',
+  '../knowledge-hub-web/tests/scriptBackspace.test.ts',
   '../knowledge-hub-web/tests/speechPlayback.test.ts',
   '../knowledge-hub-web/tests/composerIntent.test.ts',
   '../knowledge-hub-web/tests/dailyInsightsSource.test.ts',
@@ -192,6 +194,19 @@ if (frontend) {
       format: 'cjs',
       define: { 'import.meta.env': '{}' },
       loader: { '.scss': 'empty' },
+      plugins: [{
+        name: 'vite-raw-assets',
+        setup(build) {
+          build.onResolve({ filter: /\?raw$/ }, args => ({
+            path: resolve(args.resolveDir, args.path.slice(0, -4)),
+            namespace: 'raw-asset',
+          }));
+          build.onLoad({ filter: /.*/, namespace: 'raw-asset' }, async ({ path }) => ({
+            contents: await readFile(path, 'utf8'),
+            loader: 'text',
+          }));
+        },
+      }],
     });
     const bundled = spawnSync(process.execPath, ['-'], {
       cwd: web,

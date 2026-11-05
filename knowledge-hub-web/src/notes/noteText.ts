@@ -1,4 +1,4 @@
-export interface NoteContentBlock { id?: string; type?: string; props?: { level?: number; scriptSection?: boolean; scriptDirection?: string }; content?: unknown; children?: NoteContentBlock[] }
+export interface NoteContentBlock { id?: string; type?: string; props?: { level?: number; scriptSection?: boolean; scriptDirection?: string; scriptVisuals?: string }; content?: unknown; children?: NoteContentBlock[] }
 
 /** Renders a link chip as text; returning '' drops it. */
 export type MentionText = (type: string, id: string) => string;
@@ -39,6 +39,7 @@ export function extractNoteBlockText(blocks: NoteContentBlock[], mention?: Menti
     if (text.trim() !== '') parts.push(heading + text.trim());
     if (scriptAnnotations && block.props?.scriptSection) {
       parts.push(`[Script section id: ${block.id ?? 'not assigned'}]`);
+      if (block.props.scriptVisuals) parts.push('[Linked presentation visuals: use read_script_visuals for full saved scenes and cues.]');
     }
 
     if (Array.isArray(block.children)) {
@@ -54,6 +55,16 @@ export function scriptSectionContext(blocks: NoteContentBlock[], activeBlockId: 
   const section = blocks.find(block => block.props?.scriptSection && contains(block));
   if (!section) return '';
   return `\n[Active script section id: ${section.id ?? 'not assigned'}]\n[Active block id: ${activeBlockId}]`
+    + visualContext(section)
     + (selectedText ? `\n[Selected script text${selectedText.length > 4000 ? ' (truncated)' : ''}: ${selectedText.slice(0, 4000)}]` : '');
 }
+function visualContext(section: NoteContentBlock): string {
+  if (!section.props?.scriptVisuals) return '\n[No presentation visuals for this section.]';
+  try {
+    const visuals = parseScriptVisuals(section.props.scriptVisuals);
+    const content = JSON.stringify(visuals.scenes);
+    return `\n[Visuals ${visuals.source === scriptVisualSource(section) ? 'current' : 'stale'}: ${content.length <= 12000 ? content : 'scene data exceeds page context; call read_script_visuals with the section id before answering'}]`;
+  } catch (error) { return `\n[Visual access failed: ${error instanceof Error ? error.message : 'invalid visual metadata'}. Do not claim to have read these scenes.]`; }
+}
 import { annotateScriptText, scriptHeadingPrefix } from '../../../knowledge-hub-backend/src/podcasts/scriptAnnotations';
+import { parseScriptVisuals, scriptVisualSource } from '../../../knowledge-hub-backend/src/utils/scriptVisuals';

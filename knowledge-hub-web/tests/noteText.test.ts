@@ -67,6 +67,6 @@ test('active Script context identifies a deeply nested selection without claimin
     { id: 'list', children: [{ id: 'nested' }] },
   ] }];
   assert.equal(scriptSectionContext(blocks, 'nested', 'selected words'),
-    '\n[Active script section id: section]\n[Active block id: nested]\n[Selected script text: selected words]');
+    '\n[Active script section id: section]\n[Active block id: nested]\n[No presentation visuals for this section.]\n[Selected script text: selected words]');
   assert.equal(scriptSectionContext(blocks, 'missing', ''), '');
 });

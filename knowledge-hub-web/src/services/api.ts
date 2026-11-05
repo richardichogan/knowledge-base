@@ -1037,6 +1037,12 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
+  async draftScriptVisuals(noteId: string, sectionId: string, instruction: string): Promise<ApiResponse<{
+    visuals: import('../../../knowledge-hub-backend/src/utils/scriptVisuals').ScriptVisuals; expectedVisuals: string;
+  }>> {
+    return (await this.client.post(`/api/notes/${encodeURIComponent(noteId)}/script-visuals/${encodeURIComponent(sectionId)}/draft`, { instruction }, { timeout: 8 * CHAT_TIMEOUT_MS })).data;
+  }
+
   async searchNotePassages(q: string, signal?: AbortSignal): Promise<ApiResponse<{
     items: Array<{ id: string; kind: 'important' | 'followUp' | 'question' | 'risk' | 'issue'; label: string; text: string; noteId: string; noteTitle: string }>;
     hasMore: boolean;

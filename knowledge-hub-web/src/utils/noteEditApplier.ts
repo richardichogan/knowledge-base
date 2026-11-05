@@ -12,6 +12,7 @@ import { scriptNoteBlocks } from '../../../knowledge-hub-backend/src/utils/scrip
 import { groupScriptSections, ungroupScriptSections, splitScriptSectionTail } from '../../../knowledge-hub-backend/src/utils/scriptSections';
 import { preserveScriptSelection } from '../notes/scriptSectionSelection';
 import type { Transaction } from '@tiptap/pm/state';
+import { parseScriptVisuals, scriptVisualSource } from '../../../knowledge-hub-backend/src/utils/scriptVisuals';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Editor = BlockNoteEditor<any, any, any>;
@@ -168,6 +169,16 @@ function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined,
   const md = edit.markdown ?? '';
   const titleId = titleBlock?.id;
   switch (edit.action) {
+    case 'set_script_visuals': {
+      const section = blocks.find(block => block.id === edit.sectionId && block.props?.scriptSection);
+      if (!script || !section || !edit.visuals || scriptVisualSource(section) !== edit.visuals.source
+        || (section.props.scriptVisuals ?? '') !== edit.expectedVisuals) {
+        throw new Error('The script section or its visuals changed while Ariadne was designing. Nothing was overwritten; request an updated plan.');
+      }
+      const visuals = parseScriptVisuals(edit.visuals, section);
+      editor.updateBlock(section, { props: { ...section.props, scriptVisuals: JSON.stringify(visuals) } });
+      return;
+    }
     case 'append': {
       const appendTo = script ? splitScriptSectionTail(blocks).body : blocks;
       const last = appendTo[appendTo.length - 1];
@@ -259,7 +270,7 @@ export function applyNoteEdits(editor: Editor, edits: NoteEdit[], options: { scr
   let applied = 0;
   const run = (): void => {
     const cards = options.script && (editor.document as Block[]).some(block => block.props?.scriptSection)
-      && edits.some(edit => edit.action !== 'replace_text');
+      && edits.some(edit => edit.action !== 'replace_text' && edit.action !== 'set_script_visuals');
     if (cards) editor.replaceBlocks(editor.document, ungroupScriptSections(editor.document as Block[]));
     const titleBlock = (editor.document as Block[]).find(block => block.type === 'heading' && inlineText(block).trim());
     for (const edit of edits) {

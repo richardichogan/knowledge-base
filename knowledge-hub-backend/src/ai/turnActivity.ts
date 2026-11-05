@@ -40,6 +40,8 @@ const LABELS: Record<string, string> = {
   create_demo_specification: 'Validating and saving the demo specification',
   create_spark: 'Saving a Spark',
   propose_note_edit: 'Drafting changes to the note',
+  read_script_visuals: 'Reading saved script scenes and reveal cues',
+  design_script_visuals: 'Ariadne is designing concept-led script visuals',
   propose_map_changes: 'Drafting changes to the canvas',
   remember: 'Saving to memory',
   save_output: 'Saving to Outputs',

@@ -1,9 +1,10 @@
-import { BrowserWindow, app, clipboard, ipcMain, powerSaveBlocker, safeStorage, screen, type IpcMainInvokeEvent } from 'electron';
+import { BrowserWindow, app, clipboard, ipcMain, powerSaveBlocker, safeStorage, screen, shell, type IpcMainInvokeEvent } from 'electron';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ElgatoBridge } from './elgatoBridge';
-import { initialPresentation, parseCommand, parsePresentationRuns, playbackCommand, type CommandRequest, type DesktopCommandState, type PresentationScript } from './elgatoProtocol';
+import { initialPresentation, parseCommand, parsePresentationRuns, parsePresentationVisuals, playbackCommand, type CommandRequest, type DesktopCommandState, type PresentationScript } from './elgatoProtocol';
+import { VisualOutput } from './visualOutput';
 import { isAthenaFrame } from './navigation';
 import { wakePresentationDisplay } from './displayWake';
 
@@ -18,6 +19,8 @@ export function installElgato(
   let output: BrowserWindow | null = null;
   let outputReady = false;
   let outputOwner: number | null = null;
+  let readingPosition = 0;
+  const visuals = new VisualOutput(join(app.getAppPath(), 'assets'));
   let starting = false;
   let script: PresentationScript | null = null;
   let state: DesktopCommandState = { protocol: 1, presentation: initialPresentation(), recording: false, transcribing: false, error: null };
@@ -56,8 +59,11 @@ export function installElgato(
   const publish = (): void => {
     syncAwake();
     if (controller && !controller.isDestroyed()) controller.webContents.send('presentation:state', state);
+    visuals.update(script?.visuals ?? [], readingPosition,
+      state.presentation.status === 'disconnected' ? state.presentation.error : null, script?.title ?? '');
   };
   const disconnected = (message: string): void => {
+    visuals.close();
     outputReady = false;
     state.presentation = { ...state.presentation, displayId: null, status: 'disconnected', error: message };
     publish();
@@ -246,8 +252,10 @@ export function installElgato(
         || typeof v.title !== 'string' || v.title.length > 1000
         || typeof v.text !== 'string' || !v.text.trim() || v.text.length > 500_000) throw new Error('Choose a non-empty saved note (up to 500,000 characters).');
       const runs = parsePresentationRuns(v.runs, v.text);
+      const scenes = parsePresentationVisuals(v.visuals, v.text.length);
       const sameScript = script?.noteId === v.noteId && script.text === v.text
-        && JSON.stringify(script.runs) === JSON.stringify(runs);
+        && JSON.stringify(script.runs) === JSON.stringify(runs)
+        && JSON.stringify(script.visuals) === JSON.stringify(scenes);
       const matches = screen.getAllDisplays().filter(d => direct ? fingerprint(d) === config.display : d.id === v.displayId);
       if (matches.length !== 1) throw new Error(direct ? 'Set your output display once in Athena > Presentation and Stream Deck, then try Present again.' : 'Choose an available output display.');
       const display = matches[0]!;
@@ -271,7 +279,8 @@ export function installElgato(
       trusted(event, !direct);
       state.error = null;
       output?.close();
-      script = { noteId: v.noteId, title: v.title, text: v.text, ...(runs ? { runs } : {}) };
+      readingPosition = 0;
+      script = { noteId: v.noteId, title: v.title, text: v.text, ...(runs ? { runs } : {}), ...(scenes ? { visuals: scenes } : {}) };
       state.presentation = { ...state.presentation, sessionId: randomUUID(), noteId: script.noteId, title: script.title,
         displayId: display.id, status: 'ready', progress: resumeProgress, error: null };
       const win = new BrowserWindow({
@@ -316,6 +325,13 @@ export function installElgato(
     } finally { starting = false; }
   }
   handle('presentation:start', (event, value) => startOutput(event, value));
+  handle('presentation:visuals', async event => {
+    if (!outputReady || outputOwner !== event.sender.id || !script?.visuals?.length) throw new Error('Present a saved script with visuals first.');
+    visuals.update(script.visuals, readingPosition, null, script.title);
+    const url = await visuals.open();
+    if (!outputReady || outputOwner !== event.sender.id) { visuals.close(); throw new Error('The presentation closed before the browser output was ready.'); }
+    await shell.openExternal(url);
+  }, false);
   handle('presentation:direct', (event, value) => {
     if (new URL(event.senderFrame!.url).pathname !== '/think') throw new Error('Present a saved note from Think.');
     return startOutput(event, value, true);
@@ -328,6 +344,7 @@ export function installElgato(
     const v = value as Record<string, unknown>;
     if (v.sessionId !== state.presentation.sessionId || typeof v.progress !== 'number' || !Number.isFinite(v.progress)) return;
     state.presentation.progress = Math.max(0, Math.min(1, v.progress));
+    if (typeof v.position === 'number' && Number.isSafeInteger(v.position) && v.position >= 0 && v.position <= (script?.text.length ?? 0)) readingPosition = v.position;
     if (v.ended === true && state.presentation.status === 'playing') state.presentation.status = 'ended';
     if (typeof v.ack === 'number') { outputAcks.get(v.ack)?.(); outputAcks.delete(v.ack); }
     publish();
@@ -375,7 +392,7 @@ export function installElgato(
     }
     output.setBounds(display.bounds);
   });
-  app.on('before-quit', () => { void bridge.stop(); if (awake !== null) powerSaveBlocker.stop(awake); });
+  app.on('before-quit', () => { visuals.close(); void bridge.stop(); if (awake !== null) powerSaveBlocker.stop(awake); });
   configLoaded = (async () => {
     try {
       const parsed: unknown = JSON.parse(await readFile(configPath, 'utf8'));

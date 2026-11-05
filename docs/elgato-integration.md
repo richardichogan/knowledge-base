@@ -92,6 +92,102 @@ The output constructs text spans from validated style names, never note HTML.
 These output-formatting changes require Athena Desktop 0.1.9 or later;
 older desktop versions continue to receive a plain-text script.
 
+## Script-linked browser visuals
+
+Script notes in Think have an optional visual layer on their existing section
+cards. Toolbar actions use compact Carbon icons with tooltips and accessible
+labels; the Block style label and selector remain visible. Actions fit on one
+row when space permits and wrap rather than overflow in narrow editor panes.
+The toolbar and section cards share aligned outer edges and the same editor
+gutter. Carbon tooltips describe every icon on hover or keyboard focus,
+including disabled actions.
+Section bodies do not draw BlockNote's nesting guides merely because their
+text belongs to a card; genuinely nested lists retain their indentation and guides.
+Backspace removes a bullet normally, then joins paragraphs within the same
+section rather than lifting them out of the card. It stops at the first body
+block; genuine nested lists retain the editor's normal unindent behaviour.
+**Generate visuals** asks Ariadne, using the existing **GPT-6 Astra
+Responses** route, to compose scenes without rewriting the spoken script.
+Concepts, relationships, processes and key messages take priority over narration
+repeated on screen; bullet lists are exceptional. New scenes use typed, layered
+Carbon g100 compositions: large symbols, image subjects, short labels and
+animated directional connections. The old templates remain readable for existing
+saved scenes, but do not constrain newly composed visuals.
+Unboxed actors, imagery and connecting lines are the default; panels are reserved
+for meaningful groupings or boundaries. New or revised panels share a validated
+360×280 footprint and 24px padding; comparable unboxed actors use matching
+340×240 footprints, icon scale and spacing across scenes. Each unboxed actor's
+icon and text are centred together horizontally and vertically within its footprint.
+The visual brief targets 12–24 visible words per scene, with an enforced ceiling
+of 36. At 1600×900, headlines are 64px, primary labels 40px and secondary labels
+32px; the whole composition scales together. The talk track stays in the script.
+Supporting editorial illustrations use the existing one-pager deployment
+**`gpt-image-2.5-sunburst`**, at
+`https://aif-foundryiq.services.ai.azure.com/openai/v1/images/generations`.
+Azure Identity uses the signed-in CLI locally or a supported deployment identity
+with access to that resource (`https://ai.azure.com/.default`). No new provider,
+model resource or image SDK is required. Deployment identity access must be
+configured before enabling generation on another host; failures are explicit.
+Production uses the `kh-prod-api-vnet` system-assigned identity, with
+**Cognitive Services OpenAI User** scoped only to the existing `aif-foundryiq`
+account in `rg-foundryiq` (`sub-ibmc-projImagine-dev`). Local authentication
+continues to use the signed-in Azure CLI account; no model keys are added.
+Images contain no presentation typography. They are stored through Athena's
+existing private `kb-images` storage and registered in the image library, with
+an independent pixel-based visual description available to Athena alongside the
+separate generation brief. If image analysis fails, generation reports failure
+rather than claiming Athena has seen the image. Existing
+URLs are reused unless a new illustration is requested. Generation is bounded to
+two distinct new image prompts per section, no image retries, one corrective
+Astra response, and a seven-minute total budget. Both model routes record usage.
+The existing vision reader records its own usage separately.
+No model-generated HTML, executable markup, arbitrary CSS or SVG paths are run.
+An initial generation starts with an illustrated title scene. Each scene keeps
+its own headline, while a consistent footer shows the script title and its
+scene number across the whole script (for example **03 / 12**).
+
+Each section shows its visual preview. **Play preview** demonstrates its scenes
+and reveals independently of the teleprompter; it does not start live playback.
+Viewing, reviewing and playing these previews works in the normal web app
+without Desktop or an Elgato device. The illustration renderer is shared with
+the audience output, including its titles, footer and numbering.
+**Ask Athena to update** opens the existing Think Athena panel, with the section
+and scene identified. Athena can read full saved scenes and cues with
+`read_script_visuals` and ask Ariadne for bounded revisions with
+`design_script_visuals`. Edits use the normal protected live editor, history,
+undo, revision conflicts and save receipts. A changed spoken section marks its
+visuals stale rather than silently moving cues or overwriting a draft.
+
+Use **Present** first, then **Open browser visuals** in the script toolbar or
+Presentation controls. Share that browser window in Riverside. The
+Electron note toolbar includes **Present** and **Stop presenting** icons with
+tooltips, alongside the existing Actions menu entries. Stop closes the output
+without closing the note; these controls are absent in the normal web app.
+The actual Prompter reading line drives scene and reveal cues through exact spoken-block
+anchors, including wrapped lines, font changes and reverse wheel scrolling.
+Pause holds the current scene; Stop resets it. Preview timings do not control
+live playback. Script and visuals are a saved snapshot; editing does not replace
+live output.
+
+Live Elgato synchronisation requires Athena Desktop **0.1.12 or later**, advertising the `scriptVisuals`
+capability and, for layered scenes, `scriptVisualCompositions`, plus the matching
+backend/frontend. An older installation reports
+the update requirement instead of pretending to synchronise. No Stream Deck
+plugin change is needed. The feature is not installed merely by updating the
+hosted site.
+
+The audience page uses an independent read-only HTTP/SSE server bound to
+`127.0.0.1` on an ephemeral port, with a fresh unguessable path for each output
+session. It validates Host and Origin, sends no CORS permission, disables
+caching/referrers and has no commands, note API or desktop credentials.
+It works only on the same computer. It does not weaken the existing paired
+Stream Deck bridge. Closing/disconnecting the output or quitting Desktop closes
+the local server; the browser holds its last scene and reports disconnection.
+Open the browser output again after reopening a presentation. Existing HTTPS
+scene images are loaded by the browser; only source URLs or trusted persisted
+Sunburst output may enter a generated plan. Connections and subjects reveal
+against the same spoken anchors and reverse when the reading position reverses.
+
 ## Pair Stream Deck
 
 In the presenter window, select **Enable & copy pairing key**. Add any action

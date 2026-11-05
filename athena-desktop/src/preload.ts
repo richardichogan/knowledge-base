@@ -14,6 +14,9 @@ if (process.isMainFrame && athenaOrigin !== '' && window.location.origin === ath
     version: versionArg?.slice('--athena-version='.length) ?? '',
     presentation: {
       scriptAnnotations: true,
+      scriptVisuals: true,
+      scriptVisualCompositions: true,
+      openVisuals: () => ipcRenderer.invoke('presentation:visuals'),
       open: (noteId?: string) => ipcRenderer.invoke('presentation:open', noteId),
       displays: () => ipcRenderer.invoke('presentation:displays'),
       identify: (id: number) => ipcRenderer.invoke('presentation:identify', id),

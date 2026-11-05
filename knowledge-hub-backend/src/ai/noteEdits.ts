@@ -6,6 +6,7 @@
  */
 
 import { scriptAnnotationRuns } from '../podcasts/scriptAnnotations.js';
+import { parseScriptVisuals, scriptVisualSource, type ScriptVisuals } from '../utils/scriptVisuals.js';
 
 export type NoteEditAction =
   | 'append'           // add to the end of the note
@@ -14,7 +15,8 @@ export type NoteEditAction =
   | 'replace_section'  // replace the content under `heading` (heading kept unless markdown starts with one)
   | 'delete_section'   // remove `heading` and its content
   | 'replace_text'     // replace exact text `find` with `markdown`
-  | 'replace_all';     // rewrite the whole note body with `markdown` (a full redraft)
+  | 'replace_all'
+  | 'set_script_visuals';
 
 export interface NoteEditProposal {
   delivery?: 'apply' | 'preview';
@@ -23,6 +25,9 @@ export interface NoteEditProposal {
   find?: string;
   markdown?: string;
   summary: string;
+  sectionId?: string;
+  visuals?: ScriptVisuals;
+  expectedVisuals?: string;
 }
 
 const ACTIONS: readonly NoteEditAction[] = ['append', 'prepend', 'add_to_section', 'replace_section', 'delete_section', 'replace_text', 'replace_all'];
@@ -122,6 +127,16 @@ export function checkEditsAgainstNote(edits: NoteEditProposal[], blocks: NoteBlo
   const label = (i: number): string => String(i - alreadyProposed + 1);
   const hasHeading = (target: string): boolean => headings.some((h) => h === target || h.includes(target) || (target.includes(h) && h !== ''));
   edits.forEach((e, i) => {
+    if (e.action === 'set_script_visuals') {
+      const section = blocks.find(block => block.id === e.sectionId && block.props?.scriptSection);
+      if (!script || !section || !e.visuals || scriptVisualSource(section) !== e.visuals.source) {
+        problems.push(`edit ${label(i)}: the visual source section changed or is unavailable`);
+      } else {
+        try { parseScriptVisuals(e.visuals, section); }
+        catch (error) { problems.push(error instanceof Error ? error.message : 'Invalid visuals'); }
+      }
+      return;
+    }
     const markdown = script && e.markdown !== undefined
       ? scriptAnnotationRuns(e.markdown).map(run => run.cue ? `[${run.cue}]` : run.text).join('') : e.markdown;
     const n = label(i);

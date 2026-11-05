@@ -6,6 +6,7 @@ import { groupScriptSections, ungroupScriptSections, splitScriptSectionTail } fr
 import { Schema } from '@tiptap/pm/model';
 import { EditorState, TextSelection } from '@tiptap/pm/state';
 import { preserveScriptSelection } from '../src/notes/scriptSectionSelection';
+import { scriptVisualSource } from '../../knowledge-hub-backend/src/utils/scriptVisuals';
 
 type Inline = { type: string; text?: string; styles?: Record<string, unknown>; props?: Record<string, unknown>; href?: string; content?: Inline[] };
 interface Block { id: string; type: string; props?: Record<string, unknown>; content: Inline[]; children?: Block[] }
@@ -47,6 +48,26 @@ function fixture(document: Block[]) {
   const apply = (edits: NoteEdit[], script = false) => applyNoteEdits(editor as unknown as Parameters<typeof applyNoteEdits>[0], edits, { script });
   return { editor, apply };
 }
+
+test('visual-only edits preserve the section, rich spoken blocks and unrelated metadata, and reject concurrent changes', () => {
+  const section: Block = { id: 'section', type: 'heading', props: { level: 2, scriptSection: true, scriptVisuals: '', textColor: 'default' },
+    content: [text('Opening')], children: [{ id: 'spoken', type: 'paragraph', content: [text('Explain this idea.', { bold: true })] }] };
+  const original = structuredClone(section);
+  const visuals = { version: 1 as const, source: scriptVisualSource(section), scenes: [{
+    id: 'scene', template: 'title' as const, title: 'One clear idea', subtitle: '', imageUrl: '', imageAlt: '',
+    cue: { blockId: 'spoken', quote: '' }, items: [],
+  }] };
+  const { editor, apply } = fixture([section]);
+  const edit: NoteEdit = { action: 'set_script_visuals', sectionId: section.id, expectedVisuals: '', visuals, summary: 'Explain the idea visually' };
+  assert.deepEqual(apply([edit], true), { applied: 1, failed: [] });
+  assert.deepEqual(editor.document[0]?.children, original.children);
+  assert.deepEqual(editor.document[0]?.content, original.content);
+  assert.equal(editor.document[0]?.props?.['textColor'], 'default');
+  assert.equal(apply([edit], true).applied, 0);
+  const changed = fixture([{ ...section, children: [{ id: 'spoken', type: 'paragraph', content: [text('New wording.')] }] }]);
+  assert.equal(changed.apply([edit], true).applied, 0);
+  assert.equal(changed.editor.document[0]?.props?.['scriptVisuals'], '');
+});
 
 test('heading-to-card conversion is lossless, immutable and idempotent across levels and preamble', () => {
   const original: Block[] = [

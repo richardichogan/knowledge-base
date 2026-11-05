@@ -240,7 +240,10 @@ export interface MapChange {
 /** One edit Athena proposes to the open Think note. */
 export interface NoteEdit {
   delivery?: 'apply' | 'preview';
-  action: 'append' | 'prepend' | 'add_to_section' | 'replace_section' | 'delete_section' |   'replace_text' | 'replace_all';
+  action: 'append' | 'prepend' | 'add_to_section' | 'replace_section' | 'delete_section' |   'replace_text' | 'replace_all' | 'set_script_visuals';
+  sectionId?: string;
+  visuals?: import('../../../knowledge-hub-backend/src/utils/scriptVisuals').ScriptVisuals;
+  expectedVisuals?: string;
     heading?: string;
     find?: string;
     markdown?: string;

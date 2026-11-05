@@ -50,12 +50,12 @@ export async function analyzeImageWithVision(
   imageBuffer: Buffer,
   mimeType: string,
   userQuestion?: string,
-  options: { designReview?: boolean } = {},
+  options: { designReview?: boolean; signal?: AbortSignal } = {},
 ): Promise<string> {
   try {
     if (options.designReview === true && env.AZURE_OPENAI_ENDPOINT_GPT54) {
       // Falls back to the quick read below if the detailed one fails or runs long.
-      const detailed = await readScreenForDesignReview(imageBuffer, mimeType, userQuestion).catch((err: unknown) => {
+      const detailed = await readScreenForDesignReview(imageBuffer, mimeType, userQuestion, options.signal).catch((err: unknown) => {
         console.warn('[visionAnalyzer] Design-review read failed; using the quick read.', err);
         return '';
       });
@@ -106,7 +106,7 @@ export async function analyzeImageWithVision(
         ],
         max_completion_tokens: 3000,
       }),
-      signal: AbortSignal.timeout(SCREEN_READ_TIMEOUT_MS),
+      signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(SCREEN_READ_TIMEOUT_MS)]) : AbortSignal.timeout(SCREEN_READ_TIMEOUT_MS),
     });
     const content = data.choices?.[0]?.message?.content;
 
@@ -130,7 +130,7 @@ export async function analyzeImageWithVision(
  */
 const SCREEN_READ_TIMEOUT_MS = 75_000;
 
-async function readScreenForDesignReview(imageBuffer: Buffer, mimeType: string, userQuestion?: string): Promise<string> {
+async function readScreenForDesignReview(imageBuffer: Buffer, mimeType: string, userQuestion?: string, signal?: AbortSignal): Promise<string> {
   const deployment = env.AZURE_OPENAI_DEPLOYMENT_SCREEN_READ ?? env.AZURE_OPENAI_DEPLOYMENT_GPT54;
   const data = await requestVision('screen-read', 'bulk', deployment,
     `${env.AZURE_OPENAI_ENDPOINT_GPT54}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`, {
@@ -168,7 +168,7 @@ async function readScreenForDesignReview(imageBuffer: Buffer, mimeType: string, 
       }],
       max_completion_tokens: 8000,
     }),
-    signal: AbortSignal.timeout(SCREEN_READ_TIMEOUT_MS),
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(SCREEN_READ_TIMEOUT_MS)]) : AbortSignal.timeout(SCREEN_READ_TIMEOUT_MS),
   });
   const content = data.choices?.[0]?.message?.content ?? '';
   return content !== '' && data.choices[0]?.finish_reason === 'length' ? `${content}\n\n${CUT_OFF_NOTE}` : content;

@@ -2,6 +2,39 @@
 
 **Status:** Validated
 
+**Script visuals, editor and Desktop 0.1.12 release validation (2026-11-05):**
+- All validation checks pass:
+  - Core validation: fetched origin and merged origin/main (already current);
+    frontend/backend `tsc --noEmit`, production builds and lint non-regression.
+  - Existing AZCLI application targets retained: Alliance Tenant Reporting,
+    kh-prod-api-vnet, cad79107555facr and kh-prod-web. Backend advances v301
+    to v302. Dockerfile and lockfile unchanged; ACR builds from synced main.
+  - No provisioning/template, network or model resource changes. Enabled the
+    existing backend's system-assigned identity and granted Cognitive Services
+    OpenAI User only on existing aif-foundryiq in rg-foundryiq, in the same tenant.
+    This supplies the credential required by Sunburst with local auth disabled.
+    No secrets or new model deployments; other roles remain unchanged.
+
+**Section 7: Validation Proof — script visuals and Desktop (2026-11-05):**
+- Backend full isolated suite ran once: 1022/1022 pass. Frontend full isolated
+  run: 328/329 pass; the obsolete expected Script context omitted the new
+  no-visuals state. Corrected assertion and new Backspace tests pass 9/9.
+- Frontend auxiliary bundles resumed only where blocked by Vite raw CSS;
+  added raw-asset support to the existing runner and made the shared renderer
+  import safe without a DOM. All auxiliary bundles now pass. Final affected
+  presentation/editor contracts pass 42/42.
+- Frontend/backend TypeScript and production builds pass. Lint non-regression:
+  frontend 21/baseline 41; backend 543/baseline 623. New numeric budgets and
+  geometry limits are named constants; request input is narrowed from unknown.
+- Desktop core: 12 pass, one Windows-only skip; Elgato: 10/10 pass; navigation
+  integration passes. Windows x64 NSIS packaging succeeds on this Mac with
+  the repository's existing signExecutable:false configuration (unsigned).
+  Version and lockfile advanced to 0.1.12. Final installer repackages the DOM guard.
+- Evidence: script-visuals-release-*.log and script-visuals-desktop-package.log
+  in this session's files. Physical Elgato operation remains unverified.
+- Release deployment must verify v302 health/startup/migrations, served frontend
+  assets and the published Desktop installer/update manifest.
+
 **Script section cards release validation (2026-11-04):**
 - All validation checks pass:
   - Core validation: main synced at 8bc8d604, both TypeScript checks, frontend

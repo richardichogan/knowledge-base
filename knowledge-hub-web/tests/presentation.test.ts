@@ -13,6 +13,96 @@ import { scriptRichDocument, scriptRichText } from '../src/features/podcasts/scr
 import { scriptAnnotationRuns, scriptInlineContent, scriptReadingText, spokenScriptText } from '../../knowledge-hub-backend/src/podcasts/scriptAnnotations';
 import { annotatedPresentation } from '../src/features/podcasts/scriptAnnotations';
 import { SCRIPT_COLOUR_VALUES } from '../src/features/podcasts/scriptRichText';
+import { parseScriptVisuals, parseVisualArtwork, parseVisualComposition, scriptVisualSource, type VisualScriptBlock } from '../../knowledge-hub-backend/src/utils/scriptVisuals';
+
+test('layered compositions preserve semantic links and reject unsafe geometry and impossible reveal order', () => {
+  const node = { id: 'worker', kind: 'panel', x: 100, y: 300, width: 320, height: 240,
+    label: 'Worker', detail: '', icon: 'worker', tone: 'teal', reveal: 0 };
+  const composition = { label: '', imagePrompt: '', nodes: [node, { ...node, id: 'owner', x: 1000, reveal: 2 }],
+    links: [{ from: 'worker', to: 'owner', label: 'Exception', tone: 'warning', reveal: 2, style: 'solid' }] };
+  assert.deepEqual(parseVisualComposition(composition, 2), composition);
+  assert.throws(() => parseVisualComposition({ ...composition, nodes: [{ ...node, width: 1500 }] }, 2), /geometry|area/);
+  assert.throws(() => parseVisualComposition({ ...composition, nodes: [{ ...node, x: NaN }] }, 2), /geometry/);
+  assert.throws(() => parseVisualComposition({ ...composition, nodes: [{ ...node, kind: 'html' }] }, 2), /node/);
+  assert.throws(() => parseVisualComposition({ ...composition, nodes: [node, node] }, 2), /unique/);
+  assert.throws(() => parseVisualComposition({ ...composition, links: [{ ...composition.links[0], reveal: 1 }] }, 2), /endpoints/);
+  assert.throws(() => parseVisualComposition(composition, 1), /reveal/);
+});
+
+test('illustrated scenes retain bounded vector art and reject executable paths and invalid geometry', () => {
+  const shape = { kind: 'path', x: 0, y: 0, width: 0, height: 0, radius: 0, d: 'M 800 200 L 1100 450 Z', tone: 'teal', opacity: 0.6 };
+  const artwork = { description: 'A boundary around delegated work', shapes: [shape] };
+  assert.deepEqual(parseVisualArtwork(artwork), artwork);
+  assert.throws(() => parseVisualArtwork({ ...artwork, shapes: [{ ...shape, d: '<script>run()</script>' }] }), /path/);
+  assert.throws(() => parseVisualArtwork({ ...artwork, shapes: [{ ...shape, x: Infinity }] }), /geometry/);
+  assert.throws(() => parseVisualArtwork({ ...artwork, shapes: [{ ...shape, tone: 'url(secret)' }] }), /tone/);
+  assert.throws(() => parseVisualArtwork({ ...artwork, shapes: Array(33).fill(shape) }), /32/);
+});
+
+test('visual source ignores editor formatting defaults but tracks spoken text and cue identities', () => {
+  const section: VisualScriptBlock = { children: [{ id: 'spoken', type: 'paragraph', content: [{ text: 'Explain the idea.' }] }] };
+  const source = scriptVisualSource(section);
+  section.children![0]!.props = { textColor: 'default', backgroundColor: 'default', textAlignment: 'left' };
+  section.children![0]!.content = [{ type: 'text', text: 'Explain the idea.', styles: {} }];
+  assert.equal(scriptVisualSource(section), source);
+  section.children![0]!.id = 'replacement';
+  assert.notEqual(scriptVisualSource(section), source);
+  section.children![0]!.id = 'spoken';
+  section.children![0]!.content = [{ text: 'Explain a different idea.' }];
+  assert.notEqual(scriptVisualSource(section), source);
+  section.children![0]!.content = [{ type: 'noteMention', props: { noteId: 'original' } }];
+  const linkedSource = scriptVisualSource(section);
+  section.children![0]!.content = [{ type: 'noteMention', props: { noteId: 'replacement' } }];
+  assert.notEqual(scriptVisualSource(section), linkedSource);
+});
+
+test('visual cues map exact script blocks into the presented text without copying headings or altering rich runs', () => {
+  const section: VisualScriptBlock = { id: 'section', type: 'heading', props: { scriptSection: true }, content: [{ text: 'Not spoken' }], children: [
+    { id: 'first', type: 'paragraph', content: [{ type: 'text', text: 'Explain the idea. ', styles: { bold: true } }, { type: 'text', text: 'Then connect it.' }] },
+    { id: 'second', type: 'bulletListItem', content: [{ type: 'text', text: 'Show the result.' }] },
+  ] };
+  const visuals = { version: 1, source: scriptVisualSource(section), scenes: [{
+    id: 'concept', template: 'concept', title: 'Connected thinking', subtitle: '', imageUrl: '', imageAlt: '', layout: 'split',
+    artwork: { description: 'Connected ideas', shapes: [{ kind: 'circle', x: 1100, y: 450, width: 0, height: 0, radius: 120, d: '', tone: 'teal', opacity: 0.5 }] },
+    composition: { label: '', imagePrompt: '', nodes: [
+      { id: 'connection', kind: 'icon', x: 100, y: 300, width: 350, height: 240, label: 'Connection', detail: '', tone: 'teal', icon: 'system', reveal: 1 },
+      { id: 'result', kind: 'icon', x: 1000, y: 300, width: 350, height: 240, label: 'Result', detail: '', tone: 'success', icon: 'check', reveal: 2 },
+    ], links: [{ from: 'connection', to: 'result', label: '', tone: 'teal', reveal: 2, style: 'solid' }] },
+    cue: { blockId: 'first', quote: '' }, items: [
+      { label: 'Connection', detail: '', cue: { blockId: 'first', quote: 'Then connect' } },
+      { label: 'Result', detail: '', cue: { blockId: 'second', quote: 'Show the result' } },
+    ],
+  }] };
+  const plain = presentationScript(JSON.stringify([section]), { script: true });
+  section.props!['scriptVisuals'] = JSON.stringify(visuals);
+  const result = presentationScript(JSON.stringify([section]), { script: true });
+  assert.equal(result.text, plain.text);
+  assert.deepEqual(result.runs, plain.runs);
+  assert.equal(result.visuals[0]?.at, 0);
+  assert.equal(result.visuals[0]?.layout, 'split');
+  assert.deepEqual(result.visuals[0]?.artwork, visuals.scenes[0]?.artwork);
+  assert.deepEqual(result.visuals[0]?.composition, visuals.scenes[0]?.composition);
+  assert.equal(result.visuals[0]?.items[0]?.at, result.text.indexOf('Then connect'));
+  assert.equal(result.visuals[0]?.items[1]?.at, result.text.indexOf('Show the result'));
+  assert.equal(result.text.includes('Not spoken'), false);
+  section.children![0]!.content = [{ text: 'The script changed.' }];
+  assert.throws(() => presentationScript(JSON.stringify([section]), { script: true }), /cue|out of date/);
+});
+
+test('scene validation rejects unknown templates, ambiguous cues, wrong comparisons and out-of-order reveals', () => {
+  const section = { children: [{ id: 'spoken', type: 'paragraph', content: [{ text: 'One then two then one.' }] }] };
+  const scene = { id: 'scene', template: 'concept', title: 'Idea', subtitle: '', imageUrl: '', imageAlt: '',
+    cue: { blockId: 'spoken', quote: '' }, items: [{ label: 'Part', detail: '', cue: { blockId: 'spoken', quote: 'two' } }] };
+  const pack = { version: 1, source: scriptVisualSource(section), scenes: [scene] };
+  assert.equal(parseScriptVisuals(pack, section).scenes[0]?.template, 'concept');
+  assert.throws(() => parseScriptVisuals({ ...pack, scenes: [{ ...scene, template: 'html' }] }, section), /template/);
+  assert.throws(() => parseScriptVisuals({ ...pack, scenes: [{ ...scene, template: 'comparison' }] }, section), /two sides/);
+  assert.throws(() => parseScriptVisuals({ ...pack, scenes: [{ ...scene, cue: { blockId: 'missing', quote: '' } }] }, section), /existing spoken block/);
+  assert.throws(() => parseScriptVisuals({ ...pack, scenes: [{ ...scene, cue: { blockId: 'spoken', quote: 'then' } }] }, section), /unique exact/);
+  assert.throws(() => parseScriptVisuals({ ...pack, scenes: [{ ...scene, cue: { blockId: 'spoken', quote: 'one' },
+    items: [{ ...scene.items[0], cue: { blockId: 'spoken', quote: 'One' } }] }] }, section), /order/);
+  assert.throws(() => parseScriptVisuals({ ...pack, scenes: [{ ...scene, imageUrl: 'javascript:alert(1)' }] }, section), /HTTPS/);
+});
 
 test('standalone script emphasis styles target BlockNote inline colour attributes, not only block colours', async () => {
   const styles = await readFile(new URL('../src/styles/global.scss', import.meta.url), 'utf8');

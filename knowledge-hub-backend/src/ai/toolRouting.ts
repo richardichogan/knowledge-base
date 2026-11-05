@@ -160,6 +160,10 @@ export function selectRequiredToolChoice(
   }
   if (isAssistantCapabilityQuestion(userMessage) || isConversationalTurn(userMessage)) return undefined;
   if (dialogueTurnMode([], userMessage) === 'explore' && !referencesOtherMaterial(userMessage)) return undefined;
+  if (hasEditableNote && /\b(?:visuals?|scenes?|reveals?|animation)\b/i.test(userMessage)) {
+    const name = findToolName(tools, name => name === 'read_script_visuals');
+    if (name) return { type: 'function', function: { name } };
+  }
 
   // Asked to change the open note: propose an edit (previewed, applied by the
   // user) rather than writing the content into the chat.

@@ -8,6 +8,8 @@ import type { NoteEditDeliveryResult } from '../../types/ai';
 import { renderMarkdown } from '../../utils/markdown';
 import { applyNoteEdits } from '../../utils/noteEditApplier';
 import { getActiveBlockNoteEditor, getActiveNoteId, isActiveScriptEditor, runNoteAction } from '../../utils/activeBlockNoteEditor';
+import { ScriptVisualPreview } from '../../features/autocue/ScriptVisualPreview';
+import { useAthenaContext } from '../../context/AthenaContext';
 
 const ACTION_LABEL: Record<NoteEdit['action'], string> = {
   append: 'Add to end',
@@ -17,6 +19,7 @@ const ACTION_LABEL: Record<NoteEdit['action'], string> = {
   delete_section: 'Remove section',
   replace_text: 'Replace text',
   replace_all: 'Rewrite the whole note',
+  set_script_visuals: 'Update section visuals',
 };
 
 const LONG_PREVIEW_WORDS = 220;
@@ -29,6 +32,7 @@ type Status = { state: 'pending' } | { state: 'applied'; failed: string[] } | { 
 
 export const NoteEditCard: React.FC<{ edits: NoteEdit[]; noteId: string; result?: NoteEditDeliveryResult | undefined }> = ({ edits, noteId, result }) => {
   const [status, setStatus] = useState<Status>({ state: 'pending' });
+  const { launchAthena } = useAthenaContext();
   const [, rerender] = useState(0);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [applying, setApplying] = useState(false);
@@ -43,7 +47,7 @@ export const NoteEditCard: React.FC<{ edits: NoteEdit[]; noteId: string; result?
     setApplying(true);
     setError(null);
     try {
-      const protect = edits.some(edit => ['replace_all', 'replace_section', 'replace_text', 'delete_section'].includes(edit.action));
+      const protect = edits.some(edit => ['replace_all', 'replace_section', 'replace_text', 'delete_section', 'set_script_visuals'].includes(edit.action));
       let failed: string[] = [];
       await runNoteAction(noteId, protect, () => {
         failed = applyNoteEdits(editor, edits, { script: isActiveScriptEditor() }).failed;
@@ -94,6 +98,9 @@ export const NoteEditCard: React.FC<{ edits: NoteEdit[]; noteId: string; result?
                 <ins>{e.markdown}</ins>
               </div>
             )}
+            {e.visuals && status.state === 'pending' && <ScriptVisualPreview section={{
+              ...(e.sectionId ? { id: e.sectionId } : {}), props: { scriptVisuals: JSON.stringify(e.visuals) },
+            }} proposed ask={launchAthena} />}
             {e.action !== 'replace_text' && e.action !== 'delete_section' && e.markdown !== undefined && status.state === 'pending' && (
               <>
                 <div

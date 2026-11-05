@@ -9,6 +9,9 @@ export type { DesktopCommand, CommandRequest, DesktopCommandState } from '../../
 
 export interface DesktopPresentation {
   scriptAnnotations?: boolean;
+  scriptVisuals?: boolean;
+  scriptVisualCompositions?: boolean;
+  openVisuals?(): Promise<void>;
   open(noteId?: string): Promise<void>;
   displays(): Promise<(PresentationDisplay & { preferred?: boolean })[]>;
   identify(id: number): Promise<void>;
