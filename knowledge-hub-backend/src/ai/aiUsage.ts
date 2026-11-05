@@ -5,7 +5,7 @@
  */
 import { getDb } from '../db/db.js';
 import { env } from '../config/env.js';
-import { aiWorkflowAttribution } from './aiWorkflow.js';
+import { aiWorkflowAttribution, type AiFailureCode } from './aiWorkflow.js';
 
 const MAX_ERROR_LENGTH = 300;
 
@@ -29,6 +29,7 @@ export interface UsageRecord extends Partial<TokenUsage> {
   durationMs: number;
   ok: boolean;
   error?: string | undefined;
+  failureCode?: AiFailureCode | undefined;
 }
 
 /** Reads token counts from either API's usage object (chat completions or Responses). */
@@ -54,13 +55,13 @@ export function recordAiUsage(r: UsageRecord): void {
       `INSERT INTO ai_usage_log
          (environment, feature, persona, session_id, slot, deployment, api,
           prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens, duration_ms, ok, error, usage_known,
-          workflow_run_id,stage,purpose)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+          workflow_run_id,stage,purpose,failure_code)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
       [
         env.isDevelopment ? 'dev' : 'prod', r.feature, r.persona ?? null, r.sessionId ?? null, r.slot, r.deployment, r.api,
         r.promptTokens ?? 0, r.cachedTokens ?? 0, r.completionTokens ?? 0, r.reasoningTokens ?? 0,
         Math.round(r.durationMs), r.ok,         r.error?.slice(0, MAX_ERROR_LENGTH) ?? null, r.known === true,
-        attribution?.workflowRunId ?? null, attribution?.stage ?? null, attribution?.purpose ?? null,
+        attribution?.workflowRunId ?? null, attribution?.stage ?? null, attribution?.purpose ?? null, r.failureCode ?? null,
       ],
     ).catch((error: unknown) => { console.error('[ai-usage] Model usage was not recorded:', error); });
   } catch (error) { console.error('[ai-usage] Model usage logging failed:', error); }

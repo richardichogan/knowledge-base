@@ -4,6 +4,7 @@ import './specialists/blog.js';
 import './specialists/podcast.js';
 import './specialists/learning.js';
 import './specialists/taskAssistance.js';
+import './specialists/chatResearch.js';
 import './specialists/diagram.js';
 import './specialists/scriptVisuals.js';
 import './specialists/metis.js';

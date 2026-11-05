@@ -52,7 +52,7 @@ export const MeetingPreparation: React.FC<{ eventId: string; projects: readonly 
           <h4>Workstream goal</h4>
           <p>{data.cockpit.outcome.available ? data.cockpit.outcome.data.goal || 'No workstream goal recorded.' : 'Workstream goal unavailable.'}</p>
           <EvidenceLinks title="Open commitments" section={data.cockpit.commitments} />
-          <EvidenceLinks title="Waiting on others" section={data.cockpit.blockers} />
+          <EvidenceLinks title="Blocked or waiting" section={data.cockpit.blockers} />
           <EvidenceLinks title="Recorded decisions" section={data.cockpit.decisions} />
           <h4>Open questions, risks and issues</h4>
           {!data.register.length && <p>No open register items found.</p>}

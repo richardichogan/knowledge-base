@@ -2,6 +2,44 @@
 
 **Status:** Validated
 
+**Plan Blocked status and accumulated usability release (2026-11-05):**
+- All validation checks pass:
+  - [x] 1. Core validation: fetched and merged origin/main; both applications
+    pass `npx tsc --noEmit`, lint non-regression and release checks.
+  - [x] 2. Build verification: both production builds succeed; existing
+    Dockerfile and lockfiles retained. Build backend v307 from synced main.
+  - [x] 3. Azure Policy validation: application-only update of existing
+    kh-prod-api-vnet and kh-prod-web in Alliance Tenant Reporting. No
+    infrastructure, networking, registry authentication, role or policy changes.
+
+**Section 7: Validation Proof — Plan and usability (2026-11-05):**
+- Full backend and frontend isolated release suites ran once. Reran only
+  failed/affected files and newly registered tests; no full-suite restart.
+- Updated the obsolete Blocked-to-Waiting expectation; Plan tests pass 8/8,
+  including distinct status, Athena context, Focus grouping and legacy Waiting.
+  Frontend lint passes (21 existing violations; baseline 41), as does its build.
+- Fixed the workforce step insert's hard-coded old protocol to use the current
+  shared version. The original affected worker stalled and was stopped alone;
+  its complete affected rerun passes 60/60 with migration 145 in its fixture.
+- Focused context passes 40/40 after correcting the fixture's trailing newline;
+  the model-attribution assertion includes the two new nullable diagnostics.
+  New research checks pass 5/5, note-filing 1/1 and unread job updates 1/1.
+- Fixed the research registration's import-order failure using the same literal
+  specialist-ID registration pattern as existing workers. Named the new
+  validation limits without changing their values. Backend lint passes
+  (542 existing violations; baseline 623), as does its final production build.
+- Applied only migration 146 through the existing transaction/locking/tracking
+  helper to the shared production database, with a bounded lock timeout.
+  Verified its recorded filename and validated CHECK containing `blocked`.
+  The existing application API then saved and reread a temporary task as
+  Blocked successfully; the temporary task was deleted. No existing task changed.
+- Backend startup will apply migration 145 and skip already recorded 146.
+  The Dockerfile copies both migrations. Local automatic delivery remains off.
+- Azure reads confirm backend v306 / ready revision 0000303 and the existing
+  production Static Web App. Desktop files are unchanged: no installer release.
+- Evidence: `plan-blocked-*` logs in this session's files. Existing local
+  desktop canvas confirmed five horizontally scrolling board columns.
+
 **Browser visuals auto-start release (2026-11-05):**
 - All validation checks pass:
   - [x] 1. Core validation: main synced; frontend/backend `npx tsc --noEmit`,

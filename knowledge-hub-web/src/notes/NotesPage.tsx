@@ -9,8 +9,10 @@ import { usePageTitle } from '../navigation/PageTitle';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useInfiniteQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { InlineLoading } from '@carbon/react';
-import { Search, Add, SidePanelOpen, SidePanelClose, DocumentImport, ChevronDown, Document, Idea, Draw, TrashCan, Renew, ArrowLeft } from '@carbon/icons-react';
+import { Add, SidePanelOpen, SidePanelClose, DocumentImport, ChevronDown, Document, Idea, Draw, TrashCan, Renew, ArrowLeft } from '@carbon/icons-react';
 import { NoteList } from './NoteList';
+import { NoteTagFolders, tagFolderPath } from './NoteTagFolders';
+import { expandTagIds, useTaxonomy } from '../hooks/useTaxonomy';
 import { QuickSparkModal } from '../components/sparks/QuickSparkModal';
 import { fetchNotesPage, fetchNote, createNote, deleteNote, extractNoteBlockText, buildPreview } from './noteStorage';
 import { preparePresentationScript } from '../features/autocue/preparePresentationScript';
@@ -136,26 +138,28 @@ export const NotesPage: React.FC = () => {
   const [sparkModalOpen,   setSparkModalOpen]   = useState(false);
   const [canvasError, setCanvasError] = useState<string | null>(null);
   const [listCollapsed, setListCollapsedNow] = usePersistedBoolean('kh_think_list_collapsed', false);
+  const [tagsCollapsed, setTagsCollapsed] = usePersistedBoolean('kh_think_tags_collapsed', false);
   const setListCollapsed = useCallback((next: boolean): void => { slidePanels(() => { setListCollapsedNow(next); }); }, [setListCollapsedNow]);
-  // Incremented rather than set to `true`, so expanding from the rail's search
-  // icon can pull focus into the box every time — a boolean would only fire on
-  // the first expand of a session.
-  const [focusSearchSignal, setFocusSearchSignal] = useState(0);
-  const { setAthenaContext } = useAthenaContext();
+  const { setAthenaContext, setThinkNavigation } = useAthenaContext();
   // Command-bar element NoteEditor portals its note actions (Export, Push, Delete) into.
   const [docActionsSlot, setDocActionsSlot] = useState<HTMLDivElement | null>(null);
 
-  const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
-  const refreshInFlight = useRef(false);
   const [listQuery, setListQuery] = useState<NoteListQuery>({ sort: 'modified' });
+  const [selectedTagId, setSelectedTagId] = useState<string | null>(null);
+  const taxonomy = useTaxonomy();
+  const selectedTag = taxonomy.data?.flatMap(parent => [parent, ...(parent.children ?? [])])
+    .find(tag => tag.id === selectedTagId);
+  const selectedTagPath = selectedTag ? tagFolderPath(selectedTag, taxonomy.data ?? []) : 'Unavailable tag';
+  const filterTagIds = selectedTagId ? [...expandTagIds(selectedTagId, taxonomy.data ?? [])].join(',') : undefined;
   const onListQueryChange = useCallback((next: NoteListQuery): void => {
     const clean = noteListQuery(next);
     setListQuery((current) => JSON.stringify(current) === JSON.stringify(clean) ? current : clean);
   }, []);
   const { data: notePages, isLoading, isError, error: listError, isFetching, refetch,
     hasNextPage, fetchNextPage, isFetchingNextPage, isFetchNextPageError } = useInfiniteQuery({
-    queryKey: ['notes-list', 'designs', listQuery],
-    queryFn: ({ pageParam }) => fetchNotesPage(pageParam, listQuery, 'designs', { excludeContentType: 'definition', excludeTaskEmails: true }),
+    queryKey: ['notes-list', 'designs', listQuery, filterTagIds ?? ''],
+    queryFn: ({ pageParam }) => fetchNotesPage(pageParam, listQuery, 'designs',
+      { excludeContentType: 'definition', excludeTaskEmails: true, ...(filterTagIds ? { tagIds: filterTagIds } : {}) }),
     initialPageParam: 1,
     getNextPageParam: nextNotesPage,
     staleTime: 30_000,
@@ -163,9 +167,9 @@ export const NotesPage: React.FC = () => {
   });
   // Definitions are reference entries, listed alphabetically in their own section rather than by date.
   const definitionsQuery = useInfiniteQuery({
-    queryKey: ['notes-list', 'definitions', listQuery.q ?? ''],
+    queryKey: ['notes-list', 'definitions', listQuery.q ?? '', filterTagIds ?? ''],
     queryFn: ({ pageParam }) => fetchNotesPage(pageParam, { ...(listQuery.q ? { q: listQuery.q } : {}), sort: 'title' }, 'flat',
-      { contentType: 'definition' }),
+      { contentType: 'definition', ...(filterTagIds ? { tagIds: filterTagIds } : {}) }),
     initialPageParam: 1,
     getNextPageParam: nextNotesPage,
     staleTime: 30_000,
@@ -178,6 +182,29 @@ export const NotesPage: React.FC = () => {
     return loadedNotes(notePages.pages);
   }, [notePages]);
   const noteTotal = notePages?.pages[0]?.total ?? 0;
+  useEffect(() => {
+    if (mode !== 'notes') { setThinkNavigation(null); return; }
+    const listed = [...notes, ...definitions];
+    const folders = (taxonomy.data ?? []).flatMap(parent => [parent, ...(parent.children ?? [])]);
+    const error = listError ?? definitionsQuery.error;
+    setThinkNavigation({
+      selectedTag: selectedTagId ? { id: selectedTagId, path: selectedTagPath, filterTagIds: filterTagIds?.split(',') ?? [] } : null,
+      folders: folders.slice(0, 100).map(tag => ({ id: tag.id, name: tag.name, parentId: tag.parentId ?? null })),
+      totalFolders: folders.length, foldersHasMore: folders.length > 100,
+      listCollapsed, tagsCollapsed,
+      folderStatus: taxonomy.isError ? 'error' : taxonomy.isPending ? 'loading' : 'ready',
+      ...(taxonomy.error ? { folderError: describeApiError(taxonomy.error) } : {}),
+      search: listQuery.q ?? '', sort: listQuery.sort ?? 'modified',
+      notes: listed.slice(0, 50).map(note => ({ id: note.id, title: note.title })),
+      loadedNotes: listed.length, totalNotes: noteTotal + (definitionsQuery.data?.pages[0]?.total ?? 0),
+      hasMore: Boolean(hasNextPage || definitionsQuery.hasNextPage || listed.length > 50),
+      listStatus: error ? 'error' : isLoading || definitionsQuery.isPending ? 'loading' : 'ready',
+      ...(error ? { listError: describeApiError(error) } : {}),
+    });
+  }, [mode, selectedTagId, selectedTagPath, filterTagIds, taxonomy.data, taxonomy.isError, taxonomy.isPending, taxonomy.error,
+    listQuery, notes, definitions, noteTotal, definitionsQuery.data, definitionsQuery.hasNextPage, definitionsQuery.isPending,
+    definitionsQuery.error, hasNextPage, isLoading, listError, listCollapsed, tagsCollapsed, setThinkNavigation]);
+  useEffect(() => () => setThinkNavigation(null), [setThinkNavigation]);
   const selectDesign = (id: string, role?: string, assetId?: string): void => {
     setSelectedDesign(id); setSelectedEpisode(null); setSelectedId(id); setMode('notes'); setMobilePane('editor');
     setSearchParams({ design: id, ...(role ? { tab: role } : {}), ...(assetId ? { asset: assetId } : {}) }, { replace: true });
@@ -186,18 +213,6 @@ export const NotesPage: React.FC = () => {
     setSelectedEpisode(id); setSelectedDesign(null); setSelectedId(id); setMode('notes'); setMobilePane('editor');
     setSearchParams({ episode: id, tab: tab ?? searchParams.get('tab') ?? 'prep' }, { replace: true });
   };
-
-  async function refreshNotes(): Promise<void> {
-    if (refreshInFlight.current || isFetching) return;
-    refreshInFlight.current = true;
-    setRefreshMessage(null);
-    try {
-      await refetch({ throwOnError: true });
-    } catch (error) {
-      console.error('[Think] Could not refresh notes:', error);
-      setRefreshMessage('Could not refresh notes. Your open note is unchanged. Retry.');
-    } finally { refreshInFlight.current = false; }
-  }
 
   const { data: canvases = NO_CANVASES, isLoading: canvasLoading, isError: canvasListError } = useQuery<CanvasSummaryApi[]>({
     queryKey: ['canvases'],
@@ -334,20 +349,37 @@ export const NotesPage: React.FC = () => {
     if (!await handleCreateCanvas('diagram')) throw new Error('Could not create the diagram. Check Think before retrying.');
   });
   const presentationSave = useRef<(() => Promise<boolean>) | null>(null);
+  const presentationSelection = `${mode}:${selectedEpisode ?? selectedDesign ?? selectedId ?? openDoc?.id ?? ''}`;
+  const presentationSelectionRef = useRef(presentationSelection);
+  presentationSelectionRef.current = presentationSelection;
+  const presentationCancellation = useRef(0);
   const registerPresentationSave = useCallback((save: (() => Promise<boolean>) | null): void => { presentationSave.current = save; }, []);
   async function presentNote(): Promise<void> {
+    const selection = presentationSelection;
+    const cancellation = presentationCancellation.current;
+    const assertCurrentSelection = (): void => {
+      if (authSession.isExpired()) throw new Error('Sign in again before presenting.');
+      if (selection !== presentationSelectionRef.current || cancellation !== presentationCancellation.current) {
+        throw new Error('The presentation request was cancelled or the open document changed. Present the current document again.');
+      }
+      if (mode === 'notes' && !selectedEpisode && openDoc && latestSelectRef.current !== openDoc.id) {
+        throw new Error('Wait for the selected document to finish opening before presenting.');
+      }
+    };
     if (authSession.isExpired()) throw new Error('Sign in again before presenting.');
     const presentation = getDesktop()?.presentation;
     if (!presentation) throw new Error('Update Athena Desktop to present on another display.');
+    assertCurrentSelection();
     if (mode === 'notes' && (selectedEpisode || openDoc)) {
       const save = presentationSave.current;
       if (!save || !await save()) throw new Error('Save the current document successfully before presenting. Your open edits are retained.');
       if (presentationSave.current !== save) throw new Error('The open document changed while saving. Present the current document again.');
+      assertCurrentSelection();
     }
     if (mode === 'notes' && selectedEpisode) {
       if (!presentation.present) throw new Error('Install the updated Athena Desktop to present directly without the settings window.');
       const episode = requireApiData(await api.getPodcastEpisode(selectedEpisode));
-      if (authSession.isExpired()) throw new Error('Sign in again before presenting.');
+      assertCurrentSelection();
       const text = episodeScriptText(episode.scriptIntro, episode.scriptCards);
       if (!text.trim()) throw new Error('Write or draft the script before presenting.');
       const annotated = annotatedPresentation(text);
@@ -361,10 +393,10 @@ export const NotesPage: React.FC = () => {
     if (mode !== 'notes' || !openDoc) { await presentation.open(); return; }
     if (!presentation.present) throw new Error('Install the updated Athena Desktop to present directly without the settings window.');
     const saved = await fetchNote(openDoc.id);
-    if (authSession.isExpired()) throw new Error('Sign in again before presenting.');
+    assertCurrentSelection();
     if (!saved) throw new Error('Save the note before presenting.');
     const script = await preparePresentationScript(saved.contentJson, { script: saved.contentType === 'script' });
-    if (authSession.isExpired()) throw new Error('Sign in again before presenting.');
+    assertCurrentSelection();
     if (!script.text.trim()) throw new Error(saved.contentType === 'script'
       ? 'No spoken text to present. Script headings are editor-only; add spoken text beneath them.'
       : 'Choose a saved note containing text.');
@@ -391,6 +423,7 @@ export const NotesPage: React.FC = () => {
     void alertDialog(err instanceof Error ? err.message : 'Could not open presentation.', { title: 'Presentation', tone: 'danger' });
   }); } : undefined;
   const stopPresentingHandler = getDesktop()?.presentation ? (): void => {
+    presentationCancellation.current += 1;
     void getDesktop()?.presentation?.close().catch(err => {
       void alertDialog(err instanceof Error ? err.message : 'Could not stop presenting.', { title: 'Presentation', tone: 'danger' });
     });
@@ -398,6 +431,7 @@ export const NotesPage: React.FC = () => {
   useEffect(() => {
     const presentation = getDesktop()?.presentation;
     const release = (): void => {
+      presentationCancellation.current += 1;
       void presentation?.release?.().catch(error => { console.error('[Presentation] Could not close note output:', error); });
     };
     const off = authSession.subscribe(() => { if (authSession.isExpired()) release(); });
@@ -803,49 +837,20 @@ export const NotesPage: React.FC = () => {
 
       {recoveryOpen && <NoteRecoveryCentre onClose={() => setRecoveryOpen(false)}
         onOpenNote={id => { setMode('notes'); setMobilePane('editor'); void handleSelectNote(id); }} />}
-      {mode === 'notes' && refreshMessage !== null && <p className="notes-refresh-message notes-refresh-message--error"
-        role="alert">{refreshMessage}</p>}
       {mode === 'notes' && isError && !isFetchNextPageError && <DataNotice title="Note list is unavailable. Your open note is unchanged." error={listError} onRetry={() => { void refetch(); }} />}
       {canvasError !== null && <p className="mm-canvas-error" role="alert">{canvasError}</p>}
       <div className="notes-root" id="think-workspace" role="tabpanel" aria-labelledby={`think-tab-${mode}`}>
         {/* ── Left panel ── */}
         {mode === 'sparks' ? null : listCollapsed && !mobile ? (
-          // Collapsed rail. Search and "+" both expand the list rather than
-          // opening cramped rail-width variants of those controls — at 56px
-          // wide there is no room to show results or a title field.
           <div className="notes-list-rail">
-            {mode === 'notes' && <button type="button" className="notes-refresh notes-refresh--rail"
-              title="Refresh notes" aria-label="Refresh notes" disabled={isFetching}
-              onClick={() => { void refreshNotes(); }}><Renew size={16} /></button>}
             <button
               type="button"
               className="notes-list-rail__btn"
-              title="Expand note list"
-              aria-label="Expand note list"
+              title={mode === 'notes' ? 'Expand notes and tags' : 'Expand canvas list'}
+              aria-label={mode === 'notes' ? 'Expand notes and tags' : 'Expand canvas list'}
               onClick={() => { setListCollapsed(false); }}
             >
               <SidePanelOpen size={16} />
-            </button>
-            {mode === 'notes' && <button
-              type="button"
-              className="notes-list-rail__btn"
-              title="Search notes"
-              aria-label="Search notes"
-              onClick={() => {
-                setListCollapsed(false);
-                setFocusSearchSignal((n) => n + 1);
-              }}
-            >
-              <Search size={16} />
-            </button>}
-            <button
-              type="button"
-              className="notes-list-rail__btn"
-              title="New note"
-              aria-label="New note"
-              onClick={() => { setListCollapsed(false); void handleCreateNote(); }}
-            >
-              <Add size={16} />
             </button>
           </div>
         ) : (
@@ -864,15 +869,18 @@ export const NotesPage: React.FC = () => {
           </div>}
 
           {mode === 'notes' && (
+            <div className={`notes-navigation-split${tagsCollapsed ? ' notes-navigation-split--tags-collapsed' : ''}`}>
+            <div className="notes-navigation-list">
             <NoteList
               showTools
+              {...(!mobile ? { onCollapse: () => setListCollapsed(true) } : {})}
+              {...(filterTagIds ? { tagIds: filterTagIds } : {})}
               notes={notes}
               selectedId={selectedDesign ?? selectedEpisode ?? selectedId}
               onSelect={(id) => { setMobilePane('editor'); void handleSelectNote(id); }}
               onSelectPassage={(id, passageId) => { setSearchParams({ noteId: id, passageId }); }}
               onDelete={(id) => { void handleDeleteNote(id); }}
               deletingId={deletingNoteId}
-              focusSearchSignal={focusSearchSignal}
               onQueryChange={onListQueryChange}
               total={noteTotal}
               loading={isLoading}
@@ -887,6 +895,13 @@ export const NotesPage: React.FC = () => {
               definitionsLoadingMore={definitionsQuery.isFetchingNextPage}
               onLoadMoreDefinitions={() => { void definitionsQuery.fetchNextPage({ cancelRefetch: false }); }}
             />
+            {definitionsQuery.isError && <p className="notes-tag-folders__notice notes-tag-folders__notice--error" role="alert">
+              Definitions unavailable. <button type="button" onClick={() => { void definitionsQuery.refetch(); }}>Retry</button>
+            </p>}
+            </div>
+            <NoteTagFolders selectedId={selectedTagId} onSelect={setSelectedTagId}
+              collapsed={tagsCollapsed} onToggleCollapsed={() => setTagsCollapsed(!tagsCollapsed)} />
+            </div>
           )}
 
           {mode === 'canvas' && (

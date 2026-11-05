@@ -96,7 +96,8 @@ older desktop versions continue to receive a plain-text script.
 
 Script notes in Think have an optional visual layer on their existing section
 cards. Toolbar actions use compact Carbon icons with tooltips and accessible
-labels; the Block style label and selector remain visible. Actions fit on one
+labels. Chapter blocks manage the script structure, without a separate Block
+style dropdown in the Script toolbar. Actions fit on one
 row when space permits and wrap rather than overflow in narrow editor panes.
 The toolbar and section cards share aligned outer edges and the same editor
 gutter. Carbon tooltips describe every icon on hover or keyboard focus,

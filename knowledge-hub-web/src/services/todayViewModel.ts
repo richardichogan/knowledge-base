@@ -168,15 +168,17 @@ export function buildTodayModel(data: TodayInputs, now: Date, since: string): To
     const overdue = days !== null && days < 0;
     const approaching = days !== null && days <= 3;
     const waiting = task.status === 'waiting';
+    const blocked = task.status === 'blocked';
     const inbox = task.status === 'inbox';
     const high = task.priority === 'high' || task.priority === 'urgent';
     const age = (now.getTime() - new Date(task.updatedAt).getTime()) / DAY_MS;
     const stale = task.status === 'in-progress' && age >= 7;
-    const status = overdue ? 'Overdue' : waiting ? 'Waiting'
+    const status = overdue ? 'Overdue' : blocked ? 'Blocked' : waiting ? 'Waiting'
       : approaching ? days === 0 ? 'Due today' : 'Due soon' : stale ? 'Needs a check-in' : 'High priority';
     const reason = [
       overdue ? `The due date has passed by ${Math.abs(days ?? 0)} day${days === -1 ? '' : 's'}.`
         : approaching ? days === 0 ? 'Due today.' : `Due in ${days} days.` : '',
+      blocked ? 'Blocked in Plan; clear the blocker or re-plan it.' : '',
       waiting ? `Waiting${task.waitingOn ? ` on ${task.waitingOn}` : ''}; check whether a follow-up is needed.` : '',
       inbox ? 'New in the Plan inbox; accept or dismiss it.' : '',
       stale ? 'In progress with no task update for at least a week.' : '',
@@ -187,11 +189,11 @@ export function buildTodayModel(data: TodayInputs, now: Date, since: string): To
       reason: reason || 'In progress in Plan. Resume the next step.',
       tone: overdue ? 'danger' : approaching ? 'warning' : 'normal',
       ...(task.dueDate ? { date: task.dueDate } : {}),
-      href: `/plan?taskId=${encodeURIComponent(task.id)}`, action: waiting ? 'Follow up' : inbox ? 'Triage in Plan' : 'Review task',
-      score: overdue ? 100 + Math.min(Math.abs(days ?? 0), 30) : task.priority === 'urgent' ? 85 : approaching ? 80 - (days ?? 0) : waiting ? 70 : high ? 60 : 50,
+      href: `/plan?taskId=${encodeURIComponent(task.id)}`, action: blocked ? 'Unblock' : waiting ? 'Follow up' : inbox ? 'Triage in Plan' : 'Review task',
+      score: overdue ? 100 + Math.min(Math.abs(days ?? 0), 30) : task.priority === 'urgent' ? 85 : approaching ? 80 - (days ?? 0) : blocked ? 75 : waiting ? 70 : high ? 60 : 50,
       source: 'Plan', taskId: task.id,
     };
-    if (overdue || approaching || waiting || high || stale) attention.push({ ...item, status });
+    if (overdue || approaching || blocked || waiting || high || stale) attention.push({ ...item, status });
     else if (task.status === 'in-progress') continuing.push({ ...item, action: 'Continue', score: 25 + recentScore(task.updatedAt), date: task.updatedAt });
   }
   for (const source of data.sources.filter((s) => s.status === 'error')) {

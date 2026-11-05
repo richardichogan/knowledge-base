@@ -112,6 +112,9 @@ agentJobsRouter.post('/assignments/:id/resume', wrap(async req => {
 
 agentJobsRouter.post('/', wrap((req) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
+  if (body['specialist'] === 'chat-researcher') {
+    throw new ForbiddenError('Start, resume or cancel Iris research through the authenticated originating chat.');
+  }
   if (body['specialist'] === 'script-visual-designer') {
     throw new ValidationError('Use the script visual request endpoint to capture the saved source safely.');
   }

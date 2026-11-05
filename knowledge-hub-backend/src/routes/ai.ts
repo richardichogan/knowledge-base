@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { recordAiDecision } from '../ai/aiLedger.js';
+import { backgroundWorkContextBlock } from '../ai/agentTools.js';
 import { markSharedLink } from '../integrations/discovery/projectFit.js';
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
@@ -247,7 +248,7 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
     ...fullHistory.filter(item => item.role === 'user').map(item => item.content),
     message,
   ], new Set((await getExcludedSources(db, effectiveSessionId)).map(source => source.id)));
-  hooks = { ...hooks, referenceBlock: [hooks.referenceBlock, referenced.block].filter(Boolean).join('\n\n') };
+  hooks = { ...hooks, referenceBlock: [hooks.referenceBlock, referenced.block, backgroundWorkContextBlock(reqBody['backgroundWork'])].filter(Boolean).join('\n\n') };
   contextUsed.found.push(...referenced.sources);
   // Show Notes works from a whole transcript over several turns (and revisions afterwards), so the document it
   // is shown is kept in the chat once; every other persona stores only a marker (see below). When the chat

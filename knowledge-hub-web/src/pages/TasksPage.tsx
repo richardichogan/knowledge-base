@@ -1,6 +1,7 @@
 /**
  * TasksPage — the Plan's task views.
- * Board columns: Backlog | In Progress | Waiting | Completed. Athena-created
+ * Board columns: Backlog | In Progress | Blocked | Waiting | Completed, scrolling
+ * horizontally when the workspace is narrower than the columns. Athena-created
  * tasks wait in the Inbox tray above until accepted or dismissed. The Focus
  * view regroups the same open tasks by what needs attention next.
  */
@@ -40,6 +41,7 @@ import { TaskDescription } from '../components/TaskDescription';
 const COLUMNS: { id: TaskStatus; label: string }[] = [
   { id: 'backlog',     label: 'Backlog' },
   { id: 'in-progress', label: 'In Progress' },
+  { id: 'blocked',     label: 'Blocked' },
   { id: 'waiting',     label: 'Waiting' },
   { id: 'completed',   label: 'Completed' },
 ];
@@ -362,6 +364,7 @@ const FocusRow: React.FC<{
         <span className="kb-focus-row__meta">
           <span>{getProjectName(task.projectId, projects)}</span>
           {task.status === 'in-progress' && <span className="kb-focus-row__tag">In progress</span>}
+          {task.status === 'blocked' && <span className="kb-focus-row__tag">Blocked</span>}
           {task.priority === 'urgent' || task.priority === 'high'
             ? <span className={`kb-focus-row__tag kb-focus-row__tag--${task.priority}`}>{PRIORITY_LABEL[task.priority]}</span> : null}
           {date !== null && (
@@ -400,7 +403,7 @@ const FocusView: React.FC<{
         return (
           <div key={column.join('-')} className="kb-focus__col">
             {sections.length === 0 && (
-              <p className="kb-focus__empty">{index === 0 ? 'Nothing due or in flight. Pick something from Someday.' : 'Nothing waiting and no backlog.'}</p>
+              <p className="kb-focus__empty">{index === 0 ? 'Nothing due or in flight. Pick something from Someday.' : 'Nothing blocked or waiting, and no backlog.'}</p>
             )}
             {sections.map((group) => (
               <section key={group.id} className={`kb-focus__group kb-focus__group--${group.id}`} aria-label={group.label}>
@@ -448,7 +451,7 @@ const ACTIVITY_ACTIONS: Record<string, string> = {
   'agent-waiting': 'Agent work pending', 'agent-blocked': 'Agent work blocked', 'agent-finished': 'Agent result ready',
 };
 const STATUS_LABELS: Record<string, string> = {
-  inbox: 'Inbox', backlog: 'Backlog', 'in-progress': 'In progress', waiting: 'Waiting', completed: 'Completed',
+  inbox: 'Inbox', backlog: 'Backlog', 'in-progress': 'In progress', blocked: 'Blocked', waiting: 'Waiting', completed: 'Completed',
 };
 
 export function TaskNoteText({ text, noteLabel = 'Open note in Think' }: { text: string; noteLabel?: string }): React.ReactElement {

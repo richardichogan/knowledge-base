@@ -91,13 +91,13 @@ export const HealthDashboard: React.FC<{ data: KnowledgeHealth; onInspectUsage: 
       <div className="kh-health__coverage">
         <div className="kh-health__dashboard-metrics">
           <section className="kh-health__command-card">
-            <h3>Model-call success</h3>
+            <h3>Complete model responses</h3>
             <div className="kh-health__command-measure">
-              <Ring value={usage ? usage.calls - usage.failures : undefined} total={usage?.calls} label="Model calls returned successfully" />
+              <Ring value={usage ? usage.calls - usage.failures - (usage.partialCalls ?? 0) : undefined} total={usage?.calls} label="Model calls returned complete responses" />
               <div><span>Failure rate</span><strong className="kh-health__failure-value">{rate(usage?.failures, usage?.calls)}</strong>
                 <small>{usage ? `${number.format(usage.failures)} failed / ${number.format(usage.calls)}` : 'Usage unavailable'}</small></div>
             </div>
-            <p>Provider responses, not verified task success.</p>
+            <p>{usage?.partialCalls === undefined ? 'Partial-response coverage not measured.' : `${number.format(usage.partialCalls)} partial responses, counted separately from failed requests.`} Provider responses are not verified task success.</p>
             <div className="kh-health__actions">
               <Button kind="ghost" size="sm" disabled={busy} onClick={onInspectUsage}>Inspect model-call usage</Button>
             </div>
@@ -146,7 +146,8 @@ export const HealthDashboard: React.FC<{ data: KnowledgeHealth; onInspectUsage: 
           <h3 id="health-daily-chart">Daily model calls</h3>
           <p className="kh-health__note">UTC days with recorded calls · count per day</p>
           <p className="kh-health__legend">
-            <span className="kh-health__legend-done">Returned successfully</span>
+            <span className="kh-health__legend-done">Complete</span>
+            <span className="kh-health__legend-partial">Partial</span>
             <span className="kh-health__legend-failed">Failed</span>
           </p>
           </div>
@@ -156,17 +157,18 @@ export const HealthDashboard: React.FC<{ data: KnowledgeHealth; onInspectUsage: 
               <div className="kh-health__axis" aria-hidden="true">
                 {[1, 2 / 3, 1 / 3, 0].map(fraction => <span key={fraction}>{number.format(Math.round(chartMax * fraction))}</span>)}
               </div>
-              <div className="kh-health__histogram" role="list" aria-label="Daily model-call success and failure counts">
+              <div className="kh-health__histogram" role="list" aria-label="Daily complete, partial and failed model-call counts">
               {reliability.daily.map(day => <div key={day.day} className="kh-health__day" role="listitem"
-                aria-label={`${day.day}: ${day.calls} calls, ${day.failures} failed`}>
+                aria-label={`${day.day}: ${day.calls} calls, ${day.failures} failed, ${day.partialCalls === undefined ? 'partial responses unmeasured' : `${day.partialCalls} partial`}`}>
                 <span className="kh-health__day-count">{number.format(day.calls)}</span>
                 <div className="kh-health__day-track" aria-hidden="true">
-                  <span className="kh-health__day-success" style={{ height: `${100 * (day.calls - day.failures) / chartMax}%` }} />
+                  <span className="kh-health__day-success" style={{ height: `${100 * (day.calls - day.failures - (day.partialCalls ?? 0)) / chartMax}%` }} />
+                  <span className="kh-health__day-partial" style={{ height: `${100 * (day.partialCalls ?? 0) / chartMax}%` }} />
                   <span className="kh-health__day-failure" style={{ height: `${100 * day.failures / chartMax}%` }} />
                 </div>
                 <span>{day.day.slice(5)}</span>
                 <span className="kh-health__day-count">{new Date(`${day.day}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' })}</span>
-                <span className={`kh-health__day-count${day.failures > 0 ? ' kh-health__day-count--failed' : ''}`}>{day.failures} failed</span>
+                <span className={`kh-health__day-count${day.failures > 0 ? ' kh-health__day-count--failed' : ''}`}>{day.failures} failed · {day.partialCalls === undefined ? 'partial unmeasured' : `${day.partialCalls} partial`}</span>
               </div>)}
               </div>
             </div>
@@ -204,7 +206,7 @@ export const HealthDashboard: React.FC<{ data: KnowledgeHealth; onInspectUsage: 
           {!reliability ? <p>Feature reliability unavailable.</p> : reliability.features.length === 0 ? <p>No feature measurements.</p> : (
             <div className="kh-health__feature-bars">
               {reliability.features.map(row => <div key={row.feature} className="kh-health__feature">
-                <div><Button className="kh-health__chart-link" kind="ghost" size="sm" disabled={busy} onClick={() => onInspectFeature(row.feature)}>{row.feature}</Button><span>{row.failures}/{row.calls} failed · {rate(row.failures, row.calls)}</span></div>
+                <div><Button className="kh-health__chart-link" kind="ghost" size="sm" disabled={busy} onClick={() => onInspectFeature(row.feature)}>{row.feature}</Button><span>{row.failures}/{row.calls} failed · {rate(row.failures, row.calls)} · {row.partialCalls === undefined ? 'partial unmeasured' : `${row.partialCalls} partial`}</span></div>
                 <div className="kh-health__feature-track" role="meter" aria-label={`${row.feature} failure percentage`}
                   aria-valuemin={0} aria-valuemax={100} aria-valuenow={100 * row.failures / row.calls}
                   aria-valuetext={`${row.failures} failures in ${row.calls} calls`}>

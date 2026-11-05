@@ -4,7 +4,7 @@ import { Add, Erase, Launch, MagicWand, Pause, PresentationFile, Renew, StopFill
 import type { BlockNoteEditor } from '@blocknote/core';
 import type { editorSchema } from './editorSchema';
 import { SCRIPT_COLOURS } from '../features/podcasts/scriptAnnotations';
-import { SCRIPT_BLOCK_STYLES, SCRIPT_COLOUR_VALUES } from '../features/podcasts/scriptRichText';
+import { SCRIPT_COLOUR_VALUES } from '../features/podcasts/scriptRichText';
 import { groupScriptSections, splitScriptSectionTail } from '../../../knowledge-hub-backend/src/utils/scriptSections';
 import { preserveScriptSelection } from './scriptSectionSelection';
 import { applyNoteEdits } from '../utils/noteEditApplier';
@@ -33,8 +33,6 @@ export function ScriptTools({ editor, disabled, noteId, save, onPresent, onOpenV
   const designing = visualJobs.submitting || !!visualJobs.active;
   const [selected, setSelected] = useState(false);
   const [colour, setColour] = useState('');
-  const [blockStyle, setBlockStyle] = useState('0');
-  const [canStyle, setCanStyle] = useState(true);
   const [sectionError, setSectionError] = useState<string | null>(null);
   const [openingVisuals, setOpeningVisuals] = useState(false);
   const [presenterLayout, setPresenterLayout] = useState(false);
@@ -118,10 +116,6 @@ export function ScriptTools({ editor, disabled, noteId, save, onPresent, onOpenV
     const refresh = (): void => {
       setSelected(editor.getSelectedText().length > 0);
       setColour(editor.getActiveStyles().textColor ?? '');
-      const blocks = editor.getSelection()?.blocks ?? [editor.getTextCursorPosition().block];
-      setCanStyle(blocks.every(block => Array.isArray(block.content) && !(block.type === 'heading' && block.props.scriptSection)));
-      const styles = blocks.map(block => block.type === 'heading' ? String(block.props.level) : block.type === 'paragraph' ? '0' : '');
-      setBlockStyle(styles.every(style => style === styles[0]) ? styles[0] ?? '' : '');
     };
     refresh();
     const offSelection = editor.onSelectionChange(refresh);
@@ -129,7 +123,7 @@ export function ScriptTools({ editor, disabled, noteId, save, onPresent, onOpenV
     return () => { offSelection(); offChange(); };
   }, [editor]);
   return <>
-  <div className="kh-script-tools kh-script-tools--sticky kh-script-tools--icons" role="group" aria-label="Script block styles, emphasis and delivery cues">
+  <div className="kh-script-tools kh-script-tools--sticky kh-script-tools--icons" role="group" aria-label="Script presentation, emphasis and delivery cues">
     <ScriptToolButton type="button" className="kh-btn-ghost" title="Presenter layout: reserve space for your video"
       aria-label="Presenter layout" aria-pressed={presenterLayout} disabled={disabled || !hasVisuals}
       onClick={() => {
@@ -204,24 +198,6 @@ export function ScriptTools({ editor, disabled, noteId, save, onPresent, onOpenV
           setSectionError(error instanceof Error ? error.message : 'Could not add a script section.');
         }
       }}><Add size={18} aria-hidden="true" /></ScriptToolButton>
-    <label className="kh-script-tools__style">Block style
-      <select value={blockStyle} disabled={disabled || !canStyle}
-        onChange={event => {
-          const level = Number(event.target.value);
-          const blocks = editor.getSelection()?.blocks ?? [editor.getTextCursorPosition().block];
-          editor.transact(() => {
-            for (const block of blocks) {
-              if (level === 1 || level === 2 || level === 3) editor.updateBlock(block, { type: 'heading', props: { level } });
-              else editor.updateBlock(block, { type: 'paragraph' });
-            }
-          });
-          editor.focus();
-        }}>
-        <option value="" disabled>Other / mixed blocks</option>
-        {SCRIPT_BLOCK_STYLES.map(style => <option key={style.value} value={style.value}>{style.label}</option>)}
-        {Number(blockStyle) > 3 && <option value={blockStyle}>Heading {blockStyle}</option>}
-      </select>
-    </label>
     {SCRIPT_COLOURS.map(item => <ScriptToolButton key={item} type="button" className={`kh-btn-ghost kh-script-text--${item}`}
       title={`Colour selected text ${item}`}
       disabled={disabled || !selected} aria-label={`Colour selected text ${item}`} aria-pressed={colour === SCRIPT_COLOUR_VALUES[item]}

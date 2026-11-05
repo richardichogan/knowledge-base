@@ -57,6 +57,18 @@ export interface ChatPageContext {
   selectedId?: string;
 }
 
+export interface BackgroundWorkContext {
+  panelOpen: boolean;
+  activeCount: number;
+  unreadCount: number;
+  incomplete: boolean;
+  truncated: boolean;
+  items: Array<{
+    id: string; jobId?: string; assignmentId?: string; subjectId?: string;
+    title: string; status: string; unread: boolean; summary: string;
+  }>;
+}
+
 export type MessageRole = 'system' | 'user' | 'assistant';
 
 export interface ConversationMessage {

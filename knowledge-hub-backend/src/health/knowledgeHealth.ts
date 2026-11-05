@@ -13,6 +13,8 @@ import { readReliability, type ReliabilityHealth } from './reliability.js';
 export const HEALTH_MAX_DAYS = 90;
 export const HEALTH_DEFAULT_DAYS = 7;
 const USAGE_ROW_LIMIT = 50;
+const ARTIFACT_DECISION_LIMIT = 50;
+const FAILURE_DIAGNOSTIC_LIMIT = 100;
 const FACET_LIMIT = 100;
 const RUN_LIMIT = 10;
 const SOURCE_LIMIT = 50;
@@ -46,6 +48,7 @@ export type Section<T> = { available: true; data: T } | { available: false; mess
 export interface UsageTotals {
   calls: number;
   failures: number;
+  partialCalls: number;
   measuredCalls: number;
   unmeasuredCalls: number;
   promptTokens: number;
@@ -125,6 +128,38 @@ export interface KnowledgeHealth {
   workflows: Section<WorkflowHealth>;
   measurements: Section<TurnMeasurementHealth>;
   reliability: Section<ReliabilityHealth>;
+  artifactOutcomes: Section<ArtifactOutcomes>;
+}
+
+export interface ArtifactOutcomes {
+  generatedVersions: number;
+  generatedTargets: number;
+  editedVersions: number;
+  decisions: Array<{ kind: string; targetType: string; events: number; targets: number; linkedEvents: number }>;
+  rowsTruncated: boolean;
+  note: string;
+}
+
+async function artifactOutcomeSection(db: Pool, filters: HealthFilters, start: string, end: string): Promise<ArtifactOutcomes> {
+  const params = [start, end, filters.environment];
+  const authored = await db.query<{ versions: number; targets: number }>(`SELECT COUNT(*)::int versions,
+    COUNT(DISTINCT (target_type,target_id))::int targets FROM ai_authored_content
+    WHERE at >= $1::timestamptz AND at < $2::timestamptz AND environment=$3`, params);
+  const edits = await db.query<{ versions: number }>(`SELECT COUNT(DISTINCT authored_id)::int versions FROM ai_decisions
+    WHERE updated_at >= $1::timestamptz AND updated_at < $2::timestamptz AND environment=$3
+      AND actor='user' AND kind='edit' AND authored_id IS NOT NULL`, params);
+  const decisions = await db.query<{ kind: string; target_type: string; events: number; targets: number; linked_events: number }>(`SELECT
+    kind,target_type,COUNT(*)::int events,COUNT(DISTINCT target_id)::int targets,
+    COUNT(*) FILTER(WHERE authored_id IS NOT NULL)::int linked_events
+    FROM ai_decisions WHERE updated_at >= $1::timestamptz AND updated_at < $2::timestamptz AND environment=$3 AND actor='user'
+    GROUP BY kind,target_type ORDER BY events DESC,kind,target_type LIMIT 51`, params);
+  return {
+    generatedVersions: authored.rows[0]?.versions ?? 0, generatedTargets: authored.rows[0]?.targets ?? 0,
+    editedVersions: edits.rows[0]?.versions ?? 0, rowsTruncated: decisions.rows.length > ARTIFACT_DECISION_LIMIT,
+    decisions: decisions.rows.slice(0, ARTIFACT_DECISION_LIMIT).map(row => ({ kind: row.kind, targetType: row.target_type,
+      events: row.events, targets: row.targets, linkedEvents: row.linked_events })),
+    note: 'Generation uses creation time; decisions use their latest recorded update time. Runtime is the stored record provenance (an edited record retains its original runtime); content is shared. Generated versions are not accepted outputs. Changed saves are not necessarily corrections. Decision types overlap and are not conversion rates. Missing records mean unmeasured activity. Time saved and abandoned journeys are not measured.',
+  };
 }
 
 export interface WorkflowHealth {
@@ -133,12 +168,14 @@ export interface WorkflowHealth {
   unattributedCalls: number;
   rowsTruncated: boolean;
   totals: { runs: number; completed: number; failed: number; unfinished: number; reviewBlocked: number; delivered: number };
+  failureDiagnostics: Array<{ source: string; feature: string; status: string; stage: string | null; code: string; occurrences: number }>;
+  failureDiagnosticsTruncated: boolean;
   runs: Array<{
     id: string; feature: string; purpose: string; attempt: number; status: string; outcome: string | null;
     startedAt: string; finishedAt: string | null; durationMs: number | null;
     calls: number; tokens: number | null; unmeasuredCalls: number;
   }>;
-  stages: Array<{ runId: string; stage: string; calls: number; tokens: number | null; failures: number; durationMs: number }>;
+  stages: Array<{ runId: string; stage: string; calls: number; tokens: number | null; failures: number; partialCalls: number; durationMs: number }>;
 }
 
 async function workflowSection(db: Pool, filters: HealthFilters, start: string, end: string): Promise<WorkflowHealth> {
@@ -146,7 +183,7 @@ async function workflowSection(db: Pool, filters: HealthFilters, start: string, 
   const usageWhere = `u.at >= $1::timestamptz AND u.at < $2::timestamptz AND u.environment=$3
     AND ($4::text IS NULL OR u.feature=$4) AND ($5::text IS NULL OR u.persona=$5) AND ($6::text IS NULL OR u.deployment=$6)`;
   const runWhere = `r.started_at >= $1::timestamptz AND r.started_at < $2::timestamptz AND r.environment=$3
-    AND (($4::text IS NULL AND $5::text IS NULL AND $6::text IS NULL)
+    AND ((($4::text IS NULL OR r.feature=$4) AND $5::text IS NULL AND $6::text IS NULL)
       OR EXISTS(SELECT 1 FROM ai_usage_log u WHERE u.workflow_run_id=r.id AND ${usageWhere}))`;
   // Drain every query before returning an unavailable section or releasing the database.
   const [coverageResult, totalsResult, runsResult] = await Promise.allSettled([
@@ -174,9 +211,22 @@ async function workflowSection(db: Pool, filters: HealthFilters, start: string, 
   const runs = runsResult.value;
   const selected = runs.rows.slice(0, USAGE_ROW_LIMIT);
   const stages = await db.query<Record<string, unknown>>(`SELECT workflow_run_id,stage,COUNT(*)::int calls,
-    SUM(prompt_tokens+completion_tokens) FILTER(WHERE usage_known) tokens,COUNT(*) FILTER(WHERE NOT ok)::int failures,
+    SUM(prompt_tokens+completion_tokens) FILTER(WHERE usage_known) tokens,
+    COUNT(*) FILTER(WHERE NOT ok AND failure_code IS DISTINCT FROM 'response-truncated')::int failures,
+    COUNT(*) FILTER(WHERE failure_code='response-truncated')::int partial_calls,
     SUM(duration_ms) duration_ms FROM ai_usage_log u WHERE ${usageWhere} AND workflow_run_id=ANY($7::uuid[])
     GROUP BY workflow_run_id,stage ORDER BY workflow_run_id,stage LIMIT 200`, [...params, selected.map(r => String(r.id))]);
+  const failureDiagnostics = await db.query<Record<string, unknown>>(`SELECT source,feature,status,stage,code,COUNT(*)::int occurrences
+    FROM (
+      SELECT 'workflow'::text source,r.feature,r.status,r.failure_stage AS stage,
+        COALESCE(r.failure_code,'unclassified') AS code
+      FROM ai_workflow_runs r WHERE ${runWhere} AND r.status IN ('failed','interrupted')
+      UNION ALL
+      SELECT 'model call'::text source,u.feature,CASE WHEN u.failure_code='response-truncated' THEN 'partial' ELSE 'failed' END AS status,u.stage,
+        COALESCE(u.failure_code,'unclassified') AS code
+      FROM ai_usage_log u WHERE ${usageWhere} AND NOT u.ok
+    ) failures GROUP BY source,feature,status,stage,code
+    ORDER BY occurrences DESC,source,feature,stage LIMIT 101`, params);
   const total = totals.rows[0] ?? {};
   return {
     outcomes: { ready: num(total.ready), notRecorded: num(total.not_recorded), retryAttempts: num(total.retries), withoutJobIdentity: num(total.no_job) },
@@ -184,12 +234,15 @@ async function workflowSection(db: Pool, filters: HealthFilters, start: string, 
     rowsTruncated: runs.rows.length > USAGE_ROW_LIMIT,
     totals: { runs: num(total.runs), completed: num(total.completed), failed: num(total.failed),
       unfinished: num(total.unfinished), reviewBlocked: num(total.blocked), delivered: num(total.delivered) },
+    failureDiagnosticsTruncated: failureDiagnostics.rows.length > FAILURE_DIAGNOSTIC_LIMIT,
+    failureDiagnostics: failureDiagnostics.rows.slice(0, FAILURE_DIAGNOSTIC_LIMIT).map(r => ({ source: String(r.source), feature: String(r.feature), status: String(r.status),
+      stage: r.stage === null ? null : String(r.stage), code: String(r.code), occurrences: num(r.occurrences) })),
     runs: selected.map(r => ({ id: String(r.id), feature: String(r.feature), purpose: String(r.purpose), attempt: num(r.attempt),
       status: String(r.status), outcome: r.outcome === null ? null : String(r.outcome), startedAt: iso(r.started_at) ?? '',
       finishedAt: iso(r.finished_at), durationMs: r.duration_ms === null ? null : num(r.duration_ms),
       calls: num(r.calls), tokens: r.tokens === null ? null : num(r.tokens), unmeasuredCalls: num(r.unmeasured_calls) })),
     stages: stages.rows.map(r => ({ runId: String(r.workflow_run_id), stage: String(r.stage ?? 'unknown'), calls: num(r.calls),
-      tokens: r.tokens === null ? null : num(r.tokens), failures: num(r.failures), durationMs: num(r.duration_ms) })),
+      tokens: r.tokens === null ? null : num(r.tokens), failures: num(r.failures), partialCalls: num(r.partial_calls), durationMs: num(r.duration_ms) })),
   };
 }
 
@@ -323,7 +376,7 @@ function totalsFrom(row: Record<string, unknown>): UsageTotals {
   const promptTokens = num(row['prompt_tokens']);
   const completionTokens = num(row['completion_tokens']);
   return {
-    calls: num(row['calls']), failures: num(row['failures']),
+    calls: num(row['calls']), failures: num(row['failures']), partialCalls: num(row['partial_calls']),
     measuredCalls: num(row['measured_calls']), unmeasuredCalls: num(row['calls']) - num(row['measured_calls']),
     promptTokens, cachedPromptTokens: num(row['cached_tokens']),
     completionTokens, reasoningCompletionTokens: num(row['reasoning_tokens']),
@@ -334,7 +387,8 @@ function totalsFrom(row: Record<string, unknown>): UsageTotals {
 }
 
 const AGGREGATES = `COUNT(*)::int AS calls,
-  COUNT(*) FILTER (WHERE NOT ok)::int AS failures,
+  COUNT(*) FILTER (WHERE NOT ok AND failure_code IS DISTINCT FROM 'response-truncated')::int AS failures,
+  COUNT(*) FILTER (WHERE failure_code='response-truncated')::int AS partial_calls,
   COUNT(*) FILTER (WHERE usage_known)::int AS measured_calls,
   COALESCE(SUM(prompt_tokens) FILTER (WHERE usage_known), 0)::bigint AS prompt_tokens,
   COALESCE(SUM(cached_tokens) FILTER (WHERE usage_known), 0)::bigint AS cached_tokens,
@@ -617,10 +671,13 @@ export async function getKnowledgeHealth(
   // Keep the new aggregation from increasing the existing page's peak pool demand.
   const workflows = await guarded(() => workflowSection(db, filters, start, end));
   const reliability = await guarded(() => readReliability(db, filters, start, end));
+  const artifactOutcomes: Section<ArtifactOutcomes> = filters.feature || filters.persona || filters.deployment
+    ? { available: false, message: 'Artifact decisions do not have complete feature, persona or deployment attribution. Clear those filters for runtime-scoped outcomes.' }
+    : await guarded(() => artifactOutcomeSection(db, filters, start, end));
   const measurements: Section<TurnMeasurementHealth> = filters.deployment !== null
     ? { available: false, message: 'Turn capture has no reliable per-provider-deployment denominator. Clear the deployment filter.' }
     : filters.feature !== null && filters.feature !== 'chat'
       ? { available: false, message: 'Turn measurements cover chat only. Select chat or all features.' }
       : await guarded(() => readTurnMeasurements(db, filters, start, end));
-  return { generatedAt: now.toISOString(), filters, windowStart: start, windowEnd: end, usage, syncRuns, index, families, turnReview, retrievalQuality, workflows, measurements, reliability };
+  return { generatedAt: now.toISOString(), filters, windowStart: start, windowEnd: end, usage, syncRuns, index, families, turnReview, retrievalQuality, workflows, measurements, reliability, artifactOutcomes };
 }

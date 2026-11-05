@@ -10,9 +10,10 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { autoTagNow } from '../services/autoTagging.js';
 import { getDb } from '../db/db.js';
 import { HTTP_STATUS } from '../config/constants.js';
-import { NotFoundError } from '../types/errors.js';
+import { ValidationError } from '../types/errors.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
 import type { TaxonomyTag } from './taxonomy.js';
+import { readNoteTags, setNoteTags } from '../services/noteTagService.js';
 
 const router = Router({ mergeParams: true });
 
@@ -23,19 +24,7 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
     try {
       const db = getDb();
       const { noteId } = req.params as { noteId: string };
-      const rows = await db.query<{
-        id: string; name: string; slug: string; parent_id: string | null; colour: string | null; role: 'filing' | 'concept'; project_id: string | null; source: string;
-      }>(
-        `SELECT t.id, t.name, t.slug, t.parent_id, t.colour, t.role, t.project_id, nt.source
-         FROM tags t
-         INNER JOIN note_tags nt ON nt.tag_id = t.id
-         WHERE nt.note_id = $1
-         ORDER BY t.name ASC`,
-        [noteId],
-      );
-      const tags: TaxonomyTag[] = rows.rows.map((r) => ({
-        id: r.id, name: r.name, slug: r.slug, parentId: r.parent_id, colour: r.colour, role: r.role, projectId: r.project_id, usageCount: 0, source: r.source,
-      }));
+      const tags = await readNoteTags(db, noteId);
       const body: ApiSuccess<TaxonomyTag[]> = { success: true, data: tags };
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) { next(err); }
@@ -62,42 +51,14 @@ router.put('/', (req: Request, res: Response, next: NextFunction): void => {
     try {
       const db = getDb();
       const { noteId } = req.params as { noteId: string };
-      const { tagIds } = req.body as { tagIds: string[] };
-
-      // Verify note exists
-      const noteCheck = await db.query('SELECT id FROM notes WHERE id = $1 AND status = $2', [noteId, 'active']);
-      if (noteCheck.rows.length === 0) throw new NotFoundError(`Note ${noteId} not found`);
-
-      // Replace tag set in a transaction on a single dedicated client.
-      // Running BEGIN/COMMIT on the pool spreads statements across different
-      // connections — the transaction is meaningless and can leak an open one.
-      const client = await db.connect();
-      try {
-        await client.query('BEGIN');
-        // An auto tag he takes off is remembered, so it isn't put back.
-        const autoBefore = await client.query<{ tag_id: string }>(`SELECT tag_id::text FROM note_tags WHERE note_id = $1 AND source = 'auto'`, [noteId]);
-        const removedAuto = autoBefore.rows.map((r) => r.tag_id).filter((t) => !tagIds.includes(t));
-        for (const tagId of removedAuto) {
-          await client.query(`INSERT INTO tag_rejections (content_kind, content_id, tag_id) VALUES ('note', $1, $2) ON CONFLICT DO NOTHING`, [noteId, tagId]);
-        }
-        await client.query('DELETE FROM note_tags WHERE note_id = $1', [noteId]);
-        if (tagIds.length > 0) {
-          const placeholders = tagIds.map((_, i) => `($1, $${i + 2})`).join(', '); // $1 = noteId, $2+ = tagIds  // eslint-disable-line @typescript-eslint/no-magic-numbers
-          await client.query(
-            `INSERT INTO note_tags (note_id, tag_id) VALUES ${placeholders} ON CONFLICT DO NOTHING`,
-            [noteId, ...tagIds],
-          );
-        }
-        await client.query('COMMIT');
-      } catch (txErr) {
-        await client.query('ROLLBACK').catch(() => undefined);
-        throw txErr;
-      } finally {
-        client.release();
+      const input: unknown = req.body;
+      if (!input || typeof input !== 'object' || !('tagIds' in input) || !('expectedTagIds' in input)) {
+        throw new ValidationError('Provide tagIds and the expectedTagIds from the last read.');
       }
+      const saved = await setNoteTags(db, noteId, input.tagIds, input.expectedTagIds);
 
       const body: ApiSuccess<{ noteId: string; tagIds: string[] }> = {
-        success: true, data: { noteId: noteId, tagIds },
+        success: true, data: saved,
       };
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) {

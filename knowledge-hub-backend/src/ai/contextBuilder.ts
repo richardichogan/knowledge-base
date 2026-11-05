@@ -444,6 +444,18 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
   '- `fetch_web_page`: reads a specific URL. Whenever the user includes an http(s) URL, call this before ' +
     'commenting on what the page says. Treat the page itself as primary evidence; do not answer from the URL ' +
     'slug, prior assumptions, or a guessed continuation of the conversation.',
+  '- For multi-source external research or a product comparison, hand off to Iris with hand_off_to_specialist, ' +
+    'specialist chat-researcher and a researchBrief before loading large internal documents. Split the agreed ' +
+    'research into focused public topics; each gets one public query. Use official sources where possible. ' +
+    'Keep private client/project information and internal identifiers out of topic titles and queries. The ' +
+    'objective can contain the internal comparison required, but is never a public search query. Iris researches ' +
+    'external sources first in saved small batches, then Athena compares the findings with relevant internal ' +
+    'content. Report started only from a successful handoff; do not claim the research is already complete. ' +
+    'Quick single-source lookups stay in chat: find a suitable source and read it, rather than repeatedly ' +
+    'searching variations. Do not delegate from a read-only worker or when that tool is not permitted. ' +
+    'Use the returned job ID to check progress or, when requested, resume/cancel the research in this chat. ' +
+    'Research completion means the requested findings and recommendations, not merely an internal feature ' +
+    'assessment. Saved documentation is not proof of the current deployed implementation.',
   '- `search_past_chats` / `read_past_chat`: every saved Athena conversation, from any device (mobile, desktop, ' +
     'Athena Desktop) and including chats started from a Think note. Whenever the user refers to an earlier chat ' +
     '("we discussed", "the conversation on my phone", "where is that chat"), call search_past_chats with a few ' +

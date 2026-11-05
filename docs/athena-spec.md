@@ -78,6 +78,60 @@ Full document, specification and newsletter reviews use a read-checkpoint-contin
 
 Reading checkpoints are private to the chat, review objective, source and scope, separated between development and production; they are not user-profile memories or edits to the source. An interrupted read can resume its last committed page using `resumeReading`; source-version changes invalidate prior checkpoints. Exclusions and access scope are revalidated on every page and before using cached memory. Provider failures and cancellation never advance an unfinished page. Background turns use progress-aware inactivity deadlines so active checkpointed reading is not cut off by the ordinary turn duration. Stored-source coverage and import/extraction completeness remain separate. Supporting retrieval and ordinary manually paged reads retain bounded budgets.
 
+Iris also accepts multi-source research directly from chat through `chat-researcher`;
+the approved Plan task workflow and its approvals remain unchanged. Athena hands
+off up to eight distinct public topics before reading large internal documents.
+Quick single-source lookups remain in chat. A public-query boundary check runs
+before external access: the original request must authorise the planned research,
+and private project/client details cannot appear in public topics or queries.
+
+Each topic gets one focused search, at most three candidate URLs, and up to two
+successfully read sources. Unavailable pages are recorded explicitly; a topic with
+no read source blocks completion. External reading has no internal documents,
+profile or chat history in its context. Extracted source text is processed in
+8,000-character pages through the existing durable, validated reading checkpoints.
+When official sources are requested, each topic supplies explicit public source
+domains, enforced on search candidates and redirects. Bounded candidate snippets
+are screened for relevance before reading; snippets are never treated as evidence.
+Vendor-hosted community/plugin pages are not treated as official documentation.
+Completed reads are also checked for substantive evidence: title-only pages,
+loading shells and access challenges cannot count as researched sources.
+Public research uses cited synthesis without optional verbatim-quotation
+extraction; ordinary document reviews retain their exact-quotation validation.
+Each topic is condensed to at most 6,000 characters with source identities, read
+dates and limitations retained. An oversized topic synthesis gets one bounded
+condensation attempt rather than rereading sources. Completed topics are saved
+between worker passes. Provider rate limits remain explicit, with saved progress
+retained for manual resumption rather than automatic retry loops.
+Provider failures, cancellation and five-minute topic deadlines do not erase them.
+
+Only after all external topics are complete does Athena perform any requested
+internal comparison. This stage cannot search the web or mutate existing records.
+The comparison uses focused discovery followed by at most four targeted internal
+record pages and 24,000 characters, not full-document reads. Supporting search
+previews are limited to 12,000 characters to reserve room for those pages, with
+the existing 25-second retrieval budget inside the five-minute stage deadline.
+Ordinary chat/document reviews retain their full-original behaviour.
+A bounded fulfillment review checks the draft against the completed external
+findings and actual internal read results before persistence. It rejects missing
+topics, citations or recommendations, an internal-only assessment or plan, and
+unsupported access, implementation or save claims. Honest internal-coverage
+limits are allowed; an already-saved note is not a precondition for this
+pre-save review. Comparison tool results, drafts and review decisions use the
+existing short-lived traces. A rejected draft gets one correction using the same
+read evidence and specific review feedback, then must pass the same review.
+This does not repeat searches or reads, extend the stage deadline, or bypass a
+failed review. This is a model check, not a guarantee of factual correctness.
+
+The final report is a new native Think research note, readable and editable through
+the existing note tools/editor. Completion links appear in the original chat and
+Background work. `check_specialist_jobs` exposes its status and result note ID.
+The research handoff supports explicit resume/cancel actions in the originating
+authenticated chat. Resume retains completed topics and source checkpoints;
+cancel invalidates the worker lease, prevents the final note write and retains
+source checkpoints already processed. In-flight model/network work stops cooperatively.
+Explicit collection/date/project restrictions are not widened into this path.
+
 Health exposes conversation retrieval signals as well as provider usage: measured scope, prevented cross-collection attempts, inherited scope, possible deferred retries, temporal/default-window use, unread search hits, unverified quotes, budget exhaustion and tool errors. Deferred retries are heuristic review flags, not proven failures. Audit storage contains categories/counts only, never prompts or source text. Legacy rows without scope/environment attribution stay separate and unmeasured. No-retrieval can be correct for conversation, provider success is not task success, and these signals are not an accuracy score. Health's selected dates are UTC and environment/persona/feature filters apply; deployment-attributed turn quality is explicitly unavailable.
 
 ### Short-lived chat diagnostics
@@ -121,6 +175,10 @@ New traces include parent/child timing spans for the root turn, session/context 
 Deterministic checks make no model call: capture integrity, context-snapshot observation, chat-reply persistence and recorded citation-validator signals. Answer correctness remains uncertain. Optional model review uses one configured standard-model call, with no tool execution or replay, and checks relevance, groundedness, context selection and action claims. Input is the redacted saved trace, not live sources, and is treated as untrusted evidence. The review budget is 200,000 serialized characters, 500 events, 4,000 output tokens and two minutes; oversized inputs fail explicitly before a model call, with no silent truncation or fallback. Verdicts are `pass`, `fail` or `uncertain` with validated event-sequence references. They are model judgements, not human-verified accuracy. Failed/incomplete reviews are not passes; concurrent evaluation of the same trace is guarded. Evaluation is manual, never scheduled, and its usage is attributed as diagnostic work. Health reports review coverage separately from capture coverage, without manufacturing an accuracy percentage.
 
 Workflow health separately records new specialist attempts, direct Design operations and claimed scheduled jobs. Model calls inherit a workflow ID, stage and explicit purpose through async-local context; diagnostic callers must explicitly choose diagnostic purpose, not rely on worker-name guesses. No prompts or document text enter this telemetry. Blog checks distinguish completed operations from review-blocked/ready drafts and successful blog delivery. Elapsed run time and summed model-call time are different measures. Earlier calls/jobs are not retroactively attributed; running records can represent work interrupted by process failure. Workflow cohorts use start time; call aggregates follow the usage date/environment/model filters. Review/delivery counts overlap completed runs and do not prove user acceptance.
+
+Failure diagnostics record the escaping error's stage and a controlled category, not a caught/recovered error or raw provider body. Source-reading 401/403 errors explain how to check access or supply an accessible source; they do not retry access restrictions or bypass editorial holds. A vision read with usable text cut off at its output limit is a **partial response**, separate from complete responses and failed calls throughout Health. Its content warning remains in place, and cancellation propagates rather than starting an OCR fallback. Migration 145 adds these categories and labels only historical vision rows with the exact known truncation message; other history remains unclassified.
+
+The Workflows tab also reports recorded generated versions, distinct generated items, changed user saves linked to AI versions, and explicit user-decision types from the existing learning ledger. Generation uses creation time; decisions use latest update time and stored runtime provenance (an edit record retains its original runtime). Counts are not a generation-to-acceptance funnel: windows and targets can differ, decisions overlap, and changed text need not be a correction. Missing records are unmeasured activity, not rejection or abandonment; no time-saved estimate is invented. These aggregates require clearing feature/persona/deployment filters because attribution is incomplete. Athena reads the same bounded `artifactOutcomes` section through `read_knowledge_health`, without content bodies.
 
 Source sync retains up to 20 safe failure categories, targets and corrective actions per source, with an explicit total error count. Raw provider response bodies are not shown in Health. These latest shared-source runs do not follow usage filters; older records retain counts only. Project Markdown ingestion decodes strict UTF-8 or BOM-tagged UTF-16LE/BE and rejects invalid text/NULs rather than discarding bytes. Graph sign-in requests Mail.Read.Shared for the podcast shared mailbox; existing sign-ins retain their granted scopes during refresh, and need renewed consent plus mailbox read permission. Expired ICA consulting keys and GitHub repository access require credential/access correction, not silent source removal.
 
@@ -485,6 +543,34 @@ The selected article's main reading pane shows **Why Athena picked it** immediat
 | **Management** | Tag Manager, repo-to-tag and repo-to-project mappings, Knowledge health (AI usage, sync runs, index freshness), practice-exam score history, and voice transcription and speech. |
 
 Old routes (`/tasks`, `/calendar`, `/notes`, `/documents`, `/timeline`, `/search`, `/ai`, `/blog-post`) redirect to the areas above.
+
+Think's Notes navigation keeps the standard list in the upper two-thirds and the existing
+two-level tag hierarchy in the lower third, with independent scrolling.
+The search-row collapse button folds the whole navigation to its
+left rail, which contains only the expand button; the tag-section heading independently collapses its tree, returning that space to
+the list. Both choices are remembered and neither clears the selected tag.
+Selecting a parent includes its child tags; selecting a child filters by that tag. All notes clears the folder
+filter without changing the open editor or its unsaved work. Search, sorting, definitions,
+tagged-passage results, counts and pagination retain that filter. Designs and podcast episodes
+remain grouped, including when a member note matches the tag. Sparks and Canvas are unchanged.
+
+Tag folders are views over existing tags, not physical folders or a new content model.
+Saved parent/child tag paths are not repeated in the note's header or bottom bar; the word count stays
+at the right of the bottom bar and tagging controls stay in Properties. The tree highlights the active folder
+without an extra selected-folder banner above the list. Athena receives the selected folder, hierarchy, bounded list summaries and current
+note filing without replacing the active note, Design or Podcast context. `read_note_tags`
+retrieves saved filing plus paginated available folders; `set_note_tags` uses the same validated,
+transactional, compare-and-set service as Properties, honours read-only/excluded/project-scoped
+access, preserves removed auto-tag rejections, and never rewrites unsaved note content.
+Changed filing refreshes the normal editor and filtered list. Metadata is not evidence that
+Athena has read a note's body; existing saved-record readers supply that content.
+
+Think's default note body text is 2pt larger than the standard 14px interface text
+(16.667px), consistently in the editor and HTML view; headings and authored font sizes
+retain their existing sizes. The side panel keeps its existing tabs and collapse control
+together, supports arrow-key tab selection, and stacks the organisation fields when the
+panel is too narrow for two readable columns. The tag tree indents children beneath their
+parents; navigation actions, editor actions and saved content are unchanged.
 
 Configuration opens in centred, scrollable modals: Memory, Connections and sync,
 Tag Manager, and repository tag/project mappings. Opening these from Tools or
@@ -915,7 +1001,7 @@ editing, assistance, activity and connections stay in their established location
 When a new non-recurring task is created outside Inbox, a background assessment
 automatically prepares a **How Athena could help** proposal and notifies the
 user when it is ready. Inbox tasks wait until the user accepts them into
-Backlog, In progress or Waiting, whether through the app or Athena. This covers
+Backlog, In progress, Blocked or Waiting, whether through the app or Athena. This covers
 daily-report imports, meeting-preparation imports and Spark tasks without doing
 work on unaccepted Inbox items. Passage follow-up tasks are assessed when created.
 Recurring tasks, including recurring children, are excluded from automatic
@@ -1370,6 +1456,24 @@ ownership. Existing Background work now displays one assignment with its named
 worker/stage, readiness/attention/cancelled state and any canonical draft link.
 Cancel/resume use the existing confirmation dialogs, revision-bound requests
 and visible action errors; they do not move editor controls or refresh budgets.
+
+Background work uses a compact, consistently sized activity list grouped into
+In progress, Needs attention and Recent results, with full details available
+through disclosure and Daily Insights imports collapsed separately. A persistent
+toolbar results pill announces unread completions; attention updates use warning
+styling. Opening the panel does not clear it: opening a result acknowledges only
+that item's notices, and Mark all read explicitly clears the rest. Read state is
+shared across same-origin tabs/reloads through local storage, not across devices,
+and is separate from server delivery acknowledgement or approval.
+
+Athena receives a separate bounded toolbar-state snapshot with active/unread
+counts, job/assignment/subject identifiers and explicit incomplete/truncated
+flags. It does not replace the active note or editor context. Existing job and
+assignment tools retrieve current saved state, and Script visual tools retrieve
+and apply actual pending scenes through their existing confirmation and conflict
+checks. A title or summary is not full-result access. Presenting still saves first;
+changing the active document, stopping or leaving Think during preparation
+invalidates the pending start rather than presenting an obsolete selection.
 
 The manual-blog domain adapter stores immutable per-attempt stage snapshots in
 the existing job domain and references their exact signatures. The original

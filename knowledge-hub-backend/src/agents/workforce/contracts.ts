@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { ValidationError } from '../../types/errors.js';
 
 export const WORKFORCE_VERSION = 1;
-export const AGENT_PROTOCOL_VERSION = 2;
+export const AGENT_PROTOCOL_VERSION = 3;
 export const AGENT_LEASE_MS = 60_000;
 export const AGENT_HEARTBEAT_MS = 15_000;
 export const AGENT_MAX_ATTEMPTS = 3;

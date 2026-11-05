@@ -7,7 +7,7 @@ import React, { useEffect, useId, useRef, useState } from 'react';
 import { confirmDialog } from '../services/appDialogs';
 import { TextInput } from '@carbon/react';
 import { useQuery } from '@tanstack/react-query';
-import { TrashCan, Close, SortAscending, ChevronDown, ChevronRight } from '@carbon/icons-react';
+import { TrashCan, Close, SortAscending, ChevronDown, ChevronRight, SidePanelClose } from '@carbon/icons-react';
 import type { ThinkListItem } from './types';
 import { useTaxonomy } from '../hooks/useTaxonomy';
 import { useProjects } from '../hooks/useProjects';
@@ -27,6 +27,8 @@ const SORT_LABELS: Record<NoteSortKey, string> = {
 
 interface NoteListProps {
   showTools?: boolean;
+  tagIds?: string;
+  onCollapse?: () => void;
   notes: ThinkListItem[];
   selectedId: string | null;
   onSelect: (id: string) => void;
@@ -62,6 +64,8 @@ function formatDateTime(iso: string): string {
 
 export const NoteList: React.FC<NoteListProps> = ({
   showTools = true,
+  tagIds,
+  onCollapse,
   notes,
   selectedId,
   onSelect,
@@ -92,8 +96,8 @@ export const NoteList: React.FC<NoteListProps> = ({
     return () => { window.clearTimeout(timer); };
   }, [filter]);
   const passageQuery = useQuery({
-    queryKey: ['passage-search', passageFilter],
-    queryFn: async ({ signal }) => requireApiData(await api.searchNotePassages(passageFilter, signal)),
+    queryKey: ['passage-search', passageFilter, tagIds ?? ''],
+    queryFn: async ({ signal }) => requireApiData(await api.searchNotePassages(passageFilter, signal, tagIds)),
     enabled: onSelectPassage !== undefined && passageFilter.length >= 2 && passageFilter === filter.trim(),
     retry: false,
   });
@@ -275,6 +279,9 @@ export const NoteList: React.FC<NoteListProps> = ({
             ))}
           </select>
         </label>
+        {onCollapse && <button type="button" className="notes-list-tools__icon"
+          title="Collapse notes and tags to the left" aria-label="Collapse notes and tags to the left"
+          onClick={onCollapse}><SidePanelClose size={16} aria-hidden="true" /></button>}
       </div>}
 
       <div className={`notes-list kh-triage--${density}`} aria-label="Notes. J and K move; O opens the focused note."

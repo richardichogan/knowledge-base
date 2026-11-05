@@ -19,15 +19,16 @@ function ageLabel(days: number): string {
   return days < 56 ? `${Math.floor(days / 7)} wk` : `${Math.floor(days / 30)} mo`;
 }
 
-/** Flags open tasks nobody has touched for a while; waiting statuses read as "Waiting …". */
+/** Flags open tasks nobody has touched for a while; Blocked and Waiting read as "Blocked …" / "Waiting …". */
 export function taskHealth(task: Pick<PlanTask, 'status' | 'updatedAt'>, now = new Date()): TaskHealth | null {
   if (task.status === 'completed') return null;
   const days = daysSince(task.updatedAt, now);
   if (days < STALE_AFTER_DAYS) return null;
-  const waiting = task.status === 'waiting';
-  return waiting
-    ? { kind: 'waiting', label: `Waiting ${ageLabel(days)}`, title: `No change for ${days} days — chase it, unblock it or drop it.` }
-    : { kind: 'stale', label: `Idle ${ageLabel(days)}`, title: `No update for ${days} days — still relevant?` };
+  if (task.status === 'blocked' || task.status === 'waiting') {
+    const label = task.status === 'blocked' ? 'Blocked' : 'Waiting';
+    return { kind: 'waiting', label: `${label} ${ageLabel(days)}`, title: `No change for ${days} days — chase it, unblock it or drop it.` };
+  }
+  return { kind: 'stale', label: `Idle ${ageLabel(days)}`, title: `No update for ${days} days — still relevant?` };
 }
 
 export function isRecentlyCompleted(task: Pick<PlanTask, 'status' | 'updatedAt'>, now = new Date()): boolean {
@@ -48,7 +49,7 @@ export function originLabel(origin: TaskOrigin): string {
 }
 
 const STATUS_LABEL: Record<PlanTask['status'], string> = {
-  inbox: 'Inbox', backlog: 'Backlog', 'in-progress': 'In progress', waiting: 'Waiting', completed: 'Completed',
+  inbox: 'Inbox', backlog: 'Backlog', 'in-progress': 'In progress', blocked: 'Blocked', waiting: 'Waiting', completed: 'Completed',
 };
 
 function taskLine(task: PlanTask, projectName: (id: string) => string, today: string, now: Date): string {
@@ -64,9 +65,9 @@ function taskLine(task: PlanTask, projectName: (id: string) => string, today: st
 export function planContextDetail(tasks: PlanTask[], projectName: (id: string) => string, today: string, now = new Date()): string {
   const open = tasks.filter((t) => t.status !== 'completed');
   const lines = [
-    `The Plan page: the user's task board (Inbox of new suggestions to accept or dismiss, then Backlog, In progress, Waiting on someone/something, Completed). Help them triage, prioritise, break down and schedule tasks. Today is ${today}.`,
+    `The Plan page: the user's task board (Inbox of new suggestions to accept or dismiss, then Backlog, In progress, Blocked (cannot progress), Waiting on someone/something, Completed). Help them triage, prioritise, break down and schedule tasks. Today is ${today}.`,
   ];
-  for (const status of ['inbox', 'in-progress', 'waiting', 'backlog'] as const) {
+  for (const status of ['inbox', 'in-progress', 'blocked', 'waiting', 'backlog'] as const) {
     const group = open.filter((t) => t.status === status);
     if (group.length === 0) continue;
     lines.push('', `${STATUS_LABEL[status]} (${group.length}):`, ...group.slice(0, 25).map((t) => taskLine(t, projectName, today, now)));
@@ -98,7 +99,7 @@ export const FOCUS_GROUPS: { id: FocusGroupId; label: string; hint: string }[] =
   { id: 'overdue', label: 'Overdue', hint: 'Past the due date: do it, re-date it or drop it.' },
   { id: 'week', label: 'This week', hint: 'Due in the next 7 days.' },
   { id: 'next', label: 'Next up', hint: 'In progress or high priority.' },
-  { id: 'waiting', label: 'Waiting', hint: 'On someone or something else. Chase anything that goes quiet.' },
+  { id: 'waiting', label: 'Blocked or waiting', hint: 'Stuck, or on someone or something else. Unblock or chase anything that goes quiet.' },
   { id: 'someday', label: 'Someday', hint: 'The rest of the backlog.' },
 ];
 
@@ -123,7 +124,7 @@ export function focusGroup(task: FocusTask, today: string): FocusGroupId | null 
   const date = focusDate(task);
   if (date !== null && date < today) return 'overdue';
   if (date !== null && date <= addDays(today, 6)) return 'week';
-  if (task.status === 'waiting') return 'waiting';
+  if (task.status === 'blocked' || task.status === 'waiting') return 'waiting';
   if (task.status === 'in-progress' || task.priority === 'high' || task.priority === 'urgent') return 'next';
   return 'someday';
 }

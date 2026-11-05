@@ -232,6 +232,60 @@ for (const inView of [false, true]) test(`the actual chat reads a ${inView ? 'ch
   }
 });
 
+for (const checkpointSources of [false, true]) test(`staged research checkpoint preference is explicit (${checkpointSources})`, async () => {
+  const pg = new PGlite();
+  await pg.exec('CREATE TABLE ai_chat_sessions(id uuid PRIMARY KEY)');
+  await pg.query('INSERT INTO ai_chat_sessions VALUES ($1)', [sessionId]);
+  await pg.exec(await readFile(new URL('../src/db/migrations/097_document_reading_memory.sql', import.meta.url), 'utf8'));
+  const db = new Pool();
+  const id = '44444444-4444-4444-8444-444444444444';
+  const body = 'The saved source requires 90 days of retention.\n'.repeat(500).trimEnd();
+  const content = JSON.stringify({ title: 'Retention specification',
+    contentJson: JSON.stringify([{ type: 'paragraph', content: [{ type: 'text', text: body }] }]) });
+  const query = mock.method(db, 'query', async (sql: string, values: unknown[] = []) => {
+    if (sql.includes('document_reading_')) return pg.query(sql, values);
+    if (sql.includes('SELECT id::text AS id FROM notes')) return { rows: [{ id }] };
+    if (sql.includes('SELECT content, project_id')) return { rows: [{
+      content, project_id: null, created_at: new Date('2026-11-05'), updated_at: new Date('2026-11-05'), status: 'active',
+    }] };
+    return { rows: [] };
+  });
+  const capacity = mock.method(FoundryClient.prototype, 'reviewContextTokens', () => 128_000);
+  let readingCalls = 0;
+  const bulk = mock.method(FoundryClient.prototype, 'chatBulk', async messages => {
+    readingCalls++;
+    const input = JSON.parse(messages[1]!.content);
+    if (input.sourcePage !== undefined) {
+      assert.ok(textTokens(input.sourcePage) <= 4_000);
+      return JSON.stringify({ summary: 'The source requires 90 days of retention.',
+        memory: 'The source requires 90 days of retention.', excerpts: [] });
+    }
+    return 'The source requires 90 days of retention.';
+  });
+  let calls = 0;
+  const completion = mock.method(FoundryClient.prototype, 'chatWithTools', async (_model, messages) => {
+    calls++;
+    if (calls === 1) return { content: null, toolCalls: [{ id: 'source', type: 'function' as const,
+      function: { name: 'read_knowledge_record', arguments: JSON.stringify({ kind: 'note', id, fullDocument: true }) } }], finishReason: 'tool_calls' };
+    const result = JSON.parse(String(messages.at(-1)?.content));
+    if (checkpointSources) {
+      assert.equal(result.review.complete, true);
+      assert.equal(result.review.readChars, body.length);
+      assert.ok(JSON.stringify(result).length < body.length);
+    } else assert.equal(result.record.content, body);
+    return { content: 'The specification requires 90 days of retention.', toolCalls: [], finishReason: 'stop' };
+  });
+  try {
+    await handleConversationTurn(db, [], 'Compare the relevant specification with the supplied external findings',
+      'standard', 'general', sessionId, undefined, undefined, {}, { checkpointSources, onAudit: () => {} });
+    assert.equal(calls, 2);
+    assert.equal(readingCalls > 0, checkpointSources, 'ordinary fitting reviews still supply the original without extra model calls');
+  } finally {
+    completion.mock.restore(); bulk.mock.restore(); capacity.mock.restore(); query.mock.restore();
+    await db.end(); await pg.close();
+  }
+});
+
 for (const missing of [false, true]) test(`actual diagram chat ${missing ? 'reports a deleted diagram without a spurious source-limit warning' : 'reads every page beyond the ordinary source budget'}`, async () => {
   const pg = new PGlite();
   await pg.exec('CREATE TABLE ai_chat_sessions(id uuid PRIMARY KEY)');

@@ -24,6 +24,7 @@ import { saveNote, serialise, fromApiNote } from './noteStorage';
 import { isAxiosError } from 'axios';
 import type { PartialBlock } from '@blocknote/core';
 import { api } from '../services/api';
+import { describeApiError } from '../services/apiError';
 import { confirmDialog } from '../services/appDialogs';
 import {
   AUTOSAVE_INTERVAL_MS,
@@ -36,6 +37,7 @@ import {
 import type { ContentType } from './constants';
 import type { NoteDocument, GitHubPublication } from './types';
 import { useNoteTags, useSetNoteTags, useFlatTags } from '../hooks/useTaxonomy';
+import { useNoteFilingContext } from './NoteTagFolders';
 import { MetadataPanel, type MetadataPanelProps } from './MetadataPanel';
 import { useHostedNoteEditor } from './NoteEditorHost';
 import { useProjects } from '../hooks/useProjects';
@@ -245,6 +247,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   // Taxonomy tags for this note
   const { data: noteTagObjects = [] } = useNoteTags(doc.id);
   const setNoteTagsMutation = useSetNoteTags(doc.id);
+  useNoteFilingContext(doc.id);
   const taxonomyTagIds = noteTagObjects.map((t) => t.id);
   const flatTags = useFlatTags();
   const { data: projects = [] } = useProjects();
@@ -1145,7 +1148,9 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
     },
     taxonomyTagIds, appliedTags,
     autoTagIds: (noteTagObjects as Array<{ id: string; source?: string }>).filter(tag => tag.source === 'auto').map(tag => tag.id),
-    noteId: doc.id, onTagIdsChange: ids => { void setNoteTagsMutation.mutate(ids); },
+    noteId: doc.id, onTagIdsChange: ids => { setNoteTagsMutation.mutate(ids, {
+      onError: error => setNotification({ kind: 'error', msg: describeApiError(error) }),
+    }); },
     wordCount, readingTime, blockCount, ghStatus, ghDotColor, githubPath,
     githubUrl: publication?.url, githubError: githubError || publication?.error || '', githubBusy,
     onCheckGitHub: () => { void refreshPublication(true); },

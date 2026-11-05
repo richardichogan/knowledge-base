@@ -46,6 +46,7 @@ export interface ChatPageContext {
 }
 
 export interface ChatRequest {
+  backgroundWork?: import('./agentJobs').BackgroundWorkContext;
   /** Current UI identity for diagnostics, even when unchanged context is not sent to the model. */
   uiContext?: {
     dismissed: boolean;

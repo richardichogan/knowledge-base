@@ -40,6 +40,7 @@ test('Plan health flags only open tasks untouched for two weeks; waiting statuse
   assert.deepEqual(taskHealth(task({ updatedAt: daysAgo(15) }), NOW)?.label, 'Idle 2 wk');
   assert.deepEqual(taskHealth(task({ status: 'waiting', updatedAt: daysAgo(150) }), NOW)?.label, 'Waiting 5 mo');
   assert.equal(taskHealth(task({ status: 'waiting', updatedAt: daysAgo(20) }), NOW)?.kind, 'waiting');
+  assert.equal(taskHealth(task({ status: 'blocked', updatedAt: daysAgo(20) }), NOW)?.label, 'Blocked 2 wk');
 });
 test('Task discussion preserves the approval-first assistance boundary and exact task identity', () => {
   const prompt = taskAthenaPrompt(task({ title: 'Investigate First Mate GitHub repository' }), 'Athena');
@@ -68,18 +69,24 @@ test('Plan Athena context groups open work and marks overdue and stale tasks', (
   const detail = planContextDetail([
     task({ id: 'a', title: 'Ship deck', status: 'in-progress', dueDate: '2026-10-10', priority: 'high' }),
     task({ id: 'b', title: 'Chase legal', status: 'waiting', waitingOn: 'Legal', updatedAt: daysAgo(60) }),
+    task({ id: 'e', title: 'Resolve dependency', status: 'blocked' }),
     task({ id: 'd', title: 'Draft agenda', status: 'inbox' }),
     task({ id: 'c', title: 'Done thing', status: 'completed', updatedAt: daysAgo(2) }),
   ], (id) => (id === 'p1' ? 'Imagine' : id), '2026-10-13', NOW);
   assert.match(detail, /In progress \(1\):\n\* Ship deck \[high, Imagine, OVERDUE \(due 2026-10-10\)\]/);
   assert.match(detail, /Inbox \(1\):\n\* Draft agenda \[Imagine\]/);
   assert.match(detail, /Waiting \(1\):\n\* Chase legal \[Imagine, waiting on Legal, waiting 2 mo\]/);
+  assert.match(detail, /Blocked \(1\):\n\* Resolve dependency \[Imagine\]/);
   assert.match(detail, /Completed this week \(1\):\n\* Done thing/);
 });
 
-test('Legacy Blocked and Awaiting feedback tasks read as Waiting with a reason', () => {
-  assert.deepEqual(normaliseTask({ status: 'blocked' }), { status: 'waiting', waitingOn: 'Blocked' });
+test('Blocked stays distinct while legacy Awaiting feedback normalises to Waiting', () => {
+  const blocked = { status: 'blocked' };
+  assert.equal(normaliseTask(blocked), blocked);
   assert.deepEqual(normaliseTask({ status: 'awaiting-feedback', waitingOn: 'Sarah' }), { status: 'waiting', waitingOn: 'Sarah' });
+  assert.deepEqual(normaliseTask({ status: 'awaiting-feedback' }), { status: 'waiting', waitingOn: 'Feedback' });
+  const existingWaiting = { status: 'waiting', waitingOn: 'Blocked' };
+  assert.equal(normaliseTask(existingWaiting), existingWaiting);
   const current = { status: 'backlog' };
   assert.equal(normaliseTask(current), current);
 });
@@ -91,6 +98,7 @@ test('Focus groups each open task once: overdue, this week, waiting, next up, th
     task({ id: 'later', dueDate: '2026-10-20' }),
     task({ id: 'recurring', recurringCadence: 'weekly', startDate: '2026-10-14' }),
     task({ id: 'waiting', status: 'waiting', priority: 'urgent' }),
+    task({ id: 'blocked', status: 'blocked' }),
     task({ id: 'doing', status: 'in-progress' }),
     task({ id: 'urgent', priority: 'urgent' }),
     task({ id: 'rest' }),
@@ -100,7 +108,7 @@ test('Focus groups each open task once: overdue, this week, waiting, next up, th
   const ids = (list: PlanTask[]): string[] => list.map((t) => t.id);
   assert.deepEqual(ids(groups.overdue), ['late']);
   assert.deepEqual(ids(groups.week), ['recurring', 'soon-waiting']);
-  assert.deepEqual(ids(groups.waiting), ['waiting']);
+  assert.deepEqual(ids(groups.waiting), ['waiting', 'blocked']);
   assert.deepEqual(ids(groups.next), ['doing', 'urgent']);
   assert.deepEqual(ids(groups.someday), ['later', 'rest']);
 });

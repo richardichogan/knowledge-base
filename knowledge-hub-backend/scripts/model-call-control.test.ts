@@ -57,7 +57,7 @@ test('workflow attribution preserves stage, purpose and attempt without leaking 
   assert.deepEqual(calls.map(values => [values[15], values[16], values[17]]),
     [[insert.values[0], 'research', 'diagnostic'], [insert.values[0], 'fixture', 'diagnostic'], [null, null, null]]);
   const final = statements.find(s => s.sql.includes('UPDATE ai_workflow_runs'))!;
-  assert.deepEqual(final.values.slice(1), ['completed', 'review-blocked']);
+  assert.deepEqual(final.values.slice(1), ['completed', 'review-blocked', null, null]);
 });
 
 for (const api of ['chat', 'responses', 'bulk', 'stream'] as const) {

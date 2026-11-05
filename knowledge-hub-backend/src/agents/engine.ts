@@ -345,7 +345,8 @@ async function recoverExpiredJobs(db: Pool): Promise<void> {
       lease_owner=NULL,lease_until=NULL,error='It was interrupted too many times and stopped.'
       WHERE worker_pool=$1 AND assignment_id IS NULL AND protocol_version<=$3 AND status='running'
         AND (lease_until IS NULL OR lease_until<=clock_timestamp()) AND attempts>=$2
-        AND NOT (specialist='task-researcher' AND input ? 'researchFormattingCheckpoint') RETURNING *`,
+        AND NOT (specialist='task-researcher' AND input ? 'researchFormattingCheckpoint')
+        AND NOT (specialist='chat-researcher' AND input ? 'researchCheckpoint') RETURNING *`,
     [workerPool(), AGENT_MAX_ATTEMPTS, AGENT_PROTOCOL_VERSION],
   );
   for (const row of failed.rows) {

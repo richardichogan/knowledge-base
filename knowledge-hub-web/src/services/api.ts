@@ -223,6 +223,7 @@ export interface SearchQuery {
 export type HealthSection<T> = { available: true; data: T } | { available: false; message: string };
 export interface HealthUsageTotals {
   calls: number; failures: number; measuredCalls: number; unmeasuredCalls: number;
+  partialCalls?: number;
   promptTokens: number; cachedPromptTokens: number; completionTokens: number; reasoningCompletionTokens: number;
   totalTokens: number; avgLatencyMs: number | null;
 }
@@ -230,9 +231,11 @@ export interface HealthWorkflowData {
   outcomes?: { ready: number; notRecorded: number; retryAttempts: number; withoutJobIdentity: number };
   attributedCalls: number; unattributedCalls: number; rowsTruncated: boolean;
   totals: { runs: number; completed: number; failed: number; unfinished: number; reviewBlocked: number; delivered: number };
+  failureDiagnostics?: Array<{ source: string; feature: string; status: string; stage: string | null; code: string; occurrences: number }>;
+  failureDiagnosticsTruncated?: boolean;
   runs: Array<{ id: string; feature: string; purpose: string; attempt: number; status: string; outcome: string | null;
     startedAt: string; finishedAt: string | null; durationMs: number | null; calls: number; tokens: number | null; unmeasuredCalls: number }>;
-  stages: Array<{ runId: string; stage: string; calls: number; tokens: number | null; failures: number; durationMs: number }>;
+  stages: Array<{ runId: string; stage: string; calls: number; tokens: number | null; failures: number; partialCalls?: number; durationMs: number }>;
 }
 export interface HealthTurnMeasurements {
   firstRecordedAt: string | null; retentionDays: number;
@@ -277,10 +280,15 @@ export interface KnowledgeHealth {
     jobs: Array<{ job: string; period: string; status: string; startedAt: string; finishedAt: string | null; environment?: string | null }>;
   }>;
   workflows?: HealthSection<HealthWorkflowData>;
+  artifactOutcomes?: HealthSection<{
+    generatedVersions: number; generatedTargets: number; editedVersions: number;
+    decisions: Array<{ kind: string; targetType: string; events: number; targets: number; linkedEvents: number }>;
+    rowsTruncated: boolean; note: string;
+  }>;
   measurements?: HealthSection<HealthTurnMeasurements>;
   reliability?: HealthSection<{
-    daily: Array<{ day: string; calls: number; failures: number }>;
-    features: Array<{ feature: string; calls: number; failures: number }>;
+    daily: Array<{ day: string; calls: number; failures: number; partialCalls?: number }>;
+    features: Array<{ feature: string; calls: number; failures: number; partialCalls?: number }>;
   }>;
   index: HealthSection<{
     sources: Array<{ source: string; items: number; lastIndexedAt: string | null }>;
@@ -1045,11 +1053,11 @@ export class KnowledgeHubApi {
     return (await this.client.get('/api/agent-jobs', { params: { subjectType: 'script-visuals', subjectId: noteId, limit: 20 } })).data;
   }
 
-  async searchNotePassages(q: string, signal?: AbortSignal): Promise<ApiResponse<{
+  async searchNotePassages(q: string, signal?: AbortSignal, tagIds?: string): Promise<ApiResponse<{
     items: Array<{ id: string; kind: 'important' | 'followUp' | 'question' | 'risk' | 'issue'; label: string; text: string; noteId: string; noteTitle: string }>;
     hasMore: boolean;
   }>> {
-    return (await this.client.get('/api/notes/passage-tags/search', { params: { q }, ...(signal && { signal }) })).data;
+    return (await this.client.get('/api/notes/passage-tags/search', { params: { q, ...(tagIds && { tagIds }) }, ...(signal && { signal }) })).data;
   }
 
   async getPassageFollowups(noteId: string): Promise<ApiResponse<Array<{
@@ -1723,8 +1731,8 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  async setNoteTags(noteId: string, tagIds: string[]): Promise<ApiResponse<unknown>> {
-    const r = await this.client.put<ApiResponse<unknown>>(`/api/notes/${noteId}/tags`, { tagIds });
+  async setNoteTags(noteId: string, tagIds: string[], expectedTagIds: string[]): Promise<ApiResponse<unknown>> {
+    const r = await this.client.put<ApiResponse<unknown>>(`/api/notes/${noteId}/tags`, { tagIds, expectedTagIds });
     return r.data;
   }
 

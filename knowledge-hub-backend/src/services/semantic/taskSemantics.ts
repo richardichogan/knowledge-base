@@ -36,9 +36,9 @@ export function isDueDayPast(dueDay: string, today: string): boolean {
   return dueDay < today;
 }
 
-/** The app's only blocked representation: legacy blocked/awaiting-feedback were merged into Waiting. */
+/** Blocked and Waiting are the app's explicit stalled states; never inferred from silence or age. */
 export function isBlockedStatus(status: TaskStatus): boolean {
-  return status === 'waiting';
+  return status === 'blocked' || status === 'waiting';
 }
 
 export { normaliseTaskStatus };

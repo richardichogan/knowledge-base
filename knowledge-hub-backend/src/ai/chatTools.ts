@@ -548,7 +548,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
           properties: {
             title: { type: 'string', description: 'Short imperative task title.' },
             body: { type: 'string', description: 'Optional longer description / notes for the task.' },
-            status: { type: 'string', enum: [...TASK_STATUSES], description: 'Defaults to "inbox" (awaiting the user\'s review). Use "waiting" (with waitingOn) for work blocked on someone or something.' },
+            status: { type: 'string', enum: [...TASK_STATUSES], description: 'Defaults to "inbox" (awaiting the user\'s review). Use "blocked" for work that cannot progress, or "waiting" (with waitingOn) for work on someone or something else.' },
             waitingOn: { type: 'string', description: 'Who or what a "waiting" task is waiting on, e.g. "Feedback from Sarah".' },
             priority: { type: 'string', enum: [...TASK_PRIORITIES], description: 'Defaults to "normal".' },
             projectId: { type: 'string', description: 'Workstream id to file this under (e.g. "personal", "ibm-msft-practice"). Defaults to "personal" if unsure.' },
@@ -579,7 +579,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
             matchTitle: { type: 'string', description: 'Partial, case-insensitive title to find the task by, if taskId is not known.' },
             title: { type: 'string', description: 'New title.' },
             body: { type: 'string', description: 'New body/description.' },
-            status: { type: 'string', enum: [...TASK_STATUSES], description: '"waiting" replaces the old blocked / awaiting-feedback states — set waitingOn too.' },
+            status: { type: 'string', enum: [...TASK_STATUSES], description: '"blocked" means the work cannot progress; "waiting" means it is on someone or something else — set waitingOn too.' },
             statusChangeNote: { type: 'string', description: 'Proposed reason for the status change, prefilled for the user to review and submit. Never claim the task moved before submission.' },
             waitingOn: { type: 'string', description: 'Who or what the task is waiting on (for status "waiting"); empty string clears it.' },
             priority: { type: 'string', enum: [...TASK_PRIORITIES] },
@@ -1071,8 +1071,9 @@ export async function executeToolCall(
     if (turn.retrievalAudit !== undefined) turn.retrievalAudit.blockedCalls++;
     return { error: 'This tool is outside the user’s requested collection. Use search_knowledge_base within the supplied source/date/state scope.', code: 'scope_mismatch' };
   }
-  if ((name === 'read_knowledge_record' || name === 'fetch_web_page') && turn.retrievalScope !== undefined && Object.keys(turn.retrievalScope.filter).length > 0) {
-    const values: unknown[] = [name === 'fetch_web_page' ? args['url'] : args['id']];
+  if ((['read_knowledge_record', 'fetch_web_page', 'read_note_tags', 'set_note_tags'].includes(name)) && turn.retrievalScope !== undefined && Object.keys(turn.retrievalScope.filter).length > 0) {
+    const values: unknown[] = [name === 'fetch_web_page' ? args['url']
+      : name === 'read_note_tags' || name === 'set_note_tags' ? args['noteId'] : args['id']];
     const where = searchFilterSql(turn.retrievalScope.filter, values);
     const { rows } = await db.query(
       `SELECT ci.id FROM content_items ci WHERE ${name === 'fetch_web_page' ? 'ci.url = $1' : '(ci.id::text = $1 OR ci.source_id = $1)'} AND ${where} LIMIT 1`, values);
@@ -1097,6 +1098,11 @@ export async function executeToolCall(
     return executeStructuredTool(db, name, args, { sessionId: turn.sessionId, strictProjectId: turn.strictProjectId, signal: turn.signal });
   }
 
+  if (name === 'read_note_tags' || name === 'set_note_tags') {
+    if (name === 'set_note_tags' && turn.readOnly) return { error: 'This turn is read-only. No tags were changed.' };
+    const access = await executeReadKnowledgeRecord(db, { kind: 'note', id: args['noteId'], maxChars: 1 }, turn);
+    if (!access || typeof access !== 'object' || !('record' in access)) return access;
+  }
   if (isAssetTool(name)) return executeAssetTool(db, name, contextualArgs, turn.noteId);
   if (LOCAL_FILE_TOOL_NAMES.has(name)) return executeLocalFileTool(db, name, args, turn.localFolders ?? [], turn.localFileWrites);
 

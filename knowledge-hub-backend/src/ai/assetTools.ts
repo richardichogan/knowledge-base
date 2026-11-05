@@ -26,16 +26,17 @@ import { PROJECT_TYPES } from '../services/projectTypes.js';
 import { resolveCompanyRefs, saveProjectRelations, reconcileOfferingLinks, type ProjectRelationsInput } from '../services/projectRelations.js';
 import { syncProjectTag } from '../routes/projects.js';
 import { workflowStateSql } from '../services/discoverWorkflow.js';
+import { readNoteFiling, setNoteTags } from '../services/noteTagService.js';
 
 export const ASSET_WRITE_TOOLS = [
   'add_discover_source', 'update_discover_source', 'set_discover_item_state', 'update_spark',
-  'create_project', 'update_project', 'update_note', 'create_diagram', 'update_diagram', 'set_diagram_projects', 'create_mind_map',
+  'create_project', 'update_project', 'update_note', 'set_note_tags', 'create_diagram', 'update_diagram', 'set_diagram_projects', 'create_mind_map',
   'create_weekly_microsoft_digest',
 ] as const;
-type AssetToolName = typeof ASSET_WRITE_TOOLS[number];
+type AssetToolName = typeof ASSET_WRITE_TOOLS[number] | 'read_note_tags';
 
 export function isAssetTool(name: string): name is AssetToolName {
-  return (ASSET_WRITE_TOOLS as readonly string[]).includes(name);
+  return name === 'read_note_tags' || (ASSET_WRITE_TOOLS as readonly string[]).includes(name);
 }
 
 const DISCOVER_STATES = ['to-review', 'saved', 'blog', 'archived', 'published', 'shelved'] as const;
@@ -277,6 +278,14 @@ export function getAssetToolDefinitions(): LlmToolDefinition[] {
         usedInProjectIds: { type: 'array', items: { type: 'string' }, description: 'Workstream ids or exact names the diagram is also used in.' },
         tags: { type: 'array', items: { type: 'string' }, description: 'Existing taxonomy tag names or ids; replaces the diagram\'s tags. Unknown names are rejected, not created. Empty array clears them.' },
       }, ['diagramId']),
+    fn('read_note_tags',
+      'Reads a Think note\'s saved taxonomy tags, full parent/child folder paths and expectedTagIds for conflict-safe editing. Also lists available existing folders in pages of 100; follow nextOffset when hasMore is true. This reads filing metadata, not the note body.',
+      { noteId: { type: 'string' }, offset: { type: 'integer', minimum: 0 } }, ['noteId']),
+    fn('set_note_tags',
+      'Files a Think note under existing tag folders, replacing only its tags using the same protected service as Properties. First read_note_tags; preserve unrelated tags unless the user asks to remove them. Requires the complete expectedTagIds from that read, rejects stale edits, and never changes the body, editor draft or workstream. Tag folders are not physical folders.',
+      { noteId: { type: 'string' }, tagIds: textList('Complete desired tag UUID set; [] clears all tags.'),
+        expectedTagIds: textList('Complete saved tag UUID set from the latest read_note_tags result.') },
+      ['noteId', 'tagIds', 'expectedTagIds']),
     fn('update_note',
       'Changes a saved Think note by id, even when it is not open: append content, replace the whole body (a checkpoint of the previous version is kept in its history), rename it, or move it to another workstream. For the note open beside the chat use propose_note_edit instead.',
       {
@@ -374,6 +383,17 @@ export async function executeAssetTool(db: Pool, name: AssetToolName, args: Reco
       case 'create_project': return await createProject(db, args);
       case 'update_project': return await updateProject(db, args);
       case 'update_note': return await updateNote(db, args, openNoteId);
+      case 'read_note_tags': {
+        const noteId = str(args['noteId']);
+        if (!noteId) return { error: 'noteId is required.' };
+        return await readNoteFiling(db, noteId, args['offset'] ?? 0);
+      }
+      case 'set_note_tags': {
+        const noteId = str(args['noteId']);
+        if (!noteId) return { error: 'noteId is required.' };
+        const saved = await setNoteTags(db, noteId, args['tagIds'], args['expectedTagIds']);
+        return { success: true, ...saved };
+      }
       case 'create_diagram': return await createDiagram(db, args);
       case 'update_diagram': return await updateDiagram(args);
       case 'set_diagram_projects': return await setDiagramProjects(db, args);

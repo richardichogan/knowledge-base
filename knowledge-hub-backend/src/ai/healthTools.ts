@@ -5,7 +5,7 @@ import { getKnowledgeHealth, parseHealthQuery, type HealthQuery } from '../healt
 import { isKnowledgeOrchestrationEnabled } from './knowledge/budgets.js';
 import { ValidationError } from '../types/errors.js';
 
-const SECTIONS = ['usage', 'reliability', 'measurements', 'workflows', 'syncRuns', 'index', 'families', 'retrievalQuality'] as const;
+const SECTIONS = ['usage', 'reliability', 'measurements', 'workflows', 'artifactOutcomes', 'syncRuns', 'index', 'families', 'retrievalQuality'] as const;
 export const HEALTH_TOOL: LlmToolDefinition = {
   type: 'function', function: {
     name: 'read_knowledge_health',

@@ -57,8 +57,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 28px;
-  width: 28px;
+  flex: 0 0 var(--kh-control-height-compact);
+  width: var(--kh-control-height-compact);
   height: var(--kh-control-height);
   box-sizing: border-box;
   padding: 0;
@@ -147,7 +147,13 @@
   .notes-list-item-title { min-width: 0; margin: 0; line-height: 1.25rem; }
   .notes-list-item-bottom { flex-wrap: nowrap; }
   .notes-type-tag { flex-shrink: 0; white-space: nowrap; }
-  .notes-list-item__delete { top: 50%; right: 0.25rem; transform: translateY(-50%); }
+  .notes-list-item__delete {
+    top: 50%;
+    right: 0.25rem;
+    width: var(--kh-control-height-compact);
+    height: var(--kh-control-height-compact);
+    transform: translateY(-50%);
+  }
   .notes-list-item__delete:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: -2px; opacity: 1; }
 }
 

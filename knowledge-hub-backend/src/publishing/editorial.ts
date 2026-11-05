@@ -18,7 +18,7 @@ import { destinationAccount } from './delivery.js';
 import { getLinkedInMember } from '../integrations/social/linkedin.js';
 import { applyEditorialEdits } from './passageEdits.js';
 import { REVIEW_CONTEXT_RESERVE, textTokens } from '../ai/knowledge/reviewContext.js';
-import { aiWorkflowAttribution, withAiStage, withAiWorkflow } from '../ai/aiWorkflow.js';
+import { aiWorkflowAttribution, setAiWorkflowStage, withAiStage, withAiWorkflow } from '../ai/aiWorkflow.js';
 import { recordPublishingDraft } from '../ai/aiLedger.js';
 export { applyEditorialEdits } from './passageEdits.js';
 
@@ -37,6 +37,12 @@ export const editorialServices: EditorialServices = {
   member: getLinkedInMember,
 };
 const OUTPUT_RETRY_MULTIPLIER = 2;
+class EditorialSourceAccessError extends IntegrationError {
+  readonly aiFailureCode = 'source-forbidden';
+  constructor() {
+    super('editorial', 'The source website denied automated reading. Open the original article to check access, or provide an accessible source before requesting reassessment. No source content was inferred.');
+  }
+}
 const TWITTER_CHARACTER_LIMIT = 280;
 const MAX_SOCIAL_EMOJIS = 2;
 const MIN_LINKEDIN_WORDS = 120;
@@ -196,7 +202,14 @@ export async function readSources(db: Pool, topicId: string, service = editorial
   const fresh = new Map<Source, string>();
   for (const source of sources) {
     if (source.readAt && Date.now() - new Date(source.readAt).getTime() < PUBLISH_LIMITS.staleHours * MS_PER_HOUR) continue;
-    const page = await service.read(source.url);
+    let page: Awaited<ReturnType<EditorialServices['read']>>;
+    try { page = await service.read(source.url); }
+    catch (error) {
+      if (error instanceof Error && (error.message === 'Page returned HTTP 403' || error.message === 'Page returned HTTP 401')) {
+        throw new EditorialSourceAccessError();
+      }
+      throw error;
+    }
     if (page.text.length < PUBLISH_LIMITS.minimumSource
       || /verify you are human|enable javascript and cookies|checking your browser|sign in to continue reading|subscribe to continue reading/i.test(page.text)) throw new Error('Source cannot be fully read. Hold for human review.');
     fresh.set(source, page.text);
@@ -377,12 +390,14 @@ export async function assessTopic(db: Pool, topic: Topic, service = editorialSer
 }
 
 async function assessTopicContent(db: Pool, topic: Topic, service: EditorialServices): Promise<void> {
+  setAiWorkflowStage('source-reading');
   const sources = await readSources(db, topic.id, service);
   const settings = await feeds(db);
   const related = (await db.query<Topic>(`SELECT ${topicColumns} FROM publishing_topics WHERE id<>$1 ORDER BY created_at DESC LIMIT $2`, [topic.id, PUBLISH_LIMITS.recentTopics])).rows;
   const feedback = (await db.query<{ event: string; detail: unknown }>(`SELECT event,detail FROM publishing_events
     WHERE event IN ('topic-rejected','draft-reject','draft-edited') ORDER BY id DESC LIMIT 10`)).rows;
   const preferences = await service.preferences(db);
+  setAiWorkflowStage('selection');
   const selection = await service.chat(`${SAFETY}
 Select BEFORE drafting. Return {relatedTopicId:null|existing UUID, rationale:string,priority:0..100,bluesky:boolean,blog:boolean,distinctArgument:boolean}.
 This is a heavily Microsoft-focused publishing feed: Microsoft, Azure, Microsoft 365, GitHub, Dynamics and their enterprise ecosystem.
@@ -449,6 +464,7 @@ ${preferences}`, { sources, related, feeds: settings.map(f => ({ id: f.id, guida
       bluesky: { anyOf: [jsonObject({ copy: { ...stringField, maxLength: copyAllowance } }), { type: 'null' }] },
     }),
   };
+  setAiWorkflowStage('package-generation');
   const packageData = await service.chat(`${SAFETY}\n${BLOG_WRITING_RULES}\n${preferences}
 Saved guidance for each destination: ${JSON.stringify(settings.map(f => ({ feed: f.id, guidance: f.policy.guidance })))}
 Create ONLY selected destinations. Return {blog:{title,slug,excerpt,summary,content,keyTakeaways,categories,tags,postType:"quick",sourceUrl,twitterCopy},linkedin:{copy},bluesky:{copy}}.
@@ -464,6 +480,7 @@ Never manufacture personal authority.`, { selected: selection, sources, blogOrig
   const linkedInContent = selection.blog ? prepareContent('linkedin', packageData.linkedin) : null;
   const blueskyContent = selection.bluesky ? prepareContent('bluesky', packageData.bluesky) : null;
   const origin = Math.min(...sources.map(s => new Date(s.discoveredAt).getTime()));
+  setAiWorkflowStage('draft-persistence');
   if (selection.blog) {
     await db.query(`UPDATE publishing_drafts SET held=TRUE,reason='Source promotion superseded by the blog argument.'
       WHERE destination='bluesky' AND variant='source' AND topic_id IN(

@@ -1,6 +1,6 @@
 /**
  * Job updates — finished or failed background work is recorded here and surfaced only through the Background work
- * cog: an unseen dot on the cog and a list in its panel. No popup, chime or desktop notification. Shared across tabs.
+ * toolbar: a persistent unread pill and a list in its panel. No popup, chime or desktop notification. Shared across tabs.
  */
 import { useSyncExternalStore } from 'react';
 import { LONG_PROMPT_MS } from '../chat/completionNotification';
@@ -38,8 +38,10 @@ export function announceAthenaJob(input: { ok: boolean; title: string; body: str
   save([{ id, ok: input.ok, title: input.title, body: input.body, url: input.url, tag: input.tag, at: new Date().toISOString(), seen: false }, ...updates]);
 }
 
-export function markJobUpdatesSeen(): void {
-  if (updates.some(update => !update.seen)) save(updates.map(update => ({ ...update, seen: true })));
+export function markJobUpdatesSeen(ids?: readonly string[]): void {
+  const selected = ids ? new Set(ids) : null;
+  const shouldMark = (update: JobUpdate): boolean => !update.seen && (!selected || selected.has(update.id));
+  if (updates.some(shouldMark)) save(updates.map(update => shouldMark(update) ? { ...update, seen: true } : update));
 }
 
 const subscribe = (listener: () => void): (() => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };

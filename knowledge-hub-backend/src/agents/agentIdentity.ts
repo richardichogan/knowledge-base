@@ -14,7 +14,7 @@ const OWNERS: Record<RoleId, readonly string[]> = {
     'memory-review', 'agent-lesson-review', 'scheduled-prompt', 'knowledge-nightly-review', 'tagging-sweep',
     'archive-tasks', 'connections', 'foundry-backfill',
   ],
-  iris: ['task-researcher', 'document-reading', 'document-review', 'deep-dive', 'blog-research', 'manual-blog-research'],
+  iris: ['task-researcher', 'chat-researcher', 'document-reading', 'document-review', 'deep-dive', 'blog-research', 'manual-blog-research'],
   calliope: [
     'blog-specialist', 'blog-writer', 'manual-blog-draft', 'manual-blog-revision', 'spark-blog', 'discover-blog',
     'discover-linkedin', 'discovery-draft-refresh', 'job-publish-package', 'weekly-msft-social', 'weekly-msft-digest',

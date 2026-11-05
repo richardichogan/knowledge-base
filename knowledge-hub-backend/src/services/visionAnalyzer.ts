@@ -7,12 +7,19 @@
 import { env } from '../config/env.js';
 import { recordAiUsage, tokenUsageFrom, type TokenUsage } from '../ai/aiUsage.js';
 import { recordAiInteraction } from '../ai/aiLedger.js';
+import { aiFailureCode, type AiFailureCode } from '../ai/aiWorkflow.js';
 
 interface VisionResponse {
-  choices: Array<{ message: { content: string }; finish_reason?: string }>;
+  choices: Array<{ message: { content?: string | null; refusal?: string | null }; finish_reason?: string }>;
   usage?: Record<string, unknown>;
 }
-const MAX_VISION_ERROR_CHARS = 300;
+
+class VisionRequestError extends Error {
+  constructor(readonly aiFailureCode: Extract<AiFailureCode, 'provider-http' | 'provider-refused' | 'provider-empty' | 'provider-incomplete'>, message: string) {
+    super(message);
+    this.name = 'VisionRequestError';
+  }
+}
 
 async function requestVision(feature: string, slot: string, deployment: string, url: string, init: RequestInit & { body: string }): Promise<VisionResponse> {
   const startedAt = Date.now();
@@ -22,21 +29,28 @@ async function requestVision(feature: string, slot: string, deployment: string, 
   };
   try {
     const response = await fetch(url, init);
-    if (!response.ok) throw new Error(`Vision request failed: ${response.status} ${(await response.text()).slice(0, MAX_VISION_ERROR_CHARS)}`);
+    if (!response.ok) throw new VisionRequestError('provider-http', `Vision request failed with HTTP ${response.status}.`);
     const data = await response.json() as VisionResponse;
     usage = tokenUsageFrom(data.usage);
     const choice = data.choices?.[0];
-    if (!choice?.message?.content || (choice.finish_reason !== 'stop' && choice.finish_reason !== 'length')) {
-      throw new Error('Vision response was empty, incomplete or refused');
+    if (choice?.finish_reason === 'content_filter' || choice?.finish_reason === 'refusal' || choice?.message?.refusal) {
+      throw new VisionRequestError('provider-refused', 'Vision provider refused the image request.');
+    }
+    if (typeof choice?.message?.content !== 'string' || choice.message.content.trim() === '') {
+      throw new VisionRequestError('provider-empty', 'Vision provider returned no text content.');
+    }
+    if (choice.finish_reason !== 'stop' && choice.finish_reason !== 'length') {
+      throw new VisionRequestError('provider-incomplete', 'Vision provider returned an incomplete response.');
     }
     const truncated = choice.finish_reason === 'length';
     recordAiUsage({ feature, slot, deployment, api: 'chat', durationMs: Date.now() - startedAt,
-      ok: !truncated, error: truncated ? 'Vision response was truncated' : undefined, ...usage });
+      ok: !truncated, error: truncated ? 'Vision response was truncated' : undefined,
+      failureCode: truncated ? 'response-truncated' : undefined, ...usage });
     ledger({ response: data });
     return data;
   } catch (error) {
     recordAiUsage({ feature, slot, deployment, api: 'chat', durationMs: Date.now() - startedAt,
-      ok: false, error: error instanceof Error ? error.message : String(error), ...usage });
+      ok: false, error: error instanceof Error ? error.message : String(error), failureCode: aiFailureCode(error), ...usage });
     ledger({ error });
     throw error;
   }
@@ -53,9 +67,11 @@ export async function analyzeImageWithVision(
   options: { designReview?: boolean; signal?: AbortSignal } = {},
 ): Promise<string> {
   try {
+    options.signal?.throwIfAborted();
     if (options.designReview === true && env.AZURE_OPENAI_ENDPOINT_GPT54) {
       // Falls back to the quick read below if the detailed one fails or runs long.
       const detailed = await readScreenForDesignReview(imageBuffer, mimeType, userQuestion, options.signal).catch((err: unknown) => {
+        options.signal?.throwIfAborted();
         console.warn('[visionAnalyzer] Design-review read failed; using the quick read.', err);
         return '';
       });
@@ -110,13 +126,14 @@ export async function analyzeImageWithVision(
     });
     const content = data.choices?.[0]?.message?.content;
 
-    if (!content || typeof content !== 'string') {
+    if (typeof content !== 'string' || content.trim() === '') {
       console.warn('[visionAnalyzer] No text content in vision response');
       return '';
     }
 
     return data.choices[0]?.finish_reason === 'length' ? `${content}\n\n${CUT_OFF_NOTE}` : content;
   } catch (err) {
+    options.signal?.throwIfAborted();
     console.error('[visionAnalyzer] Vision analysis failed:', err);
     // Return empty string on failure so processing continues with OCR fallback
     return '';
@@ -229,7 +246,7 @@ export async function reviewScreensWithVision(
       body: JSON.stringify({ messages: [{ role: 'user', content }], max_completion_tokens: 10_000 }),
       signal: AbortSignal.timeout(SCREEN_REVIEW_TIMEOUT_MS),
     });
-    const text = data.choices[0]!.message.content;
+    const text = data.choices[0]?.message.content ?? '';
     return data.choices[0]!.finish_reason === 'length' ? `${text}\n\n${CUT_OFF_NOTE}` : text;
   } catch (err) {
     console.error('[visionAnalyzer] Screen review failed:', err);

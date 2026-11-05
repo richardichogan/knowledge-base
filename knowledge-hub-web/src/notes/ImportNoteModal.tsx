@@ -11,6 +11,7 @@
 import React, { useState } from 'react';
 import { Modal, TextInput, InlineLoading, InlineNotification } from '@carbon/react';
 import { api } from '../services/api';
+import { requireApiData } from '../services/apiError';
 import { ProjectOptions } from '../components/ProjectOptions';
 import { useProjects } from '../hooks/useProjects';
 import { TagPicker } from '../components/TagPicker';
@@ -104,7 +105,8 @@ export const ImportNoteModal: React.FC<ImportNoteModalProps> = ({ open, onClose,
       );
       if (!note) throw new Error('could not save the note');
       if (tagIds.length > 0) {
-        await api.setNoteTags(note.id, tagIds);
+        const currentTags = requireApiData(await api.getNoteTags(note.id));
+        requireApiData(await api.setNoteTags(note.id, tagIds, currentTags.map(tag => tag.id)));
       }
       reset();
       onImported(note);

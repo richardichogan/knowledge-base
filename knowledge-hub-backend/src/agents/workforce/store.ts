@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../types/errors.js';
 import {
-  canTransition, commissionSignature, isTerminalAssignment, parseAssignmentBrief, parseBudgetLimits,
+  AGENT_PROTOCOL_VERSION, canTransition, commissionSignature, isTerminalAssignment, parseAssignmentBrief, parseBudgetLimits,
   type Assignment, type AssignmentBrief, type AssignmentState, type BudgetLimits, type Readiness, type StepDefinition,
 } from './contracts.js';
 
@@ -135,12 +135,12 @@ export async function insertAssignmentStep(client: PoolClient, step: NewStep): P
   await client.query(
     `INSERT INTO agent_jobs(id,specialist,subject_type,subject_id,subject_title,subject_url,input,worker_pool,
       requested_by,conversation_id,is_step,protocol_version,assignment_id,step_key,role_id,task_profile,prompt_version,output_type,depends_on)
-     VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,TRUE,2,$11,$12,$13,$14,$15,$16,$17)`,
+     VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,TRUE,$18,$11,$12,$13,$14,$15,$16,$17)`,
     [id, step.specialist, step.brief.subjectType, step.brief.subjectId, step.subjectTitle, step.subjectUrl,
       JSON.stringify(step.input), step.workerPool, step.brief.origin.kind === 'chat' ? 'chat' : 'app',
       step.brief.origin.kind === 'chat' ? step.brief.origin.conversationId : null,
       step.assignmentId, step.definition.key, step.definition.role, step.definition.profile, step.definition.promptVersion, step.definition.outputType,
-      step.dependsOn ?? null],
+      step.dependsOn ?? null, AGENT_PROTOCOL_VERSION],
   );
   return id;
 }

@@ -149,7 +149,7 @@ async function collectEvidence(db: Pool, projectId: string, since: string, until
       sql: `SELECT id::text, title, body || E'\\nStatus: ' || status || E'\\nWaiting on: ' || COALESCE(waiting_on,'')
         || E'\\nDue: ' || COALESCE(due_date::text,'not set') AS content, updated_at, '/plan?taskId=' || id::text AS href
         FROM tasks WHERE project_id=$1 AND archived=false AND updated_at<=$2
-        AND (updated_at>$3 OR status IN ('backlog','in-progress','waiting')) ORDER BY updated_at DESC, id LIMIT 21`,
+        AND (updated_at>$3 OR status IN ('backlog','in-progress','blocked','waiting')) ORDER BY updated_at DESC, id LIMIT 21`,
     },
     {
       kind: 'register', limit: 20,

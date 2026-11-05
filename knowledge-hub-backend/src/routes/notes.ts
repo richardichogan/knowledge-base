@@ -50,6 +50,16 @@ const FOLLOWUP_PASSAGE_MAX_LENGTH = 3000;
 const FOLLOWUP_TITLE_MAX_LENGTH = 300;
 const FOLLOWUP_BODY_MAX_LENGTH = 5000;
 
+function parseTagIds(value: unknown, name = 'tagIds'): string[] {
+  if (value === undefined || value === '') return [];
+  if (typeof value !== 'string') throw new ValidationError(`${name} must be a string`);
+  const ids = value.split(',');
+  if (ids.length > MAX_PAGE_SIZE || ids.some(id => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))) {
+    throw new ValidationError(`${name} must contain valid tag IDs`);
+  }
+  return [...new Set(ids)];
+}
+
 router.post('/:id/script-visuals/jobs', (req, res, next) => {
   void (async (): Promise<void> => {
     try {
@@ -69,10 +79,12 @@ router.get('/passage-tags/search', (req, res, next) => {
       if (q.length < PASSAGE_SEARCH_MIN_LENGTH) throw new ValidationError('Search must contain at least two characters');
       const markers = ['important', 'followUp', 'question', 'risk', 'issue']
         .flatMap(kind => [`"${kind}"`, `\\"${kind}\\"`]);
+      const tagIds = parseTagIds(req.query['tagIds']);
       const rows = await getDb().query<{ id: string; content: string }>(
-        `SELECT id, content FROM notes WHERE status = 'active'
+        `SELECT id, content FROM notes n WHERE status = 'active'
          AND EXISTS (SELECT 1 FROM unnest($1::text[]) AS marker(value) WHERE strpos(content, marker.value) > 0)
-         ORDER BY updated_at DESC`, [markers]);
+         ${tagIds.length ? 'AND EXISTS (SELECT 1 FROM note_tags nt WHERE nt.note_id=n.id AND nt.tag_id=ANY($2::uuid[]))' : ''}
+         ORDER BY updated_at DESC`, tagIds.length ? [markers, tagIds] : [markers]);
       const items = rows.rows.flatMap(row => {
         const title = extractNoteTitle(row.content);
         return notePassageTags(row.content)
@@ -489,22 +501,22 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
         params.push(excludeContentType);
         conditions.push(`COALESCE(note_list_metadata(n.content)->>'contentType', 'note') <> $${params.length}`);
       }
-      const parseTagIds = (name: string): string[] => {
-        const value = filterValue(name);
-        if (value === undefined) return [];
-        const ids = value.split(',');
-        if (ids.length > MAX_PAGE_SIZE || ids.some((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))) {
-          throw new ValidationError(`${name} must contain valid tag IDs`);
-        }
-        return ids;
-      };
-      const tagIds = parseTagIds('tagIds');
+      const tagIds = parseTagIds(req.query['tagIds']);
       if (tagIds.length > 0) {
         params.push(tagIds);
-        conditions.push(`EXISTS (SELECT 1 FROM note_tags filtered WHERE filtered.note_id = n.id AND filtered.tag_id = ANY($${params.length}::uuid[]))`);
+        const selfMatch = `EXISTS (SELECT 1 FROM note_tags filtered WHERE filtered.note_id = n.id AND filtered.tag_id = ANY($${params.length}::uuid[]))`;
+        const episodeMatch = `EXISTS (SELECT 1 FROM podcast_episodes episode
+          JOIN notes child ON child.id=episode.show_notes_note_id OR child.id=episode.script_note_id
+          JOIN note_tags filtered ON filtered.note_id=child.id AND filtered.tag_id=ANY($${params.length}::uuid[])
+          WHERE episode.note_id=n.id AND child.status='active')`;
+        conditions.push(grouped ? `(${selfMatch} OR ${episodeMatch} OR EXISTS (
+          SELECT 1 FROM design_note_memberships member
+          JOIN notes child ON child.id::text=member.note_id AND child.status='active'
+          JOIN note_tags filtered ON filtered.note_id=child.id AND filtered.tag_id=ANY($${params.length}::uuid[])
+          WHERE member.parent_note_id=n.id))` : `(${selfMatch} OR ${episodeMatch})`);
       }
       const projectId = filterValue('projectId');
-      const projectTagIds = parseTagIds('projectTagIds');
+      const projectTagIds = parseTagIds(req.query['projectTagIds'], 'projectTagIds');
       if (projectId === '__none__') {
         conditions.push(`n.project_id IS NULL AND NOT EXISTS (
           SELECT 1 FROM note_tags legacy JOIN tags tag ON tag.id = legacy.tag_id

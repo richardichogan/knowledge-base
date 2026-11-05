@@ -10,7 +10,8 @@
  *   setAthenaContext(null);
  */
 
-import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useMemo } from 'react';
+import type { BackgroundWorkContext } from '../types/agentJobs';
 
 export interface AthenaPageContext {
   designId?: string;
@@ -53,9 +54,52 @@ export interface AthenaPageContext {
   selectedId?: string;
 }
 
+export interface ThinkNavigationContext {
+  selectedTag: { id: string; path: string; filterTagIds: string[] } | null;
+  folders: Array<{ id: string; name: string; parentId: string | null }>;
+  totalFolders: number;
+  foldersHasMore: boolean;
+  listCollapsed: boolean;
+  tagsCollapsed: boolean;
+  folderStatus: 'loading' | 'error' | 'ready';
+  folderError?: string;
+  search: string;
+  sort: string;
+  notes: Array<{ id: string; title: string }>;
+  loadedNotes: number;
+  totalNotes: number;
+  hasMore: boolean;
+  listStatus: 'loading' | 'error' | 'ready';
+  listError?: string;
+}
+
+export interface NoteFilingContext {
+  noteId: string;
+  status: 'loading' | 'error' | 'ready';
+  tags: Array<{ id: string; path: string; parentId: string | null }>;
+  error?: string;
+}
+
+export function withThinkContext(page: AthenaPageContext | null, navigation: ThinkNavigationContext | null,
+  filing: NoteFilingContext | null): AthenaPageContext | null {
+  if (!navigation) return page;
+  const active = page ?? { type: 'notes', title: 'Think' };
+  const detail = [
+    'Think navigation: tag folders are filters over existing tags, not physical folders. Parent folders include child tags. Listed notes are summaries, not evidence that their bodies were read. Read saved records before making content-specific claims. Use read_note_tags for current filing and paginated folder retrieval, and set_note_tags for requested filing changes.',
+    JSON.stringify(navigation),
+    filing?.noteId === active.id ? `Saved note filing: ${JSON.stringify(filing)}` : undefined,
+    active.detail,
+  ].filter(Boolean).join('\n\n');
+  return { ...active, detail };
+}
+
 interface AthenaContextValue {
+  backgroundWork: BackgroundWorkContext | null;
+  setBackgroundWork: (context: BackgroundWorkContext | null) => void;
   pageContext: AthenaPageContext | null;
   setAthenaContext: (ctx: AthenaPageContext | null) => void;
+  setThinkNavigation: (context: ThinkNavigationContext | null) => void;
+  setNoteFiling: (context: NoteFilingContext | null) => void;
   request: { prompt: string; sequence: number } | null;
   openAthena: (prompt: string, context: AthenaPageContext) => void;
   clearAthenaRequest: () => void;
@@ -66,8 +110,12 @@ interface AthenaContextValue {
 }
 
 const AthenaContext = createContext<AthenaContextValue>({
+  backgroundWork: null,
+  setBackgroundWork: () => undefined,
   pageContext: null,
   setAthenaContext: () => undefined,
+  setThinkNavigation: () => undefined,
+  setNoteFiling: () => undefined,
   request: null,
   openAthena: () => undefined,
   clearAthenaRequest: () => undefined,
@@ -78,7 +126,12 @@ const AthenaContext = createContext<AthenaContextValue>({
 });
 
 export const AthenaContextProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [backgroundWork, setBackgroundWork] = useState<BackgroundWorkContext | null>(null);
   const [pageContext, setPageContext] = useState<AthenaPageContext | null>(null);
+  const [thinkNavigation, setThinkNavigation] = useState<ThinkNavigationContext | null>(null);
+  const [noteFiling, setNoteFiling] = useState<NoteFilingContext | null>(null);
+  const effectivePageContext = useMemo(() => withThinkContext(pageContext, thinkNavigation, noteFiling),
+    [pageContext, thinkNavigation, noteFiling]);
   const [request, setRequest] = useState<AthenaContextValue['request']>(null);
   const requestSequence = useRef(0);
   const [launchSequence, setLaunchSequence] = useState(0);
@@ -104,7 +157,8 @@ export const AthenaContextProvider: React.FC<{ children: React.ReactNode }> = ({
   const clearAthenaRequest = useCallback(() => { setRequest(null); }, []);
 
   return (
-    <AthenaContext.Provider value={{ pageContext, setAthenaContext: setPageContext, request, openAthena, clearAthenaRequest,
+    <AthenaContext.Provider value={{ backgroundWork, setBackgroundWork, pageContext: effectivePageContext,
+      setAthenaContext: setPageContext, setThinkNavigation, setNoteFiling, request, openAthena, clearAthenaRequest,
       launchSequence, hasEmbeddedAthena, launchAthena, registerAthenaLauncher }}>
       {children}
     </AthenaContext.Provider>

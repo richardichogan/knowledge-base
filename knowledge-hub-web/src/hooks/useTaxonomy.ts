@@ -6,6 +6,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/api';
 import type { TaxonomyTag } from '../services/api';
+import { requireApiData } from '../services/apiError';
+import { useEffect, useRef } from 'react';
 
 export const TAXONOMY_KEY = ['taxonomy'] as const;
 export const PENDING_KEY  = ['taxonomy-pending'] as const;
@@ -16,7 +18,7 @@ export function useTaxonomy() {
     queryKey: TAXONOMY_KEY,
     queryFn: async () => {
       const res = await api.getTaxonomy();
-      return res.success ? res.data : [];
+      return requireApiData(res);
     },
     staleTime: 30_000,
   });
@@ -95,39 +97,53 @@ export function useDeleteTag() {
       void qc.invalidateQueries({ queryKey: PENDING_KEY });
       void qc.invalidateQueries({ queryKey: ['graph'] });
       void qc.invalidateQueries({ queryKey: ['note-tags'] });
+      void qc.invalidateQueries({ queryKey: ['notes-list'] });
     },
   });
 }
 
 /** Tags on a specific note */
 export function useNoteTags(noteId: string | null) {
-  return useQuery({
+  const qc = useQueryClient();
+  const query = useQuery({
     queryKey: ['note-tags', noteId],
     queryFn: async () => {
       if (!noteId) return [];
       const res = await api.getNoteTags(noteId);
-      return res.success ? res.data : [];
+      return requireApiData(res);
     },
     enabled: noteId !== null,
     staleTime: 10_000,
     // Automatic tags land a short while after the note settles, so keep looking while it is open.
     refetchInterval: 20_000,
   });
+  const signature = query.data?.map(tag => tag.id).sort().join(',');
+  const previous = useRef<{ noteId: string | null; signature: string | undefined }>({ noteId, signature });
+  useEffect(() => {
+    if (previous.current.noteId === noteId && previous.current.signature !== undefined
+      && signature !== undefined && previous.current.signature !== signature) {
+      void qc.invalidateQueries({ queryKey: ['notes-list'] });
+    }
+    previous.current = { noteId, signature };
+  }, [noteId, signature, qc]);
+  return query;
 }
 
 /** Replace tags on a note */
 export function useSetNoteTags(noteId: string | null) {
   const qc = useQueryClient();
+  const { data: currentTags } = useNoteTags(noteId);
   return useMutation({
-    mutationFn: (tagIds: string[]) => {
+    mutationFn: async (tagIds: string[]) => {
       if (!noteId) return Promise.reject(new Error('No note selected'));
-      return api.setNoteTags(noteId, tagIds);
+      if (!currentTags) throw new Error('Load the current tags before editing them.');
+      return requireApiData(await api.setNoteTags(noteId, tagIds, currentTags.map(tag => tag.id)));
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['note-tags', noteId] });
-      void qc.invalidateQueries({ queryKey: ['notes'] }); // matches NotesPage queryKey
+      void qc.invalidateQueries({ queryKey: ['notes-list'] });
       void qc.invalidateQueries({ queryKey: ['graph'] });
     },
+    onError: () => { void qc.invalidateQueries({ queryKey: ['note-tags', noteId] }); },
   });
 }
-

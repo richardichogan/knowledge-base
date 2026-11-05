@@ -4,16 +4,16 @@
 
 export type TaskDestination = 'todo' | 'github-issue';
 
-/** `inbox` holds Athena-created tasks awaiting review; `waiting` replaced blocked / awaiting-feedback. */
-export type TaskStatus = 'inbox' | 'backlog' | 'in-progress' | 'waiting' | 'completed';
+/** `inbox` holds Athena-created tasks awaiting review; `blocked` cannot progress; `waiting` is on someone or something else. */
+export type TaskStatus = 'inbox' | 'backlog' | 'in-progress' | 'blocked' | 'waiting' | 'completed';
 
-const LEGACY_STATUS: Record<string, TaskStatus> = { blocked: 'waiting', 'awaiting-feedback': 'waiting' };
+const LEGACY_STATUS: Record<string, TaskStatus> = { 'awaiting-feedback': 'waiting' };
 
 /** Maps statuses from before the triage migration onto the current set. */
 export function normaliseTask<T extends { status: string; waitingOn?: string | null }>(task: T): T & { status: TaskStatus } {
   const legacy = LEGACY_STATUS[task.status];
   if (legacy === undefined) return task as T & { status: TaskStatus };
-  return { ...task, status: legacy, waitingOn: task.waitingOn ?? (task.status === 'blocked' ? 'Blocked' : 'Feedback') };
+  return { ...task, status: legacy, waitingOn: task.waitingOn ?? 'Feedback' };
 }
 export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
 export type TaskType = 'standard' | 'cert_session' | 'cert_review';

@@ -5,9 +5,45 @@ import { env } from '../config/env.js';
 
 type Outcome = 'ready' | 'review-blocked' | 'published' | 'saved-to-blog';
 type Purpose = 'user' | 'scheduled' | 'diagnostic';
-interface WorkflowContext { id: string; feature: string; stage: string; purpose: Purpose; result: { outcome: Outcome | null } }
+export type AiFailureCode =
+  | 'cancelled'
+  | 'timeout'
+  | 'provider-http'
+  | 'provider-refused'
+  | 'provider-empty'
+  | 'provider-incomplete'
+  | 'response-truncated'
+  | 'source-forbidden'
+  | 'operation-error'
+  | 'unclassified';
+interface WorkflowContext {
+  id: string;
+  feature: string;
+  stage: string;
+  purpose: Purpose;
+  result: { outcome: Outcome | null };
+  failureStages: Map<unknown, string>;
+}
 const context = new AsyncLocalStorage<WorkflowContext>();
 const MAX_STAGE_CHARS = 120;
+const AI_FAILURE_CODES: readonly AiFailureCode[] = [
+  'cancelled', 'timeout', 'provider-http', 'provider-refused', 'provider-empty',
+  'provider-incomplete', 'response-truncated', 'source-forbidden', 'operation-error', 'unclassified',
+];
+
+export function aiFailureCode(error: unknown, cancelled = false): AiFailureCode {
+  if (cancelled) return 'cancelled';
+  if (typeof error === 'object' && error !== null && 'aiFailureCode' in error) {
+    const code = error.aiFailureCode;
+    const match = AI_FAILURE_CODES.find(candidate => candidate === code && candidate !== 'unclassified');
+    if (match) return match;
+  }
+  if (error instanceof Error && error.name === 'AbortError') return 'cancelled';
+  if (error instanceof Error && (error.name === 'TimeoutError' || /timed out|timeout/i.test(error.message))) {
+    return 'timeout';
+  }
+  return 'operation-error';
+}
 
 export function aiWorkflowAttribution(): { workflowRunId: string; feature: string; stage: string; purpose: Purpose } | undefined {
   const current = context.getStore();
@@ -26,7 +62,15 @@ export function setAiWorkflowOutcome(outcome: Outcome): void {
 
 export async function withAiStage<T>(stage: string, run: () => Promise<T>): Promise<T> {
   const current = context.getStore();
-  return current ? context.run({ ...current, stage }, run) : run();
+  if (!current) return run();
+  const child = { ...current, stage: stage.slice(0, MAX_STAGE_CHARS) };
+  return context.run(child, async () => {
+    try { return await run(); }
+    catch (error) {
+      if (!child.failureStages.has(error)) child.failureStages.set(error, child.stage);
+      throw error;
+    }
+  });
 }
 
 export async function withAiWorkflow<T>(
@@ -36,7 +80,10 @@ export async function withAiWorkflow<T>(
 ): Promise<T> {
   // Direct entry points also serve specialists; keep all nested calls in the same attempt.
   if (context.getStore() && !options.independent) return withAiStage(options.feature, run);
-  const current: WorkflowContext = { id: randomUUID(), feature: options.feature, stage: options.feature, purpose: options.purpose ?? 'user', result: { outcome: null } };
+  const current: WorkflowContext = {
+    id: randomUUID(), feature: options.feature, stage: options.feature, purpose: options.purpose ?? 'user',
+    result: { outcome: null }, failureStages: new Map(),
+  };
   try {
     await db.query(`INSERT INTO ai_workflow_runs(id,environment,feature,purpose,job_id,attempt,status)
     VALUES($1,$2,$3,$4,$5,$6,'running')`,
@@ -47,12 +94,23 @@ export async function withAiWorkflow<T>(
   }
   return context.run(current, async () => {
     let status: 'completed' | 'failed' | 'interrupted' = 'completed';
+    let failureStage: string | null = null;
+    let failureCode: AiFailureCode | null = null;
     try { return await run(); }
-    catch (error) { status = options.signal?.aborted ? 'interrupted' : 'failed'; throw error; }
+    catch (error) {
+      const cancelled = options.signal?.aborted === true
+        && !(options.signal.reason instanceof Error && options.signal.reason.name === 'TimeoutError');
+      failureStage = current.failureStages.get(error) ?? current.stage;
+      failureCode = aiFailureCode(error, cancelled);
+      status = failureCode === 'cancelled' ? 'interrupted' : 'failed';
+      throw error;
+    }
     finally {
       try {
-        await db.query('UPDATE ai_workflow_runs SET status=$2,outcome=$3,finished_at=NOW() WHERE id=$1',
-          [current.id, status, status === 'completed' ? current.result.outcome : null]);
+        await db.query(`UPDATE ai_workflow_runs
+          SET status=$2,outcome=$3,failure_stage=$4,failure_code=$5,finished_at=NOW() WHERE id=$1`,
+        [current.id, status, status === 'completed' ? current.result.outcome : null,
+          failureStage, failureCode]);
       } catch (error) {
         // A telemetry write must not turn a saved artifact into an apparent generation failure.
         console.error('[ai-workflow] Could not record the final outcome; tracking is incomplete:', current.id, error);

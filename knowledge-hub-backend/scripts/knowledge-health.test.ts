@@ -8,6 +8,8 @@ import { knowledgeHealthRouter } from '../src/routes/knowledgeHealth.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
 import { getKnowledgeHealth, parseHealthQuery, semanticStatus } from '../src/health/knowledgeHealth.js';
 import { CONTENT_SOURCE_DISPOSITIONS, KNOWLEDGE_FAMILIES } from '../src/ai/knowledge/manifest.js';
+import { aiFailureCode, withAiStage, withAiWorkflow } from '../src/ai/aiWorkflow.js';
+import { backgroundWorkContextBlock } from '../src/ai/agentTools.js';
 import type { Pool } from 'pg';
 
 async function fixtureDb(): Promise<PGlite> {
@@ -17,6 +19,10 @@ async function fixtureDb(): Promise<PGlite> {
   }
   await db.exec('CREATE TABLE agent_jobs(id UUID PRIMARY KEY)');
   await db.exec(await readFile(new URL('../src/db/migrations/117_ai_workflow_attribution.sql', import.meta.url), 'utf8'));
+  await db.exec('CREATE TABLE athena_memories(scope_type TEXT, origin TEXT)');
+  for (const file of ['140_ai_learning_ledger.sql', '145_ai_workflow_failure_diagnostics.sql']) {
+    await db.exec(await readFile(new URL(`../src/db/migrations/${file}`, import.meta.url), 'utf8'));
+  }
   await db.exec('CREATE TABLE ai_chat_sessions(id UUID PRIMARY KEY); CREATE TABLE ai_chat_messages(id BIGSERIAL PRIMARY KEY)');
   for (const file of ['134_ai_turn_traces.sql', '135_health_measurements.sql']) {
     await db.exec(await readFile(new URL(`../src/db/migrations/${file}`, import.meta.url), 'utf8'));
@@ -53,6 +59,110 @@ test('workflow health separates completion from review and preserves unknown leg
     assert.ok(filtered.workflows.available);
     assert.equal(filtered.workflows.data.totals.runs, 0);
   } finally { await db.close(); }
+});
+
+test('partial vision reads stay distinct across usage, reliability and stage diagnostics', async () => {
+  const db = await fixtureDb();
+  try {
+    const id = '00000000-0000-4000-8000-000000000041';
+    await db.query(`INSERT INTO ai_workflow_runs(id,environment,feature,purpose,attempt,started_at,status)
+      VALUES($1,'prod','image-description','diagnostic',1,'2026-03-10T01:00:00Z','completed')`, [id]);
+    await usage(db, '2026-03-10T01:00:01Z', { feature: 'image-description', ok: false, error: 'Vision response was truncated' });
+    await usage(db, '2026-03-10T01:00:02Z', { feature: 'image-description', ok: false, error: 'SECRET actual failure' });
+    await usage(db, '2026-03-10T01:00:03Z', { feature: 'image-description' });
+    await usage(db, '2026-03-09T01:00:00Z', { feature: 'chat', ok: false, error: 'Vision response was truncated' });
+    await db.query("UPDATE ai_usage_log SET workflow_run_id=$1,stage='read'", [id]);
+    await db.exec(await readFile(new URL('../src/db/migrations/145_ai_workflow_failure_diagnostics.sql', import.meta.url), 'utf8'));
+    const legacy = await db.query<{ failure_code: string | null }>("SELECT failure_code FROM ai_usage_log WHERE feature='chat'");
+    assert.equal(legacy.rows[0]?.failure_code, null, 'backfill must not infer categories outside the known vision emitters');
+    const report = await getKnowledgeHealth(db as unknown as Pool, parseHealthQuery({ from: '2026-03-10', to: '2026-03-10' }));
+    assert.ok(report.usage.available && report.reliability.available && report.workflows.available);
+    assert.equal(report.usage.data.totals.calls, 3);
+    assert.equal(report.usage.data.totals.failures, 1);
+    assert.equal(report.usage.data.totals.partialCalls, 1);
+    assert.equal(report.usage.data.rows[0]?.partialCalls, 1);
+    assert.deepEqual(report.reliability.data.daily, [{ day: '2026-03-10', calls: 3, failures: 1, partialCalls: 1 }]);
+    assert.deepEqual(report.reliability.data.features, [{ feature: 'image-description', calls: 3, failures: 1, partialCalls: 1 }]);
+    assert.equal(report.workflows.data.stages[0]?.failures, 1);
+    assert.equal(report.workflows.data.stages[0]?.partialCalls, 1);
+    assert.ok(report.workflows.data.failureDiagnostics.some(row => row.code === 'response-truncated' && row.status === 'partial'));
+    assert.equal(JSON.stringify(report).includes('SECRET'), false);
+  } finally { await db.close(); }
+});
+
+test('source failures remain visible under their workflow feature before any model call', async () => {
+  const db = await fixtureDb();
+  try {
+    await db.query(`INSERT INTO ai_workflow_runs(id,environment,feature,purpose,attempt,started_at,status,failure_stage,failure_code)
+      VALUES('00000000-0000-4000-8000-000000000042','prod','discovery-editorial-assessment','diagnostic',1,
+        '2026-03-10T01:00:00Z','failed','source-reading','source-forbidden')`);
+    const report = await getKnowledgeHealth(db as unknown as Pool, parseHealthQuery({
+      from: '2026-03-10', to: '2026-03-10', feature: 'discovery-editorial-assessment',
+    }));
+    assert.ok(report.workflows.available);
+    assert.equal(report.workflows.data.totals.failed, 1);
+    assert.equal(report.workflows.data.failureDiagnostics[0]?.code, 'source-forbidden');
+    assert.equal(report.workflows.data.failureDiagnostics[0]?.stage, 'source-reading');
+  } finally { await db.close(); }
+});
+
+test('workflow attribution follows the escaping error, not an earlier recovered error', async () => {
+  const db = await fixtureDb();
+  try {
+    await assert.rejects(withAiWorkflow(db as unknown as Pool, { feature: 'stage-regression' }, async () => {
+      try { await withAiStage('recovered', async () => { throw new Error('recovered'); }); } catch { /* intentional recovery */ }
+      await withAiStage('outer', () => withAiStage('actual-failure', async () => { throw new Error('final'); }));
+    }), /final/);
+    const failed = await db.query<{ failure_stage: string; failure_code: string }>('SELECT failure_stage,failure_code FROM ai_workflow_runs');
+    assert.equal(failed.rows[0]?.failure_stage, 'actual-failure');
+    assert.equal(failed.rows[0]?.failure_code, 'operation-error');
+    await withAiWorkflow(db as unknown as Pool, { feature: 'recovered-run' }, async () => {
+      try { await withAiStage('recovered', async () => { throw new Error('recovered'); }); } catch { /* intentional recovery */ }
+    });
+    const succeeded = await db.query(`SELECT status,failure_stage,failure_code FROM ai_workflow_runs WHERE feature='recovered-run'`);
+    assert.deepEqual(succeeded.rows[0], { status: 'completed', failure_stage: null, failure_code: null });
+    assert.equal(aiFailureCode(new DOMException('Stopped', 'AbortError')), 'cancelled');
+    assert.equal(aiFailureCode(new DOMException('Timed out', 'TimeoutError')), 'timeout');
+  } finally { await db.close(); }
+});
+
+test('artifact outcomes report recorded actions, runtime and linkage without exposing content or inventing acceptance', async () => {
+  const db = await fixtureDb();
+  try {
+    await db.query(`INSERT INTO ai_authored_content(id,at,environment,agent,target_type,target_id,content) VALUES
+      ('00000000-0000-4000-8000-000000000043','2026-03-10T01:00:00Z','prod','athena','note','one','SECRET generated content'),
+      ('00000000-0000-4000-8000-000000000044','2026-03-10T01:00:00Z','dev','athena','note','two','SECRET dev content')`);
+    await db.query(`INSERT INTO ai_decisions(at,updated_at,environment,agent,kind,target_type,target_id,authored_id,final_content) VALUES
+      ('2026-03-10T02:00:00Z','2026-03-10T02:00:00Z','prod','athena','edit','note','one','00000000-0000-4000-8000-000000000043','SECRET user edit'),
+      ('2026-03-10T03:00:00Z','2026-03-10T03:00:00Z','prod','athena','approve','note','one','00000000-0000-4000-8000-000000000043',NULL),
+      ('2026-03-10T04:00:00Z','2026-03-10T04:00:00Z','dev','athena','reject','note','two',NULL,NULL)`);
+    const report = await getKnowledgeHealth(db as unknown as Pool, parseHealthQuery({ from: '2026-03-10', to: '2026-03-10' }));
+    assert.ok(report.artifactOutcomes.available);
+    assert.equal(report.artifactOutcomes.data.generatedVersions, 1);
+    assert.equal(report.artifactOutcomes.data.generatedTargets, 1);
+    assert.equal(report.artifactOutcomes.data.editedVersions, 1);
+    assert.deepEqual(report.artifactOutcomes.data.decisions, [
+      { kind: 'approve', targetType: 'note', events: 1, targets: 1, linkedEvents: 1 },
+      { kind: 'edit', targetType: 'note', events: 1, targets: 1, linkedEvents: 1 },
+    ]);
+    assert.equal(JSON.stringify(report).includes('SECRET'), false);
+    const filtered = await getKnowledgeHealth(db as unknown as Pool, parseHealthQuery({ feature: 'chat' }));
+    assert.equal(filtered.artifactOutcomes.available, false);
+  } finally { await db.close(); }
+});
+
+test('background work context is bounded and keeps stable retrieval identities without accepting arbitrary fields', () => {
+  const context = { panelOpen: true, activeCount: 1, unreadCount: 1, incomplete: false, truncated: false,
+    items: [{ id: 'one', jobId: '00000000-0000-4000-8000-000000000045', subjectId: 'import-source',
+      title: 'Import', status: 'Completed', unread: true, summary: 'Saved', secret: 'NOT_ALLOWED' }] };
+  const block = backgroundWorkContextBlock(context);
+  assert.match(block, /check_specialist_jobs/);
+  assert.match(block, /00000000-0000-4000-8000-000000000045/);
+  assert.equal(block.includes('NOT_ALLOWED'), false);
+  assert.equal(backgroundWorkContextBlock(undefined), '');
+  assert.throws(() => backgroundWorkContextBlock({ ...context, unreadCount: -1 }), /Invalid background work/);
+  assert.throws(() => backgroundWorkContextBlock({ ...context, items: Array(11).fill(context.items[0]) }), /Invalid background work/);
+  assert.throws(() => backgroundWorkContextBlock({ ...context, items: [{ ...context.items[0], jobId: 'bad-id' }] }), /identifier/);
 });
 
 test('measurement coverage separates missing capture, unfinished work, runtime and unreviewed content', async () => {

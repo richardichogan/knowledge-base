@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { SidePanelClose } from '@carbon/icons-react';
+import { ChevronDown, SidePanelClose } from '@carbon/icons-react';
 import { CONTENT_TYPE_GROUPS, CONTENT_TYPE_OPTIONS } from './constants';
 import type { ContentType } from './constants';
 import type { NoteDocument } from './types';
@@ -242,8 +242,10 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
 
   return (
       <WorkspaceSidePanel panelRef={panelRef} label="Think side panel" width={width} onResize={setWidth}
-        collapsed={collapsed} setCollapsed={setCollapsed} overlay={overlay} status={athenaBusy ? 'busy' : 'idle'}>
-        <div className="notes-meta-tabs" role="tablist" aria-label="Side panel">
+        collapsed={collapsed} setCollapsed={setCollapsed} overlay={overlay} status={athenaBusy ? 'busy' : 'idle'}
+        className="notes-meta-panel--think">
+        <div className="notes-meta-tabs notes-meta-tabs--think">
+          <div className="notes-meta-tabs__list" role="tablist" aria-label="Side panel">
           {tabs.map((t) => (
             <button
               key={t.id}
@@ -253,7 +255,20 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
               aria-selected={tab === t.id}
               aria-controls={`think-side-panel-${t.id}`}
               className={`notes-meta-tab${tab === t.id ? ' notes-meta-tab--active' : ''}`}
+              tabIndex={tab === t.id ? 0 : -1}
               onClick={() => { setTab(t.id); }}
+              onKeyDown={event => {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                event.preventDefault();
+                const index = tabs.findIndex(item => item.id === t.id);
+                const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+                  : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+                const next = tabs[nextIndex];
+                if (next) {
+                  setTab(next.id);
+                  document.getElementById(`think-side-tab-${next.id}`)?.focus();
+                }
+              }}
             >
               {t.id === 'athena' && (
                 <span className={`think-athena-status__dot${athenaBusy ? ' think-athena-status__dot--busy' : ''}`}
@@ -263,6 +278,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
               {t.label}
             </button>
           ))}
+          </div>
           <button
             type="button"
             className="notes-meta-tabs__collapse"
@@ -317,6 +333,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
               <div className="notes-meta-section notes-meta-pair">
                 <label className="notes-meta-pair__field">
                   <span className="notes-meta-section-label">Workstream</span>
+                  <span className="notes-meta-select-field">
                   <select
                     className="notes-meta-type-select"
                     value={projectId}
@@ -326,9 +343,12 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
                     <option value="">No workstream</option>
                     <ProjectOptions projects={projects} selected={projectId} />
                   </select>
+                  <ChevronDown size={16} aria-hidden="true" />
+                  </span>
                 </label>
                 <label className="notes-meta-pair__field">
                   <span className="notes-meta-section-label">Content type</span>
+                  <span className="notes-meta-select-field">
                   <select
                     className="notes-meta-type-select"
                     value={contentType}
@@ -343,6 +363,8 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
                       </optgroup>
                     ))}
                   </select>
+                  <ChevronDown size={16} aria-hidden="true" />
+                  </span>
                 </label>
               </div>
               {selectedProject && (

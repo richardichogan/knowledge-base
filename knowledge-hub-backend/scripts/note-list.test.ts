@@ -123,6 +123,17 @@ test('note summaries exhaust stable pages and filter saved writing, types and ex
       assert.equal(response.status, 422, `Recovery uses the existing validation envelope: ${route}`);
     }
     assert.equal((await read(`tagIds=${child},${extra}`)).total, 3, 'multiple matching tags must not duplicate rows');
+    await db.query('UPDATE notes SET content=$2 WHERE id=$1', [id(105), JSON.stringify({
+      title: 'Legacy alpha', contentType: 'note', contentJson: JSON.stringify([{ type: 'paragraph',
+        content: [{ type: 'text', text: 'Folder passage', styles: { important: parent } }] }]),
+    })]);
+    for (const [tag, expectedCount] of [[child, 1], [extra, 0]] as const) {
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/notes/passage-tags/search?q=Folder&tagIds=${tag}`);
+      assert.equal(response.status, 200);
+      assert.equal((await response.json() as { data: { items: unknown[] } }).data.items.length, expectedCount,
+        'Passage hits obey the same explicit taxonomy filter');
+    }
+    assert.equal((await fetch(`http://127.0.0.1:${address.port}/api/notes/passage-tags/search?q=Folder&tagIds=invalid`)).status, 422);
     assert.equal((await read(`projectId=alpha&projectTagIds=${child}&tagIds=${child}&contentType=blog&q=needle`)).total, 1);
     assert.equal((await read('q=Plain%20legacy')).items[0]?.title, 'Untitled');
     assert.equal((await read('q=Ignored%20second%20heading')).items[0]?.title, 'Untitled');
@@ -209,6 +220,11 @@ test('note summaries exhaust stable pages and filter saved writing, types and ex
     for (const hiddenId of [104, 105, 106, 107]) assert.ok(!groupedIds.includes(id(hiddenId)));
     for (const visibleId of [108, 110, 111, 112, 113]) assert.ok(groupedIds.includes(id(visibleId)));
     assert.equal(new Set(groupedIds).size, grouped.total);
+    assert.deepEqual(new Set((await read(`structure=designs&tagIds=${child},${extra}`)).items.map(item => item.id)),
+      new Set([id(110), id(111)]), 'Tagged Design members appear through their grouped parents, once each');
+    await db.query('INSERT INTO note_tags VALUES($1,$2)', [id(121), extra]);
+    assert.deepEqual(new Set((await read(`structure=designs&tagIds=${extra}`)).items.map(item => item.id)),
+      new Set([id(110), id(111), id(120)]), 'Episode-owned note tags surface the episode rather than hidden child notes');
     assert.equal(secondPage.hasMore, false);
     assert.deepEqual(new Set((await read('structure=designs&q=needle')).items.map(item => item.id)),
       new Set([id(109), id(110), id(111)]), 'Search linked bodies returns their parents, while standalone matches remain visible');

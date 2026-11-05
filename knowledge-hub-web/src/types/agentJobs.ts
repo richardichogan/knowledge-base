@@ -27,6 +27,18 @@ export interface AgentJob {
 
 export interface AgentPlanStep { specialist: string; specialistName: string; reason: string; overwrites: boolean }
 
+export interface BackgroundWorkContext {
+  panelOpen: boolean;
+  activeCount: number;
+  unreadCount: number;
+  incomplete: boolean;
+  truncated: boolean;
+  items: Array<{
+    id: string; jobId?: string; assignmentId?: string; subjectId?: string;
+    title: string; status: string; unread: boolean; summary: string;
+  }>;
+}
+
 export type AgentHandOffResult =
   | { status: 'queued'; job: AgentJob; steps: AgentJob[] }
   | { status: 'already_running'; job: AgentJob }

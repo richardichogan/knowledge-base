@@ -64,7 +64,7 @@ import { stripContextPrefix, stripHistoryContextPrefixes } from '../chat/context
 import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona, SavedMemory, NoteEdit, MapChange, LocalFileWrite, OutputChange, ChatScreen, ChatRequest, ChatAlternate, ModelChoiceApi, ContextUsedApi } from '../types';
 import { JobChatConfirmations } from '../components/jobs/JobReview';
 
-import type { AthenaPageContext } from '../context/AthenaContext';
+import { useAthenaContext, type AthenaPageContext } from '../context/AthenaContext';
 import { ChatSidebar } from '../components/athena/ChatSidebar';
 import { ReplyMeta } from '../components/athena/ReplyMeta';
 import { RememberedNotice } from '../components/athena/RememberedNotice';
@@ -293,6 +293,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   fixedSessionId,
   hideToolbar = false,
 }) => {
+  const { backgroundWork } = useAthenaContext();
   // The Think-embedded panel manages its own per-note session (see the
   // note-linking effect below) instead of sharing localStorage-persisted
   // session state with the floating widget / full-page chat.
@@ -840,6 +841,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     },
     mutationFn: async ({ text, composerDraft, pageContext: ctx, resumeTurnId, resumeStartedAt, screenReview }: { text: string; composerDraft?: string; pageContext?: AthenaPageContext; resumeTurnId?: string; resumeStartedAt?: string; screenReview?: ChatRequest['screenReview'] }) => {
       const uiContext = captureUiContext();
+      const background = isContextDismissed ? null : backgroundWork;
       // Runs on the server in the background; this view follows it live and
       // can let go (switching chats) without losing the answer.
       const run = ++turnRunRef.current;
@@ -899,6 +901,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
             projectId: conversationProjectId(isNoteLinkedPanel, noteProjectId, activeProjectId),
             sessionId: requestSessionId,
             uiContext,
+            ...(background && { backgroundWork: background }),
             ...(ctx && { pageContext: ctx }),
             ...(isNoteLinkedPanel && currentNoteId !== undefined && { noteId: currentNoteId }),
             ...(screenReview !== undefined && { screenReview }),
@@ -1014,6 +1017,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       // refresh the relevant lists so they show up without a manual reload.
       void queryClient.invalidateQueries({ queryKey: ['tasks'] });
       void queryClient.invalidateQueries({ queryKey: ['notes-list'] });
+      void queryClient.invalidateQueries({ queryKey: ['note-tags'] });
+      void queryClient.invalidateQueries({ queryKey: ['taxonomy'] });
+      void queryClient.invalidateQueries({ queryKey: ['graph'] });
       void queryClient.invalidateQueries({ queryKey: ['sparks'] });
       void queryClient.invalidateQueries({ queryKey: ['discovery-feeds'] });
       void queryClient.invalidateQueries({ queryKey: ['spark-clusters'] });
@@ -1089,10 +1095,11 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     };
   }
 
-  function captureSendTarget(): { view: number; request: Pick<ChatRequest, 'persona' | 'projectId' | 'sessionId' | 'uiContext'> } {
+  function captureSendTarget(): { view: number; request: Pick<ChatRequest, 'persona' | 'projectId' | 'sessionId' | 'uiContext' | 'backgroundWork'> } {
     return {
       view: turnRunRef.current,
-      request: { persona, projectId: conversationProjectId(isNoteLinkedPanel, noteProjectId, activeProjectId), sessionId: chatIdForUploads(), uiContext: captureUiContext() },
+      request: { persona, projectId: conversationProjectId(isNoteLinkedPanel, noteProjectId, activeProjectId), sessionId: chatIdForUploads(), uiContext: captureUiContext(),
+        ...(!isContextDismissed && backgroundWork ? { backgroundWork } : {}) },
     };
   }
 

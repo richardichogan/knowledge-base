@@ -1,22 +1,40 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Settings } from '@carbon/icons-react';
+import { ArrowRight, CheckmarkFilled, Close, InProgress, Settings, WarningFilled } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import { describeApiError, requireApiData } from '../../services/apiError';
 import { useBackgroundJobs } from '../../services/agentJobStore';
-import { assignmentStatusLabel, isActiveAgentJob, isActiveAssignment, type AssignmentSummary } from '../../types/agentJobs';
+import { assignmentStatusLabel, isActiveAgentJob, isActiveAssignment, type AssignmentSummary, type BackgroundWorkContext } from '../../types/agentJobs';
+import { useAthenaContext } from '../../context/AthenaContext';
 import { specialistLink } from '../../navigation/specialistLink';
 import { runStatusLabel } from '../jobs/jobPresentation';
 import type { JobRun, ManagedJob } from '../../types/jobs';
 import { confirmDialog } from '../../services/appDialogs';
-import { markJobUpdatesSeen, useJobUpdates } from '../../services/jobUpdates';
+import { markJobUpdatesSeen, useJobUpdates, type JobUpdate } from '../../services/jobUpdates';
 
 const ASSIGNMENTS_KEY = ['background-work-assignments'];
 const stageLabels: Record<string, string> = {
   research: 'Research', draft: 'Draft', critique: 'Independent critique',
   revision: 'Targeted revision', recheck: 'Independent recheck',
 };
+
+interface WorkItem {
+  id: string;
+  title: string;
+  source: string;
+  state: string;
+  group: 'active' | 'attention' | 'recent';
+  tone: 'active' | 'attention' | 'done' | 'muted';
+  at: string;
+  message: string;
+  url: string | null;
+  linkLabel: string;
+  updates: JobUpdate[];
+  assignment?: AssignmentSummary;
+  jobId?: string;
+  subjectId?: string;
+}
 
 function submittedToMetis(run: JobRun | undefined): boolean {
   const capture = run?.artifacts['capture'];
@@ -25,6 +43,7 @@ function submittedToMetis(run: JobRun | undefined): boolean {
 }
 
 export const BackgroundWork: React.FC = () => {
+  const { setBackgroundWork } = useAthenaContext();
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -34,8 +53,6 @@ export const BackgroundWork: React.FC = () => {
   const [actionError, setActionError] = useState<{ id: string; message: string } | null>(null);
   const live = useBackgroundJobs();
   const updates = useJobUpdates();
-  const unseen = updates.filter(update => !update.seen).length;
-  useEffect(() => { if (open) markJobUpdatesSeen(); }, [open, updates]);
   const recent = useQuery({
     queryKey: ['background-work'],
     queryFn: async () => requireApiData(await api.listRecentAgentJobs()),
@@ -46,7 +63,7 @@ export const BackgroundWork: React.FC = () => {
     queryFn: async () => requireApiData(await api.listWorkforceAssignments()),
     staleTime: 5_000, refetchInterval: 5_000,
   });
-  const assignmentRows = assignments.data ?? [];
+  const assignmentRows = useMemo(() => assignments.data ?? [], [assignments.data]);
   useEffect(() => {
     const refresh = (): void => { void queryClient.invalidateQueries({ queryKey: ASSIGNMENTS_KEY }); };
     window.addEventListener('athena-assignment-updated', refresh);
@@ -87,11 +104,67 @@ export const BackgroundWork: React.FC = () => {
     },
     staleTime: 30_000, refetchInterval: 30_000,
   });
+  const { jobs, items } = useMemo(() => {
   const merged = new Map((recent.data ?? []).map(job => [job.id, job]));
   for (const job of live) merged.set(job.id, job);
   const jobs = [...merged.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const items: WorkItem[] = [
+    ...assignmentRows.map((assignment): WorkItem => {
+      const running = isActiveAssignment(assignment);
+      const attention = assignment.status === 'waiting' || assignment.status === 'failed'
+        || assignment.status === 'superseded' || (assignment.status === 'completed' && assignment.readiness === 'blocked');
+      return {
+        id: `assignment-${assignment.id}`, title: assignment.title, source: 'Blog team',
+        state: assignmentStatusLabel(assignment), group: running ? 'active' : attention ? 'attention' : 'recent',
+        tone: running ? 'active' : attention ? 'attention' : assignment.status === 'cancelled' ? 'muted' : 'done',
+        at: assignment.finishedAt ?? assignment.createdAt,
+        message: [
+          assignment.currentStep ? `${assignment.currentStep.name} · ${assignment.currentStep.title} · ${stageLabels[assignment.currentStep.key] ?? assignment.currentStep.key}` : '',
+          assignment.reason ?? (assignment.status === 'completed' && assignment.readiness === 'ready'
+            ? 'Draft and review saved. Publication remains a separate action in the existing editor.'
+            : assignment.status === 'cancelled' ? 'Future work stopped. Saved drafts and reviews are retained.' : ''),
+        ].filter(Boolean).join('\n'),
+        url: assignment.resultUrl, linkLabel: 'Open saved draft',
+        updates: updates.filter(update => update.tag === `assignment-${assignment.id}`), assignment,
+      };
+    }),
+    ...jobs.filter(job => !job.isStep || isActiveAgentJob(job) || job.status === 'failed').map((job): WorkItem => ({
+      id: job.id, jobId: job.id, subjectId: job.subjectId, title: job.subjectTitle || 'Untitled work',
+      source: job.specialistName.replaceAll('-', ' ').replace(/^./, letter => letter.toUpperCase()),
+      state: job.status === 'done' ? 'Completed' : job.status === 'failed' ? 'Could not finish' : job.status === 'running' ? 'Working' : 'Queued',
+      group: isActiveAgentJob(job) ? 'active' : job.status === 'failed' ? 'attention' : 'recent',
+      tone: isActiveAgentJob(job) ? 'active' : job.status === 'failed' ? 'attention' : 'done',
+      at: job.finishedAt ?? job.createdAt,
+      message: isActiveAgentJob(job) ? job.progress.at(-1) ?? 'Waiting for a worker.'
+        : job.status === 'failed' ? job.error ?? 'The job could not finish. Open the source to review it.'
+          : job.summary ?? 'The result has been saved. Completion does not imply review or publication.',
+      url: typeof job.result?.url === 'string' ? job.result.url : job.subjectUrl,
+      linkLabel: job.status === 'done' ? 'Open result' : 'Open source',
+      updates: updates.filter(update => update.id === job.id),
+    })),
+  ];
+  const represented = new Set(items.flatMap(item => item.updates.map(update => update.id)));
+  for (const update of updates) {
+    if (represented.has(update.id)) continue;
+    items.push({
+      id: `update-${update.id}`, title: update.title, source: 'Background work',
+      state: update.ok ? 'Completed' : 'Needs attention', group: update.ok ? 'recent' : 'attention',
+      tone: update.ok ? 'done' : 'attention', at: update.at, message: update.body,
+      url: update.url === '/' ? null : update.url, linkLabel: 'Open result', updates: [update],
+    });
+  }
+  items.sort((a, b) => Number(b.updates.some(update => !update.seen)) - Number(a.updates.some(update => !update.seen))
+    || b.at.localeCompare(a.at));
+  return { jobs, items };
+  }, [recent.data, live, assignmentRows, updates]);
   const active = jobs.filter(isActiveAgentJob);
-  const shown = [...active, ...jobs.filter(job => !isActiveAgentJob(job)).slice(0, 8)];
+  const unseen = items.filter(item => item.updates.some(update => !update.seen)).length;
+  const unseenFailures = items.some(item => item.updates.some(update => !update.seen && !update.ok));
+  const groups = [
+    { id: 'active', title: 'In progress' },
+    { id: 'attention', title: 'Needs attention' },
+    { id: 'recent', title: 'Recent results' },
+  ] as const;
   useEffect(() => { setOpen(false); }, [location.pathname, location.search]);
   useEffect(() => {
     if (!open) return;
@@ -118,75 +191,102 @@ export const BackgroundWork: React.FC = () => {
   const detail = [activeCount ? `${activeCount} running or queued` : '', attentionCount ? `${attentionCount} paused for attention` : ''].filter(Boolean).join(', ');
   const status = [detail, unseen ? `${unseen} new ${unseen === 1 ? 'update' : 'updates'}` : ''].filter(Boolean).join(', ');
   const label = status ? `Background work: ${status}` : 'Background work';
+  const newLabel = `${unseen} new ${unseenFailures ? (unseen === 1 ? 'update' : 'updates') : (unseen === 1 ? 'result' : 'results')}`;
+  const backgroundContext = useMemo<BackgroundWorkContext>(() => ({
+    panelOpen: open, activeCount, unreadCount: unseen,
+    incomplete: recent.isPending || recent.isError || assignments.isPending || assignments.isError,
+    truncated: items.length > 10 || items.some(item => item.title.length > 200 || item.message.length > 800),
+    items: items.slice(0, 10).map(item => ({
+      id: item.id, ...(item.jobId ? { jobId: item.jobId } : {}),
+      ...(item.subjectId ? { subjectId: item.subjectId } : {}),
+      ...(item.assignment ? { assignmentId: item.assignment.id } : {}),
+      title: item.title.slice(0, 200), status: item.state, summary: item.message.slice(0, 800),
+      unread: item.updates.some(update => !update.seen),
+    })),
+  }), [open, activeCount, unseen, recent.isPending, recent.isError, assignments.isPending, assignments.isError, items]);
+  useEffect(() => { setBackgroundWork(backgroundContext); }, [backgroundContext, setBackgroundWork]);
+  useEffect(() => () => { setBackgroundWork(null); }, [setBackgroundWork]);
+  const acknowledge = (item: WorkItem): void => { markJobUpdatesSeen(item.updates.map(update => update.id)); };
   return <>
-    <button type="button" ref={triggerRef} className={`kh-header__utility${open ? ' kh-header__utility--active' : ''}`}
+    <button type="button" ref={triggerRef} className={`kh-header__utility kh-header__utility--work${open ? ' kh-header__utility--active' : ''}`}
       title={label} aria-label={label} aria-expanded={open} aria-controls={open ? 'kh-background-work' : undefined}
+      onKeyDown={event => {
+        if (event.key === 'ArrowDown') { event.preventDefault(); setOpen(true); window.requestAnimationFrame(() => panelRef.current?.focus()); }
+      }}
       onClick={() => { setOpen(value => !value); }}>
       <Settings size={20} aria-hidden="true" />
       {activeCount > 0 && <span className="kh-header__badge" aria-hidden="true">{activeCount > 99 ? '99+' : activeCount}</span>}
-      {unseen > 0 && <span className="kh-header__dot" aria-hidden="true" />}
+      {unseen > 0 && <span className={`kh-background-work__indicator${unseenFailures ? ' kh-background-work__indicator--attention' : ''}`} aria-hidden="true">
+        {unseenFailures ? <WarningFilled size={14} /> : <CheckmarkFilled size={14} />}
+        <span>{newLabel}</span>
+      </span>}
     </button>
-    {open && <div id="kh-background-work" ref={panelRef} className="kh-background-work" role="region" aria-label="Background work">
-    <h2>Background work{detail ? ` · ${detail}` : ' · recent results'}</h2>
-    <p>You can move between screens while specialists work. Finished and failed work is listed here.</p>
-    <h3>Recent updates</h3>
-    {!updates.length && <p>No recent updates.</p>}
-    <ul className="kh-background-work__list">{updates.slice(0, 8).map(update => <li key={update.id}>
-      <div><strong>{update.title}</strong><span className={`kh-background-work__state kh-background-work__state--${update.ok ? 'done' : 'failed'}`}>{update.ok ? 'Completed' : 'Failed'}</span></div>
-      <p>{update.body}</p>
-      <p>{new Date(update.at).toLocaleString('en-GB')}</p>
-      {update.url !== '/' && <Link to={specialistLink(update.url, window.location.href)} onClick={() => { setOpen(false); }}>Open</Link>}
-    </li>)}</ul>
-    <h3>Daily Insights import</h3>
-    {imports.isPending && <p role="status">Loading import status...</p>}
-    {imports.isError && <p role="alert">{describeApiError(imports.error)} <button type="button" className="kh-btn-ghost" onClick={() => { void imports.refetch(); }}>Retry</button></p>}
-    {!imports.isPending && !imports.isError && !imports.data?.length && <p>No scheduled Daily Insights import. Local folder sync may still run separately.</p>}
-    <ul className="kh-background-work__list">{imports.data?.map(({ job, run }) => <li key={job.id}>
-      <div><strong>{job.definition.name}</strong><span className="kh-background-work__state">{run ? submittedToMetis(run) ? 'Submitted to Metis' : runStatusLabel(run) : 'Not run yet'}</span></div>
-      {!job.enabled && <p>Schedule paused.</p>}
-      {run && <p>Scheduled {new Date(run.scheduledAt).toLocaleString('en-GB', { timeZone: job.definition.schedule.timezone })} ({job.definition.schedule.timezone}).</p>}
-      {run && submittedToMetis(run) && <p>Metis is handling the report. Its live status appears under Specialist work.</p>}
-      {run && ['failed', 'partial', 'rejected', 'missed', 'unconfirmed'].includes(run.status) && typeof run.artifacts.error === 'string' && <p>{run.artifacts.error}</p>}
-      <Link to={`/jobs?${new URLSearchParams({ jobId: job.id, ...(run ? { runId: run.id } : {}) })}`} onClick={() => { setOpen(false); }}>
-        {run ? 'View import run' : 'View schedule'}
-      </Link>
-    </li>)}</ul>
-    <h3>Specialist work</h3>
-    {assignments.isPending && <p role="status">Loading Athena assignments...</p>}
-    {assignments.isError && <p role="alert">{describeApiError(assignments.error)} <button type="button" className="kh-btn-ghost" onClick={() => { void assignments.refetch(); }}>Retry assignments</button></p>}
-    <ul className="kh-background-work__list">{assignmentRows.map(assignment => <li key={assignment.id} aria-busy={isActiveAssignment(assignment) || busy?.id === assignment.id}>
-      <div><strong className="kh-background-work__assignment-title">{assignment.title}</strong><span className={`kh-background-work__state kh-background-work__state--${assignment.status}${assignment.status === 'completed' && assignment.readiness === 'blocked' ? ' kh-background-work__state--attention' : ''}`}>{assignmentStatusLabel(assignment)}</span></div>
-      {assignment.currentStep && <p>{assignment.currentStep.name} · {assignment.currentStep.title} · {stageLabels[assignment.currentStep.key]}</p>}
-      {assignment.reason && <p>{assignment.reason}</p>}
-      {assignment.status === 'completed' && assignment.readiness === 'ready' && <p>Draft and review saved. Publication remains a separate action in the existing editor.</p>}
-      {assignment.status === 'cancelled' && <p>Future work stopped. Saved drafts and reviews are retained.</p>}
-      {actionError?.id === assignment.id && <p className="kh-background-work__error" role="alert">{actionError.message}</p>}
-      <div className="kh-background-work__actions">
-        {assignment.resultUrl && <Link to={specialistLink(assignment.resultUrl, window.location.href)} onClick={() => { setOpen(false); }}>Open saved draft</Link>}
-        {(isActiveAssignment(assignment) || assignment.status === 'waiting') && <button type="button"
-          className="kh-background-work__action kh-background-work__action--cancel" disabled={busy !== null || assignments.isError}
-          aria-label={`Cancel assignment: ${assignment.title}`} onClick={() => { void changeAssignment(assignment, 'cancel'); }}>
-          {busy?.id === assignment.id && busy.action === 'cancel' ? 'Cancelling...' : 'Cancel'}
-        </button>}
-        {assignment.status === 'waiting' && <button type="button" className="kh-background-work__action"
-          disabled={busy !== null || assignments.isError} onClick={() => { void changeAssignment(assignment, 'resume'); }}>
-          {busy?.id === assignment.id && busy.action === 'resume' ? 'Requesting resume...' : 'Request resume'}
-        </button>}
+    <span className="cds--visually-hidden" role="status" aria-live="polite" aria-atomic="true">{unseen > 0 ? `Background work: ${newLabel}.` : ''}</span>
+    {open && <div id="kh-background-work" ref={panelRef} className="kh-background-work" role="region" aria-labelledby="kh-background-work-title" tabIndex={-1}>
+      <div className="kh-background-work__header">
+        <div><h2 id="kh-background-work-title">Background work</h2><p>{detail || 'Saved results and recent activity'}</p></div>
+        <button type="button" className="kh-background-work__close" aria-label="Close background work" title="Close background work"
+          onClick={() => { setOpen(false); triggerRef.current?.focus(); }}><Close size={20} /></button>
       </div>
-    </li>)}</ul>
-    {recent.isPending && <p role="status">Loading recent work...</p>}
-    {recent.isError && <p role="alert">{describeApiError(recent.error)} <button type="button" className="kh-btn-ghost" onClick={() => { void recent.refetch(); }}>Retry</button></p>}
-    {!recent.isPending && !recent.isError && !assignments.isPending && !assignments.isError && !shown.length && !assignmentRows.length && <p>No recent specialist jobs.</p>}
-    <ul className="kh-background-work__list">{shown.map(job => <li key={job.id} aria-busy={isActiveAgentJob(job)}>
-      <div><strong>{job.specialistName}</strong><span className={`kh-background-work__state kh-background-work__state--${job.status}`}>{job.status === 'done' ? 'Completed' : job.status}</span></div>
-      <p>{job.subjectTitle || 'Untitled work'}</p>
-      <p>{isActiveAgentJob(job) ? job.progress.at(-1) ?? 'Waiting for a worker.'
-        : job.status === 'failed' ? job.error ?? 'The job could not finish. Open the source to review it.'
-          : job.summary ?? 'The result has been saved. Completion does not imply review or publication.'}</p>
-      <Link to={specialistLink(typeof job.result?.url === 'string' ? job.result.url : job.subjectUrl, window.location.href)} onClick={() => { setOpen(false); }}>
-        {job.status === 'done' ? 'Open result' : 'Open source'}
-      </Link>
-    </li>)}</ul>
+      <div className="kh-background-work__body">
+        {(recent.isPending || assignments.isPending) && <p className="kh-background-work__notice" role="status">Loading background work...</p>}
+        {recent.isError && <p className="kh-background-work__notice kh-background-work__error" role="alert">{describeApiError(recent.error)} <button type="button" className="kh-background-work__action" onClick={() => { void recent.refetch(); }}>Retry jobs</button></p>}
+        {assignments.isError && <p className="kh-background-work__notice kh-background-work__error" role="alert">{describeApiError(assignments.error)} <button type="button" className="kh-background-work__action" onClick={() => { void assignments.refetch(); }}>Retry assignments</button></p>}
+        {!recent.isPending && !recent.isError && !assignments.isPending && !assignments.isError && !items.length && <p className="kh-background-work__notice">No recent work. Jobs you start will appear here; you can keep working elsewhere.</p>}
+        {groups.map(group => {
+          let readRows = 0;
+          const rows = items.filter(item => item.group === group.id).filter(item =>
+            group.id === 'active' || item.updates.some(update => !update.seen) || readRows++ < 8);
+          if (!rows.length) return null;
+          return <section key={group.id} className="kh-background-work__section" aria-labelledby={`kh-work-${group.id}`}>
+            <h3 id={`kh-work-${group.id}`}>{group.title}<span>{rows.length}</span></h3>
+            <ul className="kh-background-work__list">{rows.map(item => {
+              const unread = item.updates.some(update => !update.seen);
+              const assignment = item.assignment;
+              return <li key={item.id} className={`kh-background-work__item kh-background-work__item--${item.tone}${unread ? ' kh-background-work__item--unread' : ''}`} aria-busy={busy?.id === assignment?.id && busy !== null}>
+                <span className="kh-background-work__icon" aria-hidden="true">{item.tone === 'active' ? <InProgress size={18} /> : item.tone === 'attention' ? <WarningFilled size={18} /> : <CheckmarkFilled size={18} />}</span>
+                <div className="kh-background-work__content">
+                  <div className="kh-background-work__meta"><span>{item.source}</span><time dateTime={item.at} title={new Date(item.at).toLocaleString('en-GB')}>{new Date(item.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</time></div>
+                  <p className="kh-background-work__title">{item.title}</p>
+                  <div className="kh-background-work__state">{item.state}{unread && <span className="kh-background-work__unread">New</span>}</div>
+                  {item.message && <details className="kh-background-work__details"><summary>{item.group === 'active' ? 'Progress' : item.group === 'attention' ? 'What needs attention' : 'Result details'}</summary><p>{item.message}</p></details>}
+                  {actionError?.id === assignment?.id && <p className="kh-background-work__error" role="alert">{actionError?.message}</p>}
+                  <div className="kh-background-work__actions">
+                    {item.url && <Link to={specialistLink(item.url, window.location.href)} onClick={() => { acknowledge(item); setOpen(false); }}>{item.linkLabel}<ArrowRight size={14} aria-hidden="true" /></Link>}
+                    {!item.url && unread && <button type="button" className="kh-background-work__action" onClick={() => { acknowledge(item); }}>Mark read</button>}
+                    {assignment && (isActiveAssignment(assignment) || assignment.status === 'waiting') && <button type="button"
+                      className="kh-background-work__action kh-background-work__action--cancel" disabled={busy !== null || assignments.isError}
+                      aria-label={`Cancel assignment: ${assignment.title}`} onClick={() => { void changeAssignment(assignment, 'cancel'); }}>
+                      {busy?.id === assignment.id && busy.action === 'cancel' ? 'Cancelling...' : 'Cancel'}
+                    </button>}
+                    {assignment?.status === 'waiting' && <button type="button" className="kh-background-work__action"
+                      disabled={busy !== null || assignments.isError} onClick={() => { void changeAssignment(assignment, 'resume'); }}>
+                      {busy?.id === assignment.id && busy.action === 'resume' ? 'Requesting resume...' : 'Request resume'}
+                    </button>}
+                  </div>
+                </div>
+              </li>;
+            })}</ul>
+          </section>;
+        })}
+        <details className="kh-background-work__imports">
+          <summary>Daily Insights imports</summary>
+          {imports.isPending && <p role="status">Loading import status...</p>}
+          {imports.isError && <p className="kh-background-work__error" role="alert">{describeApiError(imports.error)} <button type="button" className="kh-background-work__action" onClick={() => { void imports.refetch(); }}>Retry</button></p>}
+          {!imports.isPending && !imports.isError && !imports.data?.length && <p>No scheduled import. Local folder sync may still run separately.</p>}
+          <ul className="kh-background-work__list">{imports.data?.map(({ job, run }) => <li key={job.id} className="kh-background-work__import">
+            <p className="kh-background-work__title">{job.definition.name}</p>
+            <p>{run ? submittedToMetis(run) ? 'Handed to Metis; follow its job above.' : runStatusLabel(run) : 'Not run yet'}{!job.enabled ? ' · Schedule paused' : ''}</p>
+            {run && <p className="kh-background-work__meta">{new Date(run.scheduledAt).toLocaleString('en-GB', { timeZone: job.definition.schedule.timezone })} · {job.definition.schedule.timezone}</p>}
+            {run && ['failed', 'partial', 'rejected', 'missed', 'unconfirmed'].includes(run.status) && typeof run.artifacts.error === 'string' && <p className="kh-background-work__error">{run.artifacts.error}</p>}
+            <Link to={`/jobs?${new URLSearchParams({ jobId: job.id, ...(run ? { runId: run.id } : {}) })}`} onClick={() => { setOpen(false); }}>{run ? 'View import run' : 'View schedule'}<ArrowRight size={14} aria-hidden="true" /></Link>
+          </li>)}</ul>
+        </details>
+      </div>
+      <div className="kh-background-work__footer">
+        <span>{unseen ? newLabel : 'Latest activity · all updates read'}</span>
+        <button type="button" className="kh-background-work__action" disabled={!unseen} onClick={() => { markJobUpdatesSeen(); }}>Mark all read</button>
+      </div>
     </div>}
   </>;
 };

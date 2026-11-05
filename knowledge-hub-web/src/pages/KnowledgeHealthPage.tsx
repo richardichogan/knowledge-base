@@ -30,6 +30,7 @@ const UsageSummary: React.FC<{ totals: HealthUsageTotals }> = ({ totals }) => (
   <dl className="kh-health__stats">
     <div><dt>Model calls</dt><dd>{number.format(totals.calls)}</dd></div>
     <div><dt>Failed calls</dt><dd>{number.format(totals.failures)}</dd></div>
+    <div><dt>Partial responses</dt><dd>{totals.partialCalls === undefined ? 'Unmeasured' : number.format(totals.partialCalls)}</dd></div>
     <div><dt>Usage reported</dt><dd>{number.format(totals.measuredCalls)} of {number.format(totals.calls)}</dd></div>
     <div><dt>Total tokens</dt><dd>{tokenCell(totals, totals.totalTokens)}</dd></div>
     <div><dt>Average latency</dt><dd>{totals.avgLatencyMs === null ? 'No calls' : `${number.format(totals.avgLatencyMs)} ms`}</dd></div>
@@ -43,8 +44,28 @@ const WorkflowHealth: React.FC<{ data: HealthWorkflowData }> = ({ data }) => (
         'Running / interrupted': data.totals.unfinished, 'Review blocked': data.totals.reviewBlocked, 'Delivered to blog': data.totals.delivered })
         .map(([label, count]) => <div key={label}><dt>{label}</dt><dd>{number.format(count)}</dd></div>)}
     </dl>
+    <h3>Failures and partial results</h3>
+    {!data.failureDiagnostics
+      ? <p>Failure diagnostics are unavailable from this backend version.</p>
+      : data.failureDiagnostics.length === 0
+        ? <p>No failed or partial model calls or workflows match these filters. Older runs without diagnostics are not inferred.</p>
+      : <HealthDataTable label="Workflow failure diagnostics"
+          headers={<tr><th>Source</th><th>Feature</th><th>Status</th><th>Stage</th><th>Category</th><th>Occurrences</th></tr>}
+          rows={data.failureDiagnostics.map((failure, index) => (
+            <tr key={`${failure.source}-${failure.feature}-${failure.status}-${failure.stage ?? 'unknown'}-${failure.code}-${index}`}>
+              <td>{failure.source}</td>
+              <td><span className="kh-health__tag">{failure.feature}</span></td>
+              <td>{failure.status}</td>
+              <td>{failure.stage ?? 'Unrecorded'}</td>
+              <td>{failure.code.replaceAll('-', ' ')}</td>
+              <td>{number.format(failure.occurrences)}</td>
+            </tr>
+          ))} />}
+    <p className="kh-health__note">Categories are fixed labels; raw provider errors, prompts and content are not shown. New failures are classified; historical failures without a category remain unclassified.</p>
+    {data.failureDiagnosticsTruncated && <p className="kh-health__note">Showing the 100 largest diagnostic groups. Narrow the filters for more detail.</p>}
+    <p className="kh-health__note">Workflow and model-call observations can describe the same incident; do not add them together. Partial responses contain usable but incomplete text.</p>
     <p className="kh-health__note">{number.format(data.attributedCalls)} calls linked to a workflow run; {number.format(data.unattributedCalls)} calls lack a workflow-run link (feature labels may still be recorded). This measures diagnostic coverage, not performance or success.
-      Historical calls are not guessed or backfilled. Completed means the operation returned, not that its output was accepted.
+      Historical workflow links are not guessed or backfilled. Completed means the operation returned, not that its output was accepted.
       Review and delivery counts overlap completion counts. Workflow dates use start time; call metrics use the selected window and filters.
       Running records may be unfinished after a stopped process.</p>
     {data.runs.length === 0 ? <p>No attributed workflows match these filters. Existing historical jobs are not retroactively included.</p>
@@ -55,7 +76,7 @@ const WorkflowHealth: React.FC<{ data: HealthWorkflowData }> = ({ data }) => (
             <details className="kh-health__details"><summary>Stage usage</summary>
               {data.stages.filter(stage => stage.runId === run.id).length === 0 ? <p>No measured stage calls.</p>
                 : <ul>{data.stages.filter(stage => stage.runId === run.id).map(stage => <li key={stage.stage}>
-                  <strong>{stage.stage}</strong>: {number.format(stage.calls)} calls · {stage.tokens === null ? 'tokens not measured' : `${number.format(stage.tokens)} tokens`} · {stage.failures} failed · {number.format(Math.round(stage.durationMs / 1000))} s summed model-call time
+                  <strong>{stage.stage}</strong>: {number.format(stage.calls)} calls · {stage.tokens === null ? 'tokens not measured' : `${number.format(stage.tokens)} tokens`} · {stage.failures} failed · {stage.partialCalls === undefined ? 'partial responses unmeasured' : `${stage.partialCalls} partial`} · {number.format(Math.round(stage.durationMs / 1000))} s summed model-call time
                 </li>)}</ul>}
             </details></td>
               <td><span className="kh-health__tag">{run.purpose}</span></td><td><span className="kh-health__tag">{run.status}</span>{run.outcome ? ` · ${run.outcome}` : ' · Outcome unknown'}</td>
@@ -96,7 +117,7 @@ export const KnowledgeHealthPage: React.FC = () => {
     setAthenaContext({
       type: 'knowledge-health', id: 'knowledge-health', title: 'Knowledge health instrumentation',
       detail: JSON.stringify({ filters: applied, generatedAt: query.data?.generatedAt,
-        measurements: query.data?.measurements, reliability: query.data?.reliability, traceSelection, tablePages,
+        measurements: query.data?.measurements, reliability: query.data?.reliability, artifactOutcomes: query.data?.artifactOutcomes, traceSelection, tablePages,
         activeDetailTab: ['AI usage', 'Workflows', 'Source sync', 'Retrieval quality', 'Knowledge coverage', 'Index freshness', 'Turn measurements', 'Traces and evaluations'][detailTab],
         workflowOutcomes: query.data?.workflows?.available ? query.data.workflows.data.outcomes : null,
         loading: query.isFetching, error: query.isError ? 'Health could not be loaded' : null,
@@ -173,11 +194,11 @@ export const KnowledgeHealthPage: React.FC = () => {
                 </p>
                 {query.data.usage.data.rows.length === 0 ? <p>No model calls were recorded for these filters.</p> : (
                   <HealthDataTable label="AI usage by feature, persona and deployment"
-                    headers={<tr><th>Feature</th><th>Persona</th><th>Deployment</th><th>Calls</th><th>Failed</th><th>Prompt (cached)</th><th>Completion (reasoning)</th><th>Latency</th></tr>}
+                    headers={<tr><th>Feature</th><th>Persona</th><th>Deployment</th><th>Calls</th><th>Failed</th><th>Partial</th><th>Prompt (cached)</th><th>Completion (reasoning)</th><th>Latency</th></tr>}
                     rows={query.data.usage.data.rows.map(row => (
                           <tr key={`${row.feature}|${row.persona ?? ''}|${row.deployment}`}>
                             <td><span className="kh-health__tag">{query.data.filters.environment}</span> <span className="kh-health__tag">{row.feature}</span></td><td>{row.persona ?? '—'}</td><td>{row.deployment}</td>
-                            <td>{number.format(row.calls)}</td><td>{number.format(row.failures)}</td>
+                            <td>{number.format(row.calls)}</td><td>{number.format(row.failures)}</td><td>{row.partialCalls === undefined ? 'Unmeasured' : number.format(row.partialCalls)}</td>
                             <td>{row.measuredCalls === 0 ? 'Not measured' : `${number.format(row.promptTokens)} (${number.format(row.cachedPromptTokens)})`}</td>
                             <td>{row.measuredCalls === 0 ? 'Not measured' : `${number.format(row.completionTokens)} (${number.format(row.reasoningCompletionTokens)})`}</td>
                             <td>{row.avgLatencyMs === null ? '—' : `${number.format(row.avgLatencyMs)} ms`}</td>
@@ -196,6 +217,25 @@ export const KnowledgeHealthPage: React.FC = () => {
             {!query.data.workflows ? <p>Workflow attribution is not available from this server version.</p>
               : !query.data.workflows.available ? <Unavailable title="Workflow outcomes" section={query.data.workflows} />
                 : <WorkflowHealth data={query.data.workflows.data} />}
+            <h3>Recorded artifact outcomes</h3>
+            {!query.data.artifactOutcomes ? <p>Artifact outcome measurements are unavailable from this backend version.</p>
+              : !query.data.artifactOutcomes.available ? <Unavailable title="Artifact outcomes" section={query.data.artifactOutcomes} />
+                : <>
+                  <dl className="kh-health__stats">
+                    <div><dt>Generated versions recorded</dt><dd>{number.format(query.data.artifactOutcomes.data.generatedVersions)}</dd></div>
+                    <div><dt>Distinct generated items</dt><dd>{number.format(query.data.artifactOutcomes.data.generatedTargets)}</dd></div>
+                    <div><dt>AI versions with changed user saves</dt><dd>{number.format(query.data.artifactOutcomes.data.editedVersions)}</dd></div>
+                  </dl>
+                  <p className="kh-health__note">{query.data.artifactOutcomes.data.note}</p>
+                  {query.data.artifactOutcomes.data.decisions.length === 0 ? <p>No user decision records in this runtime/window. Acceptance and rework are unmeasured, not zero.</p>
+                    : <HealthDataTable label="Recorded user decisions on artifacts"
+                      headers={<tr><th>Decision</th><th>Item type</th><th>Records</th><th>Distinct items</th><th>Linked to AI version</th></tr>}
+                      rows={query.data.artifactOutcomes.data.decisions.map(row => <tr key={`${row.kind}:${row.targetType}`}>
+                        <td>{row.kind.replaceAll('-', ' ')}</td><td>{row.targetType.replaceAll('-', ' ')}</td>
+                        <td>{number.format(row.events)}</td><td>{number.format(row.targets)}</td><td>{number.format(row.linkedEvents)}</td>
+                      </tr>)} />}
+                  {query.data.artifactOutcomes.data.rowsTruncated && <p className="kh-health__note">Showing the 50 largest decision groups. Narrow the date range for more detail.</p>}
+                </>}
           </section>
                 </TabPanel>
                 <TabPanel>

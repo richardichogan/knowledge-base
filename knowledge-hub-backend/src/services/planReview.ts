@@ -60,7 +60,7 @@ async function openTasks(db: Pool): Promise<OpenTask[]> {
     `SELECT id::text, title, LEFT(body, 300) AS body, status, priority, project_id, to_char(due_date, 'YYYY-MM-DD') AS due_date, waiting_on,
             created_at::text, updated_at::text
        FROM tasks
-      WHERE archived = false AND status IN ('backlog', 'in-progress', 'waiting')
+      WHERE archived = false AND status IN ('backlog', 'in-progress', 'blocked', 'waiting')
       ORDER BY due_date ASC NULLS LAST, updated_at ASC
       LIMIT $1`,
     [MAX_TASKS],

@@ -154,7 +154,7 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
          ${where ? where.replace(/status/g, 't.status').replace(/project_id/g, 't.project_id') : ''}
          GROUP BY t.id, o.target_type, o.target_id, o.target_title, o.target_url
          ORDER BY
-           CASE t.status WHEN 'inbox' THEN 0 WHEN 'in-progress' THEN 1 WHEN 'waiting' THEN 2 WHEN 'backlog' THEN 4 WHEN 'completed' THEN 5 END,
+           CASE t.status WHEN 'inbox' THEN 0 WHEN 'in-progress' THEN 1 WHEN 'blocked' THEN 2 WHEN 'waiting' THEN 3 WHEN 'backlog' THEN 4 WHEN 'completed' THEN 5 END,
            CASE t.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'normal' THEN 3 WHEN 'low' THEN 4 END,
            t.created_at DESC`,
         params,

@@ -5,7 +5,7 @@ import { test, type TestContext } from 'node:test';
 import { Pool } from 'pg';
 import { PGlite } from '@electric-sql/pglite';
 import {
-  ASSIGNMENT_STATES, MANUAL_BLOG_STEPS, WORKFORCE_ROLES, canTransition, commissionSignature, contentSignature,
+  AGENT_PROTOCOL_VERSION, ASSIGNMENT_STATES, MANUAL_BLOG_STEPS, WORKFORCE_ROLES, canTransition, commissionSignature, contentSignature,
   isTerminalAssignment, parseAssignmentBrief, parseBudgetLimits, parseReviewFindings, type AssignmentBrief,
 } from '../src/agents/workforce/contracts.js';
 import {
@@ -155,8 +155,9 @@ async function fixture(t: TestContext) {
   for (const name of ['027_ai_chat_sessions.sql', '038_ai_chat_pins_titles_sources.sql', '124_workforce_chat_notices.sql', '124_workforce_chat_notices.sql', '125_workforce_notice_acknowledgement.sql', '125_workforce_notice_acknowledgement.sql', '126_workforce_blog_revisions.sql', '126_workforce_blog_revisions.sql']) {
     await pg.exec(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), 'utf8'));
   }
-  await pg.exec('CREATE TABLE ai_usage_log(id UUID PRIMARY KEY)');
+  await pg.exec('CREATE TABLE ai_usage_log(id UUID PRIMARY KEY,ok BOOLEAN,error TEXT,feature TEXT)');
   await pg.exec(await readFile(new URL('../src/db/migrations/117_ai_workflow_attribution.sql', import.meta.url), 'utf8'));
+  await pg.exec(await readFile(new URL('../src/db/migrations/145_ai_workflow_failure_diagnostics.sql', import.meta.url), 'utf8'));
   const fault = { failNoticeTimestamp: false };
   const advisoryLocks: string[] = [];
   const query = async (sql: string, values?: unknown[]) => {
@@ -1177,7 +1178,7 @@ test('assignment claims preserve pool/protocol isolation, renew only the owner a
   assert.equal(await claim(randomUUID(), 'other-pool'), null);
   await pg.query('UPDATE agent_jobs SET protocol_version=99 WHERE assignment_id=$1', [created.id]);
   assert.equal(await claim(), null);
-  await pg.query('UPDATE agent_jobs SET protocol_version=2 WHERE assignment_id=$1', [created.id]);
+  await pg.query('UPDATE agent_jobs SET protocol_version=$2 WHERE assignment_id=$1', [created.id, AGENT_PROTOCOL_VERSION]);
   const first = await claim();
   assert.ok(first);
   assert.equal(first.assignment.status, 'running');

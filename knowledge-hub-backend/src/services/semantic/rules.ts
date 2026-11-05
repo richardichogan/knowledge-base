@@ -65,7 +65,7 @@ const taskBlockedV1: RuleDefinition = {
     const blocked = isBlockedStatus(status);
     return {
       outcome: blocked ? 'matched' : 'not_matched', applicability: 'applicable',
-      explanation: `Current status is "${status}"; ${blocked ? 'Waiting is the app\'s explicit blocked state' : 'it is not the explicit blocked state'}.`,
+      explanation: `Current status is "${status}"; ${blocked ? 'Blocked and Waiting are the app\'s explicit blocked states' : 'it is not an explicit blocked state'}.`,
     };
   },
 };

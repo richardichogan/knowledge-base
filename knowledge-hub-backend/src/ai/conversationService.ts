@@ -23,7 +23,7 @@ import { collectIds, resolveAnswer, stripUnseenIds } from './knowledge/citations
 import { TurnBudget, TRANSCRIPT_REVIEW_BUDGET, DETERMINISTIC_TOOLS, budgetLimitation, finalizeEvidenceAnswer, isDeterministicResultComplete, isKnowledgeOrchestrationEnabled } from './knowledge/budgets.js';
 
 const DISCOVERY_TOOLS = new Set(['search_diagrams', 'search_knowledge_base', 'search_library', 'search_past_chats', 'search_knowledge_graph']);
-const RETRIEVAL_TOOLS = new Set([...DISCOVERY_TOOLS, 'read_diagram', 'read_diagram_versions', 'read_past_chat', 'read_output', 'traverse_relationships', 'read_record_relationships', 'read_knowledge_record', ...STRUCTURED_TOOL_NAMES]);
+const RETRIEVAL_TOOLS = new Set([...DISCOVERY_TOOLS, 'read_diagram', 'read_diagram_versions', 'read_past_chat', 'read_output', 'traverse_relationships', 'read_record_relationships', 'read_knowledge_record', 'read_note_tags', ...STRUCTURED_TOOL_NAMES]);
 import { STRUCTURED_TOOL_NAMES } from './knowledge/structuredTools.js';
 import { buildOutputsBlock } from './chatOutputs.js';
 import { buildDecisionsBlock } from './chatDecisions.js';
@@ -67,9 +67,13 @@ const EXPORT_SEPARATOR = '---';
 const TITLE_SOURCE_CHARS = 1_500;
 const TITLE_MAX_TOKENS = 24;
 const REVIEW_SUPPORTING_CHARS = 24_000;
+const RESEARCH_SUPPORTING_CHARS = 12_000;
 const READ_ENVELOPE_CHARS = 4_000;
 const JSON_CHAR_EXPANSION = 6;
 const MIN_READ_PAGE_CHARS = 256;
+const RESEARCH_READING_BATCH_TOKENS = 4_000;
+const BOUNDED_RESEARCH_READS = 4;
+const BOUNDED_RESEARCH_READ_CHARS = 24_000;
 const NOT_FOLLOWED_LIVE = (): void => { /* not followed live */ };
 
 const READ_ONLY_REFUSAL = 'This request is read-only: it permits reading context and saving Outputs where allowed. The source note and other records cannot be changed.';
@@ -109,6 +113,10 @@ export interface TurnHooks {
   /** Bounded workers can expose approved research schemas without a separate loading round. */
   initialTools?: readonly string[];
   maxToolRounds?: number;
+  /** Staged research retains bounded derived memory instead of accumulating full internal originals. */
+  checkpointSources?: boolean;
+  /** Research comparisons use search results and only a few targeted internal passages. */
+  boundedResearchReads?: boolean;
   /** Filled in with what the reply drew on (the "Used:" line). */
   contextUsed?: ContextUsed;
   /** Route persists this after the accepted reply has an assistant-message id. */
@@ -285,9 +293,13 @@ It proves persistence of that revision, not visual correctness or that the open 
   let retrievalScope: RetrievalScope | undefined;
   let declaredScopeKey: string | undefined;
   let documentReview = false;
+  let boundedResearchReadsUsed = 0;
+  let boundedResearchCharsUsed = 0;
   const retrievalAudit = createRetrievalAudit();
-  const reviewBlock = '## Source reading\nInterpret the requested review depth from the conversation, not the document type or isolated words. Ask only if a consequential choice is unresolved. For a full review, request the actual sources with read_knowledge_record(fullDocument:true, purpose:the requested review). The server supplies complete original text when the combined context fits; only oversized evidence needs checkpointed synthesis. Request independent source reads together when their identities are known. Compare the supplied originals directly and answer the review; do not make a separate summarisation pass per retrieval page or reread a source already fully supplied in this turn. For a quick reaction use supplied material without inventing missing facts. Search previews are not a full document read. For an earlier discussion, search_past_chats and read_past_chat supply the original exchanges; a related note is not a substitute.' +
-    (toolContext.noteId === undefined ? '' : ` Open record identity: ${JSON.stringify(toolContext.noteId)}. An open record is not automatically the subject of the request.`);
+  const reviewBlock = hooks.boundedResearchReads === true
+    ? '## Source reading\nThis is a bounded research comparison, not a full-document review. Search for the most relevant internal evidence and use only targeted one-page reads with fullDocument:false. Do not request complete manuals, deployment plans or other large documents; the server enforces a maximum of four internal pages and 24,000 characters for this comparison. Search previews may guide which passage to read but are not proof. If the bounded evidence cannot establish current implementation, state that it is unverified. Do not continue reading after the limit.'
+    : '## Source reading\nInterpret the requested review depth from the conversation, not the document type or isolated words. Ask only if a consequential choice is unresolved. For a full review, request the actual sources with read_knowledge_record(fullDocument:true, purpose:the requested review). The server supplies complete original text when the combined context fits; only oversized evidence needs checkpointed synthesis. Request independent source reads together when their identities are known. Compare the supplied originals directly and answer the review; do not make a separate summarisation pass per retrieval page or reread a source already fully supplied in this turn. For a quick reaction use supplied material without inventing missing facts. Search previews are not a full document read. For an earlier discussion, search_past_chats and read_past_chat supply the original exchanges; a related note is not a substitute.' +
+      (toolContext.noteId === undefined ? '' : ` Open record identity: ${JSON.stringify(toolContext.noteId)}. An open record is not automatically the subject of the request.`);
   const design = toolContext.designOwner ? await getDesign(db, toolContext.designOwner) : undefined;
   const designBlock = design ? `## Working Design package (server-resolved)
 The conversation belongs to Design ${JSON.stringify(design.title)} (parent ${design.parentNoteId}), not an independent note.
@@ -358,7 +370,7 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
     const filtered = scope !== undefined && Object.keys(scope.filter).length > 0;
     if (!filtered && projectId === null) return true;
     if (name === LOAD_TOOLS || WRITE_TOOLS.has(name)) return true;
-    if (name === 'search_knowledge_base' || name === 'read_knowledge_record') return true;
+    if (name === 'search_knowledge_base' || name === 'read_knowledge_record' || name === 'read_note_tags') return true;
     if (name === 'fetch_web_page') return filtered && projectId === null;
     // Other readers do not enforce content filters. Structured queries and Design reads enforce project IDs only.
     return !filtered && (BUILD_READ_TOOLS.includes(name as typeof BUILD_READ_TOOLS[number]) || name === 'read_use_case'
@@ -426,7 +438,8 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
   const orchestrated = isKnowledgeOrchestrationEnabled();
   const ledger = orchestrated ? createLedger() : undefined;
   const budget = orchestrated
-    ? new TurnBudget(hooks.signal)
+    ? new TurnBudget(hooks.signal, hooks.boundedResearchReads === true
+      ? { retrievalWallMs: TRANSCRIPT_REVIEW_BUDGET.retrievalWallMs } : {})
     : undefined;
   let citationRepairs = 0;
   const FOUND_OPEN_RESERVE_ROUNDS = 2;
@@ -642,7 +655,8 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
       const requestedArgs = parseToolArgs(call.function.arguments);
       await recordTurnTrace('tool.request', { callId: call.id, name: call.function.name, arguments: requestedArgs });
       const diagramRead = call.function.name === 'read_diagram';
-      const wholeReadRequested = (call.function.name === 'read_knowledge_record' || diagramRead) && sessionId !== undefined
+      const boundedResearchRead = hooks.boundedResearchReads === true && call.function.name === 'read_knowledge_record';
+      const wholeReadRequested = !boundedResearchRead && (call.function.name === 'read_knowledge_record' || diagramRead) && sessionId !== undefined
         && (diagramRead || requestedArgs['fullDocument'] !== false && (documentReview || requestedArgs['fullDocument'] === true || requestedArgs['resumeReading'] === true))
         && requestedArgs['cursor'] === undefined && requestedArgs['offset'] === undefined && requestedArgs['memoryReviewId'] === undefined;
       const documentReadKey = JSON.stringify(diagramRead ? ['diagram', requestedArgs['diagramId']] : [requestedArgs['kind'], requestedArgs['id']]);
@@ -686,7 +700,7 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
           messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) });
           continue;
         }
-        if (wholeReadRequested || call.function.name === 'read_knowledge_record'
+        if (wholeReadRequested || !boundedResearchRead && call.function.name === 'read_knowledge_record'
           && (requestedArgs['fullDocument'] === true || requestedArgs['resumeReading'] === true)) {
           documentReview = true;
           budget?.useDocumentReviewLimits();
@@ -697,6 +711,31 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
           result = { partial: true, note: `${budgetLimitation(budget as TurnBudget)} Do not search again; answer from what was read and say not everything was checked.` };
         } else {
           let toolArguments = call.function.arguments;
+          if (boundedResearchRead) {
+            const remainingChars = BOUNDED_RESEARCH_READ_CHARS - boundedResearchCharsUsed;
+            if (boundedResearchReadsUsed >= BOUNDED_RESEARCH_READS || remainingChars < MIN_READ_PAGE_CHARS) {
+              result = { partial: true, code: 'bounded_research_read_limit',
+                note: 'The bounded internal comparison reached its four-page or 24,000-character limit. Use already supplied evidence and state any remaining uncertainty; do not request full documents.' };
+              await recordTurnTrace('tool.result', { callId: call.id, name: call.function.name, content: JSON.stringify(result) });
+              hooks.onToolResult?.(call.function.name, result);
+              messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) });
+              continue;
+            }
+            const args = parseToolArgs(toolArguments);
+            const requested = args['maxChars'];
+            const pageChars = Math.min(
+              typeof requested === 'number' && Number.isSafeInteger(requested) && requested > 0 ? requested : DEFAULT_PAGE_CHARS,
+              DEFAULT_PAGE_CHARS, remainingChars,
+            );
+            args['fullDocument'] = false;
+            args['resumeReading'] = false;
+            delete args['memoryReviewId'];
+            delete args['memoryOffset'];
+            args['maxChars'] = pageChars;
+            boundedResearchReadsUsed++;
+            boundedResearchCharsUsed += pageChars;
+            toolArguments = JSON.stringify(args);
+          }
           if (budget !== undefined && call.function.name === 'read_knowledge_record' && !wholeReadRequested) {
             const args = parseToolArgs(toolArguments);
             const room = Math.floor((budget.remainingSourceChars() - READ_ENVELOPE_CHARS) / JSON_CHAR_EXPANSION);
@@ -752,7 +791,7 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
               };
               const availableTokens = remainingReviewTokens(client.reviewContextTokens(model, hooks.modelRoute), messages, tools, maxTokens);
               // Leave room for another source's checkpointed synthesis in a multi-document review.
-              const direct = args['resumeReading'] === true ? null : await readDirectDocument({
+              const direct = hooks.checkpointSources === true || args['resumeReading'] === true ? null : await readDirectDocument({
                 read, availableTokens: Math.max(0, availableTokens - REVIEW_CONTEXT_RESERVE), signal: hooks.signal,
                 onProgress: text => { hooks.onActivity?.(text); hooks.onReadingProgress?.(); },
               });
@@ -772,10 +811,11 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
               const reviewed = await readWholeDocument(db, {
                 sessionId, scopeKey: JSON.stringify({ strictProjectId, filter: retrievalScope?.filter }),
                 purpose: typeof args['purpose'] === 'string' ? args['purpose'] : userMessage,
-                resume: args['resumeReading'] === true, batchTokens: READING_BATCH_TOKENS,
+                resume: args['resumeReading'] === true,
+                batchTokens: hooks.checkpointSources === true ? RESEARCH_READING_BATCH_TOKENS : READING_BATCH_TOKENS,
                 signal: hooks.signal, read,
                 onProgress: text => { hooks.onActivity?.(text); hooks.onReadingProgress?.(); },
-                ...modelReadingSteps(readingClient, hooks.signal),
+                ...modelReadingSteps(readingClient, hooks.signal, hooks.checkpointSources !== true),
               });
               if ('review' in reviewed) {
                 retrievalAudit.documentReviews++;
@@ -832,7 +872,8 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
       if (budget !== undefined && ledger !== undefined && RETRIEVAL_TOOLS.has(call.function.name) && !checkpointReview && !failedRead && !directRead) {
         const supportingLookup = DISCOVERY_TOOLS.has(call.function.name)
           || documentReview && call.function.name !== 'read_knowledge_record';
-        const admitted = budget.admitResult(result, supportingLookup ? REVIEW_SUPPORTING_CHARS : undefined);
+        const supportingChars = hooks.boundedResearchReads === true ? RESEARCH_SUPPORTING_CHARS : REVIEW_SUPPORTING_CHARS;
+        const admitted = budget.admitResult(result, supportingLookup ? supportingChars : undefined);
         result = admitted.result;
         toolContent = admitted.content;
       }

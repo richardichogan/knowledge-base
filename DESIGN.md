@@ -171,6 +171,11 @@ utility buttons and technical metadata, not as the default reading face.
 | Item / panel title | 18px (`--kh-heading-item`, `--kh-panel-title`) | Semibold |
 | Section inside a panel | 15px (`--kh-section-title`) | Semibold |
 
+Think note body text uses `--kh-note-text-body`: the 14px body token plus
+2pt (16.667px at the default root size), in both the editor and its HTML view.
+Navigation, metadata, toolbar text and the explicit heading scale stay unchanged.
+Authored text-size overrides are preserved.
+
 Expanded reading/detail titles in Discover and Today (including the shared
 Plan task detail) use 32px, increasing to 40px in detail panes at least 700px
 wide, with semibold weight and 1.25/1.2 line height. This shared reading-title
@@ -188,7 +193,7 @@ use line heights around 1.6-1.7; navigation uses about 1.4.
 
 ## Layout
 
-The current shell has a **48px fixed top header** (`--kh-header-height`) and a
+The current shell has a **44px fixed top header** (`--kh-header-height`, with an inset divider) and a
 flex content region below it. Primary destinations are in the header; secondary
 tools live in a menu. Do not invent a permanent sidebar simply because an old
 `--sidebar-width` variable exists.

@@ -9,6 +9,80 @@ import { activateNoteOnKeyDown, loadedNotes, nextNotesPage, noteListQuery, noteD
 import type { NoteListItem } from '../src/notes/types';
 import { api } from '../src/services/api';
 import type { NoteSummary } from '../src/types/contentItem';
+import type { TaxonomyTag } from '../src/services/api';
+import { NoteTagFolders, tagFolderPath } from '../src/notes/NoteTagFolders';
+import { expandTagIds } from '../src/hooks/useTaxonomy';
+import { withThinkContext, type ThinkNavigationContext } from '../src/context/AthenaContext';
+
+const parentTag: TaxonomyTag = { id: '11111111-1111-4111-8111-111111111111', name: 'Research', slug: 'research',
+  parentId: null, colour: null, role: 'filing', projectId: null, usageCount: 0 };
+const childTag: TaxonomyTag = { ...parentTag, id: '22222222-2222-4222-8222-222222222222', name: 'AI', slug: 'ai', parentId: parentTag.id };
+const tagTree = [{ ...parentTag, children: [childTag] }];
+
+test('tag folders reuse taxonomy descendants without replacing tag editing', () => {
+  assert.deepEqual([...expandTagIds(parentTag.id, tagTree)], [parentTag.id, childTag.id]);
+  assert.deepEqual([...expandTagIds(childTag.id, tagTree)], [childTag.id]);
+  assert.equal(tagFolderPath(childTag, tagTree), 'Research / AI');
+  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+  client.setQueryData(['taxonomy'], tagTree);
+  client.setQueryData(['note-tags', 'note-0'], [childTag]);
+  try {
+    const html = renderToStaticMarkup(<QueryClientProvider client={client}>
+      <NoteTagFolders selectedId={parentTag.id} onSelect={() => undefined} collapsed={false} onToggleCollapsed={() => undefined} />
+    </QueryClientProvider>);
+    assert.match(html, /aria-label="Browse notes by tag"/);
+    assert.match(html, /aria-current="true"[^>]+title="Research \(includes child tags\)"/);
+    assert.match(html, /aria-expanded="false"/);
+    assert.match(html, /title="Research \/ AI"/);
+    assert.doesNotMatch(html, /notes-tag-paths/);
+    assert.match(html, /All notes/);
+    assert.match(html, /aria-label="Collapse tag section"/);
+    const collapsed = renderToStaticMarkup(<QueryClientProvider client={client}>
+      <NoteTagFolders selectedId={parentTag.id} onSelect={() => undefined} collapsed onToggleCollapsed={() => undefined} />
+    </QueryClientProvider>);
+    assert.match(collapsed, /aria-label="Expand tag section"/);
+    assert.match(collapsed, /class="notes-tag-folders__scroll" hidden=""/);
+    assert.match(collapsed, /aria-current="true"[^>]+title="Research \(includes child tags\)"/);
+  } finally { client.clear(); }
+});
+
+test('explicit folder filters reach every summary page, without reviving old hidden query filters', async () => {
+  const original = api.getNoteSummaries;
+  const calls: unknown[] = [];
+  api.getNoteSummaries = async (page, pageSize, query) => {
+    calls.push(query);
+    return { success: true, data: { items: [], total: 0, page: page!, pageSize: pageSize!, hasMore: false } };
+  };
+  try {
+    const tagIds = `${parentTag.id},${childTag.id}`;
+    await fetchNotesPage(2, { q: 'evidence', sort: 'modified' }, 'designs', { tagIds, excludeContentType: 'definition' });
+    await fetchNotesPage(1, { sort: 'title' }, 'flat', { tagIds, contentType: 'definition' });
+    assert.deepEqual(calls, [
+      { q: 'evidence', sort: 'modified', structure: 'designs', tagIds, excludeContentType: 'definition' },
+      { sort: 'title', structure: 'flat', tagIds, contentType: 'definition' },
+    ]);
+  } finally { api.getNoteSummaries = original; }
+});
+
+test('Think filing context preserves the active Design identity, body and revision and clears outside Think', () => {
+  const navigation: ThinkNavigationContext = {
+    selectedTag: { id: childTag.id, path: 'Research / AI', filterTagIds: [childTag.id] },
+    folders: [parentTag, childTag], totalFolders: 2, foldersHasMore: false, folderStatus: 'ready',
+    listCollapsed: false, tagsCollapsed: false,
+    search: '', sort: 'modified', notes: [{ id: 'note-0', title: 'Evidence' }],
+    loadedNotes: 1, totalNotes: 20, hasMore: true, listStatus: 'ready',
+  };
+  const page = { type: 'note', id: 'note-0', title: 'Design', designId: 'design-1', revision: 7, detail: 'Actual source body' };
+  const context = withThinkContext(page, navigation, { noteId: 'note-0', status: 'ready',
+    tags: [{ id: childTag.id, path: 'Research / AI', parentId: parentTag.id }] });
+  assert.equal(context?.designId, page.designId);
+  assert.equal(context?.revision, 7);
+  assert.match(context!.detail!, /Actual source body/);
+  assert.match(context!.detail!, /Saved note filing/);
+  assert.match(context!.detail!, /"hasMore":true/);
+  assert.equal(withThinkContext(page, null, null), page);
+  assert.equal(withThinkContext(null, navigation, null)?.title, 'Think');
+});
 
 const note = (index: number): NoteListItem => ({
   id: `note-${index}`, title: `Note ${index}`, contentType: 'note',
@@ -136,6 +210,13 @@ test('compact header exposes search and native sort without filters or view togg
   assert.doesNotMatch(header, /notes-list-filters|notes-list-arrange|>Group<|>Previews</);
   assert.doesNotMatch(html, /notes-list-item-preview/);
   assert.match(html, /notes-list-item--active/);
+});
+
+test('whole-navigation collapse is available beside search without replacing its controls', () => {
+  const html = renderList({ onCollapse: () => undefined });
+  assert.match(html, /aria-label="Collapse notes and tags to the left"/);
+  assert.match(html, /id="notes-search"/);
+  assert.match(html, /aria-label="Sort notes: Modified"/);
 });
 
 test('persisted sort, project grouping and previews keep their existing behavior', () => {
