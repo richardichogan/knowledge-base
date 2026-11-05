@@ -39,6 +39,13 @@
   production Static Web App. Desktop files are unchanged: no installer release.
 - Evidence: `plan-blocked-*` logs in this session's files. Existing local
   desktop canvas confirmed five horizontally scrolling board columns.
+- Released application commit `5fe183e1` to the branch and main. Backend v307
+  is active as revision `kh-prod-api-vnet--0000304`, Healthy/RunningAtMaxScale
+  with 100% latest-revision traffic. Startup logs confirm migration completion,
+  the warmed pool and production worker; migrations 145 and 146 are recorded.
+- Deployed https://nice-mud-0f780fb03.7.azurestaticapps.net. Served HTML loads
+  `/assets/index-BVqKnkoF.js`; its SHA-256 exactly matches the local release:
+  `07ee7a3ddbed4dde643587a3d65f7c4787644e87daabc689e915eb23d36abf06`.
 
 **Browser visuals auto-start release (2026-11-05):**
 - All validation checks pass:
