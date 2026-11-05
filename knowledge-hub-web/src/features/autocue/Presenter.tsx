@@ -165,6 +165,8 @@ export function Presenter(): React.JSX.Element {
       </section>
       <aside className="kh-presenter__controls" aria-label="Presenter controls">
         <button type="button" disabled={busy || !connected || !desktop.openVisuals} onClick={() => {
+          const issue = script && 'visualIssue' in script ? script.visualIssue : null;
+          if (issue) { setNotice(null); setError(issue); return; }
           if (desktop.openVisuals) void action(() => desktop.openVisuals!());
         }}>Open browser visuals</button>
         <section>

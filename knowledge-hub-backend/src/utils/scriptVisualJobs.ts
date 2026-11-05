@@ -1,4 +1,4 @@
-import { parseScriptVisuals, scriptVisualSource, visualSpokenText, SCRIPT_VISUAL_SOURCE_BUDGET, type ScriptVisuals, type VisualScriptBlock } from './scriptVisuals.js';
+import { parseScriptVisuals, scriptVisualSource, visualSourceCurrent, visualSpokenText, SCRIPT_VISUAL_SOURCE_BUDGET, type ScriptVisuals, type VisualScriptBlock } from './scriptVisuals.js';
 
 export const SCRIPT_VISUAL_SPECIALIST = 'script-visual-designer';
 export const SCRIPT_VISUAL_MAX_SECTIONS = 20;
@@ -57,7 +57,7 @@ export function parseScriptVisualJobResult(value: unknown, noteId: string): Scri
 export function scriptVisualJobEdits(result: ScriptVisualJobResult, blocks: VisualScriptBlock[]): ScriptVisualJobEdit[] {
   return result.sections.flatMap(draft => {
     const section = blocks.find(block => block.id === draft.section.id && block.props?.scriptSection);
-    if (!section || scriptVisualSource(section) !== draft.visuals.source
+    if (!section || !visualSourceCurrent(draft.visuals.source, section)
       || visualSpokenText(section.content) !== visualSpokenText(draft.section.content)) {
       throw new Error('A source section changed or was removed. The pending result is retained; generate a new result for the changed script.');
     }

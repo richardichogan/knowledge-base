@@ -63,8 +63,8 @@ function visualContext(section: NoteContentBlock): string {
   try {
     const visuals = parseScriptVisuals(section.props.scriptVisuals);
     const content = JSON.stringify(visuals.scenes);
-    return `\n[Visuals ${visuals.source === scriptVisualSource(section) ? 'current' : 'stale'}: ${content.length <= 12000 ? content : 'scene data exceeds page context; call read_script_visuals with the section id before answering'}]`;
+    return `\n[Visuals ${visualSourceCurrent(visuals.source, section) ? 'current' : 'stale'}: ${content.length <= 12000 ? content : 'scene data exceeds page context; call read_script_visuals with the section id before answering'}]`;
   } catch (error) { return `\n[Visual access failed: ${error instanceof Error ? error.message : 'invalid visual metadata'}. Do not claim to have read these scenes.]`; }
 }
 import { annotateScriptText, scriptHeadingPrefix } from '../../../knowledge-hub-backend/src/podcasts/scriptAnnotations';
-import { parseScriptVisuals, scriptVisualSource } from '../../../knowledge-hub-backend/src/utils/scriptVisuals';
+import { parseScriptVisuals, visualSourceCurrent } from '../../../knowledge-hub-backend/src/utils/scriptVisuals';

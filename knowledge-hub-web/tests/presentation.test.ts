@@ -13,7 +13,7 @@ import { scriptRichDocument, scriptRichText } from '../src/features/podcasts/scr
 import { scriptAnnotationRuns, scriptInlineContent, scriptReadingText, spokenScriptText } from '../../knowledge-hub-backend/src/podcasts/scriptAnnotations';
 import { annotatedPresentation } from '../src/features/podcasts/scriptAnnotations';
 import { SCRIPT_COLOUR_VALUES } from '../src/features/podcasts/scriptRichText';
-import { parseScriptVisuals, parseVisualArtwork, parseVisualComposition, scriptVisualSource, type VisualScriptBlock } from '../../knowledge-hub-backend/src/utils/scriptVisuals';
+import { parseScriptVisuals, parseVisualArtwork, parseVisualComposition, scriptVisualSource, visualSourceCurrent, type VisualScriptBlock } from '../../knowledge-hub-backend/src/utils/scriptVisuals';
 
 test('layered compositions preserve semantic links and reject unsafe geometry and impossible reveal order', () => {
   const node = { id: 'worker', kind: 'panel', x: 100, y: 300, width: 320, height: 240,
@@ -148,7 +148,36 @@ test('visual cues map exact script blocks into the presented text without copyin
   assert.equal(result.visuals[0]?.items[1]?.at, result.text.indexOf('Show the result'));
   assert.equal(result.text.includes('Not spoken'), false);
   section.children![0]!.content = [{ text: 'The script changed.' }];
-  assert.throws(() => presentationScript(JSON.stringify([section]), { script: true }), /cue|out of date/);
+  const changed = presentationScript(JSON.stringify([section]), { script: true });
+  assert.equal(changed.text.includes('The script changed.'), true);
+  assert.deepEqual(changed.visuals, []);
+  assert.match(changed.visualIssue ?? '', /out of date/);
+});
+
+test('visual cues survive blank lines and paragraph splits, and broken visuals never block presenting', () => {
+  const spoken = (id: string, text: string): VisualScriptBlock => ({ id, type: 'paragraph', content: text ? [{ text }] : [] });
+  const section: VisualScriptBlock = { id: 'section', type: 'heading', props: { scriptSection: true }, content: [{ text: 'Why' }], children: [
+    spoken('first', 'Your AI strategy is not enough.'), spoken('second', 'Copilots, agents and automation can each help.'),
+  ] };
+  const visuals = { version: 1, source: scriptVisualSource(section), scenes: [{
+    id: 'intro', template: 'concept', title: 'Operating model', subtitle: '', imageUrl: '', imageAlt: '',
+    cue: { blockId: 'second', quote: '' }, items: [{ label: 'Help', detail: '', cue: { blockId: 'second', quote: 'each help' } }],
+  }] };
+  section.props!['scriptVisuals'] = JSON.stringify(visuals);
+  // Enter at the start of a paragraph keeps its id on the new blank line and moves the text to a new block id.
+  section.children = [spoken('first', 'Your AI strategy is not enough.'), spoken('second', ''), spoken('moved', 'Copilots, agents and automation can each\nhelp.')];
+  assert.equal(visualSourceCurrent(visuals.source, section), true);
+  assert.equal(parseScriptVisuals(visuals, section).scenes.length, 1);
+  const result = presentationScript(JSON.stringify([section]), { script: true });
+  assert.equal(result.visualIssue, null);
+  assert.equal(result.visuals[0]?.at, result.text.indexOf('Copilots'));
+  assert.equal(result.visuals[0]?.items[0]?.at, result.text.indexOf('each\nhelp'));
+  section.children = [spoken('first', 'Your AI strategy is not enough.'), spoken('moved', 'Copilots and agents can help.')];
+  assert.equal(visualSourceCurrent(visuals.source, section), false);
+  const stale = presentationScript(JSON.stringify([section]), { script: true });
+  assert.equal(stale.text.includes('Copilots and agents can help.'), true);
+  assert.deepEqual(stale.visuals, []);
+  assert.match(stale.visualIssue ?? '', /Section "Why".*out of date/);
 });
 
 test('scene validation rejects unknown templates, ambiguous cues, wrong comparisons and out-of-order reveals', () => {

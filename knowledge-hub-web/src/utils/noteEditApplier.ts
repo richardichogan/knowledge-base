@@ -12,7 +12,7 @@ import { scriptNoteBlocks } from '../../../knowledge-hub-backend/src/utils/scrip
 import { groupScriptSections, ungroupScriptSections, splitScriptSectionTail } from '../../../knowledge-hub-backend/src/utils/scriptSections';
 import { preserveScriptSelection } from '../notes/scriptSectionSelection';
 import type { Transaction } from '@tiptap/pm/state';
-import { parseScriptVisuals, scriptVisualSource } from '../../../knowledge-hub-backend/src/utils/scriptVisuals';
+import { parseScriptVisuals, visualSourceCurrent } from '../../../knowledge-hub-backend/src/utils/scriptVisuals';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Editor = BlockNoteEditor<any, any, any>;
@@ -166,7 +166,7 @@ function parse(editor: Editor, markdown: string, script = false): Block[] {
 
 function validatedVisualEdit(blocks: Block[], edit: NoteEdit, script: boolean) {
   const section = blocks.find(block => block.id === edit.sectionId && block.props?.scriptSection);
-  if (!script || !section || !edit.visuals || scriptVisualSource(section) !== edit.visuals.source
+  if (!script || !section || !edit.visuals || !visualSourceCurrent(edit.visuals.source, section)
     || (section.props.scriptVisuals ?? '') !== edit.expectedVisuals) {
     throw new Error('The script section or its visuals changed while Ariadne was designing. Nothing was overwritten; request an updated plan.');
   }

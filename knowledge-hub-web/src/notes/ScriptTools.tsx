@@ -10,9 +10,10 @@ import { preserveScriptSelection } from './scriptSectionSelection';
 import { applyNoteEdits } from '../utils/noteEditApplier';
 import { getDesktop } from '../types/desktop';
 import { scriptBackspace } from './scriptBackspace';
-import { parseScriptVisuals, readSectionVisuals, scriptVisualSource } from '../../../knowledge-hub-backend/src/utils/scriptVisuals';
+import { parseScriptVisuals, readSectionVisuals, visualSourceCurrent } from '../../../knowledge-hub-backend/src/utils/scriptVisuals';
 import { useScriptVisualJobs } from './ScriptVisualJobs';
 import { setScriptVideoMode, useScriptVideoState } from '../features/autocue/scriptVideoState';
+import { presentedVisualIssue } from '../features/autocue/presentedVisuals';
 
 type Editor = BlockNoteEditor<typeof editorSchema.blockSchema, typeof editorSchema.inlineContentSchema, typeof editorSchema.styleSchema>;
 
@@ -137,7 +138,7 @@ export function ScriptTools({ editor, disabled, noteId, save, onPresent, onStopP
             const visuals = readSectionVisuals(block);
             if (visuals?.scenes.length) {
               parseScriptVisuals(visuals, block);
-              if (visuals.source !== scriptVisualSource(block)) throw new Error('Update the stale section visuals before changing the presenter layout.');
+              if (!visualSourceCurrent(visuals.source, block)) throw new Error('Update the stale section visuals before changing the presenter layout.');
             }
             return visuals?.scenes.length ? [{
               action: 'set_script_visuals' as const, sectionId: block.id,
@@ -181,6 +182,8 @@ export function ScriptTools({ editor, disabled, noteId, save, onPresent, onStopP
     <ScriptToolButton type="button" className="kh-btn-ghost" title="Open browser visuals" aria-label="Open browser visuals" disabled={disabled} onClick={() => {
       const desktop = getDesktop()?.presentation;
       if (!desktop?.openVisuals) { setSectionError('Use an updated Athena Desktop to open the synchronised local browser output.'); return; }
+      const issue = presentedVisualIssue(noteId);
+      if (issue) { setSectionError(issue); return; }
       void desktop.openVisuals().catch(error => { setSectionError(error instanceof Error ? error.message : 'Could not open browser visuals.'); });
     }}><Launch size={18} aria-hidden="true" /></ScriptToolButton>
     <ScriptToolButton type="button" className="kh-btn-ghost" title="Add section" aria-label="Add section" disabled={disabled}

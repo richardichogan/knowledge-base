@@ -6,7 +6,7 @@
  */
 
 import { scriptAnnotationRuns } from '../podcasts/scriptAnnotations.js';
-import { parseScriptVisuals, scriptVisualSource, type ScriptVisuals } from '../utils/scriptVisuals.js';
+import { parseScriptVisuals, visualSourceCurrent, type ScriptVisuals } from '../utils/scriptVisuals.js';
 
 export type NoteEditAction =
   | 'append'           // add to the end of the note
@@ -129,7 +129,7 @@ export function checkEditsAgainstNote(edits: NoteEditProposal[], blocks: NoteBlo
   edits.forEach((e, i) => {
     if (e.action === 'set_script_visuals') {
       const section = blocks.find(block => block.id === e.sectionId && block.props?.scriptSection);
-      if (!script || !section || !e.visuals || scriptVisualSource(section) !== e.visuals.source) {
+      if (!script || !section || !e.visuals || !visualSourceCurrent(e.visuals.source, section)) {
         problems.push(`edit ${label(i)}: the visual source section changed or is unavailable`);
       } else {
         try { parseScriptVisuals(e.visuals, section); }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { parseScriptVisuals, scriptVisualSource, type VisualScriptBlock } from '../../../../knowledge-hub-backend/src/utils/scriptVisuals';
+import { parseScriptVisuals, visualSourceCurrent, type VisualScriptBlock } from '../../../../knowledge-hub-backend/src/utils/scriptVisuals';
 import css from '../../../../athena-desktop/assets/visuals.css?raw';
 import { createVisualRenderer, visualBuildSteps, VISUAL_BUILD_INTERVAL_MS, type VisualRenderer } from '../../../../athena-desktop/assets/visuals.js';
 import { useScriptVideoState } from './scriptVideoState';
@@ -19,7 +19,7 @@ export function ScriptVisualPreview({ section, ask, proposed = false, presentati
   let error: string | null = null;
   try { if (raw) plan = parseScriptVisuals(raw); }
   catch (err) { error = err instanceof Error ? err.message : 'The visuals could not be read.'; }
-  const stale = !proposed && !!plan && plan.source !== scriptVisualSource(section);
+  const stale = !proposed && !!plan && !visualSourceCurrent(plan.source, section);
   const frames = plan?.scenes.flatMap(scene => visualBuildSteps(scene.items).map(revealed => ({ scene, revealed }))) ?? [];
   const current = step < 0 && plan?.scenes[0]
     ? { scene: plan.scenes[0], revealed: plan.scenes[0].items.length } : frames[Math.max(0, step)] ?? null;

@@ -15,6 +15,7 @@ import { QuickSparkModal } from '../components/sparks/QuickSparkModal';
 import { fetchNotesPage, fetchNote, createNote, deleteNote, extractNoteBlockText, buildPreview } from './noteStorage';
 import { preparePresentationScript } from '../features/autocue/preparePresentationScript';
 import { requiresVisualMotion, requiresVisualCraft } from '../features/autocue/presentationScript';
+import { recordPresentedVisuals } from '../features/autocue/presentedVisuals';
 import { scriptVideoContext } from '../features/autocue/scriptVideoState';
 import { annotatedPresentation } from '../features/podcasts/scriptAnnotations';
 import { episodeScriptText } from '../types/podcastEpisodes';
@@ -354,6 +355,7 @@ export const NotesPage: React.FC = () => {
         throw new Error('Update Athena Desktop to present script colours and delivery cues. Your saved script is unchanged.');
       }
       await presentation.present({ noteId: episode.noteId, title: episode.title, ...annotated });
+      recordPresentedVisuals(episode.noteId, null);
       return;
     }
     if (mode !== 'notes' || !openDoc) { await presentation.open(); return; }
@@ -375,6 +377,7 @@ export const NotesPage: React.FC = () => {
     if (requiresVisualMotion(script.visuals) && !presentation.scriptVisualMotion) throw new Error('Update Athena Desktop to present the new visual animations and presenter layout. Web preview remains available.');
     if (requiresVisualCraft(script.visuals) && !presentation.scriptVisualCraft) throw new Error('Update Athena Desktop to present the corrected connectors, image headers and video guide. Web preview remains available.');
     await presentation.present({ noteId: saved.id, title: saved.title, text: script.text, runs: script.runs, visuals: script.visuals });
+    recordPresentedVisuals(saved.id, script.visualIssue);
   }
   useDesktopCommand('present-note', presentNote);
   const presentHandler = getDesktop()?.presentation ? (): void => { void presentNote().catch(err => {

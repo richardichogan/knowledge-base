@@ -157,27 +157,80 @@ export function visualSpokenText(value: unknown): string {
   if (typeof item.text === 'string') return item.text.replace(/\r\n?/g, '\n');
   return visualSpokenText(item.content);
 }
-export function visualSourceBlocks(section: VisualScriptBlock): Array<{ id: string; text: string }> {
+function visualBlocks(section: VisualScriptBlock): Array<{ id: string; text: string }> {
   const walk = (blocks: VisualScriptBlock[]): Array<{ id: string; text: string }> => blocks.flatMap(block => [
-    ...(block.type !== 'heading' && block.id && visualSpokenText(block.content).trim()
-      ? [{ id: block.id, text: visualSpokenText(block.content) }] : []),
+    ...(block.type !== 'heading' && block.id ? [{ id: block.id, text: visualSpokenText(block.content) }] : []),
     ...walk(block.children ?? []),
   ]);
   return walk(section.children ?? []);
+}
+export function visualSourceBlocks(section: VisualScriptBlock): Array<{ id: string; text: string }> {
+  return visualBlocks(section).filter(block => block.text.trim());
+}
+function layoutFreeSource(source: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(source);
+    const value = Array.isArray(parsed) ? { blocks: parsed, references: [] } : object(parsed);
+    if (!Array.isArray(value.blocks)) return null;
+    const spoken = value.blocks.map(block => {
+      const text = block && typeof block === 'object' ? (block as Record<string, unknown>).text : undefined;
+      return typeof text === 'string' ? text : '';
+    }).join(' ').replace(/\s+/g, ' ').trim();
+    return JSON.stringify({ spoken, references: value.references ?? [] });
+  } catch { return null; }
+}
+/** Visuals stay current when only layout changed: blank lines, line breaks or a paragraph split into several blocks. */
+export function visualSourceCurrent(source: string, section: VisualScriptBlock): boolean {
+  const current = scriptVisualSource(section);
+  if (source === current) return true;
+  const saved = layoutFreeSource(source);
+  return saved !== null && saved === layoutFreeSource(current);
+}
+export interface ResolvedVisualCue extends VisualCue { index: number; offset: number }
+/** Resolves a cue to the current spoken block, following text that a layout edit moved to a new block id. */
+export function visualCueResolver(section: VisualScriptBlock): (cue: VisualCue) => ResolvedVisualCue | null {
+  const all = visualBlocks(section);
+  const spoken = all.filter(block => block.text.trim());
+  const starts: number[] = [];
+  let length = 0;
+  for (const block of spoken) { starts.push(length); length += block.text.length + 1; }
+  const joined = spoken.map(block => block.text).join('\n');
+  return cue => {
+    const index = spoken.findIndex(block => block.id === cue.blockId);
+    const block = spoken[index];
+    if (block && (!cue.quote || block.text.split(cue.quote).length === LIMITS.uniqueQuoteParts)) {
+      return { ...cue, index, offset: cue.quote ? block.text.indexOf(cue.quote) : 0 };
+    }
+    const original = all.findIndex(item => item.id === cue.blockId);
+    const following = original < 0 ? undefined : all.slice(original).find(item => item.text.trim());
+    const next = following ? spoken.indexOf(following) : -1;
+    if (next < 0) return null;
+    if (!cue.quote) return { blockId: spoken[next]!.id, quote: '', index: next, offset: 0 };
+    const words = cue.quote.trim().split(/\s+/).filter(Boolean);
+    if (!words.length) return null;
+    const pattern = new RegExp(words.map(word => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+'), 'g');
+    pattern.lastIndex = starts[next]!;
+    const match = pattern.exec(joined);
+    if (!match) return null;
+    let at = spoken.length - 1;
+    while (at > 0 && starts[at]! > match.index) at--;
+    const target = spoken[at]!;
+    const offset = match.index - starts[at]!;
+    const quote = match[0].slice(0, target.text.length - offset).trimEnd();
+    if (target.text.split(quote).length !== LIMITS.uniqueQuoteParts) return null;
+    return { blockId: target.id, quote, index: at, offset };
+  };
 }
 export function parseScriptVisuals(value: unknown, section?: VisualScriptBlock): ScriptVisuals {
   const input = object(typeof value === 'string' ? JSON.parse(value) : value);
   if (input.version !== 1 || !Array.isArray(input.scenes) || input.scenes.length > LIMITS.scenes) throw new Error('Invalid visual scene list (maximum 12 per section).');
   const source = text(input.source, LIMITS.source, 'source', true);
-  const blocks = section ? visualSourceBlocks(section) : undefined;
+  const resolve = section ? visualCueResolver(section) : undefined;
   const cue = (value: unknown): VisualCue => {
     const data = object(value);
     const result = { blockId: text(data.blockId, LIMITS.id, 'cue block'), quote: text(data.quote, LIMITS.quote, 'cue quotation', true) };
-    if (blocks) {
-      const block = blocks.find(block => block.id === result.blockId);
-      if (!block || result.quote && (block.text.split(result.quote).length !== LIMITS.uniqueQuoteParts)) {
-        throw new Error('A visual cue must identify an existing spoken block and a unique exact quotation.');
-      }
+    if (resolve && !resolve(result)) {
+      throw new Error(`A visual cue must identify an existing spoken block and a unique exact quotation${result.quote ? ` ("${result.quote}")` : ''}.`);
     }
     return result;
   };
@@ -220,10 +273,10 @@ export function parseScriptVisuals(value: unknown, section?: VisualScriptBlock):
       ...(scene.presenterLayout === undefined ? {} : { presenterLayout: scene.presenterLayout }),
       items };
   });
-  if (blocks) {
+  if (resolve) {
     const position = (cue: VisualCue): number => {
-      const index = blocks.findIndex(block => block.id === cue.blockId);
-      return index * LIMITS.cueStride + (cue.quote ? blocks[index]!.text.indexOf(cue.quote) : 0);
+      const resolved = resolve(cue)!;
+      return resolved.index * LIMITS.cueStride + resolved.offset;
     };
     let previous = -1;
     let previousCue: VisualCue | null = null;

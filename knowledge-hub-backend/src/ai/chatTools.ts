@@ -21,7 +21,7 @@ import { scriptVisualNarration } from '../services/scriptVisualDesigner.js';
 import { queueScriptVisuals, readScriptVisualJob } from '../services/scriptVisualJobs.js';
 import { scriptVisualJobEdits, SCRIPT_VISUAL_SPECIALIST } from '../utils/scriptVisualJobs.js';
 import { listAgentJobs } from '../agents/engine.js';
-import { readSectionVisuals, scriptVisualSource, visualSourceBlocks, SCRIPT_VISUAL_SOURCE_BUDGET, SCRIPT_VISUAL_INSTRUCTION_LIMIT, type VisualScriptBlock } from '../utils/scriptVisuals.js';
+import { readSectionVisuals, scriptVisualSource, visualSourceBlocks, visualSourceCurrent, SCRIPT_VISUAL_SOURCE_BUDGET, SCRIPT_VISUAL_INSTRUCTION_LIMIT, type VisualScriptBlock } from '../utils/scriptVisuals.js';
 import { getDiscoverPicks, refreshDiscoverPicks } from '../services/discoverPicks.js';
 import { PUBLISHING_TOOL, executePublishingTool } from './publishingTools.js';
 import { executeDesignTool, type DesignTurnState } from './designTools.js';
@@ -1420,7 +1420,7 @@ export async function executeToolCall(
                   accessed: !!image?.vision_analysis?.trim() };
               }),
               note: 'Scene composition is complete structured content. Only images with accessed:true have a saved pixel-based visual analysis; image briefs and alt text alone are not evidence of what is visible.',
-              stale: !!visuals && visuals.source !== scriptVisualSource(section) };
+              stale: !!visuals && !visualSourceCurrent(visuals.source, section) };
           }
           if (turn.readOnly) throw new ValidationError('This turn is read-only. No visual design was generated.');
           if (!turn.noteEdits || turn.noteEdits.length) {
