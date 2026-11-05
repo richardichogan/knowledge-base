@@ -112,6 +112,9 @@ agentJobsRouter.post('/assignments/:id/resume', wrap(async req => {
 
 agentJobsRouter.post('/', wrap((req) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
+  if (body['specialist'] === 'script-visual-designer') {
+    throw new ValidationError('Use the script visual request endpoint to capture the saved source safely.');
+  }
   if (body['specialist'] === 'blog-writer' && hasManualBlogExecutor()) {
     throw new ForbiddenError('Use the explicit manual-blog workforce action. The enabled pilot cannot fall back to a legacy manual writer.');
   }

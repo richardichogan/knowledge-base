@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import { build } from 'esbuild';
-import { presentationScript, requiresVisualMotion } from '../src/features/autocue/presentationScript';
+import { presentationScript, requiresVisualCraft, requiresVisualMotion } from '../src/features/autocue/presentationScript';
 import { appendVoiceTranscript, finishVoiceTranscript, submitVoiceTranscript } from '../src/services/voiceTranscript';
 import { encodeWav, resampleVoiceAudio } from '../src/components/athena/speech';
 import { parseScriptBullets, scriptSentenceLines } from '../src/features/podcasts/scriptFormatting';
@@ -37,7 +37,7 @@ test('visual motion is typed, reversible by reveal index and backward compatible
   for (const entrance of ['fade', 'rise', 'left', 'right', 'scale', 'wipe']) {
     for (const emphasis of ['highlight', 'underline', 'strike']) {
       const composition = { ...base, nodes: [{ ...node, entrance, emphasis }, base.nodes[1]],
-        links: [{ ...base.links[0], route: 'arc', motion: 'flow' }] };
+        links: [{ ...base.links[0], route: 'arc', motion: 'flow', fromPort: 'right', toPort: 'top' }] };
       assert.deepEqual(parseVisualComposition(composition, 1), composition);
     }
   }
@@ -46,6 +46,42 @@ test('visual motion is typed, reversible by reveal index and backward compatible
   assert.throws(() => parseVisualComposition({ ...base, nodes: [{ ...node, emphasis: 'html' }] }, 1), /emphasis/);
   assert.throws(() => parseVisualComposition({ ...base, links: [{ ...base.links[0], motion: 'forever' }] }, 1), /motion/);
   assert.throws(() => parseVisualComposition({ ...base, links: [{ ...base.links[0], route: 'javascript:run()' }] }, 1), /route/);
+  assert.throws(() => parseVisualComposition({ ...base, links: [{ ...base.links[0], fromPort: 'middle' }] }, 1), /port/);
+  assert.throws(() => parseVisualComposition({ ...base, links: [{ ...base.links[0], fromPort: ['right'] }] }, 1), /port/);
+  assert.throws(() => parseVisualComposition({ ...base, links: [{ ...base.links[0], toPort: 'url(secret)' }] }, 1), /port/);
+});
+
+test('static header treatments and typographic titles round-trip without mixing images with animated subjects', () => {
+  const section: VisualScriptBlock = { id: 'section', type: 'heading', props: { scriptSection: true }, children: [
+    { id: 'spoken', type: 'paragraph', content: [{ text: 'Introduce responsible delegation.' }] },
+  ] };
+  const composition = { label: 'Delegation', imagePrompt: '', nodes: [], links: [] };
+  const title = { id: 'opening', template: 'title', title: 'Responsibility stays human', subtitle: '',
+    imageUrl: '', imageAlt: '', cue: { blockId: 'spoken', quote: '' }, items: [], composition };
+  const pack = { version: 1, source: scriptVisualSource(section), scenes: [title] };
+  assert.deepEqual(parseScriptVisuals(pack, section).scenes[0]?.composition, composition);
+  assert.throws(() => parseVisualComposition(composition, 0), /nodes/);
+  assert.throws(() => parseVisualComposition(composition, 1, true), /title-only/);
+  for (const imageTreatment of ['full', 'blend']) {
+    const header = { ...title, imageUrl: 'https://images.example/header.png', imageAlt: 'A clear responsibility boundary',
+      composition: { ...composition, imageTreatment } };
+    const stored = { ...pack, scenes: [header] };
+    assert.deepEqual(parseScriptVisuals(stored, section).scenes[0]?.composition, header.composition);
+    section.props!['scriptVisuals'] = JSON.stringify(stored);
+    const result = presentationScript(JSON.stringify([section]), { script: true });
+    assert.deepEqual(result.visuals[0]?.composition, header.composition);
+    assert.equal(requiresVisualCraft(result.visuals), true);
+    assert.throws(() => parseScriptVisuals({ ...pack, scenes: [{ ...header, template: 'concept' }] }, section), /header|image/i);
+    assert.throws(() => parseScriptVisuals({ ...pack, scenes: [{ ...header, imageUrl: '' }] }, section), /image/i);
+    assert.throws(() => parseScriptVisuals({ ...pack, scenes: [{ ...header, items: [
+      { label: 'Build', detail: '', cue: { blockId: 'spoken', quote: '' } },
+    ] }] }, section), /header image/i);
+  }
+  section.props!['scriptVisuals'] = JSON.stringify(pack);
+  assert.equal(requiresVisualCraft(presentationScript(JSON.stringify([section]), { script: true }).visuals), true);
+  assert.throws(() => parseScriptVisuals({ ...pack, scenes: [{ ...title,
+    composition: { ...composition, imageTreatment: 'inset' },
+  }] }, section), /image/i);
 });
 
 test('illustrated scenes retain bounded vector art and reject executable paths and invalid geometry', () => {

@@ -14,7 +14,8 @@ import { NoteList } from './NoteList';
 import { QuickSparkModal } from '../components/sparks/QuickSparkModal';
 import { fetchNotesPage, fetchNote, createNote, deleteNote, extractNoteBlockText, buildPreview } from './noteStorage';
 import { preparePresentationScript } from '../features/autocue/preparePresentationScript';
-import { requiresVisualMotion } from '../features/autocue/presentationScript';
+import { requiresVisualMotion, requiresVisualCraft } from '../features/autocue/presentationScript';
+import { scriptVideoContext } from '../features/autocue/scriptVideoState';
 import { annotatedPresentation } from '../features/podcasts/scriptAnnotations';
 import { episodeScriptText } from '../types/podcastEpisodes';
 import type { NoteContentBlock, NoteListPage } from './noteStorage';
@@ -372,6 +373,7 @@ export const NotesPage: React.FC = () => {
     if (script.visuals.length && !presentation.scriptVisuals) throw new Error('Update Athena Desktop to present this script with synchronised browser visuals.');
     if (script.visuals.some(scene => scene.composition) && !presentation.scriptVisualCompositions) throw new Error('Update Athena Desktop to present layered visuals. Web preview remains available.');
     if (requiresVisualMotion(script.visuals) && !presentation.scriptVisualMotion) throw new Error('Update Athena Desktop to present the new visual animations and presenter layout. Web preview remains available.');
+    if (requiresVisualCraft(script.visuals) && !presentation.scriptVisualCraft) throw new Error('Update Athena Desktop to present the corrected connectors, image headers and video guide. Web preview remains available.');
     await presentation.present({ noteId: saved.id, title: saved.title, text: script.text, runs: script.runs, visuals: script.visuals });
   }
   useDesktopCommand('present-note', presentNote);
@@ -616,7 +618,9 @@ export const NotesPage: React.FC = () => {
           focusedId ?? editor.getTextCursorPosition().block.id,
           document.activeElement instanceof HTMLTextAreaElement ? '' : editor.getSelectedText()) : '';
         const scene = document.activeElement?.closest('.bn-block-outer')?.querySelector('[data-visual-scene]')?.getAttribute('data-visual-scene');
-        return (bodyText !== '' ? `\n\nContent:\n${bodyText}` : '') + selection + (scene ? `\n[Preview scene id: ${scene}]` : '');
+        const pending = document.querySelector<HTMLElement>('[data-visual-job]');
+        return (bodyText !== '' ? `\n\nContent:\n${bodyText}` : '') + selection + (editor ? scriptVideoContext() : '') + (scene ? `\n[Preview scene id: ${scene}]` : '')
+          + (pending ? `\n[Reviewing pending visual job ${pending.dataset.visualJob}; status: ${pending.dataset.visualJobStatus}. ${pending.dataset.visualJobConflict || ''} Use read_script_visuals with jobId for its actual saved scenes. Pending is not applied.]` : '');
       };
       const imageUrls = extractImageUrls(blocks);
       const imagesKey = imageUrls.join('|');

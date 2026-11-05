@@ -4,7 +4,8 @@
  * is checked against the user's chosen folders in the desktop app itself.
  */
 
-import type { CommandRequest, DesktopCommandState, PresentationDisplay, PresentationScript } from '../../../athena-desktop/src/elgatoProtocol';
+import type { CommandRequest, DesktopCommandState, PresentationDisplay, PresentationScript, PresentationVideoState } from '../../../athena-desktop/src/elgatoProtocol';
+import type { VisualVideoMode } from '../../../knowledge-hub-backend/src/types/visualComposition';
 export type { DesktopCommand, CommandRequest, DesktopCommandState } from '../../../athena-desktop/src/elgatoProtocol';
 
 export interface DesktopPresentation {
@@ -12,6 +13,11 @@ export interface DesktopPresentation {
   scriptVisuals?: boolean;
   scriptVisualCompositions?: boolean;
   scriptVisualMotion?: boolean;
+  scriptVisualCraft?: boolean;
+  scriptVisualVideo?: boolean;
+  videoState?(): Promise<PresentationVideoState>;
+  setVideoMode?(mode: VisualVideoMode, noteId: string): Promise<PresentationVideoState>;
+  onVideoState?(listener: (value: PresentationVideoState) => void): () => void;
   openVisuals?(): Promise<void>;
   open(noteId?: string): Promise<void>;
   displays(): Promise<(PresentationDisplay & { preferred?: boolean })[]>;

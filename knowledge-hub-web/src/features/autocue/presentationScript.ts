@@ -14,6 +14,11 @@ export function requiresVisualMotion(scenes: PresentationVisualScene[]): boolean
     || scene.composition?.nodes.some(node => node.entrance || node.emphasis)
     || scene.composition?.links.some(link => link.motion || link.route));
 }
+export function requiresVisualCraft(scenes: PresentationVisualScene[]): boolean {
+  return scenes.some(scene => scene.template === 'close' || scene.presenterLayout || scene.composition?.imageTreatment
+    || scene.composition?.nodes.length === 0
+    || scene.composition?.links.some(link => link.fromPort || link.toPort));
+}
 
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;

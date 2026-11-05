@@ -1037,10 +1037,12 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  async draftScriptVisuals(noteId: string, sectionId: string, instruction: string): Promise<ApiResponse<{
-    visuals: import('../../../knowledge-hub-backend/src/utils/scriptVisuals').ScriptVisuals; expectedVisuals: string;
-  }>> {
-    return (await this.client.post(`/api/notes/${encodeURIComponent(noteId)}/script-visuals/${encodeURIComponent(sectionId)}/draft`, { instruction }, { timeout: 8 * CHAT_TIMEOUT_MS })).data;
+  async queueScriptVisuals(noteId: string, instruction: string): Promise<ApiResponse<AgentHandOffResult>> {
+    return (await this.client.post(`/api/notes/${encodeURIComponent(noteId)}/script-visuals/jobs`, { instruction })).data;
+  }
+
+  async listScriptVisualJobs(noteId: string): Promise<ApiResponse<AgentJob[]>> {
+    return (await this.client.get('/api/agent-jobs', { params: { subjectType: 'script-visuals', subjectId: noteId, limit: 20 } })).data;
   }
 
   async searchNotePassages(q: string, signal?: AbortSignal): Promise<ApiResponse<{

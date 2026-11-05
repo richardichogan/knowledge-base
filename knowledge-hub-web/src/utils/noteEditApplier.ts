@@ -164,18 +164,22 @@ function parse(editor: Editor, markdown: string, script = false): Block[] {
     ? { ...block, props: { ...block.props, scriptSection: true } } : block);
 }
 
+function validatedVisualEdit(blocks: Block[], edit: NoteEdit, script: boolean) {
+  const section = blocks.find(block => block.id === edit.sectionId && block.props?.scriptSection);
+  if (!script || !section || !edit.visuals || scriptVisualSource(section) !== edit.visuals.source
+    || (section.props.scriptVisuals ?? '') !== edit.expectedVisuals) {
+    throw new Error('The script section or its visuals changed while Ariadne was designing. Nothing was overwritten; request an updated plan.');
+  }
+  return { section, visuals: parseScriptVisuals(edit.visuals, section) };
+}
+
 function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined, script: boolean): void {
   const blocks = editor.document as Block[];
   const md = edit.markdown ?? '';
   const titleId = titleBlock?.id;
   switch (edit.action) {
     case 'set_script_visuals': {
-      const section = blocks.find(block => block.id === edit.sectionId && block.props?.scriptSection);
-      if (!script || !section || !edit.visuals || scriptVisualSource(section) !== edit.visuals.source
-        || (section.props.scriptVisuals ?? '') !== edit.expectedVisuals) {
-        throw new Error('The script section or its visuals changed while Ariadne was designing. Nothing was overwritten; request an updated plan.');
-      }
-      const visuals = parseScriptVisuals(edit.visuals, section);
+      const { section, visuals } = validatedVisualEdit(blocks, edit, script);
       editor.updateBlock(section, { props: { ...section.props, scriptVisuals: JSON.stringify(visuals) } });
       return;
     }
@@ -268,6 +272,10 @@ function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined,
 export function applyNoteEdits(editor: Editor, edits: NoteEdit[], options: { script?: boolean } = {}): { applied: number; failed: string[] } {
   const failed: string[] = [];
   let applied = 0;
+  if (edits.length && edits.every(edit => edit.action === 'set_script_visuals')) {
+    try { edits.forEach(edit => { validatedVisualEdit(editor.document as Block[], edit, options.script === true); }); }
+    catch (error) { return { applied: 0, failed: [error instanceof Error ? error.message : 'The visual result could not be validated.'] }; }
+  }
   const run = (): void => {
     const cards = options.script && (editor.document as Block[]).some(block => block.props?.scriptSection)
       && edits.some(edit => edit.action !== 'replace_text' && edit.action !== 'set_script_visuals');

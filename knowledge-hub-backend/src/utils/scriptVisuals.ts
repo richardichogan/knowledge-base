@@ -1,12 +1,12 @@
-export const VISUAL_TEMPLATES = ['title', 'statistic', 'comparison', 'steps', 'concept', 'image'] as const;
+export const VISUAL_TEMPLATES = ['title', 'statistic', 'comparison', 'steps', 'concept', 'image', 'close'] as const;
 export const SCRIPT_VISUAL_SOURCE_BUDGET = 60_000;
 export const SCRIPT_VISUAL_INSTRUCTION_LIMIT = 4000;
 const LIMITS = {
-  subjects: 24, id: 100, nodeId: 80, nodeLabel: 120, nodeDetail: 240,
+  subjects: 24, id: 100, nodeId: 80, nodeLabel: 120, nodeDetail: 240, kicker: 40,
   sceneLabel: 100, imagePrompt: 1800, shapes: 32, description: 500,
   path: 2400, scenes: 12, source: 500_000, quote: 300, items: 6,
   comparisonSides: 2, uniqueQuoteParts: 2, imageUrl: 2000, title: 160,
-  subtitle: 500, itemDetail: 400, cueStride: 1_000_000,
+  subtitle: 500, itemDetail: 400, cueStride: 1_000_000, closeMarks: 2,
 };
 const CONTENT_AREA = { left: 80, right: 1520, top: 240, bottom: 800, lastTop: 790,
   minSize: 40, maxWidth: 1440, maxHeight: 550 };
@@ -47,10 +47,13 @@ function text(value: unknown, limit: number, label: string, empty = false): stri
   if (typeof value !== 'string' || value.length > limit || (!empty && !value.trim())) throw new Error(`Invalid visual ${label}.`);
   return value;
 }
-export function parseVisualComposition(value: unknown, reveals: number): VisualComposition {
+export function parseVisualComposition(value: unknown, reveals: number, titleOnly = false): VisualComposition {
   const data = object(value);
-  if (!Array.isArray(data.nodes) || !data.nodes.length || data.nodes.length > LIMITS.subjects
+  if (data.imageTreatment !== undefined && data.imageTreatment !== 'full' && data.imageTreatment !== 'blend') throw new Error('Invalid header image treatment.');
+  if (!Array.isArray(data.nodes) || (!data.nodes.length && !data.imageTreatment && !titleOnly) || data.nodes.length > LIMITS.subjects
     || !Array.isArray(data.links) || data.links.length > LIMITS.subjects) throw new Error('A composition needs 1–24 nodes and at most 24 connections.');
+  if (data.imageTreatment && (data.nodes.length || data.links.length || reveals)) throw new Error('A header image cannot be mixed with diagram nodes, connections or animated builds.');
+  if (!data.nodes.length && (data.links.length || reveals)) throw new Error('A title-only composition cannot contain connections or builds.');
   const number = (value: unknown, min: number, max: number): number => {
     if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max) throw new Error('Invalid composition geometry or reveal.');
     return value;
@@ -70,18 +73,24 @@ export function parseVisualComposition(value: unknown, reveals: number): VisualC
     const id = text(node.id, LIMITS.nodeId, 'node id');
     if (ids.has(id)) throw new Error('Composition node ids must be unique.');
     ids.add(id);
-    if (!['panel', 'text', 'icon', 'image'].includes(String(node.kind))
-      || !['', 'person', 'worker', 'document', 'check', 'system', 'arrow', 'boundary'].includes(String(node.icon))) throw new Error('Invalid composition node or icon.');
+    if (!['panel', 'text', 'icon', 'image'].includes(String(node.kind))) throw new Error(`Invalid composition node kind "${String(node.kind)}" on node "${id}". Use panel, text or icon.`);
+    const icon = node.icon ?? '';
+    if (!['', 'person', 'worker', 'document', 'check', 'system', 'arrow', 'boundary'].includes(String(icon))) {
+      throw new Error(`Invalid composition icon "${String(icon)}" on node "${id}". Use "", person, worker, document, check, system, arrow or boundary.`);
+    }
     const x = number(node.x, CONTENT_AREA.left, CONTENT_AREA.right), y = number(node.y, CONTENT_AREA.top, CONTENT_AREA.lastTop);
     const width = number(node.width, CONTENT_AREA.minSize, CONTENT_AREA.maxWidth), height = number(node.height, CONTENT_AREA.minSize, CONTENT_AREA.maxHeight);
     if (x + width > CONTENT_AREA.right || y + height > CONTENT_AREA.bottom) throw new Error('Composition nodes must stay inside the presentation content area.');
     if (node.entrance !== undefined && !['fade', 'rise', 'left', 'right', 'scale', 'wipe'].includes(String(node.entrance))) throw new Error('Invalid composition entrance.');
     if (node.emphasis !== undefined && !['highlight', 'underline', 'strike'].includes(String(node.emphasis))) throw new Error('Invalid composition emphasis.');
+    if (node.size !== undefined && !['xl', 'l', 'm', 's'].includes(String(node.size))) throw new Error('Invalid composition text size.');
     return { id, kind: node.kind as VisualNode['kind'], x, y, width, height,
       label: text(node.label, LIMITS.nodeLabel, 'node label', true), detail: text(node.detail, LIMITS.nodeDetail, 'node detail', true),
-      icon: node.icon as VisualNode['icon'], tone: tone(node.tone), reveal: reveal(node.reveal),
+      icon: icon as VisualNode['icon'], tone: tone(node.tone), reveal: reveal(node.reveal),
       ...(node.entrance === undefined ? {} : { entrance: node.entrance as NonNullable<VisualNode['entrance']> }),
-      ...(node.emphasis === undefined ? {} : { emphasis: node.emphasis as NonNullable<VisualNode['emphasis']> }) };
+      ...(node.emphasis === undefined ? {} : { emphasis: node.emphasis as NonNullable<VisualNode['emphasis']> }),
+      ...(node.size === undefined ? {} : { size: node.size as NonNullable<VisualNode['size']> }),
+      ...(node.kicker === undefined || node.kicker === '' ? {} : { kicker: text(node.kicker, LIMITS.kicker, 'node kicker') }) };
   });
   const links = data.links.map((raw): VisualLink => {
     const link = object(raw);
@@ -91,11 +100,17 @@ export function parseVisualComposition(value: unknown, reveals: number): VisualC
     if (nodes.some(node => (node.id === from || node.id === to) && node.reveal > at)) throw new Error('Connections cannot appear before their endpoints.');
     if (link.motion !== undefined && !['draw', 'flow'].includes(String(link.motion))) throw new Error('Invalid composition connection motion.');
     if (link.route !== undefined && !['direct', 'arc'].includes(String(link.route))) throw new Error('Invalid composition connection route.');
+    for (const port of [link.fromPort, link.toPort]) {
+      if (port !== undefined && (typeof port !== 'string' || !['top', 'right', 'bottom', 'left'].includes(port))) throw new Error('Invalid composition connection port.');
+    }
     return { from, to, label: text(link.label, LIMITS.nodeId, 'connection label', true), tone: tone(link.tone), reveal: at, style: link.style as VisualLink['style'],
       ...(link.motion === undefined ? {} : { motion: link.motion as NonNullable<VisualLink['motion']> }),
-      ...(link.route === undefined ? {} : { route: link.route as NonNullable<VisualLink['route']> }) };
+      ...(link.route === undefined ? {} : { route: link.route as NonNullable<VisualLink['route']> }),
+      ...(link.fromPort === undefined ? {} : { fromPort: link.fromPort as NonNullable<VisualLink['fromPort']> }),
+      ...(link.toPort === undefined ? {} : { toPort: link.toPort as NonNullable<VisualLink['toPort']> }) };
   });
-  return { label: text(data.label, LIMITS.sceneLabel, 'scene label', true), imagePrompt: text(data.imagePrompt, LIMITS.imagePrompt, 'image brief', true), nodes, links };
+  return { label: text(data.label, LIMITS.sceneLabel, 'scene label', true), imagePrompt: text(data.imagePrompt, LIMITS.imagePrompt, 'image brief', true), nodes, links,
+    ...(data.imageTreatment === undefined ? {} : { imageTreatment: data.imageTreatment as NonNullable<VisualComposition['imageTreatment']> }) };
 }
 export function parseVisualArtwork(value: unknown): VisualArtwork {
   const input = object(value);
@@ -181,16 +196,29 @@ export function parseScriptVisuals(value: unknown, section?: VisualScriptBlock):
     if (scene.presenterLayout !== undefined && typeof scene.presenterLayout !== 'boolean') throw new Error('Invalid presenter layout.');
     if (imageUrl && !/^https:\/\//i.test(imageUrl)) throw new Error('Visual images require an HTTPS URL.');
     if (template === 'image' && !imageUrl && !scene.composition) throw new Error('An image scene requires an existing image.');
-    return { id, template, title: text(scene.title, LIMITS.title, 'title'), subtitle: text(scene.subtitle, LIMITS.subtitle, 'subtitle', true),
+    const composition = scene.composition === undefined ? undefined
+      : parseVisualComposition(scene.composition, template === 'close' ? 0 : scene.items.length, template === 'title' || template === 'close');
+    if (composition?.imageTreatment && (!['title', 'image'].includes(template) || (!imageUrl && !composition.imagePrompt) || scene.artwork)) {
+      throw new Error('Full-screen or blended imagery belongs to a static title/image scene with a supplied image or image brief.');
+    }
+    if (template === 'close' && (imageUrl || scene.artwork !== undefined || composition?.nodes.length || composition?.imagePrompt
+      || scene.items.length > LIMITS.closeMarks)) {
+      throw new Error('An end page is a typographic close: no imagery, nodes or connections, and at most two emphasised phrases.');
+    }
+    const title = text(scene.title, LIMITS.title, 'title'), subtitle = text(scene.subtitle, LIMITS.subtitle, 'subtitle', true);
+    const items = scene.items.map(value => {
+      const item = object(value);
+      return { label: text(item.label, LIMITS.nodeLabel, 'item label'), detail: text(item.detail, LIMITS.itemDetail, 'item detail', true), cue: cue(item.cue) };
+    });
+    const loose = template === 'close' && items.find(item => !title.includes(item.label) && !subtitle.includes(item.label));
+    if (loose) throw new Error(`End-page emphasis "${loose.label}" must be an exact phrase from the closing statement or its setup line.`);
+    return { id, template, title, subtitle,
       cue: cue(scene.cue), imageUrl, imageAlt: text(scene.imageAlt, LIMITS.description, 'image description', template !== 'image'),
       ...(scene.artwork === undefined ? {} : { artwork: parseVisualArtwork(scene.artwork) }),
-      ...(scene.composition === undefined ? {} : { composition: parseVisualComposition(scene.composition, scene.items.length) }),
+      ...(composition === undefined ? {} : { composition }),
       ...(scene.layout === undefined ? {} : { layout: scene.layout as NonNullable<ScriptVisualScene['layout']> }),
       ...(scene.presenterLayout === undefined ? {} : { presenterLayout: scene.presenterLayout }),
-      items: scene.items.map(value => {
-        const item = object(value);
-        return { label: text(item.label, LIMITS.nodeLabel, 'item label'), detail: text(item.detail, LIMITS.itemDetail, 'item detail', true), cue: cue(item.cue) };
-      }) };
+      items };
   });
   if (blocks) {
     const position = (cue: VisualCue): number => {

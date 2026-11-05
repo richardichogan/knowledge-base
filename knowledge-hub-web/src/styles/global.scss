@@ -16504,6 +16504,7 @@ fieldset.proj-modal-body {
       &:disabled { opacity: 0.5; cursor: not-allowed; }
     }
   }
+  .kh-script-tools__video select { min-width: 6rem; }
 }
 .kh-script-tools__hint {
   margin: 0 0 var(--cds-spacing-04);

@@ -37,7 +37,14 @@ const MAX_ASSET_ID_LENGTH = 100;
 
 /** Document membership for Think grouping; reference links remain independently browsable. */
 export const DESIGN_NOTE_MEMBERSHIPS_SQL = `
-  SELECT DISTINCT d.parent_note_id,candidate.note_id
+  SELECT DISTINCT d.id AS design_id,d.parent_note_id,candidate.note_id,
+    COALESCE(override.role,candidate.role,
+      CASE note_list_metadata(original.content)->>'contentType'
+        WHEN 'use-case' THEN 'use_case'
+        WHEN 'spec' THEN 'spec'
+        WHEN 'architecture' THEN 'architecture'
+        ELSE 'reference'
+      END) AS role
   FROM designs d
   JOIN notes parent ON parent.id=d.parent_note_id AND parent.status='active'
     AND note_list_metadata(parent.content)->>'contentType'='design'
@@ -227,6 +234,22 @@ async function saveAsset(db: Pool, id: string, asset: Pick<DesignAsset, 'sourceT
 }
 
 export async function assetDesigns(db: Pool, sourceType: 'note' | 'canvas', sourceId: string): Promise<Array<{ id: string; parentNoteId: string; title: string; role: DesignRole }>> {
+  if (sourceType === 'note') {
+    const { rows } = await db.query<{
+      id: string; parent_note_id: string; title: string; role: DesignRole;
+    }>(`
+      SELECT DISTINCT d.id::text AS id,d.parent_note_id::text AS parent_note_id,
+        note_list_metadata(parent.content)->>'title' AS title,membership.role
+      FROM (${DESIGN_NOTE_MEMBERSHIPS_SQL}) membership
+      JOIN designs d ON d.id=membership.design_id
+      JOIN notes parent ON parent.id=d.parent_note_id
+      WHERE membership.note_id=$1
+      ORDER BY id
+      LIMIT $2`, [sourceId, MAX_DESIGNS + 1]);
+    if (rows.length > MAX_DESIGNS) throw new ValidationError('Design membership exceeds the supported lookup size. Narrow the Design collection before continuing.');
+    return rows.map(row => ({ id: row.id, parentNoteId: row.parent_note_id, title: row.title, role: row.role }));
+  }
+
   const list = await listDesigns(db);
   if (list.hasMore) throw new ValidationError('Design membership exceeds the supported lookup size. Narrow the Design collection before continuing.');
   const matches = [];

@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ElgatoBridge } from './elgatoBridge';
-import { initialPresentation, parseCommand, parsePresentationRuns, parsePresentationVisuals, playbackCommand, type CommandRequest, type DesktopCommandState, type PresentationScript } from './elgatoProtocol';
+import { initialPresentation, parseCommand, parsePresentationRuns, parsePresentationVisuals, parseVisualVideoMode, playbackCommand, type CommandRequest, type DesktopCommandState, type PresentationScript, type PresentationVideoState } from './elgatoProtocol';
 import { VisualOutput } from './visualOutput';
 import { isAthenaFrame } from './navigation';
 import { wakePresentationDisplay } from './displayWake';
@@ -20,7 +20,8 @@ export function installElgato(
   let outputReady = false;
   let outputOwner: number | null = null;
   let readingPosition = 0;
-  const visuals = new VisualOutput(join(app.getAppPath(), 'assets'));
+  const visuals = new VisualOutput(join(app.getAppPath(), 'assets'), () => publishVideoState());
+  let lastVideoState = '';
   let starting = false;
   let script: PresentationScript | null = null;
   let state: DesktopCommandState = { protocol: 1, presentation: initialPresentation(), recording: false, transcribing: false, error: null };
@@ -56,15 +57,32 @@ export function installElgato(
     if (state.presentation.status === 'playing' && awake === null) awake = powerSaveBlocker.start('prevent-display-sleep');
     else if (state.presentation.status !== 'playing' && awake !== null) { powerSaveBlocker.stop(awake); awake = null; }
   };
+  function videoState(): PresentationVideoState {
+    return { ...visuals.videoState(), noteId: outputReady ? script?.noteId ?? null : null,
+      available: outputReady && state.presentation.status !== 'ended' && !!script?.visuals?.some(scene => scene.presenterLayout) };
+  }
+  function publishVideoState(): void {
+    const snapshot = videoState();
+    const signature = JSON.stringify(snapshot);
+    if (signature === lastVideoState) return;
+    lastVideoState = signature;
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed() && isAthenaFrame(window.webContents.getURL(), origin)) {
+        window.webContents.send('presentation:video-state', snapshot);
+      }
+    }
+  }
   const publish = (): void => {
     syncAwake();
+    if (state.presentation.status === 'ended' && visuals.videoState().mode === 'camera') visuals.setVideoMode('off');
     if (controller && !controller.isDestroyed()) controller.webContents.send('presentation:state', state);
     visuals.update(script?.visuals ?? [], readingPosition,
       state.presentation.status === 'disconnected' ? state.presentation.error : null, script?.title ?? '');
+    publishVideoState();
   };
   const disconnected = (message: string): void => {
-    visuals.close();
     outputReady = false;
+    visuals.close();
     state.presentation = { ...state.presentation, displayId: null, status: 'disconnected', error: message };
     publish();
   };
@@ -221,6 +239,34 @@ export function installElgato(
     setTimeout(() => { if (!marker.isDestroyed()) marker.close(); }, 2000);
   });
   handle('presentation:state', () => state);
+  handle('presentation:video-state', () => videoState(), false);
+  handle('presentation:video-mode', async (event, value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Choose a video mode from the script toolbar.');
+    const data = value as Record<string, unknown>;
+    const mode = parseVisualVideoMode(data.mode);
+    if (Object.keys(data).some(key => key !== 'mode' && key !== 'noteId') || typeof data.noteId !== 'string'
+      || !/^[a-zA-Z0-9_-]{1,100}$/.test(data.noteId)) throw new Error('Choose a saved script for presenter video.');
+    const path = new URL(event.senderFrame!.url).pathname;
+    if (path !== '/think' && path !== '/present') throw new Error('Change video mode from the script or presentation toolbar.');
+    const ownsOutput = (): boolean => outputReady && script?.noteId === data.noteId;
+    if (outputReady && !ownsOutput()) throw new Error('Change video mode from the script that is currently being presented.');
+    if (mode === 'camera') {
+      if (!ownsOutput() || !videoState().available) throw new Error('Enable Presenter layout and present this saved script before starting Camera.');
+      const url = await visuals.open();
+      if (!ownsOutput() || !videoState().available) throw new Error('The active presentation changed. Camera has not been started.');
+      const openBrowser = !visuals.hasClients();
+      visuals.setVideoMode(mode);
+      if (openBrowser) {
+        const requestId = visuals.videoState().requestId;
+        try { await shell.openExternal(url); }
+        catch (error) {
+          if (visuals.videoState().requestId === requestId) visuals.setVideoMode('off');
+          throw error;
+        }
+      }
+    } else visuals.setVideoMode(mode);
+    return videoState();
+  }, false);
   handle('presentation:close', event => {
     if (event.sender !== controller?.webContents && new URL(event.senderFrame!.url).pathname !== '/think') {
       throw new Error('Stop presenting from Think or the presentation controls.');

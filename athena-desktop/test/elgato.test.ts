@@ -4,7 +4,8 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createContext, runInContext } from 'node:vm';
 import { ElgatoBridge } from '../src/elgatoBridge';
-import { initialPresentation, parseCommand, parsePresentationRuns, parsePresentationVisuals, playbackCommand } from '../src/elgatoProtocol';
+import { initialPresentation, parseCommand, parsePresentationRuns, parsePresentationVisuals, parseVisualVideoMode, playbackCommand } from '../src/elgatoProtocol';
+import type { VisualVideoState } from '../assets/visualComposition';
 import { createServer } from 'node:net';
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
@@ -39,7 +40,7 @@ test('desktop validates composed nodes, geometry and connections at its independ
   assert.deepEqual(parsePresentationVisuals([scene], 20)?.[0]?.composition, composition);
   const animated = { ...scene, presenterLayout: true, composition: { ...composition,
     nodes: composition.nodes.map(node => ({ ...node, entrance: 'wipe', emphasis: 'underline' })),
-    links: composition.links.map(link => ({ ...link, motion: 'flow', route: 'arc' })),
+    links: composition.links.map(link => ({ ...link, motion: 'flow', route: 'arc', fromPort: 'right', toPort: 'top' })),
   } };
   assert.deepEqual(parsePresentationVisuals([animated], 20)?.[0], animated);
   assert.throws(() => parsePresentationVisuals([{ ...animated, presenterLayout: 'true' }], 20), /presenter layout/);
@@ -55,6 +56,15 @@ test('desktop validates composed nodes, geometry and connections at its independ
   assert.throws(() => parsePresentationVisuals([{ ...scene, composition: { ...composition,
     links: [{ ...composition.links[0], route: 'url(secret)' }],
   } }], 20), /route/);
+  assert.throws(() => parsePresentationVisuals([{ ...scene, composition: { ...composition,
+    links: [{ ...composition.links[0], fromPort: 'middle' }],
+  } }], 20), /port/);
+  assert.throws(() => parsePresentationVisuals([{ ...scene, composition: { ...composition,
+    links: [{ ...composition.links[0], fromPort: ['right'] }],
+  } }], 20), /port/);
+  assert.throws(() => parsePresentationVisuals([{ ...scene, composition: { ...composition,
+    links: [{ ...composition.links[0], toPort: 'url(secret)' }],
+  } }], 20), /port/);
   assert.throws(() => parsePresentationVisuals([{ ...scene, composition: { ...composition, nodes: [{ ...node, x: Infinity }] } }], 20), /geometry/);
   assert.throws(() => parsePresentationVisuals([{ ...scene, composition: { ...composition, nodes: [{ ...node, kind: 'script' }] } }], 20), /type/);
   assert.throws(() => parsePresentationVisuals([{ ...scene, composition: { ...composition, links: [
@@ -62,7 +72,24 @@ test('desktop validates composed nodes, geometry and connections at its independ
   ] } }], 20), /connection/);
 });
 
-test('read-only local output holds scenes, reverses reveals and rejects cross-origin, wrong-token and write access', async () => {
+test('desktop accepts standalone static headers and typographic titles, not image/diagram mixtures', () => {
+  const composition = { label: 'Chapter one', imagePrompt: '', nodes: [], links: [] };
+  const title = { id: 'one', template: 'title', title: 'Human responsibility', subtitle: '', imageUrl: '', imageAlt: '',
+    at: 0, items: [], composition };
+  assert.deepEqual(parsePresentationVisuals([title], 20)?.[0]?.composition, composition);
+  assert.throws(() => parsePresentationVisuals([{ ...title, template: 'concept' }], 20), /nodes|composition/i);
+  for (const imageTreatment of ['full', 'blend']) {
+    const header = { ...title, imageUrl: 'https://images.example/header.png', composition: { ...composition, imageTreatment } };
+    assert.deepEqual(parsePresentationVisuals([header], 20)?.[0]?.composition, header.composition);
+    assert.throws(() => parsePresentationVisuals([{ ...header, imageUrl: '' }], 20), /header|image/i);
+    assert.throws(() => parsePresentationVisuals([{ ...header, template: 'concept' }], 20), /header|image/i);
+    assert.throws(() => parsePresentationVisuals([{ ...header, items: [{ label: 'Build', detail: '', at: 1 }] }], 20), /header/i);
+  }
+  for (const mode of ['guide', 'camera', 'off']) assert.equal(parseVisualVideoMode(mode), mode);
+  assert.throws(() => parseVisualVideoMode('automatic'), /Guide, Camera or Off/);
+});
+
+test('local scene delivery holds scenes, reverses reveals and rejects cross-origin, wrong-token and arbitrary write access', async () => {
   const output = new VisualOutput(join(__dirname, '../../assets'));
   try {
     const [url, same] = await Promise.all([output.open(), output.open()]);
@@ -72,6 +99,7 @@ test('read-only local output holds scenes, reverses reveals and rejects cross-or
     assert.equal(page.status, 200);
     assert.equal(page.headers.get('cache-control'), 'no-store');
     assert.match(page.headers.get('content-security-policy') ?? '', /frame-ancestors 'none'/);
+    assert.equal(page.headers.get('permissions-policy'), 'camera=(self), microphone=()');
     assert.equal(page.headers.get('access-control-allow-origin'), null);
     await page.text();
     assert.equal((await fetch(new URL('/wrong/', url))).status, 404);
@@ -101,6 +129,56 @@ test('read-only local output holds scenes, reverses reveals and rejects cross-or
     output.close();
     await assert.rejects(fetch(url));
   } finally { output.close(); }
+});
+
+test('camera feedback is status-only, selected-client scoped, bounded and ordered within the manual request', { timeout: 10_000 }, async () => {
+  const output = new VisualOutput(join(__dirname, '../../assets'));
+  const readers: ReadableStreamDefaultReader<Uint8Array>[] = [];
+  try {
+    const url = await output.open();
+    const headers = { Origin: new URL(url).origin, 'Content-Type': 'application/json' };
+    const connect = async (): Promise<{ videoClientId: string; video: VisualVideoState }> => {
+      const response = await fetch(new URL('events', url));
+      const reader = response.body!.getReader();
+      readers.push(reader);
+      let buffer = '';
+      while (!buffer.includes('\n\n')) {
+        const chunk = await reader.read();
+        assert.equal(chunk.done, false);
+        buffer += new TextDecoder().decode(chunk.value);
+      }
+      return JSON.parse(buffer.slice(6, buffer.indexOf('\n\n')));
+    };
+    output.setVideoMode('camera');
+    const first = await connect();
+    const second = await connect();
+    assert.equal(first.video.mode, 'camera');
+    assert.equal(second.video.mode, 'off');
+    const receipt = { clientId: first.videoClientId, requestId: first.video.requestId, sequence: 2, status: 'active', error: null };
+    const send = (body: object, origin = headers.Origin): Promise<Response> => fetch(new URL('video-status', url),
+      { method: 'POST', headers: { ...headers, Origin: origin }, body: JSON.stringify(body) });
+    assert.equal((await send(receipt, 'https://untrusted.example')).status, 403);
+    assert.equal((await send({ ...receipt, clientId: second.videoClientId })).status, 409);
+    assert.equal((await send({ ...receipt, requestId: 'previous-request' })).status, 409);
+    assert.equal((await send({ ...receipt, sequence: 0 })).status, 400);
+    assert.equal((await send({ ...receipt, status: ['active'] })).status, 400);
+    assert.equal((await send({ ...receipt, command: 'camera' })).status, 400);
+    assert.equal((await send({ ...receipt, status: 'error', error: 'x'.repeat(1200) })).status, 413);
+    assert.equal((await send(receipt)).status, 204);
+    assert.equal(output.videoState().status, 'active');
+    assert.equal((await send({ ...receipt, sequence: 1, status: 'requesting' })).status, 204);
+    assert.equal(output.videoState().status, 'active');
+    output.setVideoMode('off');
+    assert.equal((await send({ ...receipt, sequence: 3 })).status, 409);
+    assert.equal(output.videoState().mode, 'off');
+    output.setVideoMode('camera');
+    assert.notEqual(output.videoState().requestId, receipt.requestId);
+    output.close();
+    assert.equal(output.videoState().mode, 'off');
+  } finally {
+    await Promise.all(readers.map(reader => reader.cancel()));
+    output.close();
+  }
 });
 
 test('desktop commands reject stale, unknown and unbounded input', () => {
@@ -297,9 +375,11 @@ test('presentation IPC confirms scaled negative-coordinate displays, protects ow
       }
     }
     setWindowOpenHandler(): void {}
+    getURL(): string { return this.mainFrame.url; }
   }
   class Window extends EventEmitter {
     static instances: Window[] = [];
+    static getAllWindows(): Window[] { return Window.instances.filter(window => !window.destroyed); }
     webContents = new Contents();
     destroyed = false;
     inactive = false;

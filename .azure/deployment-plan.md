@@ -2,6 +2,40 @@
 
 **Status:** Validated
 
+**Slide master, end page and Desktop 0.1.14 release (2026-11-05):**
+- All validation checks pass:
+  - [x] 1. Core validation: main synced; frontend/backend/Desktop type checks;
+    isolated backend/frontend release suites, Desktop core and Elgato suites,
+    production builds and lint baseline.
+  - [x] 2. Docker build: existing backend Dockerfile/lockfile and ACR context;
+    image built from merged main.
+  - [x] 3. Azure Policy validation: application-only update of existing ACA/SWA;
+    no provisioning, network, identity, role or policy changes.
+- Desktop advances to 0.1.14 for the end page, shared fan-out trunks and
+  connector geometry. No new capability flag; existing scenes stay readable.
+
+**Section 7: Validation Proof — slide master, end page and Desktop 0.1.14 (2026-11-05):**
+- `git fetch origin` confirms origin/main, HEAD and the branch at 78c21b90; no
+  merge needed. Shared packed-refs maintenance lock warning left untouched.
+- Backend isolated release suite 1049/1049 and frontend isolated release suite
+  404/404 (main and auxiliary bundles) pass. Desktop core suite passes.
+- Desktop Elgato suite first failed 1/20: the straight-connector test compared
+  arrays created in the vm context by reference realm. Spread into local arrays
+  like the other geometry assertions; rerun of that suite only: 20/20 pass.
+- Backend lint baseline first reported 12 new violations in
+  scriptVisualDesigner.ts (magic numbers, missing return types). Replaced with
+  named constants and explicit return types without behaviour change; rerun:
+  backend 543/baseline 623. Frontend 21/baseline 41.
+- Frontend/backend/Desktop `npx tsc --noEmit`, both production builds and
+  `git diff --check` pass. Frontend entrypoint index-t-98T26Y.js.
+- Existing target read confirms v303 / ready revision 0000300; advance to v304.
+  No infrastructure, role or policy changes; validation workflow run with the
+  Windows PowerShell 5 Enum.Parse compatibility copy as in prior releases.
+- Evidence: slide-release-{api-tests,web-tests,desktop-tests,elgato-tests,
+  elgato-tests-rerun,web-build,api-build}.log in this session's files.
+  Signed-in browser authoring and physical Elgato playback remain unverified.
+- Unrelated DESIGN.md and .impeccable cache modifications remain excluded.
+
 **Presenter layout and visual motion release (2026-11-05):**
 - All validation checks pass:
   - Core validation: sync main; frontend/backend/Desktop type checks; isolated

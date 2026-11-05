@@ -5,6 +5,11 @@ export const COMMANDS = [
   'stop-presenting',
 ] as const;
 export type DesktopCommand = typeof COMMANDS[number];
+export interface PresentationVideoState extends VisualVideoState { noteId: string | null; available: boolean }
+export function parseVisualVideoMode(value: unknown): VisualVideoMode {
+  if (value !== 'guide' && value !== 'camera' && value !== 'off') throw new Error('Choose Guide, Camera or Off for presenter video.');
+  return value;
+}
 export interface CommandRequest { id: string; command: DesktopCommand; issuedAt: number }
 export interface PresentationState {
   sessionId: string;
@@ -32,7 +37,7 @@ export interface PresentationArtwork {
     d: string; tone: 'teal' | 'blue' | 'purple' | 'neutral'; opacity: number }>;
 }
 export interface PresentationVisualScene {
-  id: string; template: 'title' | 'statistic' | 'comparison' | 'steps' | 'concept' | 'image';
+  id: string; template: 'title' | 'statistic' | 'comparison' | 'steps' | 'concept' | 'image' | 'close';
   title: string; subtitle: string; at: number; imageUrl: string; imageAlt: string;
   items: Array<{ label: string; detail: string; at: number }>;
   artwork?: PresentationArtwork;
@@ -49,11 +54,14 @@ export function parsePresentationVisuals(value: unknown, length: number): Presen
     if (typeof value !== 'string' || value.length > max) throw new Error('Invalid presentation visual text.');
     return value;
   };
-  const composition = (value: unknown, reveals: number): VisualComposition => {
+  const composition = (value: unknown, reveals: number, titleOnly: boolean): VisualComposition => {
     if (!value || typeof value !== 'object') throw new Error('Invalid presentation composition.');
     const data = value as Record<string, unknown>;
-    if (!Array.isArray(data.nodes) || !data.nodes.length || data.nodes.length > 24
+    if (data.imageTreatment !== undefined && data.imageTreatment !== 'full' && data.imageTreatment !== 'blend') throw new Error('Invalid header image treatment.');
+    if (!Array.isArray(data.nodes) || (!data.nodes.length && !data.imageTreatment && !titleOnly) || data.nodes.length > 24
       || !Array.isArray(data.links) || data.links.length > 24) throw new Error('Invalid presentation composition elements.');
+    if (data.imageTreatment && (data.nodes.length || data.links.length || reveals)) throw new Error('Header imagery cannot be mixed with animated diagram content.');
+    if (!data.nodes.length && (data.links.length || reveals)) throw new Error('A title-only composition cannot contain connections or builds.');
     const number = (value: unknown, min: number, max: number): number => {
       if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max) throw new Error('Invalid presentation composition geometry.');
       return value;
@@ -81,11 +89,14 @@ export function parsePresentationVisuals(value: unknown, length: number): Presen
       if (x + width > 1520 || y + height > 800) throw new Error('Presentation composition is outside the stage.');
       if (node.entrance !== undefined && !['fade', 'rise', 'left', 'right', 'scale', 'wipe'].includes(String(node.entrance))) throw new Error('Invalid presentation composition entrance.');
       if (node.emphasis !== undefined && !['highlight', 'underline', 'strike'].includes(String(node.emphasis))) throw new Error('Invalid presentation composition emphasis.');
+      if (node.size !== undefined && !['xl', 'l', 'm', 's'].includes(String(node.size))) throw new Error('Invalid presentation composition text size.');
       return { id, kind: node.kind as VisualNode['kind'], x, y, width, height,
         label: string(node.label, 120), detail: string(node.detail, 240), icon: node.icon as VisualNode['icon'],
         tone: tone(node.tone), reveal: reveal(node.reveal),
         ...(node.entrance === undefined ? {} : { entrance: node.entrance as NonNullable<VisualNode['entrance']> }),
-        ...(node.emphasis === undefined ? {} : { emphasis: node.emphasis as NonNullable<VisualNode['emphasis']> }) };
+        ...(node.emphasis === undefined ? {} : { emphasis: node.emphasis as NonNullable<VisualNode['emphasis']> }),
+        ...(node.size === undefined ? {} : { size: node.size as NonNullable<VisualNode['size']> }),
+        ...(node.kicker === undefined || node.kicker === '' ? {} : { kicker: string(node.kicker, 40) }) };
     });
     const links = data.links.map((raw: unknown): VisualLink => {
       if (!raw || typeof raw !== 'object') throw new Error('Invalid presentation composition connection.');
@@ -95,11 +106,17 @@ export function parsePresentationVisuals(value: unknown, length: number): Presen
         || nodes.some(node => (node.id === from || node.id === to) && node.reveal > at)) throw new Error('Invalid presentation composition connection.');
       if (link.motion !== undefined && !['draw', 'flow'].includes(String(link.motion))) throw new Error('Invalid presentation composition connection motion.');
       if (link.route !== undefined && !['direct', 'arc'].includes(String(link.route))) throw new Error('Invalid presentation composition connection route.');
+      for (const port of [link.fromPort, link.toPort]) {
+        if (port !== undefined && (typeof port !== 'string' || !['top', 'right', 'bottom', 'left'].includes(port))) throw new Error('Invalid presentation connection port.');
+      }
       return { from, to, label: string(link.label, 80), tone: tone(link.tone), reveal: at, style: link.style as VisualLink['style'],
         ...(link.motion === undefined ? {} : { motion: link.motion as NonNullable<VisualLink['motion']> }),
-        ...(link.route === undefined ? {} : { route: link.route as NonNullable<VisualLink['route']> }) };
+        ...(link.route === undefined ? {} : { route: link.route as NonNullable<VisualLink['route']> }),
+        ...(link.fromPort === undefined ? {} : { fromPort: link.fromPort as NonNullable<VisualLink['fromPort']> }),
+        ...(link.toPort === undefined ? {} : { toPort: link.toPort as NonNullable<VisualLink['toPort']> }) };
     });
-    return { label: string(data.label, 100), imagePrompt: string(data.imagePrompt, 1800), nodes, links };
+    return { label: string(data.label, 100), imagePrompt: string(data.imagePrompt, 1800), nodes, links,
+      ...(data.imageTreatment === undefined ? {} : { imageTreatment: data.imageTreatment as NonNullable<VisualComposition['imageTreatment']> }) };
   };
   const artwork = (value: unknown): PresentationArtwork => {
     if (!value || typeof value !== 'object') throw new Error('Invalid presentation artwork.');
@@ -130,16 +147,19 @@ export function parsePresentationVisuals(value: unknown, length: number): Presen
   return value.map((raw: unknown): PresentationVisualScene => {
     if (!raw || typeof raw !== 'object') throw new Error('Invalid presentation scene.');
     const scene = raw as Record<string, unknown>;
-    const template = ['title', 'statistic', 'comparison', 'steps', 'concept', 'image'].find(item => item === scene.template);
+    const template = ['title', 'statistic', 'comparison', 'steps', 'concept', 'image', 'close'].find(item => item === scene.template);
     if (!template || !Array.isArray(scene.items) || scene.items.length > 6) throw new Error('Invalid presentation visual template.');
     const imageUrl = string(scene.imageUrl, 2000);
     if (imageUrl && !/^https:\/\//i.test(imageUrl)) throw new Error('Invalid presentation image URL.');
     if (scene.layout !== undefined && !['hero', 'split', 'diagram'].includes(String(scene.layout))) throw new Error('Invalid presentation layout.');
     if (scene.presenterLayout !== undefined && typeof scene.presenterLayout !== 'boolean') throw new Error('Invalid presenter layout.');
+    const composed = scene.composition === undefined ? undefined
+      : composition(scene.composition, template === 'close' ? 0 : scene.items.length, template === 'title' || template === 'close');
+    if (composed?.imageTreatment && (!['title', 'image'].includes(template) || !imageUrl || scene.artwork)) throw new Error('An image header needs a resolved image, without diagram animation.');
     return { id: string(scene.id, 100), template: template as PresentationVisualScene['template'],
       title: string(scene.title, 160), subtitle: string(scene.subtitle, 500), imageUrl, imageAlt: string(scene.imageAlt, 500),
       ...(scene.artwork === undefined ? {} : { artwork: artwork(scene.artwork) }),
-      ...(scene.composition === undefined ? {} : { composition: composition(scene.composition, scene.items.length) }),
+      ...(composed === undefined ? {} : { composition: composed }),
       ...(scene.layout === undefined ? {} : { layout: scene.layout as NonNullable<PresentationVisualScene['layout']> }),
       ...(scene.presenterLayout === undefined ? {} : { presenterLayout: scene.presenterLayout }),
       at: at(scene.at), items: scene.items.map((raw: unknown) => {
@@ -212,4 +232,4 @@ export function playbackCommand(state: PresentationState, command: DesktopComman
   }
   return next;
 }
-import type { VisualComposition, VisualNode, VisualLink } from '../assets/visualComposition';
+import type { VisualComposition, VisualNode, VisualLink, VisualVideoMode, VisualVideoState } from '../assets/visualComposition';

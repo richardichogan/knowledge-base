@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ariadne visuals — isolated slide preview</title>
+  <style>
+    body { margin: 0; min-height: 100dvh; background: #161616; color: #f4f4f4; font: 14px/1.4 'IBM Plex Sans', system-ui, sans-serif; }
+    .harness { max-width: 1280px; margin: 0 auto; padding: 16px; display: grid; gap: 12px; }
+    .harness__tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .harness__tools p { margin: 0 8px 0 0; font: 400 12px 'IBM Plex Mono', monospace; letter-spacing: 0.08em; text-transform: uppercase; color: #c6c6c6; }
+    .harness__tools button { min-height: 32px; padding: 0 12px; border: 1px solid #6f6f6f; background: #262626; color: #f4f4f4; font: inherit; cursor: pointer; }
+    .harness__tools button:hover { background: #393939; }
+    .harness__tools button:focus-visible { outline: 2px solid #78a9ff; outline-offset: 2px; }
+    .harness__tools button[aria-pressed="true"] { border-color: #78a9ff; box-shadow: inset 0 -2px 0 #78a9ff; }
+    .harness__tools button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .harness__stage { position: relative; aspect-ratio: 16 / 9; container-type: size; overflow: hidden; background: #161616; }
+    .harness__note { margin: 0; color: #c6c6c6; }
+  </style>
+</head>
+<body><div id="root" class="harness"></div><script type="module" src="./script-visuals.browser.ts"></script></body>
+</html>

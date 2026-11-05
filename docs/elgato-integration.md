@@ -110,18 +110,35 @@ block; genuine nested lists retain the editor's normal unindent behaviour.
 Responses** route, to compose scenes without rewriting the spoken script.
 Concepts, relationships, processes and key messages take priority over narration
 repeated on screen; bullet lists are exceptional. New scenes use typed, layered
-Carbon g100 compositions: large symbols, image subjects, short labels and
+Carbon g100 compositions: meaningful symbols, grouped responsibilities, short labels and
 animated directional connections. The old templates remain readable for existing
 saved scenes, but do not constrain newly composed visuals.
-Unboxed actors, imagery and connecting lines are the default; panels are reserved
-for meaningful groupings or boundaries. New or revised panels share a validated
-360×280 footprint and 24px padding; comparable unboxed actors use matching
-340×240 footprints, icon scale and spacing across scenes. Each unboxed actor's
-icon and text are centred together horizontally and vertically within its footprint.
+The reference direction combines the Claude clips' branching processes, circular
+lifecycles and staged relationships with the Copilot example's typography,
+selective emphasis and presenter rail. Layout follows the explanation rather than
+repeating an icon grid. Panels mark real groupings or responsibilities; unboxed
+actors remain available. Comparable peers use matching footprints, aligned labels
+and equal gaps, without forcing a boundary and a simple actor into one fixed size.
+The generation brief includes concrete reference compositions: ambition over an
+operating-model foundation, a clockwise four-stage lifecycle, branching handoffs
+with a separate human exception, two foundations converging on one outcome, and
+a bounded implementation sequence. They are selected only when supported by the
+actual narration; reference-specific roles, examples and metrics are not copied.
+The shared diagram stage uses the references' quiet neutral grid.
+Each unboxed actor's icon and text remain centred together within its footprint.
 The visual brief targets 12–24 visible words per scene, with an enforced ceiling
 of 36. At 1600×900, headlines are 64px, primary labels 40px and secondary labels
-32px; the whole composition scales together. The talk track stays in the script.
-Supporting editorial illustrations use the existing one-pager deployment
+32px (28px for connection labels/subtitles); the whole composition scales together.
+The talk track stays in the script.
+Images are optional, not a per-section quota. Animated explanatory scenes cannot
+introduce static image nodes. A purposeful image belongs to a separate static
+title/image scene with `composition.imageTreatment: "full" | "blend"` and no nodes,
+links or item builds. It fills the canvas or fades into the dark background behind
+the title, never an inset rectangle. Typographic titles need no image or filler
+subject. New/revised generated scenes enforce this separation; existing saved
+mixed-image scenes remain readable and their previews recommend a redesign.
+No saved script is automatically regenerated or overwritten.
+Optional header illustrations use the existing one-pager deployment
 **`gpt-image-2.5-sunburst`**, at
 `https://aif-foundryiq.services.ai.azure.com/openai/v1/images/generations`.
 Azure Identity uses the signed-in CLI locally or a supported deployment identity
@@ -138,18 +155,28 @@ an independent pixel-based visual description available to Athena alongside the
 separate generation brief. If image analysis fails, generation reports failure
 rather than claiming Athena has seen the image. Existing
 URLs are reused unless a new illustration is requested. Generation is bounded to
-two distinct new image prompts per section, no image retries, one corrective
-Astra response, and a seven-minute total budget. Both model routes record usage.
+two distinct new image prompts per section, no image retries, up to two corrective
+Astra responses, and a seven-minute total budget. Both model routes record usage.
 The existing vision reader records its own usage separately.
 No model-generated HTML, executable markup, arbitrary CSS or SVG paths are run.
-An initial generation starts with an illustrated title scene. Each scene keeps
+An initial generation starts with a distinct title scene, not necessarily an image. Each scene keeps
 its own headline, while a consistent footer shows the script title and its
 scene number across the whole script (for example **03 / 12**).
 
 The visual language also includes cue-driven highlight, underline and strike-through
 emphasis; directional, scale and wipe entrances; drawn connectors; and a single
-travelling token for a process handoff. Directed arc connections can describe a
-lifecycle returning to its start. All builds use the existing spoken-block cues,
+travelling token for a process handoff. Connections have optional typed
+`fromPort`/`toPort` (`top`, `right`, `bottom`, `left`) and use visible subject
+geometry, departure/arrival tangents and neighbouring-content clearance rather
+than a fixed-sided bend. Directed arc connections can describe a lifecycle
+returning to its start. Actors settle before new connections draw; handoff tokens
+then follow the same path and disappear. Dashed connectors use a separate draw
+mask, so their dash pattern does not break the reveal. Items anchored to the same
+spoken phrase form one build in both preview and audience output, rather than
+being skipped as a seek or played separately. Preview allows the full
+actor/draw/signal sequence to finish before advancing. Rewind cancels pending
+motion; jumping past multiple distinct cues settles the skipped builds instead
+of replaying old signals. All builds use the existing spoken-block cues,
 not recording timestamps. Reverse reading hides later builds again. Motion is
 bounded rather than perpetually looping, and reduced-motion preferences remove
 transitions and travelling tokens. Existing saved scenes remain readable unchanged;
@@ -160,10 +187,34 @@ available once visuals exist. It defaults off (full-frame). Turning it on update
 all existing section scenes through normal note editing/autosave and undo, without
 changing spoken text or cue positions. The shared preview and audience renderer
 scale the composition to the left, show the chapter and key takeaway at upper
-right, and leave the lower-right area clear for an externally composited camera
-feed. Athena does not capture or embed video. The mode is saved with each scene,
+right, and reserve a lower-right 16:9 video area. The layout is saved with each scene,
 visible to Athena's existing read/design tools and retained during visual redesign.
 Changing it does not replace an already-running saved presentation snapshot.
+
+The script toolbar's **Video** selector controls that reserved area independently:
+
+- **Guide** displays corner guides for aligning video later in Premiere.
+- **Camera** composites the browser's selected/default webcam into the same area.
+  Present the saved script with Presenter layout first, then select Camera and
+  grant permission in the audience browser. If necessary, that explicit action
+  opens the audience window. Only one connected audience page receives the camera
+  request; opening another page does not activate another capture.
+- **Off** leaves the area clear without collapsing the presenter layout.
+
+Camera capture is local, video-only, unmirrored, and never starts from opening a
+script or a preview. No video is sent to the backend or AI, and microphone capture
+is disabled. Camera mode is not saved in scripts or desktop settings. Changing
+mode, finishing/closing the presentation, leaving a presenter-layout scene,
+closing the browser or losing the output connection releases camera tracks.
+Permission/device errors are explicit, with **Retry camera** on the toolbar.
+Teams/Riverside may prevent concurrent access to the same camera; use Off or
+release the camera in the other app rather than assuming it can always be shared.
+Share the audience browser window, not the editor, for a live composited feed.
+The web preview shows the selected mode and reported status but never opens a
+second camera stream. Athena receives mode, active-note identity and connection/
+error state in its current context. Video-mode changes remain manual, as approved;
+Athena cannot activate the camera or inspect its frames. Only an acknowledged
+`active` status confirms capture; requested/waiting is not a success receipt.
 
 Each section shows its visual preview. **Play preview** demonstrates its scenes
 and reveals independently of the teleprompter; it does not start live playback.
@@ -173,8 +224,26 @@ the audience output, including its titles, footer and numbering.
 **Ask Athena to update** opens the existing Think Athena panel, with the section
 and scene identified. Athena can read full saved scenes and cues with
 `read_script_visuals` and ask Ariadne for bounded revisions with
-`design_script_visuals`. Edits use the normal protected live editor, history,
-undo, revision conflicts and save receipts. A changed spoken section marks its
+`design_script_visuals`. Both the toolbar generation action and Athena now queue
+Ariadne in the existing **Background work** specialist worker. The request returns
+after saving the source snapshot and job, not after model/image generation.
+Progress and completion survive navigation; chat requests report back to their
+originating conversation. Existing visuals and narration stay unchanged while
+you continue working.
+
+Completed jobs retain a pending result. **Open result** in Background work opens
+the original Think script and its **Review visuals** toolbar review. Preview the
+saved scenes and choose **Apply visuals** when ready. Applying uses the normal
+protected live editor, history, undo, revision conflicts and save receipts.
+It validates every requested section before changing any; changed source sections,
+removed sections or independently edited visuals block application and retain the
+result. Unrelated section edits and formatting are preserved. Reopening an already
+applied result does not apply it twice.
+
+Athena can retrieve recent job state with `read_script_visuals`, read a retained
+result by `jobId` and `sectionId`, and use `apply_script_visuals` only after explicit
+approval to apply that result. Queued or finished generation is not a save receipt.
+A changed spoken section marks its
 visuals stale rather than silently moving cues or overwriting a draft.
 
 Use **Present** first, then **Open browser visuals** in the script toolbar or
@@ -197,11 +266,20 @@ hosted site.
 The motion vocabulary and presenter layout additionally require Desktop **0.1.13 or later** and its
 `scriptVisualMotion` capability. Older installations report an update requirement
 instead of silently dropping those scene properties.
+The corrected connection ports, static image headers and visible presenter guide
+require an updated Desktop advertising `scriptVisualCraft`; the three video modes
+also require `scriptVisualVideo`. A hosted frontend update alone cannot add these
+local-renderer capabilities to an installed Desktop.
 
-The audience page uses an independent read-only HTTP/SSE server bound to
+The audience page uses an independent HTTP/SSE server bound to
 `127.0.0.1` on an ephemeral port, with a fresh unguessable path for each output
 session. It validates Host and Origin, sends no CORS permission, disables
 caching/referrers and has no commands, note API or desktop credentials.
+Scene delivery remains read-only. Its sole POST endpoint accepts bounded camera
+status acknowledgements from the same origin, current connected client and current
+manual request ID; ordered sequence numbers reject stale status updates. It cannot
+start a camera, change a script or upload media. Its permissions policy allows the
+page's own camera and explicitly denies the microphone.
 It works only on the same computer. It does not weaken the existing paired
 Stream Deck bridge. Closing/disconnecting the output or quitting Desktop closes
 the local server; the browser holds its last scene and reports disconnection.

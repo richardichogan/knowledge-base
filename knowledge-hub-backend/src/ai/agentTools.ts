@@ -136,6 +136,7 @@ export async function executeAgentTool(
     const specialistId = typeof args['specialist'] === 'string' ? args['specialist'] : '';
     const specialist = getSpecialist(specialistId);
     if (!specialist) return { error: `Unknown specialist. Choose one of: ${listSpecialists().map((s) => s.id).join(', ')}.` };
+    if (specialist.id === 'script-visual-designer') return { error: 'Use design_script_visuals for script visuals; it validates access and captures the saved source before queuing Ariadne.' };
     const subjectId = subjectArg ?? (specialist.subjectType === 'design' ? turn.designOwner
       : specialist.id === 'daedalus' ? turn.noteId?.replace(/^map:/, '') : undefined);
     if (!subjectId) return { error: `Say which ${specialist.subjectType} ${specialist.name} should work on.` };

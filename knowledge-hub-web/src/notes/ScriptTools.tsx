@@ -1,19 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import { Tooltip } from '@carbon/react';
-import { Add, Erase, Launch, MagicWand, Pause, PresentationFile, Renew, StopFilled, TextColor, Time, UserAvatar } from '@carbon/icons-react';
+import { Add, Erase, Launch, MagicWand, Pause, PresentationFile, Renew, StopFilled, TextColor, Time, UserAvatar, View } from '@carbon/icons-react';
 import type { BlockNoteEditor } from '@blocknote/core';
 import type { editorSchema } from './editorSchema';
 import { SCRIPT_COLOURS } from '../features/podcasts/scriptAnnotations';
 import { SCRIPT_BLOCK_STYLES, SCRIPT_COLOUR_VALUES } from '../features/podcasts/scriptRichText';
 import { groupScriptSections, splitScriptSectionTail } from '../../../knowledge-hub-backend/src/utils/scriptSections';
 import { preserveScriptSelection } from './scriptSectionSelection';
-import { api } from '../services/api';
-import { describeApiError, requireApiData } from '../services/apiError';
 import { applyNoteEdits } from '../utils/noteEditApplier';
-import { runNoteAction } from '../utils/activeBlockNoteEditor';
 import { getDesktop } from '../types/desktop';
 import { scriptBackspace } from './scriptBackspace';
 import { parseScriptVisuals, readSectionVisuals, scriptVisualSource } from '../../../knowledge-hub-backend/src/utils/scriptVisuals';
+import { useScriptVisualJobs } from './ScriptVisualJobs';
+import { setScriptVideoMode, useScriptVideoState } from '../features/autocue/scriptVideoState';
 
 type Editor = BlockNoteEditor<typeof editorSchema.blockSchema, typeof editorSchema.inlineContentSchema, typeof editorSchema.styleSchema>;
 
@@ -29,8 +28,8 @@ export function ScriptTools({ editor, disabled, noteId, save, onPresent, onStopP
   editor: Editor; disabled: boolean; noteId: string; save: () => Promise<boolean>;
   onPresent?: (() => void) | undefined; onStopPresenting?: (() => void) | undefined;
 }): React.ReactElement {
-  const [designing, setDesigning] = useState(false);
-  const designingRef = React.useRef(false);
+  const visualJobs = useScriptVisualJobs({ editor, noteId, save, disabled });
+  const designing = visualJobs.submitting || !!visualJobs.active;
   const [selected, setSelected] = useState(false);
   const [colour, setColour] = useState('');
   const [blockStyle, setBlockStyle] = useState('0');
@@ -38,6 +37,16 @@ export function ScriptTools({ editor, disabled, noteId, save, onPresent, onStopP
   const [sectionError, setSectionError] = useState<string | null>(null);
   const [presenterLayout, setPresenterLayout] = useState(false);
   const [hasVisuals, setHasVisuals] = useState(false);
+  const video = useScriptVideoState();
+  const [videoBusy, setVideoBusy] = useState(false);
+  const [videoError, setVideoError] = useState<string | null>(null);
+  const changeVideo = (mode: 'guide' | 'camera' | 'off'): void => {
+    if (videoBusy) return;
+    setVideoBusy(true); setVideoError(null);
+    void setScriptVideoMode(noteId, mode).catch(error => {
+      setVideoError(error instanceof Error ? error.message : 'Could not change presenter video mode.');
+    }).finally(() => { setVideoBusy(false); });
+  };
   useEffect(() => {
     const refresh = (): void => {
       try {
@@ -120,7 +129,7 @@ export function ScriptTools({ editor, disabled, noteId, save, onPresent, onStopP
   return <>
   <div className="kh-script-tools kh-script-tools--sticky kh-script-tools--icons" role="group" aria-label="Script block styles, emphasis and delivery cues">
     <ScriptToolButton type="button" className="kh-btn-ghost" title="Presenter layout: reserve space for your video"
-      aria-label="Presenter layout" aria-pressed={presenterLayout} disabled={disabled || designing || !hasVisuals}
+      aria-label="Presenter layout" aria-pressed={presenterLayout} disabled={disabled || !hasVisuals}
       onClick={() => {
         try {
           const edits = editor.document.flatMap(block => {
@@ -144,35 +153,32 @@ export function ScriptTools({ editor, disabled, noteId, save, onPresent, onStopP
           setSectionError(error instanceof Error ? error.message : 'Could not change the visual layout.');
         }
       }}><UserAvatar size={18} aria-hidden="true" /></ScriptToolButton>
+    <label className="kh-script-tools__style kh-script-tools__video">Video
+      <select aria-label="Presenter video mode" value={video.mode}
+        disabled={videoBusy || video.loading || (!presenterLayout && video.mode !== 'camera')}
+        onChange={event => {
+          const mode = event.target.value;
+          if (mode === 'guide' || mode === 'camera' || mode === 'off') changeVideo(mode);
+          else setVideoError('Choose Guide, Camera or Off.');
+        }}>
+        <option value="guide">Guide</option>
+        <option value="camera" disabled={!getDesktop()?.presentation?.scriptVisualVideo || !video.available || video.noteId !== noteId}>Camera</option>
+        <option value="off">Off</option>
+      </select>
+    </label>
+    {video.mode === 'camera' && video.status === 'error' && <ScriptToolButton type="button" className="kh-btn-ghost"
+      title="Retry camera" aria-label="Retry camera" disabled={videoBusy || !video.available || video.noteId !== noteId}
+      onClick={() => { changeVideo('camera'); }}><Renew size={18} aria-hidden="true" /></ScriptToolButton>}
     {onPresent && <ScriptToolButton type="button" className="kh-btn-ghost" title="Present" aria-label="Present"
       disabled={disabled} onClick={onPresent}><PresentationFile size={18} aria-hidden="true" /></ScriptToolButton>}
     {onStopPresenting && <ScriptToolButton type="button" className="kh-btn-ghost" title="Stop presenting" aria-label="Stop presenting"
       onClick={onStopPresenting}><StopFilled size={18} aria-hidden="true" /></ScriptToolButton>}
     <ScriptToolButton type="button" className="kh-btn-ghost" title={designing ? 'Ariadne is designing visuals…' : 'Generate visuals'}
       aria-label={designing ? 'Ariadne is designing visuals' : 'Generate visuals'} aria-busy={designing}
-      disabled={disabled || designing} onClick={() => {
-      if (designingRef.current) return;
-      designingRef.current = true; setDesigning(true); setSectionError(null);
-      void (async () => {
-        if (!await save()) throw new Error('Save the current script successfully before generating visuals.');
-        const sections = editor.document.filter(block => block.type === 'heading' && block.props.scriptSection);
-        if (!sections.length || sections.length > 20) throw new Error('Generate visuals for 1–20 script sections at a time.');
-        const snapshot = JSON.stringify(editor.document);
-        const edits: import('../types').NoteEdit[] = [];
-        for (const section of sections) {
-          const draft = requireApiData(await api.draftScriptVisuals(noteId, section.id,
-            `Redesign this section as composed Carbon scenes using Astra and Sunburst imagery. Use conceptual visuals and meaningful animation, not the talk track: far less text, large readable labels, no paragraphs. ${section.id === sections[0]?.id ? 'Include a distinct illustrated opening title scene before the explanation.' : 'Continue the presentation without another opening title.'} Preserve the spoken script.`));
-          edits.push({ action: 'set_script_visuals', sectionId: section.id, ...draft, summary: 'Generate section visuals' });
-        }
-        await runNoteAction(noteId, true, () => {
-          if (JSON.stringify(editor.document) !== snapshot) throw new Error('The script changed during generation. No visuals were applied.');
-          const result = applyNoteEdits(editor, edits, { script: true });
-          if (result.failed.length) throw new Error(result.failed.join('; '));
-        });
-      })().catch(error => { setSectionError(describeApiError(error)); })
-        .finally(() => { designingRef.current = false; setDesigning(false); });
-    }}>{designing ? <Renew size={18} aria-hidden="true" /> : <MagicWand size={18} aria-hidden="true" />}</ScriptToolButton>
-    <ScriptToolButton type="button" className="kh-btn-ghost" title="Open browser visuals" aria-label="Open browser visuals" disabled={disabled || designing} onClick={() => {
+      disabled={disabled || designing} onClick={visualJobs.generate}>{designing ? <Renew size={18} aria-hidden="true" /> : <MagicWand size={18} aria-hidden="true" />}</ScriptToolButton>
+    <ScriptToolButton type="button" className="kh-btn-ghost" title={visualJobs.loading ? 'Loading visual results…' : 'Review visuals'}
+      aria-label="Review visuals" disabled={!visualJobs.hasResult} onClick={visualJobs.review}><View size={18} aria-hidden="true" /></ScriptToolButton>
+    <ScriptToolButton type="button" className="kh-btn-ghost" title="Open browser visuals" aria-label="Open browser visuals" disabled={disabled} onClick={() => {
       const desktop = getDesktop()?.presentation;
       if (!desktop?.openVisuals) { setSectionError('Use an updated Athena Desktop to open the synchronised local browser output.'); return; }
       void desktop.openVisuals().catch(error => { setSectionError(error instanceof Error ? error.message : 'Could not open browser visuals.'); });
@@ -228,7 +234,20 @@ export function ScriptTools({ editor, disabled, noteId, save, onPresent, onStopP
         editor.insertInlineContent([{ type: 'scriptCue', props: { cue } }]);
       }}>{cue === 'pause' ? <Pause size={18} aria-hidden="true" /> : <Time size={18} aria-hidden="true" />}</ScriptToolButton>)}
   </div>
-  <p className="kh-script-tools__hint" role="status">{designing ? 'Ariadne is designing visuals…' : 'Each card is a section. Titles are editor-only; the text inside each card is read on the autocue.'}</p>
+  <p className="kh-script-tools__hint" role="status">{visualJobs.status ?? 'Each card is a section. Titles are editor-only; the text inside each card is read on the autocue.'}</p>
+  {presenterLayout && <p className="kh-script-tools__hint" role="status">{video.loading ? 'Reading video mode…'
+    : video.mode === 'camera' ? video.status === 'active' ? 'Camera live in the audience output. No microphone audio is captured.'
+      : video.status === 'requesting' ? 'Allow camera access in the audience browser.'
+        : video.status === 'error' ? 'Camera unavailable. Retry or select Off.'
+          : 'Waiting for the audience output and a Presenter-layout scene.'
+      : video.mode === 'guide' ? 'Guide: align your video here in Premiere. For live sharing, select Camera or Off.'
+        : 'Video off: the presenter area stays clear.'}
+    {!getDesktop()?.presentation?.scriptVisualVideo && ' Live camera/output controls require an updated Athena Desktop.'}
+    {getDesktop()?.presentation?.scriptVisualVideo && !video.available && ' Present the saved script with Presenter layout to enable Camera.'}
+  </p>}
+  {(videoError || video.error) && <p className="kh-script-section__error" role="alert">{videoError || video.error}</p>}
+  {(visualJobs.error || visualJobs.loadError) && <p className="kh-script-section__error" role="alert">{visualJobs.error || visualJobs.loadError}</p>}
+  {visualJobs.dialog}
   {sectionError && <p className="kh-script-section__error" role="alert">{sectionError}</p>}
   </>;
 }

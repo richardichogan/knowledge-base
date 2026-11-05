@@ -138,6 +138,7 @@ const NOTE_EDIT_MAX_TOKENS = 14_000;
 /** Tools that change something; left out when a turn must only read. */
 const WRITE_TOOLS = new Set([...WORK_WRITE_TOOLS, ...BUILD_WRITE_TOOLS, ...USE_CASE_WRITE_TOOLS, ...DESIGN_READINESS_WRITE_TOOLS, 'apply_diagram_candidate', 'generate_project_progress_review', 'update_podcast_script', 'replace_podcast_youtube_link', 'save_design_documents', 'set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'propose_local_file_write', 'remember', 'forget_memory', 'save_output', 'manage_scheduled_jobs', 'manage_publishing_feeds', 'refresh_discover_picks', 'hand_off_to_specialist', 'import_meeting_list', DEMO_SPECIFICATION_WRITE_TOOL, ...ASSET_WRITE_TOOLS]);
 WRITE_TOOLS.add('design_script_visuals');
+WRITE_TOOLS.add('apply_script_visuals');
 
 function isStopped(hooks: TurnHooks): boolean {
   return hooks.signal?.aborted === true;
@@ -348,7 +349,7 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
     .filter(t => !toolContext.podcastOwner || !['create_note_draft', 'propose_note_edit', 'update_note', 'save_output'].includes(t.function.name))
     .filter((t) => hooks.noOutputsPanel !== true || t.function.name !== 'save_output')
     .filter((t) => t.function.name !== 'propose_note_edit' || noteOpen)
-    .filter((t) => !['read_script_visuals', 'design_script_visuals'].includes(t.function.name) || noteOpen && !design && !toolContext.podcastOwner)
+    .filter((t) => !['read_script_visuals', 'design_script_visuals', 'apply_script_visuals'].includes(t.function.name) || noteOpen && !design && !toolContext.podcastOwner)
     .filter((t) => t.function.name !== 'propose_map_changes' || mapOutlineResult !== null);
   const catalog = new ToolCatalog(permittedTools);
   if (hooks.initialTools?.length) catalog.load([...hooks.initialTools]);
@@ -368,7 +369,7 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
   if (openDiagram && permittedTools.some(tool => tool.function.name === 'hand_off_to_specialist')) catalog.load(['hand_off_to_specialist']);
   const contextCapabilities = catalog.loadPermitted([
     ...(openDiagram ? ['update_diagram', 'set_diagram_projects', 'hand_off_to_specialist', 'check_specialist_jobs', 'apply_diagram_candidate'] : []),
-    ...(noteOpen ? ['propose_note_edit', 'read_script_visuals', 'design_script_visuals'] : []),
+    ...(noteOpen ? ['propose_note_edit', 'read_script_visuals', 'design_script_visuals', 'apply_script_visuals'] : []),
     ...(mapOutlineResult ? ['propose_map_changes'] : []),
     ...(design ? ['save_design_documents'] : []),
     ...(toolContext.podcastOwner ? ['update_podcast_script'] : []),

@@ -17,6 +17,15 @@ if (process.isMainFrame && athenaOrigin !== '' && window.location.origin === ath
       scriptVisuals: true,
       scriptVisualCompositions: true,
       scriptVisualMotion: true,
+      scriptVisualCraft: true,
+      scriptVisualVideo: true,
+      videoState: () => ipcRenderer.invoke('presentation:video-state'),
+      setVideoMode: (mode: unknown, noteId: string) => ipcRenderer.invoke('presentation:video-mode', { mode, noteId }),
+      onVideoState: (listener: (value: unknown) => void) => {
+        const handler = (_event: IpcRendererEvent, value: unknown): void => listener(value);
+        ipcRenderer.on('presentation:video-state', handler);
+        return () => { ipcRenderer.removeListener('presentation:video-state', handler); };
+      },
       openVisuals: () => ipcRenderer.invoke('presentation:visuals'),
       open: (noteId?: string) => ipcRenderer.invoke('presentation:open', noteId),
       displays: () => ipcRenderer.invoke('presentation:displays'),

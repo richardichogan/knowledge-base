@@ -7,6 +7,7 @@ import { Schema } from '@tiptap/pm/model';
 import { EditorState, TextSelection } from '@tiptap/pm/state';
 import { preserveScriptSelection } from '../src/notes/scriptSectionSelection';
 import { scriptVisualSource } from '../../knowledge-hub-backend/src/utils/scriptVisuals';
+import { parseScriptVisualJobResult, scriptVisualJobEdits, scriptVisualSnapshot } from '../../knowledge-hub-backend/src/utils/scriptVisualJobs';
 
 type Inline = { type: string; text?: string; styles?: Record<string, unknown>; props?: Record<string, unknown>; href?: string; content?: Inline[] };
 interface Block { id: string; type: string; props?: Record<string, unknown>; content: Inline[]; children?: Block[] }
@@ -68,6 +69,71 @@ test('visual-only edits preserve the section, rich spoken blocks and unrelated m
   const changed = fixture([{ ...section, children: [{ id: 'spoken', type: 'paragraph', content: [text('New wording.')] }] }]);
   assert.equal(changed.apply([edit], true).applied, 0);
   assert.equal(changed.editor.document[0]?.props?.['scriptVisuals'], '');
+});
+
+function visualDraft(section: Block) {
+  return { section: structuredClone(section), expectedVisuals: String(section.props?.['scriptVisuals'] ?? ''),
+    visuals: { version: 1 as const, source: scriptVisualSource(section), scenes: [{
+      id: `scene-${section.id}`, template: 'title' as const, title: 'A clear concept', subtitle: '', imageUrl: '', imageAlt: '',
+      cue: { blockId: section.children![0]!.id, quote: '' }, items: [],
+    }] } };
+}
+const visualSection = (id: string): Block => ({ id, type: 'heading',
+  props: { scriptSection: true, scriptVisuals: '', level: 2, textColor: 'default' }, content: [text(id)],
+  children: [{ id: `${id}-body`, type: 'paragraph', content: [text(`Explain ${id}.`, { bold: true })] }] });
+
+test('pending visual results survive serialization without editing the script and apply through normal protected edits', () => {
+  const section = visualSection('opening');
+  const draft = visualDraft(section);
+  const before = structuredClone(section);
+  const result = parseScriptVisualJobResult(JSON.parse(JSON.stringify({ noteId: 'note', sections: [draft] })), 'note');
+  assert.deepEqual(section, before);
+  const other = visualSection('unrelated');
+  other.children![0]!.content = [text('Work completed while Ariadne was running.')];
+  const { editor, apply } = fixture([section, other]);
+  editor.document[0]!.children![0]!.content[0]!.styles = { bold: true, italic: true };
+  const retainedBody = structuredClone(editor.document[0]!.children);
+  const edits = scriptVisualJobEdits(result, editor.document);
+  assert.deepEqual(apply(edits, true), { applied: 1, failed: [] });
+  assert.deepEqual(editor.document[0]!.children, retainedBody);
+  assert.deepEqual(editor.document[1], other);
+  assert.deepEqual(scriptVisualJobEdits(result, editor.document), []);
+});
+
+test('all sections are preflighted before applying a pending result, including late live-editor conflicts', () => {
+  const first = visualSection('first'), second = visualSection('second');
+  const result = parseScriptVisualJobResult({ noteId: 'note', sections: [visualDraft(first), visualDraft(second)] }, 'note');
+  const { editor, apply } = fixture([first, second]);
+  const edits = scriptVisualJobEdits(result, editor.document);
+  editor.document[1]!.children![0]!.content = [text('Changed after the result was read.')];
+  assert.throws(() => scriptVisualJobEdits(result, editor.document), /changed|removed/);
+  const applied = apply(edits, true);
+  assert.equal(applied.applied, 0);
+  assert.equal(applied.failed.length, 1);
+  assert.equal(editor.document[0]!.props!['scriptVisuals'], '');
+  assert.equal(editor.document[1]!.props!['scriptVisuals'], '');
+  assert.throws(() => scriptVisualJobEdits(result, [first]), /changed|removed/);
+});
+
+test('pending results reject foreign notes, duplicate sections, invalid cues and independently changed visuals', () => {
+  const section = visualSection('section');
+  const draft = visualDraft(section);
+  const raw = { noteId: 'note', sections: [draft] };
+  assert.throws(() => parseScriptVisualJobResult(raw, 'another-note'), /belong/);
+  assert.throws(() => parseScriptVisualJobResult({ ...raw, sections: [draft, draft] }, 'note'), /repeats/);
+  assert.throws(() => parseScriptVisualJobResult({ ...raw, sections: [{ ...draft, expectedVisuals: 'invented' }] }, 'note'), /snapshot/);
+  const invalid = structuredClone(raw);
+  invalid.sections[0]!.visuals.scenes[0]!.cue.blockId = 'removed';
+  assert.throws(() => parseScriptVisualJobResult(invalid, 'note'), /cue/);
+  const result = parseScriptVisualJobResult(raw, 'note');
+  const changed = structuredClone(section);
+  changed.props!['scriptVisuals'] = JSON.stringify({ ...draft.visuals, scenes: [{ ...draft.visuals.scenes[0], title: 'Independently revised' }] });
+  assert.throws(() => scriptVisualJobEdits(result, [changed]), /visuals changed/);
+  const renamed = structuredClone(section);
+  renamed.content = [text('New chapter')];
+  assert.throws(() => scriptVisualJobEdits(result, [renamed]), /changed/);
+  assert.throws(() => scriptVisualSnapshot({ ...section, type: 'paragraph' }), /populated/);
+  assert.throws(() => parseScriptVisualJobResult({ ...raw, sections: [] }, 'note'), /belong/);
 });
 
 test('heading-to-card conversion is lossless, immutable and idempotent across levels and preamble', () => {

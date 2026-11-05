@@ -17,7 +17,10 @@
 
 import { validateNoteEdits, checkEditsAgainstNote, noteHeadings } from './noteEdits.js';
 import { JOB_TOOL, executeJobTool } from './jobTools.js';
-import { designScriptVisuals, scriptVisualNarration } from '../services/scriptVisualDesigner.js';
+import { scriptVisualNarration } from '../services/scriptVisualDesigner.js';
+import { queueScriptVisuals, readScriptVisualJob } from '../services/scriptVisualJobs.js';
+import { scriptVisualJobEdits, SCRIPT_VISUAL_SPECIALIST } from '../utils/scriptVisualJobs.js';
+import { listAgentJobs } from '../agents/engine.js';
 import { readSectionVisuals, scriptVisualSource, visualSourceBlocks, SCRIPT_VISUAL_SOURCE_BUDGET, SCRIPT_VISUAL_INSTRUCTION_LIMIT, type VisualScriptBlock } from '../utils/scriptVisuals.js';
 import { getDiscoverPicks, refreshDiscoverPicks } from '../services/discoverPicks.js';
 import { PUBLISHING_TOOL, executePublishingTool } from './publishingTools.js';
@@ -732,18 +735,26 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
       type: 'function',
       function: {
         name: 'read_script_visuals',
-        description: 'Read actual saved Script visuals and cue state. Omit sectionId to list stable section ids; provide it to read the full spoken blocks and all scenes/reveals for that section. Never infer visuals from the title.',
-        parameters: { type: 'object', properties: { sectionId: { type: 'string' } } },
+        description: 'Read actual saved Script visuals, cue state and background visual jobs. Omit sectionId to list sections and recent jobs. Supply jobId to read a pending result (sectionId retrieves its full scenes, source and cues). A template "close" scene is the end page: subtitle is the setup line, title the closing statement, items are emphasised phrases from them, and the renderer adds the "Thank you" sign-off. Never infer content from titles; pending visuals have not been applied.',
+        parameters: { type: 'object', properties: { sectionId: { type: 'string' }, jobId: { type: 'string' } } },
       },
     },
     {
       type: 'function',
       function: {
         name: 'design_script_visuals',
-        description: 'Ask Ariadne (configured standard visual-design model) to generate or revise visuals for one Script section. Only use for an explicit visual edit request. Preserves spoken text; routes typed scene edits through the protected live editor with conflict checks and persistence. Default apply, preview only when requested. Concepts and meaningful animation first, bullet points only exceptionally. Read current visuals first for revisions.',
+        description: 'Queue Ariadne to generate or revise visuals for one saved Script section in the background. Only for explicit visual requests; read current visuals first for revisions. Returns a job receipt immediately, NOT completed visuals. Saves a pending result for explicit user review/application; never applies automatically. The user can keep working or navigate away. Concepts and meaningful animation first.',
         parameters: { type: 'object', properties: {
-          sectionId: { type: 'string' }, instruction: { type: 'string' }, delivery: { type: 'string', enum: ['apply', 'preview'] },
+          sectionId: { type: 'string' }, instruction: { type: 'string' },
         }, required: ['sectionId', 'instruction'] },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'apply_script_visuals',
+        description: 'Apply a completed pending Ariadne visual job to the open Script ONLY after the user explicitly approves applying that result. Read the pending job first. Uses normal protected live-editor edits, revisions and persistence; refuses changed source sections or visuals. Never call just because generation finished.',
+        parameters: { type: 'object', properties: { jobId: { type: 'string' } }, required: ['jobId'] },
       },
     },
     {
@@ -1352,6 +1363,7 @@ export async function executeToolCall(
       }
     }
       case 'read_script_visuals':
+      case 'apply_script_visuals':
       case 'design_script_visuals': {
         try {
           if (!turn.noteId || turn.designOwner || turn.podcastOwner) throw new ValidationError('Open a Script note in Think first.');
@@ -1362,11 +1374,37 @@ export async function executeToolCall(
           const saved = await loadNoteBlocks(db, turn.noteId);
           if (!saved?.script) throw new ValidationError('The current saved note is not a Script.');
           const sections = (saved.blocks as VisualScriptBlock[]).filter(block => block.props?.scriptSection);
+          const jobId = args['jobId'];
+          if (name === 'apply_script_visuals' || name === 'read_script_visuals' && jobId !== undefined) {
+            if (typeof jobId !== 'string' || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(jobId)) throw new ValidationError('Provide the saved visual job ID.');
+            const result = await readScriptVisualJob(db, jobId, turn.noteId, turn.userId);
+            if (name === 'read_script_visuals') {
+              let application: 'matches-current' | 'pending' | 'conflict' = 'pending';
+              let conflict: string | null = null;
+              try { application = scriptVisualJobEdits(result, saved.blocks as VisualScriptBlock[]).length ? 'pending' : 'matches-current'; }
+              catch (error) { application = 'conflict'; conflict = error instanceof Error ? error.message : 'The source changed.'; }
+              const draft = result.sections.find(item => item.section.id === args['sectionId']);
+              if (!args['sectionId']) return { jobId, application, conflict,
+                sections: result.sections.map(item => ({ sectionId: item.section.id, title: item.section.content, scenes: item.visuals.scenes.length })),
+                note: 'Read a section by id for the full retained scenes and source. Generation alone never applies visuals; matches-current compares this result with the saved script now.' };
+              if (!draft) throw new ValidationError('Choose a section in this pending result.');
+              return { jobId, application, conflict, section: draft.section, visuals: draft.visuals,
+                note: 'This is retrieved retained generation content. Use current section reads for the saved editor state. Images require separate image evidence.' };
+            }
+            if (turn.readOnly || !turn.noteEdits || turn.noteEdits.length) throw new ValidationError('Finish pending editor changes and explicitly approve this result in an editable turn.');
+            const edits = scriptVisualJobEdits(result, saved.blocks as VisualScriptBlock[]);
+            turn.noteEdits.push(...edits.map(edit => ({ ...edit, delivery: 'apply' as const })));
+            return { proposed: edits.length > 0, alreadyApplied: !edits.length, jobId,
+              note: 'Accepted for protected editor delivery. This is not a save receipt; narration remains unchanged.' };
+          }
           const sectionId = args['sectionId'];
           const section = sections.find(block => block.id === sectionId);
           if (name === 'read_script_visuals' && !sectionId) return { sections: sections.map(block => ({
             sectionId: block.id, title: block.content, hasVisuals: !!block.props?.scriptVisuals,
-          })), note: 'Read one section by id to retrieve its full spoken blocks, scenes and reveal cues.' };
+          })), jobs: (await listAgentJobs(db, { subjectType: 'script-visuals', subjectId: turn.noteId, limit: 10 }))
+            .filter(job => job.specialist === SCRIPT_VISUAL_SPECIALIST)
+            .map(job => ({ jobId: job.id, status: job.status, progress: job.progress.at(-1), summary: job.summary, error: job.error })),
+            note: 'Read one section by id for current scenes and cues, or a jobId for retained pending results. Completed generation does not mean applied.' };
           if (!section) throw new ValidationError('Choose an existing stable script section id.');
           if (scriptVisualSource(section).length > SCRIPT_VISUAL_SOURCE_BUDGET) throw new ValidationError('Split this section into smaller script sections before visual design.');
           if (name === 'read_script_visuals') {
@@ -1385,20 +1423,17 @@ export async function executeToolCall(
               stale: !!visuals && visuals.source !== scriptVisualSource(section) };
           }
           if (turn.readOnly) throw new ValidationError('This turn is read-only. No visual design was generated.');
-          if (!turn.noteEdits || turn.noteEdits.some(edit => edit.action !== 'set_script_visuals' || edit.sectionId === sectionId)) {
-            throw new ValidationError('Complete the pending editor changes before revising this section in another turn.');
+          if (!turn.noteEdits || turn.noteEdits.length) {
+            throw new ValidationError('Complete pending editor changes before queuing visuals against the saved script.');
           }
           const instruction = args['instruction'];
-          const delivery = args['delivery'] ?? 'apply';
-          if (typeof instruction !== 'string' || !instruction.trim() || instruction.length > SCRIPT_VISUAL_INSTRUCTION_LIMIT || !['apply', 'preview'].includes(String(delivery))) {
-            throw new ValidationError('Provide a bounded visual revision request and apply or preview delivery.');
+          if (typeof instruction !== 'string' || !instruction.trim() || instruction.length > SCRIPT_VISUAL_INSTRUCTION_LIMIT) {
+            throw new ValidationError('Provide a bounded visual revision request.');
           }
-          if (turn.noteEdits.some(edit => (edit.delivery ?? 'apply') !== delivery)) throw new ValidationError('Do not mix previews and automatic edits.');
-          const visuals = await designScriptVisuals(section, instruction, turn.signal, sections[0]?.id === section.id);
-          turn.noteEdits.push({ action: 'set_script_visuals', sectionId: section.id!, visuals,
-            expectedVisuals: typeof section.props?.scriptVisuals === 'string' ? section.props.scriptVisuals : '',
-            delivery: delivery === 'preview' ? 'preview' : 'apply', summary: 'Ariadne revised the section visuals' });
-          return { proposed: true, scenes: visuals.scenes, note: 'Accepted for protected live-editor delivery. This is not a save receipt. Spoken text is unchanged.' };
+          const queued = await queueScriptVisuals(db, turn.noteId, instruction, { sectionId: String(sectionId), requestedBy: 'chat',
+            ...(turn.sessionId ? { conversationId: turn.sessionId } : {}) });
+          return { status: queued.status, ...('job' in queued ? { jobId: queued.job.id, progress: queued.job.progress.at(-1) } : {}),
+            note: 'Queued in Background work. The result will be retained for review and explicit application from the script toolbar. No visuals or narration have changed.' };
         } catch (error) {
           console.error('[Script visuals] Athena operation failed:', error);
           return { error: error instanceof Error ? error.message : 'Visual operation failed. No completion is confirmed.' };
