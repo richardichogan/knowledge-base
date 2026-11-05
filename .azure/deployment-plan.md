@@ -2,6 +2,46 @@
 
 **Status:** Validated
 
+**Teleprompter sentence/section breaks and Desktop 0.1.15 release (2026-11-05):**
+- All validation checks pass:
+  - [x] 1. Core validation: sync main; frontend/backend/Desktop type checks,
+    isolated frontend/backend release suites, Desktop core and Elgato suites,
+    production builds and lint non-regression.
+  - [x] 2. Docker build: retain the existing backend Dockerfile and lockfile;
+    compile locally and build the release image from synced main in ACR.
+  - [x] 3. Azure Policy validation: application-only update of existing ACA/SWA;
+    no provisioning, network, identity, role or policy changes.
+- Existing production backend is v304; advance to v305. Desktop advances to
+  0.1.15 for the centred reading guide and section-only visual cross-fade.
+- Retain the existing Desktop packaging/signing configuration.
+
+**Section 7: Validation Proof — teleprompter / Desktop 0.1.15 (2026-11-05):**
+- `git fetch origin` / `git merge origin/main`: already current; the two
+  teleprompter commits are the only unreleased application changes. Shared
+  packed-refs maintenance lock warning left untouched.
+- Frontend/backend `npx tsc --noEmit` and Desktop `npm run typecheck` pass.
+  Restored Desktop dependencies with `npm ci` after its typecheck reported
+  missing `tsc`; no dependency changes.
+- Backend `npm run test:isolated`: 1049/1049 pass. Frontend full isolated run:
+  373 tests pass; presentation.test.ts could not load the Desktop CommonJS
+  protocol module through the ESM test runner. Moved that file to the existing
+  bundled path, retaining external esbuild and a real import.meta.url.
+  Reran only presentation.test.ts: 34/34 pass (407 successful frontend tests
+  across the initial run and affected rerun). Full suites were not repeated.
+- Desktop `npm test`: 13/13; `npm run test:elgato`: 20/20 pass.
+- Both `npm run lint:check` commands pass: frontend 21/baseline 41;
+  backend 543/baseline 623. Both `npm run build` commands and Desktop
+  `npm run dist` pass. Frontend entrypoint index-BUe8eULu.js.
+- Existing Azure CLI targets: backend v304 / ready revision 0000301;
+  advance to v305. Registry credentials and all infrastructure/roles unchanged.
+  No infrastructure validation/provisioning is needed for an image/static-file
+  update. Azure MCP could not resolve the subscription name; CLI reads succeed.
+- Validation workflow follows its AZCLI steps with the established in-memory
+  Windows PowerShell 5 Enum.Parse compatibility substitution; skill files unchanged.
+- Evidence: teleprompter-{web-validation,backend-validation,presentation-rerun,
+  web-build,desktop-tests,desktop-package}.log in this session's files.
+  Physical Elgato playback remains for the user's post-release testing.
+
 **Slide master, end page and Desktop 0.1.14 release (2026-11-05):**
 - All validation checks pass:
   - [x] 1. Core validation: main synced; frontend/backend/Desktop type checks;

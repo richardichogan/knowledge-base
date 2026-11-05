@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const backend = resolve(import.meta.dirname, '../knowledge-hub-backend');
 const web = resolve(import.meta.dirname, '../knowledge-hub-web');
@@ -29,7 +30,6 @@ const tests = frontend ? [
   '../knowledge-hub-web/tests/brainstorm-placement.test.ts',
   '../knowledge-hub-web/tests/imageClipboard.test.ts',
   '../knowledge-hub-web/tests/spellingTarget.test.ts',
-  '../knowledge-hub-web/tests/presentation.test.ts',
   '../knowledge-hub-web/tests/scriptBackspace.test.ts',
   '../knowledge-hub-web/tests/speechPlayback.test.ts',
   '../knowledge-hub-web/tests/composerIntent.test.ts',
@@ -174,17 +174,25 @@ Object.assign(env, {
   NODE_ENV: 'test', DATABASE_URL: 'postgresql://fixture:fixture@127.0.0.1:1/fixture',
   DOTENV_CONFIG_PATH: resolve(backend, '__isolated_tests_no_dotenv__'),
 });
-const result = spawnSync(process.execPath, ['--import', 'tsx/esm', '--test', '--test-force-exit', ...tests],
-  { cwd: backend, env, stdio: 'inherit' });
-if (result.error) throw result.error;
-process.exitCode = result.status ?? 1;
+const only = process.argv.find(arg => arg.startsWith('--test-file='))?.slice('--test-file='.length);
+const selectedTests = only ? tests.filter(entry => entry.endsWith(only)) : tests;
+const bundledTests = frontend
+  ? ['tests/presentation.test.ts', 'tests/note-list.test.tsx', 'tests/discoverParking.test.tsx', 'tests/watchlistFailure.test.tsx', 'tests/knowledgeSources.test.tsx', 'tests/linkedinPublishing.test.tsx', 'tests/jobsReview.test.tsx', 'tests/publishingFeeds.test.tsx', 'tests/design-artifact.test.tsx', 'tests/document-review.test.tsx', 'tests/podcast-campaign.test.tsx', 'tests/wordExport.test.ts'].filter(entry => !only || entry.endsWith(only))
+  : [];
+if (only !== undefined && !selectedTests.length && !bundledTests.length) throw new Error(`No isolated test matches "${only}".`);
+if (selectedTests.length) {
+  const result = spawnSync(process.execPath, ['--import', 'tsx/esm', '--test', '--test-force-exit', ...selectedTests],
+    { cwd: backend, env, stdio: 'inherit' });
+  if (result.error) throw result.error;
+  process.exitCode = result.status ?? 1;
+}
 
 if (frontend) {
   // UI imports need Vite's env replacement and a stylesheet stub. Keep the
   // bundle in memory so isolated runs never leave generated test files behind.
   const require = createRequire(resolve(web, 'package.json'));
   const { build } = require('esbuild');
-  for (const entry of ['tests/note-list.test.tsx', 'tests/discoverParking.test.tsx', 'tests/watchlistFailure.test.tsx', 'tests/knowledgeSources.test.tsx', 'tests/linkedinPublishing.test.tsx', 'tests/jobsReview.test.tsx', 'tests/publishingFeeds.test.tsx', 'tests/design-artifact.test.tsx', 'tests/document-review.test.tsx', 'tests/podcast-campaign.test.tsx', 'tests/wordExport.test.ts']) {
+  for (const entry of bundledTests) {
     const bundle = await build({
       absWorkingDir: web,
       entryPoints: [entry],
@@ -192,7 +200,8 @@ if (frontend) {
       write: false,
       platform: 'node',
       format: 'cjs',
-      define: { 'import.meta.env': '{}' },
+      external: ['esbuild'],
+      define: { 'import.meta.env': '{}', 'import.meta.url': JSON.stringify(pathToFileURL(resolve(web, entry)).href) },
       loader: { '.scss': 'empty' },
       plugins: [{
         name: 'vite-raw-assets',
