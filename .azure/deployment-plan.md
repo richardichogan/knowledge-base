@@ -35,6 +35,16 @@
   elgato-tests-rerun,web-build,api-build}.log in this session's files.
   Signed-in browser authoring and physical Elgato playback remain unverified.
 - Unrelated DESIGN.md and .impeccable cache modifications remain excluded.
+- Released 2c8e0fa6 to the branch and main. ACR run ca9j built kh-prod-api:v304
+  from main; revision kh-prod-api-vnet--0000301 is Healthy/RunningAtMaxScale,
+  logs show listening, migration complete, pool ready and specialist worker
+  started. Static Web App serves index-t-98T26Y.js, matching local dist.
+- Desktop 0.1.14 published at
+  https://github.com/richardichogan/knowledge-base/releases/tag/v0.1.14. The
+  publish step rebuilt the installer, then a concurrent asset upload got a 422;
+  only the installer attached. Regenerated latest.yml for that installer and
+  uploaded the hyphenated installer, blockmap and manifest; the latest-release
+  manifest serves 0.1.14 at 111940167 bytes. Installer remains unsigned.
 
 **Presenter layout and visual motion release (2026-11-05):**
 - All validation checks pass:
