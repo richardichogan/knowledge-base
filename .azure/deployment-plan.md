@@ -2,6 +2,32 @@
 
 **Status:** Validated
 
+**Browser visuals auto-start release (2026-11-05):**
+- All validation checks pass:
+  - [x] 1. Core validation: main synced; frontend/backend `npx tsc --noEmit`,
+    complete frontend isolated release suite and frontend lint non-regression.
+  - [x] 2. Build verification: frontend `npm run build` succeeds. Backend image,
+    Dockerfile and Desktop binary are unchanged; no container/package rebuild.
+  - [x] 3. Azure Policy validation: static-file-only update to existing
+    kh-prod-web; no infrastructure, networking, identity or policy changes.
+
+**Section 7: Validation Proof — browser visuals auto-start (2026-11-05):**
+- Fetch/merge confirms main current. Existing shared packed-refs maintenance
+  lock warnings remain untouched.
+- Frontend/backend `npx tsc --noEmit` pass. Frontend lint non-regression passes
+  with 21 existing violations (baseline 41).
+- Frontend isolated release suite: 410/410 pass, including 37 presentation
+  tests. Added coverage for waiting for startup, checking the newly saved
+  snapshot, propagating real startup/visual/browser failures, and both controls'
+  startup wiring. The suite ran once.
+- Production build succeeds; entrypoint /assets/index-D-nYcs4h.js.
+- Existing subscription Alliance Tenant Reporting and kh-prod-web confirmed.
+  Backend v306 / healthy ready revision 0000303 remains unchanged. This fix
+  reaches Athena Desktop through its hosted web app; no installer release.
+- Evidence: browser-visuals-web-tests.log and browser-visuals-web-build.log
+  in this session's files. Physical Desktop/Prompter interaction remains for
+  the user's testing; no local browser was launched.
+
 **Checkpointed Daily Insights recovery release (2026-11-05):**
 - All validation checks pass:
   - [x] 1. Core validation: main synced; backend/frontend `npx tsc --noEmit`;

@@ -15,6 +15,46 @@ import { annotatedPresentation } from '../src/features/podcasts/scriptAnnotation
 import { SCRIPT_COLOUR_VALUES } from '../src/features/podcasts/scriptRichText';
 import { parseScriptVisuals, parseVisualArtwork, parseVisualComposition, scriptVisualSource, visualSourceCurrent, type VisualScriptBlock } from '../../knowledge-hub-backend/src/utils/scriptVisuals';
 import { parsePresentationVisuals } from '../../athena-desktop/src/elgatoProtocol';
+import { openPresentationVisuals, presentedVisualIssue, recordPresentedVisuals } from '../src/features/autocue/presentedVisuals';
+
+test('opening browser visuals waits for presentation startup and checks the newly saved snapshot', async () => {
+  const calls: string[] = [];
+  let ready = false;
+  recordPresentedVisuals('script', 'Old snapshot was stale');
+  await openPresentationVisuals(async () => {
+    calls.push('save and start');
+    await Promise.resolve();
+    ready = true;
+    recordPresentedVisuals('script', null);
+  }, () => presentedVisualIssue('script'), async () => {
+    assert.ok(ready, 'The presentation must be ready before invoking presentation:visuals');
+    calls.push('open visuals');
+  });
+  assert.deepEqual(calls, ['save and start', 'open visuals']);
+});
+
+test('opening visuals reports real startup, visual validation and browser failures without proceeding', async () => {
+  let opened = false;
+  const open = async (): Promise<void> => { opened = true; };
+  await assert.rejects(openPresentationVisuals(async () => { throw new Error('Save failed'); },
+    () => null, open), /Save failed/);
+  assert.equal(opened, false);
+  await assert.rejects(openPresentationVisuals(async () => {}, () => 'Visual cue is stale', open), /Visual cue is stale/);
+  assert.equal(opened, false);
+  await assert.rejects(openPresentationVisuals(async () => {}, () => null,
+    async () => { throw new Error('Browser launch failed'); }), /Browser launch failed/);
+});
+
+test('both browser visuals controls start presenting rather than require an existing output', async () => {
+  const tools = await readFile(new URL('../src/notes/ScriptTools.tsx', import.meta.url), 'utf8');
+  const notes = await readFile(new URL('../src/notes/NotesPage.tsx', import.meta.url), 'utf8');
+  const presenter = await readFile(new URL('../src/features/autocue/Presenter.tsx', import.meta.url), 'utf8');
+  assert.match(tools, /void onOpenVisuals\(\)\.catch/);
+  assert.match(notes, /openPresentationVisuals\(presentNote,/);
+  assert.match(notes, /onOpenVisuals=\{openVisualsHandler\}/);
+  assert.match(presenter, /openPresentationVisuals\(startPresentation,/);
+  assert.doesNotMatch(presenter, /disabled=\{busy \|\| !connected \|\| !desktop.openVisuals\}/);
+});
 
 test('layered compositions preserve semantic links and reject unsafe geometry and impossible reveal order', () => {
   const node = { id: 'worker', kind: 'panel', x: 100, y: 300, width: 320, height: 240,

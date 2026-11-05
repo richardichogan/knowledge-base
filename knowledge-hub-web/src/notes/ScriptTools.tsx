@@ -13,7 +13,6 @@ import { scriptBackspace } from './scriptBackspace';
 import { parseScriptVisuals, readSectionVisuals, visualSourceCurrent } from '../../../knowledge-hub-backend/src/utils/scriptVisuals';
 import { useScriptVisualJobs } from './ScriptVisualJobs';
 import { setScriptVideoMode, useScriptVideoState } from '../features/autocue/scriptVideoState';
-import { presentedVisualIssue } from '../features/autocue/presentedVisuals';
 
 type Editor = BlockNoteEditor<typeof editorSchema.blockSchema, typeof editorSchema.inlineContentSchema, typeof editorSchema.styleSchema>;
 
@@ -25,9 +24,10 @@ function ScriptToolButton({ title, disabled, ...props }: React.ButtonHTMLAttribu
   </Tooltip>;
 }
 
-export function ScriptTools({ editor, disabled, noteId, save, onPresent, onStopPresenting }: {
+export function ScriptTools({ editor, disabled, noteId, save, onPresent, onOpenVisuals, onStopPresenting }: {
   editor: Editor; disabled: boolean; noteId: string; save: () => Promise<boolean>;
   onPresent?: (() => void) | undefined; onStopPresenting?: (() => void) | undefined;
+  onOpenVisuals?: (() => Promise<void>) | undefined;
 }): React.ReactElement {
   const visualJobs = useScriptVisualJobs({ editor, noteId, save, disabled });
   const designing = visualJobs.submitting || !!visualJobs.active;
@@ -36,6 +36,7 @@ export function ScriptTools({ editor, disabled, noteId, save, onPresent, onStopP
   const [blockStyle, setBlockStyle] = useState('0');
   const [canStyle, setCanStyle] = useState(true);
   const [sectionError, setSectionError] = useState<string | null>(null);
+  const [openingVisuals, setOpeningVisuals] = useState(false);
   const [presenterLayout, setPresenterLayout] = useState(false);
   const [hasVisuals, setHasVisuals] = useState(false);
   const video = useScriptVideoState();
@@ -179,12 +180,13 @@ export function ScriptTools({ editor, disabled, noteId, save, onPresent, onStopP
       disabled={disabled || designing} onClick={visualJobs.generate}>{designing ? <Renew size={18} aria-hidden="true" /> : <MagicWand size={18} aria-hidden="true" />}</ScriptToolButton>
     <ScriptToolButton type="button" className="kh-btn-ghost" title={visualJobs.loading ? 'Loading visual results…' : 'Review visuals'}
       aria-label="Review visuals" disabled={!visualJobs.hasResult} onClick={visualJobs.review}><View size={18} aria-hidden="true" /></ScriptToolButton>
-    <ScriptToolButton type="button" className="kh-btn-ghost" title="Open browser visuals" aria-label="Open browser visuals" disabled={disabled} onClick={() => {
-      const desktop = getDesktop()?.presentation;
-      if (!desktop?.openVisuals) { setSectionError('Use an updated Athena Desktop to open the synchronised local browser output.'); return; }
-      const issue = presentedVisualIssue(noteId);
-      if (issue) { setSectionError(issue); return; }
-      void desktop.openVisuals().catch(error => { setSectionError(error instanceof Error ? error.message : 'Could not open browser visuals.'); });
+    <ScriptToolButton type="button" className="kh-btn-ghost" title={openingVisuals ? 'Opening browser visuals…' : 'Open browser visuals'} aria-label="Open browser visuals"
+      aria-busy={openingVisuals} disabled={disabled || openingVisuals} onClick={() => {
+      if (!onOpenVisuals) { setSectionError('Use an updated Athena Desktop to open the synchronised local browser output.'); return; }
+      setOpeningVisuals(true);
+      setSectionError(null);
+      void onOpenVisuals().catch(error => { setSectionError(error instanceof Error ? error.message : 'Could not open browser visuals.'); })
+        .finally(() => { setOpeningVisuals(false); });
     }}><Launch size={18} aria-hidden="true" /></ScriptToolButton>
     <ScriptToolButton type="button" className="kh-btn-ghost" title="Add section" aria-label="Add section" disabled={disabled}
       onMouseDown={event => { event.preventDefault(); }}

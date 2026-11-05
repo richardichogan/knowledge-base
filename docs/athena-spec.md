@@ -375,6 +375,14 @@ behaviour. Both the Present action and desktop command save pending edits before
 retrieving the current script; standalone colours and cues use the existing Elgato
 annotation protocol and older-desktop compatibility warning.
 
+**Open browser visuals** starts the selected script's presentation before opening
+the synchronised browser output; it does not require a separate Present click.
+In Think it uses the same pending-edit save and current saved-snapshot preparation
+as Present. Presenter uses the selected script and output display. Existing live
+output is reused where applicable, without automatically starting scrolling.
+Only actual save, presentation-start, visual-validation or browser-launch failures
+are shown; stale visual warnings are checked against the newly prepared snapshot.
+
 Both script editors offer **Spoken text**, **Script title**, **Chapter** and
 **Section heading** in their existing script toolbar. These are semantic paragraph
 and heading blocks, not colour conventions. Standalone notes persist their normal

@@ -15,7 +15,7 @@ import { QuickSparkModal } from '../components/sparks/QuickSparkModal';
 import { fetchNotesPage, fetchNote, createNote, deleteNote, extractNoteBlockText, buildPreview } from './noteStorage';
 import { preparePresentationScript } from '../features/autocue/preparePresentationScript';
 import { requiresVisualMotion, requiresVisualCraft } from '../features/autocue/presentationScript';
-import { recordPresentedVisuals } from '../features/autocue/presentedVisuals';
+import { openPresentationVisuals, presentedVisualIssue, recordPresentedVisuals } from '../features/autocue/presentedVisuals';
 import { scriptVideoContext } from '../features/autocue/scriptVideoState';
 import { annotatedPresentation } from '../features/podcasts/scriptAnnotations';
 import { episodeScriptText } from '../types/podcastEpisodes';
@@ -380,6 +380,13 @@ export const NotesPage: React.FC = () => {
     recordPresentedVisuals(saved.id, script.visualIssue);
   }
   useDesktopCommand('present-note', presentNote);
+  const openVisualsHandler = getDesktop()?.presentation ? async (): Promise<void> => {
+    const presentation = getDesktop()?.presentation;
+    if (!presentation?.openVisuals) throw new Error('Use an updated Athena Desktop to open the synchronised local browser output.');
+    if (!openDoc || mode !== 'notes') throw new Error('Choose a saved script before opening browser visuals.');
+    const noteId = openDoc.id;
+    await openPresentationVisuals(presentNote, () => presentedVisualIssue(noteId), () => presentation.openVisuals!());
+  } : undefined;
   const presentHandler = getDesktop()?.presentation ? (): void => { void presentNote().catch(err => {
     void alertDialog(err instanceof Error ? err.message : 'Could not open presentation.', { title: 'Presentation', tone: 'danger' });
   }); } : undefined;
@@ -1001,7 +1008,7 @@ export const NotesPage: React.FC = () => {
               workspaceBusy={loadingNoteId !== null} onOpenNote={id => { void handleSelectNote(id); }} onOpenMap={openMap}
               onPresent={presentHandler} onStopPresenting={stopPresentingHandler} onSaveReady={registerPresentationSave} /> : openDoc !== null ? (
               <NoteEditor key={openDoc.id} doc={openDoc} campaignRequest={campaignRequest?.noteId === openDoc.id ? campaignRequest.sequence : undefined} externalBusy={loadingNoteId !== null} onSaved={handleNoteSaved} onDelete={(id) => { void handleDeleteNote(id); }} actionsSlot={docActionsSlot} onShowEditor={showEditor} onMapNote={(id) => { void mapNote(id); }} onOpenMap={openMap} onImport={() => { setImportModalOpen(true); }} onRecovery={() => { setRecoveryOpen(true); }}
-                onPresent={presentHandler} onStopPresenting={stopPresentingHandler} onSaveReady={registerPresentationSave}
+                onPresent={presentHandler} onOpenVisuals={openVisualsHandler} onStopPresenting={stopPresentingHandler} onSaveReady={registerPresentationSave}
                 onCreateDiagram={async (id) => { if (!await handleCreateCanvas('diagram', id)) throw new Error('Could not create the linked diagram. Please retry.'); }} />
             ) : (
               <div className="notes-empty-state">Select a document or create a new one</div>

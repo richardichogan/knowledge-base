@@ -5,6 +5,7 @@ import { nextNotesPage } from '../../notes/noteListState';
 import { desktopErrorMessage, getDesktop, type DesktopCommand, type DesktopCommandState } from '../../types/desktop';
 import type { PresentationDisplay } from '../../../../athena-desktop/src/elgatoProtocol';
 import { preparePresentationScript } from './preparePresentationScript';
+import { openPresentationVisuals } from './presentedVisuals';
 import { requiresVisualMotion, requiresVisualCraft } from './presentationScript';
 import { authSession } from '../../services/authSession';
 import { api } from '../../services/api';
@@ -110,17 +111,21 @@ export function Presenter(): React.JSX.Element {
   const selected = note.data;
   const currentListed = rows.some(item => item.id === noteId);
   const canStart = !expired && !!selected && !!script?.text.trim() && !!displayId && !note.isFetching && !episode.isFetching && !preparedScript.isFetching && !annotationUnsupported && !visualsUnsupported;
+  const startPresentation = async (): Promise<void> => {
+    if (!desktop || !canStart || !selected || !script) throw new Error('Choose a saved script and an available output display before presenting.');
+    if (!connected || playback?.noteId !== selected.id || playback?.displayId !== Number(displayId)) {
+      const visuals = 'visuals' in script ? script.visuals : undefined;
+      if (visuals?.length && !desktop.scriptVisuals) throw new Error('Update Athena Desktop to present synchronised browser visuals.');
+      if (visuals?.some(scene => scene.composition) && !desktop.scriptVisualCompositions) throw new Error('Update Athena Desktop to present layered visuals. Web preview remains available.');
+      if (visuals && requiresVisualMotion(visuals) && !desktop.scriptVisualMotion) throw new Error('Update Athena Desktop to present the new visual animations and presenter layout. Web preview remains available.');
+      if (visuals && requiresVisualCraft(visuals) && !desktop.scriptVisualCraft) throw new Error('Update Athena Desktop to present the corrected connectors, image headers and video guide. Web preview remains available.');
+      await desktop.start({ noteId: selected.id, title: selected.title, text: script.text, runs: script.runs, ...(visuals ? { visuals } : {}), displayId: Number(displayId) });
+    }
+  };
   const play = (): void => {
-    if (!desktop || !canStart || !selected || !script) return;
+    if (!desktop || !canStart) return;
     void action(async () => {
-      if (!connected || (desktop.present && playback?.noteId !== selected.id) || playback?.displayId !== Number(displayId)) {
-        const visuals = 'visuals' in script ? script.visuals : undefined;
-        if (visuals?.length && !desktop.scriptVisuals) throw new Error('Update Athena Desktop to present synchronised browser visuals.');
-        if (visuals?.some(scene => scene.composition) && !desktop.scriptVisualCompositions) throw new Error('Update Athena Desktop to present layered visuals. Web preview remains available.');
-        if (visuals && requiresVisualMotion(visuals) && !desktop.scriptVisualMotion) throw new Error('Update Athena Desktop to present the new visual animations and presenter layout. Web preview remains available.');
-        if (visuals && requiresVisualCraft(visuals) && !desktop.scriptVisualCraft) throw new Error('Update Athena Desktop to present the corrected connectors, image headers and video guide. Web preview remains available.');
-        await desktop.start({ noteId: selected.id, title: selected.title, text: script.text, runs: script.runs, ...(visuals ? { visuals } : {}), displayId: Number(displayId) });
-      }
+      await startPresentation();
       await desktop.command({ id: crypto.randomUUID(), command: 'play', issuedAt: Date.now() });
     });
   };
@@ -164,10 +169,9 @@ export function Presenter(): React.JSX.Element {
         {visualsUnsupported && <p className="kh-presenter__error" role="alert">Update Athena Desktop to present synchronised browser visuals.</p>}
       </section>
       <aside className="kh-presenter__controls" aria-label="Presenter controls">
-        <button type="button" disabled={busy || !connected || !desktop.openVisuals} onClick={() => {
-          const issue = script && 'visualIssue' in script ? script.visualIssue : null;
-          if (issue) { setNotice(null); setError(issue); return; }
-          if (desktop.openVisuals) void action(() => desktop.openVisuals!());
+        <button type="button" disabled={busy || !canStart || !desktop.openVisuals} onClick={() => {
+          if (desktop.openVisuals) void action(() => openPresentationVisuals(startPresentation,
+            () => script && 'visualIssue' in script ? script.visualIssue : null, () => desktop.openVisuals!()));
         }}>Open browser visuals</button>
         <section>
           <h2>Output display</h2>
