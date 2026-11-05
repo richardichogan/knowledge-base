@@ -8,6 +8,7 @@ export interface VisualPacket {
     layout?: PresentationVisualScene['layout'];
     composition?: VisualComposition;
     presenterLayout?: boolean;
+    section?: number;
   } | null;
   revealed: number;
   error: string | null;

@@ -14,6 +14,7 @@ import { scriptAnnotationRuns, scriptInlineContent, scriptReadingText, spokenScr
 import { annotatedPresentation } from '../src/features/podcasts/scriptAnnotations';
 import { SCRIPT_COLOUR_VALUES } from '../src/features/podcasts/scriptRichText';
 import { parseScriptVisuals, parseVisualArtwork, parseVisualComposition, scriptVisualSource, visualSourceCurrent, type VisualScriptBlock } from '../../knowledge-hub-backend/src/utils/scriptVisuals';
+import { parsePresentationVisuals } from '../../athena-desktop/src/elgatoProtocol';
 
 test('layered compositions preserve semantic links and reject unsafe geometry and impossible reveal order', () => {
   const node = { id: 'worker', kind: 'panel', x: 100, y: 300, width: 320, height: 240,
@@ -180,6 +181,53 @@ test('visual cues survive blank lines and paragraph splits, and broken visuals n
   assert.match(stale.visualIssue ?? '', /Section "Why".*out of date/);
 });
 
+test('Script autocue starts each sentence on its own line and gaps sections only where no break already exists', () => {
+  const card = (id: string, children: VisualScriptBlock[]): VisualScriptBlock =>
+    ({ id, type: 'heading', props: { level: 2, scriptSection: true }, content: [{ text: id }], children });
+  const result = presentationScript(JSON.stringify([
+    card('one', [
+      { type: 'paragraph', content: [{ text: 'Explain the idea. Then connect it! Why? Mr. Smith paid £3.50 at 9 a.m. today.' }] },
+      { type: 'paragraph', content: [{ text: 'Already split.\nNext line. ' }, { type: 'hardBreak' }, { text: 'After break.' }] },
+      { type: 'paragraph', content: [{ text: '• Bullet one. Still bullet.\nPlain one. ' }, { text: 'Plain two.', styles: { bold: true } }] },
+      { type: 'bulletListItem', content: [{ text: 'List one. List two.' }] },
+      { type: 'paragraph', content: [{ text: '* * * . . .' }] },
+    ]),
+    card('two', [{ type: 'paragraph', content: [] }, { type: 'paragraph', content: [{ text: 'Second section.' }] }]),
+    card('three', [{ type: 'paragraph', content: [{ text: 'Third section.' }] }]),
+  ]), { script: true });
+  assert.equal(result.text, 'Explain the idea.\nThen connect it!\nWhy?\nMr. Smith paid £3.50 at 9 a.m. today.\n'
+    + 'Already split.\nNext line. \nAfter break.\n• Bullet one. Still bullet.\nPlain one.\nPlain two.\n- List one. List two.\n* * * . . .\n'
+    + '\nSecond section.\n\nThird section.');
+  assert.equal(result.runs.map(run => run.text).join(''), result.text);
+  assert.deepEqual(result.runs.find(run => run.text === 'Plain two.')?.styles, ['bold']);
+  assert.equal(presentationScript(JSON.stringify([{ type: 'paragraph', content: [{ text: 'One. Two.' }] }])).text, 'One. Two.');
+});
+
+test('visual cues follow sentence line breaks and carry their script section for the section pause', () => {
+  const section = (id: string, text: string, quote: string): VisualScriptBlock => {
+    const block: VisualScriptBlock = { id, type: 'heading', props: { scriptSection: true }, content: [{ text: id }],
+      children: [{ id: `${id}-spoken`, type: 'paragraph', content: [{ text }] }] };
+    block.props!['scriptVisuals'] = JSON.stringify({ version: 1, source: scriptVisualSource(block), scenes: [{
+      id, template: 'concept', title: id, subtitle: '', imageUrl: '', imageAlt: '', cue: { blockId: `${id}-spoken`, quote: '' },
+      items: [{ label: 'Point', detail: '', cue: { blockId: `${id}-spoken`, quote } }],
+    }] });
+    return block;
+  };
+  const result = presentationScript(JSON.stringify([
+    section('first', 'Explain the idea.   Then connect it.', 'Then connect'),
+    { type: 'heading', props: { scriptSection: true }, content: [{ text: 'No visuals' }], children: [{ type: 'paragraph', content: [{ text: 'Bridge.' }] }] },
+    section('last', 'Close the loop. Show the result.', 'Show the result'),
+  ]), { script: true });
+  assert.equal(result.visualIssue, null);
+  assert.equal(result.text, 'Explain the idea.\nThen connect it.\n\nBridge.\n\nClose the loop.\nShow the result.');
+  assert.equal(result.visuals[0]?.items[0]?.at, result.text.indexOf('Then connect'));
+  assert.equal(result.visuals[1]?.at, result.text.indexOf('Close the loop'));
+  assert.equal(result.visuals[1]?.items[0]?.at, result.text.indexOf('Show the result'));
+  assert.deepEqual(result.visuals.map(scene => scene.section), [0, 2]);
+  assert.deepEqual(parsePresentationVisuals(result.visuals, result.text.length)?.map(scene => scene.section), [0, 2]);
+  assert.throws(() => parsePresentationVisuals([{ ...result.visuals[0], section: -1 }], result.text.length), /section/);
+});
+
 test('scene validation rejects unknown templates, ambiguous cues, wrong comparisons and out-of-order reveals', () => {
   const section = { children: [{ id: 'spoken', type: 'paragraph', content: [{ text: 'One then two then one.' }] }] };
   const scene = { id: 'scene', template: 'concept', title: 'Idea', subtitle: '', imageUrl: '', imageAlt: '',
@@ -311,7 +359,7 @@ test('standalone Script autocue omits heading labels but preserves their child a
     { type: 'paragraph', content: [{ type: 'text', text: 'Closing words.' }] },
   ]);
   const result = presentationScript(document, { script: true });
-  assert.equal(result.text, 'Opening words.\nNested wordsPAUSE\nClosing words.');
+  assert.equal(result.text, 'Opening words.\n\nNested wordsPAUSE\n\nClosing words.');
   assert.ok(result.runs.some(run => run.text === 'Nested words' && run.styles.includes('colour-teal')));
   assert.ok(result.runs.some(run => run.styles.includes('cue-pause')));
   assert.equal(result.text.includes('Not spoken'), false);
@@ -334,7 +382,7 @@ test('Script cards speak each body once without their rich titles or delivery di
         { type: 'paragraph', content: [{ type: 'text', text: 'Thank you.' }] },
       ] },
   ]), { script: true });
-  assert.equal(result.text, 'Imagine is ready.PAUSE\nThank you.');
+  assert.equal(result.text, 'Imagine is ready.PAUSE\n\nThank you.');
   assert.ok(result.runs.some(run => run.text === 'Imagine' && run.styles.includes('colour-yellow')));
   assert.equal(result.text.includes('Never read'), false);
   assert.equal(result.text.includes('Quietly'), false);

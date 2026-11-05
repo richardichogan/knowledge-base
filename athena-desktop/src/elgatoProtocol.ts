@@ -44,6 +44,8 @@ export interface PresentationVisualScene {
   layout?: 'hero' | 'split' | 'diagram';
   composition?: VisualComposition;
   presenterLayout?: boolean;
+  /** Index of the script section the scene belongs to; a change of section lengthens the visual cross-fade. */
+  section?: number;
 }
 export interface PresentationScript { noteId: string; title: string; text: string; runs?: PresentationRun[]; visuals?: PresentationVisualScene[] }
 
@@ -153,6 +155,7 @@ export function parsePresentationVisuals(value: unknown, length: number): Presen
     if (imageUrl && !/^https:\/\//i.test(imageUrl)) throw new Error('Invalid presentation image URL.');
     if (scene.layout !== undefined && !['hero', 'split', 'diagram'].includes(String(scene.layout))) throw new Error('Invalid presentation layout.');
     if (scene.presenterLayout !== undefined && typeof scene.presenterLayout !== 'boolean') throw new Error('Invalid presenter layout.');
+    if (scene.section !== undefined && (typeof scene.section !== 'number' || !Number.isSafeInteger(scene.section) || scene.section < 0)) throw new Error('Invalid presentation section.');
     const composed = scene.composition === undefined ? undefined
       : composition(scene.composition, template === 'close' ? 0 : scene.items.length, template === 'title' || template === 'close');
     if (composed?.imageTreatment && (!['title', 'image'].includes(template) || !imageUrl || scene.artwork)) throw new Error('An image header needs a resolved image, without diagram animation.');
@@ -162,6 +165,7 @@ export function parsePresentationVisuals(value: unknown, length: number): Presen
       ...(composed === undefined ? {} : { composition: composed }),
       ...(scene.layout === undefined ? {} : { layout: scene.layout as NonNullable<PresentationVisualScene['layout']> }),
       ...(scene.presenterLayout === undefined ? {} : { presenterLayout: scene.presenterLayout }),
+      ...(scene.section === undefined ? {} : { section: scene.section as number }),
       at: at(scene.at), items: scene.items.map((raw: unknown) => {
         if (!raw || typeof raw !== 'object') throw new Error('Invalid visual reveal.');
         const item = raw as Record<string, unknown>;

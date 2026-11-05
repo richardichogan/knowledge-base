@@ -16,7 +16,7 @@ function readingPosition() {
   let node;
   let length = 0;
   while ((node = walker.nextNode())) { nodes.push({ node, start: length }); length += node.length; }
-  const guide = viewport.scrollTop + viewport.clientHeight * (state?.flip ? 0.65 : 0.35);
+  const guide = viewport.scrollTop + viewport.clientHeight * 0.5;
   const viewportRect = viewport.getBoundingClientRect();
   let low = 0, high = length;
   while (low < high) {
@@ -44,7 +44,7 @@ function measurePassages() {
 }
 function highlightPassage() {
   if (!passages.length) return;
-  const guide = viewport.scrollTop + viewport.clientHeight * (state?.flip ? 0.65 : 0.35);
+  const guide = viewport.scrollTop + viewport.clientHeight * 0.5;
   let low = 0, high = passageTops.length;
   while (low < high) {
     const middle = Math.floor((low + high) / 2);

@@ -253,6 +253,7 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
   let buildSteps = [0];
   let sceneRevision = 0;
   let openingDelay = 0;
+  let renderedSection = null;
   let ring = null;
   let imageError = '';
   let packetError = '';
@@ -694,14 +695,15 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
     canvas.append(content);
     layer.append(container);
   }
-  function replaceLayer(transition, hasScene) {
+  // Moving into a new script section holds a slightly longer cross-fade (about one second) as a pause between sections.
+  function replaceLayer(transition, hasScene, sectionChange) {
     const previous = layer;
     layer = null;
     if (previous) {
       if (transition && typeof previous.animate === 'function') {
         previous.classList.add('slide-layer--leaving');
         previous.setAttribute('aria-hidden', 'true');
-        const exit = previous.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 400, easing: EASE, fill: 'forwards' });
+        const exit = previous.animate([{ opacity: 1 }, { opacity: 0 }], { duration: sectionChange ? 500 : 400, easing: EASE, fill: 'forwards' });
         exit.onfinish = () => previous.remove();
         exit.oncancel = () => previous.remove();
       } else previous.remove();
@@ -711,7 +713,7 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
     layers.append(layer);
     if (transition && typeof layer.animate === 'function') {
       layer.animate([{ opacity: 0, transform: 'translateY(24px)' }, { opacity: 1, transform: 'none' }],
-        { duration: ENTRANCE_MS, delay: 200, easing: EASE, fill: 'backwards' });
+        { duration: sectionChange ? 700 : ENTRANCE_MS, delay: sectionChange ? 300 : 200, easing: EASE, fill: 'backwards' });
     }
   }
   function render(packet) {
@@ -751,8 +753,11 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
     previousRevealed = -1;
     buildSteps = visualBuildSteps(scene?.items ?? []);
     const transition = live && !!layer && !!scene;
-    openingDelay = transition ? 320 : 0;
-    replaceLayer(transition, !!scene);
+    const section = Number.isInteger(scene?.section) ? scene.section : null;
+    const sectionChange = transition && section !== null && renderedSection !== null && section !== renderedSection;
+    renderedSection = section;
+    openingDelay = transition ? sectionChange ? 420 : 320 : 0;
+    replaceLayer(transition, !!scene, sectionChange);
     if (!scene) return;
     if (scene.template === 'close') {
       closeScene(scene, packet.revealed);
