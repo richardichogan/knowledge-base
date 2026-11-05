@@ -32,6 +32,19 @@
 - Evidence: daily-intake-stages-tests.log and daily-intake-model-tests.log
   in this session's files. Production recovery is performed only after the
   new revision is healthy and its checkpoint migration has completed.
+- Released commit 20c8fc98 to branch/main. ACR run ca9m built v306;
+  revision kh-prod-api-vnet--0000303 is Healthy/RunningAtMaxScale with 100%
+  latest-revision traffic. Startup logs confirm migration 144, migration
+  completion, ready database pool and the production specialist worker.
+- Recovered the retained 2026-11-05 report through the normal validated Metis
+  domain handoff, without starting a local worker or directly editing tasks.
+  Job 656be77a-71ae-42ae-a55b-4aefb51835a0 completed all three extraction
+  stages and 32 duplicate comparisons (four candidate/eight history batches).
+  Verified the persisted receipt: 12 tasks created, zero updated, three
+  existing tasks preserved, 16 diary entries and 2026-11-04 learning captured.
+  The retained staging record and checkpoints were removed after success.
+  Grounding/ownership/deadline uncertainties remain visible in the receipt
+  for normal user review; none were silently treated as verified facts.
 
 **Teleprompter sentence/section breaks and Desktop 0.1.15 release (2026-11-05):**
 - All validation checks pass:
