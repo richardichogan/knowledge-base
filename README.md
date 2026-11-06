@@ -508,11 +508,31 @@ The existing 06:00 and 13:00 UK content sync supplies candidates and refreshes
 drafts; an independent production worker also selects, reads, drafts and reviews.
 The background worker continues preparing candidates while the shortlist has
 space; there is no daily assessment allowance. It reads up to four distinct sources per
-topic, with at most two automatic revisions. Unreadable, oversized or excessive
+topic and repairs identified passages, continuing while unresolved findings change.
+Repeated unchanged findings stop the repair rather than triggering an endless loop.
+Unreadable, oversized or excessive
 source evidence is held rather than silently omitted. Like note review, sources
 are measured in model tokens rather than characters: every editorial review
 receives the complete originals, and only evidence whose combined tokens exceed
 the publishing model's context window is held for human review.
+Momus selects and independently reviews candidates; Calliope generates missing
+copy and makes targeted editorial repairs. Review findings identify saved
+sentence IDs and source passages using the blog editorial process. Each repair
+request contains its flagged sentence, findings and relevant evidence, not the
+complete draft. For a multi-sentence blog finding, it can also include the
+related flagged sentences; each edit remains limited to its own exact passage.
+Exact-match and source-protection checks apply locally.
+During a repair loop, each review preserves its pass on unchanged sentences;
+new contradictions can still be raised against a changed passage.
+These calls use the corresponding agents' approved lessons and do not start
+separate workforce assignments.
+When a blog needs a targeted repair after a linked hook has passed, Calliope
+checks the unchanged hook against the corrected article and sources. A matching
+hook keeps its original pass; a conflict, uncertain result or concurrent edit
+leaves the package unchanged and blocked.
+Reject draft removes all destination copies for the selected Discover topic from
+Drafts, retains its source and audit history, and protects approved, scheduled
+or attempted posts. Athena can perform the same version-checked action on request.
 YouTube videos remain in Discover but are excluded from publishing intake,
 draft refresh, the draft shortlist and background editorial preparation.
 Previously imported video candidates are excluded too; their history is retained.
@@ -528,8 +548,9 @@ Sending an entry for scheduling removes its whole topic from Drafts, even when a
 optional social copy is still pending. Scheduled items are separate from the
 eight-entry draft limit and never fill Drafts again merely because they are blocked.
 Every content sync reselects the freshest Microsoft-first candidates and reviews
-the unscheduled shortlist. Refresh first re-reviews up to eight saved unscheduled
-topics missing from the current shortlist, then assesses fresh candidates until
+the unscheduled copy that has not yet passed. Refresh first reviews up to eight saved
+unscheduled topics missing from the current shortlist whose drafts have not passed
+(a passed review is never repeated), then assesses fresh candidates until
 the shortlist is full or its independent twelve-assessment budget is exhausted.
 Failed or rejected candidates consume that budget, not the eight draft slots.
 When Drafts starts full, refresh still considers at least eight fresh candidates
@@ -592,7 +613,10 @@ Sources, selection reasons,
 accuracy/voice findings and immutable versions remain in secondary disclosures.
 Editing invalidates
 approval; changing the blog also invalidates hook consistency and approval.
-Publication waits for package approval and a current passed review. Blog-first
+Publication waits for package approval and a passed editorial review. A passed
+review never expires and is never repeated because time passes or feed settings,
+editorial guidance or source evidence change; only a newly saved version is
+reviewed, and the manual **Request fresh review** action remains available. Blog-first
 delivery verifies the final public article before binding its URL into social
 copy. Blog delivery is never repeated just because a social destination failed.
 Scheduling, History and Audit expose queue state, receipts and reconciliation.

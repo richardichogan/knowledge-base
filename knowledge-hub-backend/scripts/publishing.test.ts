@@ -23,6 +23,15 @@ const { IntegrationError, AiOutputLimitError } = await import('../src/types/erro
 const prose = 'Administrators can now configure the documented capability through the existing management portal. Check the scope and permissions before enabling it. '.repeat(9);
 const blog = { title: 'A practical administration change', summary: 'Check permissions before enabling the documented capability.', excerpt: 'A practical administration change.',
   content: `<p>${prose}</p>`, keyTakeaways: ['Check the documented permissions.'], categories: [], tags: [], postType: 'article', account: 'blog.fixture.invalid' };
+function reviewedPassage(input: unknown, field: string, reason: string, contains = '') {
+  const passages = (input as { passages: Array<{ id: string; field: string; before: string }> }).passages;
+  const passage = passages.find(item => item.field === field && item.before.includes(contains));
+  assert.ok(passage);
+  return { id: passage.id, reason, kind: 'style', claim: '', contradiction: '', sourceIds: [] };
+}
+function target(input: unknown) {
+  return (input as { finding: { id: string; before: string } }).finding;
+}
 async function topic(db: Pool): Promise<Topic> {
   return (await db.query<Topic>(`INSERT INTO publishing_topics(title,fingerprint,state) VALUES('Practical update',$1,'ready') RETURNING ${store.topicColumns}`, [randomUUID()])).rows[0]!;
 }
@@ -60,6 +69,18 @@ test('combined publishing reads pending LinkedIn drafts and source evidence with
     assert.equal(entry.sources?.[0]?.url, evidence.url);
     assert.deepEqual(await listSchedule(f.db), []);
     assert.equal((await f.db.query<{ approval: string }>('SELECT approval FROM publishing_drafts WHERE id=$1', [linkedin.id])).rows[0]!.approval, 'pending');
+  } finally { await f.close(); }
+});
+
+test('a draft awaiting editorial review does not report approval as its blocker', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db);
+    const d = await draft(f.db, t.id);
+    await f.db.query('DELETE FROM publishing_schedule WHERE draft_id=$1', [d.id]);
+    await f.db.query("UPDATE publishing_drafts SET approval='pending',review='hold' WHERE id=$1", [d.id]);
+    const entry = (await listSchedule(f.db, true)).find(post => post.draftId === d.id)!;
+    assert.equal(entry.reason, 'Waiting for a passed editorial review.');
   } finally { await f.close(); }
 });
 
@@ -144,6 +165,28 @@ test('discard refuses approved, scheduled and attempted topics without changing 
     assert.equal((await f.db.query("SELECT id FROM publishing_events WHERE event='drafts-discarded'")).rowCount, 0);
   } finally { await f.close(); }
 });
+test('rejecting an entire draft removes every destination while retaining the source', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db);
+    const s = await source(f.db, t.id);
+    const b = await draft(f.db, t.id, 'blog', 'blog');
+    const l = await draft(f.db, t.id, 'linkedin', 'blog');
+    const blue = await draft(f.db, t.id, 'bluesky', 'blog');
+    const versions = { [b.id]: b.version, [l.id]: l.version, [blue.id]: blue.version };
+    await assert.rejects(store.rejectDraftTopic(f.db, t.id, versions, 'human'), /approved, scheduled or attempted/);
+    await f.db.query('DELETE FROM publishing_schedule');
+    await f.db.query("UPDATE publishing_drafts SET approval='pending' WHERE topic_id=$1", [t.id]);
+    await assert.rejects(store.rejectDraftTopic(f.db, t.id, { ...versions, [l.id]: 99 }, 'human'), /changed/);
+    await store.rejectDraftTopic(f.db, t.id, versions, 'human');
+    const saved = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE topic_id=$1`, [t.id])).rows;
+    assert.ok(saved.every(item => item.approval === 'rejected' && item.held));
+    assert.equal((await f.db.query("SELECT id FROM publishing_topics WHERE id=$1 AND state='rejected'", [t.id])).rowCount, 1);
+    assert.equal((await f.db.query('SELECT item_id FROM publishing_sources WHERE item_id=$1', [s.itemId])).rowCount, 1);
+    assert.ok(!(await listSchedule(f.db, true)).some(item => item.topicId === t.id));
+    assert.equal((await f.db.query("SELECT id FROM publishing_events WHERE event='draft-topic-rejected' AND topic_id=$1", [t.id])).rowCount, 1);
+  } finally { await f.close(); }
+});
 test('draft refresh status reports zero-result assessments, failures and interruptions explicitly', async () => {
   const f = await publishingFixture();
   try {
@@ -161,6 +204,7 @@ test('publishing accuracy and voice checks run concurrently on the same saved dr
     const t = await topic(f.db);
     const s = await source(f.db, t.id);
     const d = await draft(f.db, t.id);
+    await f.db.query("UPDATE publishing_drafts SET review='pending' WHERE id=$1", [d.id]);
     let release!: () => void;
     const accuracy = new Promise<void>(resolve => { release = resolve; });
     const seen: unknown[] = [];
@@ -177,6 +221,11 @@ test('publishing accuracy and voice checks run concurrently on the same saved dr
   } finally { await f.close(); }
 });
 
+test('social copy length validation tells editorial repair the exact limit', () => {
+  assert.throws(() => editorial.parseDraftContent('bluesky', { copy: 'x'.repeat(248) }),
+    /Social copy is 248 characters; bluesky allows at most 240/);
+});
+
 test('draft-only review cannot change versions or review state when approval arrives during model work', async () => {
   const f = await publishingFixture();
   try {
@@ -184,7 +233,7 @@ test('draft-only review cannot change versions or review state when approval arr
     const s = await source(f.db, t.id);
     const d = await draft(f.db, t.id);
     await f.db.query('DELETE FROM publishing_schedule WHERE draft_id=$1', [d.id]);
-    await f.db.query("UPDATE publishing_drafts SET approval='pending' WHERE id=$1", [d.id]);
+    await f.db.query("UPDATE publishing_drafts SET approval='pending',review='pending' WHERE id=$1", [d.id]);
     d.approval = 'pending';
     const versions = (await f.db.query('SELECT * FROM publishing_versions WHERE draft_id=$1', [d.id])).rows;
     let approved: unknown[] = [];
@@ -366,7 +415,7 @@ test('content-sync refresh reviews unscheduled copy but preserves approved packa
   try {
     const pending = await topic(f.db); await source(f.db, pending.id); await draft(f.db, pending.id);
     const scheduled = await topic(f.db); await source(f.db, scheduled.id); await draft(f.db, scheduled.id);
-    await f.db.query("UPDATE publishing_drafts SET approval='pending',reviewed_at=NOW()-INTERVAL '25 hours' WHERE topic_id=$1", [pending.id]);
+    await f.db.query("UPDATE publishing_drafts SET approval='pending',review='pending',reviewed_at=NULL WHERE topic_id=$1", [pending.id]);
     await f.db.query('DELETE FROM publishing_schedule WHERE draft_id IN (SELECT id FROM publishing_drafts WHERE topic_id=$1)', [pending.id]);
     const original = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE topic_id=$1`, [scheduled.id])).rows;
     await refreshPublishingDrafts(f.db, { ...editorial.editorialServices,
@@ -468,7 +517,7 @@ test('refresh restores saved drafts and reaches five new articles beyond failure
       try {
         const stale = await topic(f.db); await source(f.db, stale.id); await draft(f.db, stale.id);
         await f.db.query('DELETE FROM publishing_schedule');
-        await f.db.query("UPDATE publishing_drafts SET approval='pending',reviewed_at=NOW()-INTERVAL '25 hours'");
+        await f.db.query("UPDATE publishing_drafts SET approval='pending',review='pending',reviewed_at=NULL");
         for (let i = 0; i < 13; i++) {
           const candidate = await topic(f.db); await source(f.db, candidate.id);
           await f.db.query("UPDATE publishing_topics SET state='pending',title=$2 WHERE id=$1", [candidate.id, `Microsoft arrival ${i}`]);
@@ -563,13 +612,13 @@ test('blog-linked Bluesky review cannot pass copy which exceeds the combined per
       [b.id, JSON.stringify({ slug: 'github-tightens-the-screws-microsoft-chases-supply-chain-fallout' })]);
     const blue = await draft(f.db, t.id, 'bluesky', 'blog');
     blue.content.copy = 'x'.repeat(230);
-    await f.db.query('UPDATE publishing_drafts SET content=$2 WHERE id=$1', [blue.id, JSON.stringify(blue.content)]);
+    await f.db.query("UPDATE publishing_drafts SET content=$2,review='pending' WHERE id=$1", [blue.id, JSON.stringify(blue.content)]);
     await editorial.reviewDraft(f.db, blue, [s], {
       ...editorial.editorialServices, preferences: async () => '',
       chat: async () => ({ outcome: 'pass', findings: [] }),
     }, false);
     const result = await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE id=$1`, [blue.id]);
-    assert.equal(result.rows[0]!.review, 'hold');
+    assert.equal(result.rows[0]!.review, 'revise');
     assert.equal(result.rows[0]!.content.copy, blue.content.copy);
     assert.equal(result.rows[0]!.approval, 'approved');
     const history = await f.db.query<{ reviews: unknown }>('SELECT reviews FROM publishing_versions WHERE draft_id=$1 AND version=$2', [blue.id, blue.version]);
@@ -601,6 +650,363 @@ test('editorial repairs reject whole-article replacements, stale matches, overla
     edits: [{ field: 'copy', before: 'Same.', after: 'Changed.' }],
   }), /ambiguous passage/);
 });
+test('publishing blog categories preserve unknown topics as tags without dropping existing tags', () => {
+  const parsed = editorial.parseDraftContent('blog', {
+    ...blog, categories: ['Azure', 'AI', 'Microsoft Foundry'], tags: ['Existing', 'microsoft foundry'],
+  });
+  assert.deepEqual(parsed.categories, ['Microsoft Azure', 'AI']);
+  assert.deepEqual(parsed.tags, ['Existing', 'microsoft foundry']);
+  assert.throws(() => editorial.parseDraftContent('blog', {
+    ...blog, categories: ['New topic'], tags: Array.from({ length: 30 }, (_, index) => `tag${index}`),
+  }), /at most 30 tags/);
+});
+test('category-only correction carries existing hook passes forward without changing copy', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db);
+    const b = await draft(f.db, t.id, 'blog', 'blog');
+    const hook = await draft(f.db, t.id, 'linkedin', 'blog');
+    await f.db.query('DELETE FROM publishing_schedule');
+    const original = { ...b.content, categories: ['Azure', 'Microsoft Foundry'], tags: ['existing'] };
+    await f.db.query("UPDATE publishing_drafts SET content=$2,review='hold' WHERE id=$1", [b.id, JSON.stringify(original)]);
+    const corrected = { ...original, categories: ['Microsoft Azure'], tags: ['existing', 'Microsoft Foundry'] };
+    await assert.rejects(editorial.editDraft(f.db, b.id, 1, { ...corrected, title: 'Changed' },
+      'editorial-recovery', undefined, true, true), /Only the category and tag correction/);
+    await editorial.editDraft(f.db, b.id, 1, corrected, 'editorial-recovery', undefined, true, true);
+    const rows = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE topic_id=$1`, [t.id])).rows;
+    const savedBlog = rows.find(row => row.id === b.id)!;
+    const savedHook = rows.find(row => row.id === hook.id)!;
+    assert.deepEqual(savedBlog.content, corrected);
+    assert.equal(savedBlog.version, 2);
+    assert.equal(savedHook.review, 'pass');
+    assert.equal(savedHook.reviewedBlogVersion, 2);
+    assert.deepEqual(savedHook.content, hook.content);
+    assert.equal((await f.db.query("SELECT id FROM publishing_events WHERE event='blog-metadata-corrected' AND topic_id=$1", [t.id])).rowCount, 1);
+  } finally { await f.close(); }
+});
+test('a specifically authorised tag removal preserves passed hooks and all other content', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db);
+    const b = await draft(f.db, t.id, 'blog', 'blog');
+    const hook = await draft(f.db, t.id, 'linkedin', 'blog');
+    await f.db.query('DELETE FROM publishing_schedule');
+    const original = { ...b.content, tags: ['existing', 'incorrect'] };
+    await f.db.query("UPDATE publishing_drafts SET content=$2,review='hold' WHERE id=$1", [b.id, JSON.stringify(original)]);
+    const corrected = { ...original, tags: ['existing'] };
+    const tagCorrection = { tag: 'incorrect', expectedHooks: [{ id: hook.id, version: hook.version }] };
+    await assert.rejects(editorial.editDraft(f.db, b.id, 1, { ...corrected, title: 'Changed' },
+      'user-requested-tag-correction', undefined, true, true, undefined, tagCorrection), /Only the category and tag correction/);
+    await assert.rejects(editorial.editDraft(f.db, b.id, 1, corrected,
+      'user-requested-tag-correction', undefined, true, true, undefined,
+      { tag: 'incorrect', expectedHooks: [{ id: hook.id, version: hook.version + 1 }] }), /passed hooks changed/);
+    await editorial.editDraft(f.db, b.id, 1, corrected, 'user-requested-tag-correction', undefined, true, true, undefined, tagCorrection);
+    const rows = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE topic_id=$1`, [t.id])).rows;
+    assert.deepEqual(rows.find(row => row.id === b.id)!.content, corrected);
+    assert.equal(rows.find(row => row.id === hook.id)!.review, 'pass');
+    assert.equal(rows.find(row => row.id === hook.id)!.reviewedBlogVersion, 2);
+  } finally { await f.close(); }
+});
+for (const outcome of ['consistent', 'restored-pass', 'conflict', 'concurrent-change'] as const) {
+  test(`blog repair preserves passed hooks only after a ${outcome} consistency check`, async () => {
+    const f = await publishingFixture();
+    try {
+      const t = await topic(f.db); const s = await source(f.db, t.id);
+      const b = await draft(f.db, t.id, 'blog', 'blog');
+      const hook = await draft(f.db, t.id, 'linkedin', 'blog');
+      await f.db.query('DELETE FROM publishing_schedule');
+      await f.db.query("UPDATE publishing_drafts SET approval='pending' WHERE topic_id=$1", [t.id]);
+      await f.db.query("UPDATE publishing_drafts SET review='pending' WHERE id=$1", [b.id]);
+      if (outcome === 'restored-pass') {
+        await f.db.query(`UPDATE publishing_drafts SET review='pending',reviewed_at=NULL,
+          reason='Blog changed; hook must be reviewed and approved again.' WHERE id=$1`, [hook.id]);
+        await f.db.query(`UPDATE publishing_versions SET reviews=$2 WHERE draft_id=$1 AND version=1`,
+          [hook.id, JSON.stringify([{ outcome: 'pass', at: '2026-10-28T13:08:15.950Z' }])]);
+      }
+      b.review = 'pending';
+      const services: typeof editorial.editorialServices = {
+        ...editorial.editorialServices, preferences: async () => '',
+        chat: async (system, input, _tokens, _schema, role) => {
+          if (system.includes('Correct only the supplied')) return { edits: [{ id: target(input).id,
+            after: 'Check the documented permissions before enabling the capability.', remove: '' }] };
+          if (system.includes('Check only whether each unchanged')) {
+            assert.equal(role, 'blog-author');
+            if (outcome === 'concurrent-change') {
+              await f.db.query("UPDATE publishing_drafts SET content=content || '{\"copy\":\"Changed concurrently\"}'::jsonb,version=version+1 WHERE id=$1", [hook.id]);
+            }
+            return { hooks: [{ id: hook.id, consistent: outcome !== 'conflict', reason: 'Checked against the corrected article.' }] };
+          }
+          return { outcome: 'revise', findings: [reviewedPassage(input, 'summary', 'Clarify the summary.')] };
+        },
+      };
+      if (outcome === 'consistent' || outcome === 'restored-pass') {
+        await editorial.reviewDraft(f.db, b, [s], services);
+      } else {
+        await assert.rejects(editorial.reviewDraft(f.db, b, [s], services), /saved package is unchanged/i);
+      }
+      const rows = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE topic_id=$1`, [t.id])).rows;
+      const savedBlog = rows.find(row => row.id === b.id)!;
+      const savedHook = rows.find(row => row.id === hook.id)!;
+      assert.equal(savedBlog.version, outcome === 'consistent' || outcome === 'restored-pass' ? 2 : 1);
+      assert.equal(savedHook.review, 'pass');
+      assert.equal(savedHook.reviewedBlogVersion, outcome === 'consistent' || outcome === 'restored-pass' ? 2 : 1);
+      if (outcome !== 'concurrent-change') assert.deepEqual(savedHook.content, hook.content);
+      const events = await f.db.query("SELECT id FROM publishing_events WHERE event='blog-hook-consistency-preserved' AND topic_id=$1", [t.id]);
+      assert.equal(events.rowCount, outcome === 'consistent' || outcome === 'restored-pass' ? 1 : 0);
+    } finally { await f.close(); }
+  });
+}
+test('a passed blog restores an unchanged hook pass after checking its original blog version', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db); const s = await source(f.db, t.id);
+    const b = await draft(f.db, t.id, 'blog', 'blog');
+    const hook = await draft(f.db, t.id, 'linkedin', 'blog');
+    await f.db.query('DELETE FROM publishing_schedule');
+    await f.db.query(`UPDATE publishing_drafts SET review='pending',reviewed_at=NULL,
+      reason='Blog changed; hook must be reviewed and approved again.' WHERE id=$1`, [hook.id]);
+    await f.db.query('UPDATE publishing_versions SET reviews=$2 WHERE draft_id=$1 AND version=1',
+      [hook.id, JSON.stringify([{ outcome: 'pass', at: '2026-10-28T13:08:15.950Z' }])]);
+    const currentBlog = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE id=$1`, [b.id])).rows[0]!;
+    await editorial.reconcilePassedBlogHooks(f.db, currentBlog, [s], {
+      ...editorial.editorialServices, chat: async (_system, _input, _tokens, _schema, role) => {
+        assert.equal(role, 'blog-author');
+        return { hooks: [{ id: hook.id, consistent: true, reason: 'The hook matches.' }] };
+      },
+    });
+    const saved = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE id=$1`, [hook.id])).rows[0]!;
+    assert.equal(saved.review, 'pass');
+    assert.equal(saved.reviewedBlogVersion, b.version);
+    assert.deepEqual(saved.content, hook.content);
+    assert.equal((await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE id=$1`, [b.id])).rows[0]!.version, b.version);
+  } finally { await f.close(); }
+});
+test('editorial retries an invalid repair with the validation error without replacing other text', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db); const s = await source(f.db, t.id);
+    const d = await draft(f.db, t.id);
+    await f.db.query("UPDATE publishing_drafts SET approval='pending',review='pending' WHERE id=$1", [d.id]);
+    await f.db.query('DELETE FROM publishing_schedule WHERE draft_id=$1', [d.id]);
+    d.approval = 'pending'; d.review = 'pending';
+    let repairs = 0;
+    let checks = 0;
+    await editorial.reviewDraft(f.db, d, [s], {
+      ...editorial.editorialServices, preferences: async () => '',
+      chat: async (system, input, _tokens, _schema, role) => {
+        if (system.includes('Correct only the supplied')) {
+          assert.equal(role, 'social-author');
+          assert.match(system, /Calliope/);
+          repairs++;
+          assert.equal('content' in (input as object), false);
+          if (repairs === 1) return { edits: [{ id: 'invalid', after: 'Correction.', remove: '' }] };
+          assert.match(String((input as { repairError: unknown }).repairError), /invalid target/);
+          return { edits: [{ id: target(input).id, after: 'A documented change, with permissions to check.', remove: '' }] };
+        }
+        assert.equal(role, 'critic');
+        assert.match(system, /Momus/);
+        checks++;
+        return checks <= 2 ? { outcome: 'revise', findings: [reviewedPassage(input, 'copy', 'Change the wording.')] } : { outcome: 'pass', findings: [] };
+      },
+    });
+    const saved = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE id=$1`, [d.id])).rows[0]!;
+    assert.equal(repairs, 2);
+    assert.equal(saved.content.copy, 'A documented change, with permissions to check.');
+    assert.equal(saved.review, 'pass');
+  } finally { await f.close(); }
+});
+test('editorial retries only the rejected target without sending the draft', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db); const s = await source(f.db, t.id);
+    const d = await draft(f.db, t.id);
+    await f.db.query("UPDATE publishing_drafts SET approval='pending',review='pending' WHERE id=$1", [d.id]);
+    await f.db.query('DELETE FROM publishing_schedule WHERE draft_id=$1', [d.id]);
+    d.approval = 'pending'; d.review = 'pending';
+    let repairs = 0; let reviews = 0;
+    await editorial.reviewDraft(f.db, d, [s], {
+      ...editorial.editorialServices, preferences: async () => '',
+      chat: async (system, input) => {
+        if (system.includes('Correct only the supplied')) {
+          repairs++;
+          const current = input as { finding: { id: string; before: string }; repairError?: string; content?: unknown };
+          assert.equal(current.content, undefined);
+          if (repairs === 1) return { edits: [] };
+          assert.match(current.repairError!, /one correction/);
+          return { edits: [{ id: current.finding.id, after: 'A documented change, with scope to check.', remove: '' }] };
+        }
+        reviews++;
+        return reviews <= 2 ? { outcome: 'revise', findings: [reviewedPassage(input, 'copy', 'Fix the wording.')] } : { outcome: 'pass', findings: [] };
+      },
+    });
+    const saved = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE id=$1`, [d.id])).rows[0]!;
+    assert.equal(repairs, 2);
+    assert.equal(saved.content.copy, 'A documented change, with scope to check.');
+    assert.equal(saved.review, 'pass');
+  } finally { await f.close(); }
+});
+test('a linked multi-sentence blog finding sends only related flagged sentences to the author', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db); const s = await source(f.db, t.id);
+    const d = await draft(f.db, t.id, 'blog', 'blog');
+    const content = { ...d.content, content: '<p>First flagged sentence. Second flagged sentence. Unrelated sentence.</p>' };
+    await f.db.query("UPDATE publishing_drafts SET content=$2,approval='pending',review='pending' WHERE id=$1", [d.id, JSON.stringify(content)]);
+    await f.db.query('DELETE FROM publishing_schedule WHERE draft_id=$1', [d.id]);
+    d.approval = 'pending'; d.review = 'pending'; d.content = content;
+    await assert.rejects(editorial.reviewDraft(f.db, d, [s], {
+      ...editorial.editorialServices, preferences: async () => '',
+      chat: async (system, input) => {
+        if (system.includes('Correct only the supplied')) {
+          const current = input as { finding: { before: string; relatedFindings: Array<{ before: string }> }; content?: unknown };
+          assert.equal(current.content, undefined);
+          assert.equal(current.finding.before, 'First flagged sentence.');
+          assert.deepEqual(current.finding.relatedFindings.map(item => item.before), ['Second flagged sentence.']);
+          throw new Error('Inspected targeted request.');
+        }
+        const first = reviewedPassage(input, 'content', 'placeholder', 'First flagged');
+        const second = reviewedPassage(input, 'content', 'placeholder', 'Second flagged');
+        return { outcome: 'revise', findings: [
+          { ...first, reason: `Merge ${first.id}-${second.id}.` },
+          { ...second, reason: 'Remove the repeated detail.' },
+        ] };
+      },
+    }), /Inspected targeted request/);
+  } finally { await f.close(); }
+});
+test('later review rounds preserve accepted unchanged passages', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db); const s = await source(f.db, t.id);
+    const d = await draft(f.db, t.id);
+    const content = { ...d.content, copy: 'First issue. Unchanged accepted sentence.' };
+    await f.db.query("UPDATE publishing_drafts SET content=$2,approval='pending',review='pending' WHERE id=$1", [d.id, JSON.stringify(content)]);
+    await f.db.query('DELETE FROM publishing_schedule WHERE draft_id=$1', [d.id]);
+    d.approval = 'pending'; d.review = 'pending'; d.content = content;
+    let accuracyReviews = 0;
+    await editorial.reviewDraft(f.db, d, [s], {
+      ...editorial.editorialServices, preferences: async () => '',
+      chat: async (system, input) => {
+        if (system.includes('Correct only the supplied')) {
+          return { edits: [{ id: target(input).id, after: 'Corrected first sentence.', remove: '' }] };
+        }
+        if (system.includes('voice review only')) return { outcome: 'pass', findings: [] };
+        accuracyReviews++;
+        const finding = accuracyReviews === 1
+          ? reviewedPassage(input, 'copy', 'Fix this sentence.', 'First issue')
+          : reviewedPassage(input, 'copy', 'Optional alternative wording.', 'Unchanged accepted');
+        return { outcome: 'revise', findings: [finding] };
+      },
+    });
+    const saved = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE id=$1`, [d.id])).rows[0]!;
+    assert.equal(saved.review, 'pass');
+    assert.equal(saved.content.copy, 'Corrected first sentence. Unchanged accepted sentence.');
+    assert.equal(accuracyReviews, 2);
+  } finally { await f.close(); }
+});
+test('a new contradiction can reopen an accepted passage when it identifies the changed passage', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db); const s = await source(f.db, t.id);
+    const d = await draft(f.db, t.id);
+    const content = { ...d.content, copy: 'First issue. Previously accepted sentence.' };
+    await f.db.query("UPDATE publishing_drafts SET content=$2,approval='pending',review='pending' WHERE id=$1", [d.id, JSON.stringify(content)]);
+    await f.db.query('DELETE FROM publishing_schedule WHERE draft_id=$1', [d.id]);
+    d.approval = 'pending'; d.review = 'pending'; d.content = content;
+    let accuracyReviews = 0;
+    await editorial.reviewDraft(f.db, d, [s], {
+      ...editorial.editorialServices, preferences: async () => '',
+      chat: async (system, input) => {
+        if (system.includes('Correct only the supplied')) {
+          const current = target(input);
+          return { edits: [{ id: current.id, after: current.before.includes('First issue')
+            ? 'Corrected first sentence.' : 'Consistent second sentence.', remove: '' }] };
+        }
+        if (system.includes('voice review only')) return { outcome: 'pass', findings: [] };
+        accuracyReviews++;
+        if (accuracyReviews === 1) return { outcome: 'revise', findings: [reviewedPassage(input, 'copy', 'Fix this sentence.', 'First issue')] };
+        if (accuracyReviews === 2) {
+          const changed = reviewedPassage(input, 'copy', '', 'Corrected first');
+          return { outcome: 'revise', findings: [{
+            ...reviewedPassage(input, 'copy', `Contradicts ${changed.id}.`, 'Previously accepted'), kind: 'coherence',
+          }] };
+        }
+        return { outcome: 'pass', findings: [] };
+      },
+    });
+    const saved = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE id=$1`, [d.id])).rows[0]!;
+    assert.equal(saved.review, 'pass');
+    assert.equal(saved.content.copy, 'Corrected first sentence. Consistent second sentence.');
+    assert.equal(accuracyReviews, 3);
+  } finally { await f.close(); }
+});
+test('a Bluesky length repair receives the exact target budget without the full post', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db); const s = await source(f.db, t.id);
+    const d = await draft(f.db, t.id);
+    const copy = `${'A'.repeat(250)}. A second sentence remains unchanged.`;
+    const content = { ...d.content, copy };
+    await f.db.query("UPDATE publishing_drafts SET content=$2,approval='pending',review='pending' WHERE id=$1", [d.id, JSON.stringify(content)]);
+    await f.db.query('UPDATE publishing_versions SET content=$2 WHERE draft_id=$1 AND version=1', [d.id, JSON.stringify(content)]);
+    await f.db.query('DELETE FROM publishing_schedule WHERE draft_id=$1', [d.id]);
+    d.approval = 'pending'; d.review = 'pending'; d.content = content;
+    let repairs = 0;
+    await editorial.reviewDraft(f.db, d, [s], {
+      ...editorial.editorialServices, preferences: async () => '',
+      chat: async (system, input) => {
+        if (system.includes('Correct only the supplied')) {
+          repairs++;
+          const current = input as { finding: { id: string; before: string; maximumReplacementGraphemes: number; maximumReplacementCodeUnits: number }; content?: unknown };
+          assert.equal(current.content, undefined);
+          assert.ok(!current.finding.before.includes('A second sentence'));
+          const maximum = Math.min(current.finding.maximumReplacementGraphemes, current.finding.maximumReplacementCodeUnits);
+          assert.ok(maximum > 1);
+          return { edits: [{ id: current.finding.id, after: `${current.finding.before.slice(0, maximum - 1)}.`, remove: '' }] };
+        }
+        const request = input as { validation: string[] };
+        if (system.includes('voice review only') && request.validation.length) {
+          return { outcome: 'revise', findings: [{ ...reviewedPassage(input, 'copy', 'Shorten this sentence.', 'AAAA'), kind: 'length' }] };
+        }
+        return { outcome: 'pass', findings: [] };
+      },
+    });
+    const saved = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE id=$1`, [d.id])).rows[0]!;
+    assert.equal(repairs, 1);
+    assert.equal(saved.review, 'pass');
+    assert.match(String(saved.content.copy), /A second sentence remains unchanged\.$/);
+  } finally { await f.close(); }
+});
+test('editorial continues targeted fixes beyond two rounds while distinct findings remain', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db); const s = await source(f.db, t.id);
+    const d = await draft(f.db, t.id);
+    await f.db.query("UPDATE publishing_drafts SET approval='pending',review='pending' WHERE id=$1", [d.id]);
+    await f.db.query('DELETE FROM publishing_schedule WHERE draft_id=$1', [d.id]);
+    d.approval = 'pending'; d.review = 'pending';
+    const changes = [['practical', 'documented'], ['change', 'update'], ['permissions', 'scope']] as const;
+    let repairs = 0;
+    await editorial.reviewDraft(f.db, d, [s], {
+      ...editorial.editorialServices, preferences: async () => '',
+      chat: async (system, input) => {
+        if (system.includes('Correct only the supplied')) {
+          const change = changes[repairs++]!;
+          const finding = target(input);
+          return { edits: [{ id: finding.id, after: finding.before.replace(change[0], change[1]), remove: '' }] };
+        }
+        if (system.includes('voice review only')) return { outcome: 'pass', findings: [] };
+        const content = input as { passages: Array<{ before: string }> };
+        const next = changes.find(([before]) => content.passages.some(item => item.before.includes(before)));
+        return next ? { outcome: 'revise', findings: [reviewedPassage(input, 'copy', `Fix ${next[0]}.`, next[0])] } : { outcome: 'pass', findings: [] };
+      },
+    });
+    const saved = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE id=$1`, [d.id])).rows[0]!;
+    assert.equal(repairs, 3);
+    assert.equal(saved.review, 'pass');
+    assert.equal(saved.content.copy, 'A documented update, with scope to check.');
+  } finally { await f.close(); }
+});
 test('editorial retries output exhaustion once, keeps the schema and does not retry refusals', async () => {
   const limits: number[] = [];
   const value = await editorial.requestEditorialJson({
@@ -624,11 +1030,22 @@ test('a truncated blog revision leaves exact saved content, versions and approva
   try {
     const t = await topic(f.db); const s = await source(f.db, t.id);
     const d = await draft(f.db, t.id, 'blog', 'blog');
+    await f.db.query("UPDATE publishing_drafts SET review='pending' WHERE id=$1", [d.id]);
     await assert.rejects(editorial.reviewDraft(f.db, d, [s], {
       ...editorial.editorialServices, preferences: async () => '',
       chat: async (system, input, tokens, schema) => {
-        if (!system.includes('Repair only')) return { outcome: 'revise', findings: ['Clarify the permission requirement.'] };
-        assert.deepEqual(schema, editorial.EDITORIAL_SCHEMAS.edits);
+        const content = input as { draft?: Record<string, unknown>; content?: Record<string, unknown>; blog?: Record<string, unknown> };
+        for (const item of [content.draft, content.content, content.blog]) {
+          if (!item) continue;
+          assert.equal('account' in item, false);
+          assert.equal('accountName' in item, false);
+          assert.equal('status' in item, false);
+        }
+        if (!system.includes('Correct only the supplied')) {
+          return { outcome: 'revise', findings: [reviewedPassage(input, 'summary', 'Clarify the permission requirement.')] };
+        }
+        assert.equal(schema.name, 'blog_passage_edits');
+        assert.equal(content.content, undefined);
         return editorial.requestEditorialJson({ chatBulk: async () => '{"edits":[{"before":"' + 'a'.repeat(21900) }, system, input, tokens, schema);
       },
     }), /incomplete draft/);
@@ -706,8 +1123,10 @@ test('legacy drafts without copy are generated before review, creating a new una
       chat: async (system: string, input: unknown) => {
         calls.push(system);
         if (system.includes('Write the missing')) return { copy: 'Check the documented scope and permissions before enabling the capability.' };
-        assert.ok(typeof input === 'object' && input !== null && 'draft' in input);
-        assert.equal((input.draft as { copy: string }).copy, 'Check the documented scope and permissions before enabling the capability.');
+        assert.ok(typeof input === 'object' && input !== null && 'passages' in input);
+        assert.ok(Array.isArray(input.passages));
+        assert.ok(input.passages.some((passage: { field: string; before: string }) =>
+          passage.field === 'copy' && passage.before === 'Check the documented scope and permissions before enabling the capability.'));
         return { outcome: 'pass', findings: [] };
       },
     };
@@ -720,16 +1139,16 @@ test('legacy drafts without copy are generated before review, creating a new una
     assert.equal((await f.db.query('SELECT * FROM publishing_deliveries')).rows.length, 0);
   } finally { await f.close(); }
 });
-test('pause, stale review and stale version fail closed before a network request', async () => {
+test('pause, unreviewed copy, missing approval and stale version fail closed before a network request', async () => {
   const f = await publishingFixture();
   try {
     const t = await topic(f.db); await source(f.db, t.id); const d = await draft(f.db, t.id);
     await assert.rejects(reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(d)), /off/);
     await enable(f.db);
     await f.db.query("UPDATE publishing_drafts SET review='hold' WHERE id=$1", [d.id]);
-    await assert.rejects(reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(d)), /fresh/);
+    await assert.rejects(reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(d)), /passed editorial review/);
     await f.db.query("UPDATE publishing_drafts SET review='pass',approval='pending',reviewed_at=NOW()-INTERVAL '25 hours' WHERE id=$1", [d.id]);
-    await assert.rejects(reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(d)), /fresh/);
+    await assert.rejects(reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(d)), /human approval/);
     await f.db.query("UPDATE publishing_drafts SET reviewed_at=NOW(),approval='approved',expires_at=NOW()-INTERVAL '1 hour' WHERE id=$1", [d.id]);
     await editorial.editDraft(f.db, d.id, 1, { copy: 'Changed wording.' }, 'human');
     await assert.rejects(reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(d)), /version/);
@@ -742,6 +1161,18 @@ test('an approved version is not reopened just because its passed review is olde
     const t = await topic(f.db); await source(f.db, t.id); const d = await draft(f.db, t.id); await enable(f.db);
     await f.db.query("UPDATE publishing_drafts SET reviewed_at=NOW()-INTERVAL '40 hours' WHERE id=$1", [d.id]);
     await reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(d));
+    assert.equal((await f.db.query('SELECT * FROM publishing_deliveries')).rows.length, 1);
+  } finally { await f.close(); }
+});
+test('a passed review never expires: an old pass can still be approved and delivered without another review', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db); await source(f.db, t.id); const d = await draft(f.db, t.id); await enable(f.db);
+    await f.db.query("UPDATE publishing_drafts SET approval='pending',reviewed_at=NOW()-INTERVAL '40 hours' WHERE id=$1", [d.id]);
+    await store.decideDraft(f.db, d.id, d.version, 'approve', 'human', '');
+    const approved = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE id=$1`, [d.id])).rows[0]!;
+    assert.equal(approved.approval, 'approved'); assert.equal(approved.review, 'pass');
+    await reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(approved));
     assert.equal((await f.db.query('SELECT * FROM publishing_deliveries')).rows.length, 1);
   } finally { await f.close(); }
 });
@@ -911,61 +1342,73 @@ test('selection can choose nothing and preserves rationale without generating fi
     assert.match((await store.listTopics(f.db))[0]!.rationale, /No substantive/);
   } finally { await f.close(); }
 });
-test('accuracy and voice are separate checks; two unsuccessful revisions end in a hold with versioned findings', async () => {
+test('accuracy and voice are separate checks; unchanged findings stop a stalled repair with versioned evidence', async () => {
   const f = await publishingFixture();
   try {
     const t = await topic(f.db); const s = await source(f.db, t.id); const d = await draft(f.db, t.id);
-    await f.db.query("UPDATE publishing_drafts SET approval='pending' WHERE id=$1", [d.id]);
+    await f.db.query("UPDATE publishing_drafts SET approval='pending',review='pending' WHERE id=$1", [d.id]);
     await f.db.query('DELETE FROM publishing_schedule WHERE draft_id=$1', [d.id]);
     d.approval = 'pending';
     const calls: string[] = [];
     await editorial.reviewDraft(f.db, d, [s], { ...editorial.editorialServices, preferences: async () => '',
       chat: async (system, input) => {
         calls.push(system);
-        if (system.includes('Repair only')) {
-          const current = input as { content: { copy: string } };
-          return { edits: [{ field: 'copy', before: current.content.copy, after: `${current.content.copy} Check scope.` }] };
+        if (system.includes('Correct only the supplied')) {
+          const current = target(input);
+          return { edits: [{ id: current.id, after: `${current.before} Check scope.`, remove: '' }] };
         }
-        return { outcome: 'revise', findings: ['Clarify the source claim.'] };
+        return { outcome: 'revise', findings: [reviewedPassage(input, 'copy', 'Clarify the source claim.')] };
       } });
     const result = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE id=$1`, [d.id])).rows[0]!;
-    assert.equal(result.version, 3); assert.equal(result.review, 'hold');
-    assert.equal(calls.filter(s => s.includes('accuracy review only')).length, 3);
-    assert.equal(calls.filter(s => s.includes('voice review only')).length, 3);
-    assert.equal((await f.db.query<{ reviews: unknown[] }>('SELECT reviews FROM publishing_versions WHERE draft_id=$1', [d.id])).rows.filter(v => v.reviews.length).length, 3);
+    assert.equal(result.version, 2); assert.equal(result.review, 'hold');
+    assert.equal(calls.filter(s => s.includes('accuracy review only')).length, 2);
+    assert.equal(calls.filter(s => s.includes('voice review only')).length, 2);
+    assert.match(result.reason, /same findings remain after targeted repair/);
+    assert.equal((await f.db.query<{ reviews: unknown[] }>('SELECT reviews FROM publishing_versions WHERE draft_id=$1', [d.id])).rows.filter(v => v.reviews.length).length, 2);
   } finally { await f.close(); }
 });
-test('changed full source evidence invalidates existing human approvals before stale review can pass', async () => {
+test('changed source evidence never reopens a passed review or an existing human approval', async () => {
   const f = await publishingFixture();
   try {
     const t = await topic(f.db); await source(f.db, t.id); const b = await draft(f.db, t.id, 'blog', 'blog'); await draft(f.db, t.id, 'linkedin', 'blog');
     await store.decideDraft(f.db, b.id, 1, 'approve', 'human', '');
+    const unpassed = await draft(f.db, t.id);
+    await f.db.query("UPDATE publishing_drafts SET review='revise',approval='pending',reviewed_at=NULL WHERE id=$1", [unpassed.id]);
+    const passedRows = async () => (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE id<>$1 ORDER BY id`, [unpassed.id])).rows;
+    const before = await passedRows();
+    assert.ok(before.length === 2 && before.every(d => d.review === 'pass') && before.some(d => d.approval === 'approved'));
     await f.db.query("UPDATE publishing_sources SET read_at=NOW()-INTERVAL '25 hours'");
     await editorial.readSources(f.db, t.id, { ...editorial.editorialServices, read: async () => ({ title: 'Changed evidence', text: prose + 'A materially changed qualification.' }) });
-    const rows = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE topic_id=$1`, [t.id])).rows;
-    assert.ok(rows.every(d => d.review === 'pending' && d.approval === 'pending'));
+    assert.deepEqual(await passedRows(), before, 'a pass and its approval are permanent');
+    const requeued = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE id=$1`, [unpassed.id])).rows[0]!;
+    assert.equal(requeued.review, 'pending'); assert.equal(requeued.approval, 'pending'); assert.equal(requeued.reviewedAt, null);
   } finally { await f.close(); }
 });
-test('settings changed mid-review cannot authorise stale drafts; new editorial guidance clears paired approvals', async () => {
+test('feed settings and editorial guidance never reopen a passed or approved draft, but re-queue unpassed ones', async () => {
   const f = await publishingFixture();
   try {
-    const t = await topic(f.db); const s = await source(f.db, t.id); await enable(f.db);
+    const t = await topic(f.db); await source(f.db, t.id); await enable(f.db);
     const blue = await draft(f.db, t.id);
+    const waiting = await topic(f.db); await source(f.db, waiting.id);
+    const unpassed = await draft(f.db, waiting.id);
+    await f.db.query("UPDATE publishing_drafts SET review='revise',approval='pending',reviewed_at=NULL WHERE id=$1", [unpassed.id]);
     const current = (await store.feeds(f.db)).find(feed => feed.id === 'bluesky')!;
     await store.saveFeed(f.db, 'bluesky', current.revision, true, { ...current.policy, guidance: 'Focus on administration consequences.' }, 'human');
-    await assert.rejects(reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(blue)), /review/);
-    const pending = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE id=$1`, [blue.id])).rows[0]!;
-    await editorial.reviewDraft(f.db, pending, [s], { ...editorial.editorialServices, preferences: async () => '', chat: async () => ({ outcome: 'pass', findings: [] }) });
-    const reviewed = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE id=$1`, [blue.id])).rows[0]!;
-    assert.equal(reviewed.reviewedFeedRevision, 2);
-    await assert.rejects(reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(reviewed)), /human approval/);
-    await store.decideDraft(f.db, reviewed.id, reviewed.version, 'approve', 'human', 'Reviewed the new guidance.');
-    await reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(reviewed));
-    const b = await draft(f.db, t.id, 'blog', 'blog'); const l = await draft(f.db, t.id, 'linkedin', 'blog');
+    const kept = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE id=$1`, [blue.id])).rows[0]!;
+    assert.equal(kept.review, 'pass'); assert.equal(kept.approval, 'approved');
+    assert.equal(kept.reviewedFeedRevision, 1, 'the saved review is not repeated for the new feed revision');
+    const requeued = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE id=$1`, [unpassed.id])).rows[0]!;
+    assert.equal(requeued.review, 'pending'); assert.equal(requeued.approval, 'pending'); assert.equal(requeued.reviewedAt, null);
+    await reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(kept));
+    assert.equal((await f.db.query('SELECT * FROM publishing_deliveries')).rows.length, 1);
+    const pkg = await topic(f.db); await source(f.db, pkg.id);
+    const b = await draft(f.db, pkg.id, 'blog', 'blog'); const l = await draft(f.db, pkg.id, 'linkedin', 'blog');
     await store.decideDraft(f.db, b.id, 1, 'approve', 'human', ''); await store.decideDraft(f.db, l.id, 1, 'approve', 'human', '');
     const blogFeed = (await store.feeds(f.db)).find(feed => feed.id === 'blog-linkedin')!;
     await store.saveFeed(f.db, blogFeed.id, blogFeed.revision, true, { ...blogFeed.policy, guidance: 'Only substantial analysis.' }, 'human');
-    assert.ok((await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE destination IN ('blog','linkedin')`)).rows.every(d => d.approval === 'pending' && d.review === 'pending'));
+    const approved = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE topic_id=$1`, [pkg.id])).rows;
+    assert.equal(approved.length, 2);
+    assert.ok(approved.every(d => d.approval === 'approved' && d.review === 'pass'));
   } finally { await f.close(); }
 });
 test('legacy manual and Jobs successes count towards the same account ledger', async () => {

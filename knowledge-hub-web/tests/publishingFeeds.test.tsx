@@ -84,7 +84,7 @@ const savedDraft: PublishingDraft = {
   id: 'saved', topicId: 'topic', destination: 'linkedin', variant: 'blog', version: 1,
   content: { copy: 'The complete saved copy.\nIncluding the last sentence, not just its title.' },
   review: 'pass', approval: 'pending', held: false, reason: '', reviewedAt: new Date().toISOString(),
-  expiresAt: new Date(Date.now() + 3600000).toISOString(),
+  expiresAt: new Date(Date.now() + 3600000).toISOString(), reviewedBlogVersion: 1,
 };
 test('draft preview shows exact complete social copy, with no publication or configuration writes', () => {
   const html = renderToStaticMarkup(<PublishingDraftPreview draft={savedDraft} />);

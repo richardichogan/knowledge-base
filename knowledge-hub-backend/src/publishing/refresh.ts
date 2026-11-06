@@ -37,6 +37,8 @@ async function refreshDrafts(db: Pool, services: EditorialServices, actor: strin
       WHERE state IN ('pending','ready')
         AND NOT (t.id=ANY($2::uuid[]))
         AND ${writtenPublishingSourcesSql('t.id')}
+        AND (NOT EXISTS(SELECT 1 FROM publishing_drafts d WHERE d.topic_id=t.id)
+          OR EXISTS(SELECT 1 FROM publishing_drafts d WHERE d.topic_id=t.id AND d.review<>'pass' AND NOT d.held))
         AND NOT EXISTS(SELECT 1 FROM publishing_drafts d WHERE d.topic_id=t.id AND d.approval<>'pending')
         AND NOT EXISTS(SELECT 1 FROM publishing_drafts d WHERE d.topic_id=t.id
           AND (d.destination IN ('blog','linkedin') OR d.variant='source') AND d.held)
@@ -83,7 +85,7 @@ async function refreshDrafts(db: Pool, services: EditorialServices, actor: strin
             const scheduled = await db.query(`SELECT id FROM publishing_drafts WHERE topic_id=$1 AND approval='approved'`, [topic.id]);
             if (scheduled.rowCount) break;
             const draft = (await db.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts WHERE id=$1`, [previous.id])).rows[0];
-            if (!draft || draft.held || draft.approval !== 'pending') continue;
+            if (!draft || draft.held || draft.approval !== 'pending' || draft.review === 'pass') continue;
             await reviewDraft(db, draft, sources, services, true, true);
           }
         }

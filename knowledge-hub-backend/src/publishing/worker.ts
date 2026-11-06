@@ -8,6 +8,7 @@ import { postToLinkedIn, getLinkedInMember } from '../integrations/social/linked
 import { articleProse, readPublicPage } from '../utils/articleReading.js';
 import { microsoftRelevanceSql } from '../utils/microsoftRelevance.js';
 import { assessTopic, editorialServices, readSources, reviewDraft, type EditorialServices } from './editorial.js';
+import { normalisePublishingBlogCategories } from './blogCategories.js';
 import { assertSocialOpportunity, BlogVerificationPending, deliver, destinationAccount, inWindow, PublicationDeferred, PublicationUnconfirmed, type DeliveryContext } from './delivery.js';
 import { deliveryColumns, draftColumns, event, feeds, holdTopic, intake, listTopics, sourceColumns, topicColumns, transaction, writtenPublishingSourcesSql } from './store.js';
 import { PUBLISH_LIMITS, type Delivery, type Draft, type Source, type Topic } from './contracts.js';
@@ -133,7 +134,7 @@ export async function publishDraft(db: Pool, draft: Draft, services = publishing
     const member = await services.member();
     if (member.id !== memberDraft.content.account) throw new PublicationDeferred('LinkedIn account changed. Rebind and reapprove the hook.');
     await assertSocialOpportunity(db, 'linkedin', member.id);
-    await publishBlogWithVerification(db, account, context, draft.content, services);
+    await publishBlogWithVerification(db, account, context, normalisePublishingBlogCategories(draft.content), services);
     return;
   }
   let url: string;
@@ -225,15 +226,7 @@ export async function tickPublishing(db: Pool, editorial: EditorialServices = ed
     for (const draft of queue) {
       if (!enabled.includes(draft.destination === 'bluesky' ? 'bluesky' : 'blog-linkedin')) continue;
       try {
-        const companions = draft.variant === 'blog' ? (await db.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts WHERE topic_id=$1 AND destination IN ('blog','linkedin')`, [draft.topicId])).rows : [];
-        // Review age alone never reopens an approved version; edits, new evidence and new guidance reset approval instead.
-        const stale = [draft, ...companions].filter(d => !d.reviewedAt
-          || d.reviewedFeedRevision !== settings.find(f => f.id === (d.destination === 'bluesky' ? 'bluesky' : 'blog-linkedin'))?.revision);
-        if (stale.length) {
-          const sources = await readSources(db, draft.topicId, editorial);
-          for (const candidate of new Map(stale.map(d => [d.id, d])).values()) await reviewDraft(db, candidate, sources, editorial, false);
-          continue;
-        }
+        // A passed review is permanent: delivery never reopens it for age, feed settings, guidance or source changes.
         await publishDraft(db, draft, publishing);
         break;
       } catch (error) {

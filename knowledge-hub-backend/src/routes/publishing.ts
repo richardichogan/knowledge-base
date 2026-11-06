@@ -7,7 +7,7 @@ import { env } from '../config/env.js';
 import { object, text } from '../jobs/contracts.js';
 import { ValidationError, ConflictError, NotFoundError } from '../types/errors.js';
 import { getLinkedInMember } from '../integrations/social/linkedin.js';
-import { approvePackage, decideDraft, discardDraft, deliveryColumns, draftColumns, event, feeds, holdTopic, listTopics, saveFeed, topicDetail, transaction } from '../publishing/store.js';
+import { approvePackage, decideDraft, discardDraft, rejectDraftTopic, deliveryColumns, draftColumns, event, feeds, holdTopic, listTopics, saveFeed, topicDetail, transaction } from '../publishing/store.js';
 import { feedId, PUBLISH_LIMITS, uuid, type Delivery, type Draft } from '../publishing/contracts.js';
 import { editDraft } from '../publishing/editorial.js';
 import { verifyBlog } from '../publishing/worker.js';
@@ -96,6 +96,13 @@ export function createPublishingRouter(getDb: () => Pool = defaultGetDb): Router
     await discardDraft(getDb(), uuid(req.params.id), object(object(req.body).versions), actor(req));
     recordAiDecision(getDb(), { kind: 'discard', targetType: 'publishing-draft', targetId: uuid(req.params.id) });
     return { discarded: true };
+  }));
+  router.post('/topics/:id/reject-draft', route(async req => {
+    publishingProduction();
+    const id = uuid(req.params.id);
+    await rejectDraftTopic(getDb(), id, object(object(req.body).versions), actor(req));
+    recordAiDecision(getDb(), { kind: 'discard', targetType: 'publishing-topic', targetId: id });
+    return { rejected: true };
   }));
   const schedule = async (): Promise<(ScheduledPost | ScheduledPodcastPost)[]> => {
     const [regular, podcast] = await Promise.all([listSchedule(getDb()), listPodcastSchedule(getDb())]);

@@ -2,10 +2,10 @@ import type { Pool } from 'pg';
 import type { LlmToolDefinition } from './foundryClient.js';
 import { env } from '../config/env.js';
 import { ValidationError } from '../types/errors.js';
-import { text } from '../jobs/contracts.js';
+import { object, text } from '../jobs/contracts.js';
 import { proposeJob } from '../jobs/store.js';
 import { feedId, parsePolicy, uuid, PUBLISH_LIMITS } from '../publishing/contracts.js';
-import { feeds, holdTopic, listTopics, topicDetail } from '../publishing/store.js';
+import { feeds, holdTopic, listTopics, rejectDraftTopic, topicDetail } from '../publishing/store.js';
 import { listPublishingContent } from '../publishing/content.js';
 
 const CONTENT_PAGE_SIZE = 5;
@@ -14,14 +14,15 @@ const CONTENT_PAGE_CHARS = 128_000;
 export const PUBLISHING_TOOL: LlmToolDefinition = {
   type: 'function', function: {
     name: 'manage_publishing_feeds',
-    description: 'Inspect and configure Athena Discover publishing from any chat. Two feeds: bluesky and blog-linkedin. Work with the user on editorial guidance and saved settings. Read first; save produces an exact confirmation card, never silently enables posting. Can hold/reject topics with reasons. One human package approval in the publishing UI approves the exact Blog and LinkedIn versions together; you CANNOT grant approval, reconcile deliveries or send a post. Drafts do not expire automatically. Queues, source evidence, accuracy/voice findings and audit are shared with the UI. There are no daily posting limits; audio/podcast preparation is independent.',
+    description: 'Inspect and configure Athena Discover publishing from any chat. Two feeds: bluesky and blog-linkedin. Work with the user on editorial guidance and saved settings. Read first; save produces an exact confirmation card, never silently enables posting. Can hold/reject topics with reasons. To reject and remove an entire unapproved draft, use reject_draft only on explicit request after reading the topic and providing every current draft version. Approved, scheduled or attempted posts are protected; the source is retained. One human package approval in the publishing UI approves the exact Blog and LinkedIn versions together; you CANNOT grant approval, reconcile deliveries or send a post. Drafts do not expire automatically. Queues, source evidence, accuracy/voice findings and audit are shared with the UI. There are no daily posting limits; audio/podcast preparation is independent.',
     parameters: { type: 'object', properties: {
-      action: { type: 'string', enum: ['list', 'content', 'read', 'save', 'hold', 'reject'] },
+      action: { type: 'string', enum: ['list', 'content', 'read', 'save', 'hold', 'reject', 'reject_draft'] },
       offset: { type: 'integer', description: 'For content: zero-based offset in the combined saved publishing list. Returns full paged entries, including source, copy, campaign and job identifiers.' },
       id: { type: 'string', description: 'Feed ID bluesky|blog-linkedin for save; topic UUID for read/hold/reject.' },
       revision: { type: 'integer' }, enabled: { type: 'boolean' },
       policy: { type: 'object', description: 'Complete existing policy with requested edits: timezone, startHour, endHour, days:[0 Sunday..6], guidance. Retain unspecified legacy fields; expiryHours is ignored for scheduling and delivery.', additionalProperties: true },
       reason: { type: 'string' },
+      versions: { type: 'object', description: 'For reject_draft: every saved draft ID mapped to its current version from read.', additionalProperties: { type: 'integer' } },
     }, required: ['action'] },
   },
 };
@@ -53,6 +54,10 @@ export async function executePublishingTool(db: Pool, args: Record<string, unkno
     const current = (await feeds(db)).find(f => f.id === id)!;
     if (args.revision !== current.revision || typeof args.enabled !== 'boolean') throw new ValidationError('Read the current feed revision and provide an explicit automation setting.');
     return proposeJob(db, sessionId, { operation: 'feed-settings', id, revision: current.revision, enabled: args.enabled, policy: parsePolicy(args.policy) });
+  }
+  if (args.action === 'reject_draft') {
+    await rejectDraftTopic(db, uuid(args.id), object(args.versions), `chat:${sessionId ?? 'unsaved'}`);
+    return { rejected: true, sourceRetained: true };
   }
   if (args.action === 'hold' || args.action === 'reject') {
     await holdTopic(db, uuid(args.id), args.action === 'reject', `chat:${sessionId ?? 'unsaved'}`, text(args.reason, 'editorial reason', PUBLISH_LIMITS.maxGuidance));

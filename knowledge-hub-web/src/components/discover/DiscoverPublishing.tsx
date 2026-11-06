@@ -15,7 +15,6 @@ import type { FeedPolicy, PublishingFeed, PublishingTopic, PublishingDraft, Publ
 const names = { bluesky: 'Bluesky', 'blog-linkedin': 'Blog / LinkedIn', blog: 'Blog', linkedin: 'LinkedIn' };
 const when = (value: string | null): string => value ? new Date(value).toLocaleString('en-GB') : 'Not yet';
 const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const REVIEW_MAX_AGE_MS = 86_400_000;
 type Action = (path: string, method: 'POST' | 'PUT', body: unknown) => Promise<boolean>;
 function sourceLink(value: string): string | undefined {
   try { const url = new URL(value); return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password ? url.href : undefined; }
@@ -92,8 +91,7 @@ function hasSavedDraftText(draft: Pick<PublishingDraft, 'destination' | 'content
 }
 function isReadyDraft(draft: PublishingDraft): boolean {
   return hasSavedDraftText(draft) && draft.review === 'pass' && !draft.held && draft.approval !== 'rejected'
-    && draft.reviewedAt !== null
-    && Date.now() - new Date(draft.reviewedAt).getTime() < REVIEW_MAX_AGE_MS;
+    && draft.reviewedAt !== null;
 }
 export function publishingApprovalBlocker(draft: PublishingDraft): string | null {
   if (!hasSavedDraftText(draft)) return 'No post text was saved. This record is not ready for approval.';
@@ -121,7 +119,7 @@ export function TopicReview({ id, act, busy, feeds, readyOnly = false, initialDe
     setAthenaContext({ type: 'publishing topic', title: d?.topic.title ?? 'Publishing draft', id,
       ...(currentId ? { selectedId: currentId } : {}),
       detail: detail.isError ? 'The selected publishing draft could not be retrieved. Do not claim to have read it.'
-        : `Saved publishing content, evidence, revisions, approval and delivery state:\n${JSON.stringify(d ?? null)}\nSelected destination: ${currentDestination ?? 'none'}.\n${editing ? 'A user editor is open. Saved content may differ from unsaved work. Do not mutate this draft through Athena until the editor is saved or closed.' : 'Use existing publishing tools with version checks and explicit approval boundaries; selecting this item is not approval.'}` });
+        : `Saved publishing content, evidence, revisions, approval and delivery state:\n${JSON.stringify(d ?? null)}\nSelected destination: ${currentDestination ?? 'none'}.\n${editing ? 'A user editor is open. Saved content may differ from unsaved work. Do not mutate this draft through Athena until the editor is saved or closed.' : 'Use existing publishing tools with version checks and explicit approval boundaries; selecting this item is not approval. To reject this entire draft, read the current topic first and use reject_draft with every draft ID and version, only on explicit request.'}` });
   }, [id, d, currentId, currentDestination, editing, detail.isError, setAthenaContext]);
   if (detail.isError) return <p role="alert" className="kh-publishing__error">{describeApiError(detail.error)}</p>;
   if (!d) return <p role="status">Loading evidence and drafts…</p>;
@@ -140,9 +138,11 @@ export function TopicReview({ id, act, busy, feeds, readyOnly = false, initialDe
       const blog = d.drafts.find(candidate => candidate.destination === 'blog');
       const linkedin = d.drafts.find(candidate => candidate.destination === 'linkedin');
       const pair = [blog, linkedin];
-      const packageBlocker = !blog || !linkedin ? 'The blog and LinkedIn copy must both be prepared before scheduling.'
+      const packageBlocker = d.topic.state !== 'ready' ? 'This topic is on hold or still being prepared.'
+        : !blog || !linkedin ? 'The blog and LinkedIn copy must both be prepared before scheduling.'
         : pair.map(candidate => candidate && publishingApprovalBlocker(candidate)
-          ? `${names[candidate.destination]}: ${publishingApprovalBlocker(candidate)}` : null).find(Boolean) ?? null;
+          ? `${names[candidate.destination]}: ${publishingApprovalBlocker(candidate)}` : null).find(Boolean)
+          ?? (linkedin.reviewedBlogVersion !== blog.version ? 'The LinkedIn hook has not been checked against this blog version.' : null);
       const blocker = packageDraft ? packageBlocker : publishingApprovalBlocker(draft);
       const approved = packageDraft ? pair.every(candidate => candidate?.approval === 'approved') : draft.approval === 'approved';
       const canApprove = blocker === null && !sent;
@@ -160,6 +160,13 @@ export function TopicReview({ id, act, busy, feeds, readyOnly = false, initialDe
             }}>
               {approved ? 'Sent for scheduling' : packageDraft ? 'Send package for scheduling' : 'Send for scheduling'}</button>}
             {hasSavedDraftText(draft) && <button type="button" disabled={busy || Boolean(sent)} onClick={() => setEditing(draft.id)}>Edit draft</button>}
+            {draft.approval === 'pending' && <button type="button" className="kh-publishing__danger"
+              disabled={busy || d.drafts.some(item => item.approval === 'approved') || d.deliveries.length > 0}
+              onClick={() => { void (async () => {
+                if (!await confirmDialog('Reject this entire draft and all of its destination copies? It will disappear from Drafts; the source article is retained. Approved, scheduled or attempted posts cannot be rejected here.',
+                  { title: 'Reject draft', confirmLabel: 'Reject draft' })) return;
+                await act(`/topics/${id}/reject-draft`, 'POST', { versions: Object.fromEntries(d.drafts.map(item => [item.id, item.version])) });
+              })(); }}>Reject draft</button>}
             {readyOnly && draft.approval === 'pending' && <button type="button" className="kh-publishing__danger"
               disabled={busy || d.drafts.some(item => item.approval === 'approved') || d.deliveries.length > 0}
               onClick={() => { void (async () => {
@@ -174,7 +181,7 @@ export function TopicReview({ id, act, busy, feeds, readyOnly = false, initialDe
               {!draft.held && <button type="button" disabled={busy || Boolean(sent)} onClick={() => decide(draft, 'hold')}>Hold draft</button>}
               {draft.held && <button type="button" disabled={busy || Boolean(sent)} onClick={() => decide(draft, 'resume')}>Resume draft</button>}
               <button type="button" disabled={busy || Boolean(sent)} onClick={() => { void act(`/drafts/${draft.id}/account`, 'POST', { version: draft.version }); }}>Rebind account</button>
-              <button type="button" className="kh-publishing__danger" disabled={busy || Boolean(sent)} onClick={() => decide(draft, 'reject')}>Reject draft</button>
+              <button type="button" className="kh-publishing__danger" disabled={busy || Boolean(sent)} onClick={() => decide(draft, 'reject')}>Reject this destination</button>
             </div></details>
           </div>
           {!sent && <p className="kh-publishing__notice">{blocker ?? (approved ? 'Sent for scheduling.'
@@ -376,6 +383,7 @@ export function DiscoverPublishing({ onClose }: { onClose: () => void }): React.
       await api.publishing(path, method, body);
       await qc.invalidateQueries({ queryKey: ['publishing'] });
       setMessage(path === '/drafts/refresh' ? 'Draft refresh started. New candidates are being prepared and reviewed; approved and scheduled posts are unchanged.'
+        : path.endsWith('/reject-draft') ? 'Draft rejected. All destination copies were removed from Drafts; the source article is unchanged.'
         : path.endsWith('/discard') ? 'Draft discarded. The source article and all approved/scheduled posts are unchanged.'
         : path.endsWith('/review') ? 'Review queued. Your saved copy is unchanged; approval will be needed after review.'
         : path.endsWith('/approve') ? 'Package sent for scheduling. Blog and LinkedIn approved together; the blog publishes first.'

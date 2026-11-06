@@ -25,7 +25,7 @@ export type PublishingScheduleEntry = ScheduledPost | ScheduledPodcastPost | Pub
 export interface PublishingDraft {
   id: string; topicId: string; destination: 'bluesky' | 'blog' | 'linkedin'; variant: 'source' | 'blog';
   version: number; content: Record<string, unknown>; review: string; approval: string; held: boolean;
-  reason: string; expiresAt: string; reviewedAt: string | null;
+  reason: string; expiresAt: string; reviewedAt: string | null; reviewedBlogVersion: number | null;
 }
 export interface PublishingTopic {
   id: string; title: string; rationale: string; priority: number; state: string; error: string | null;

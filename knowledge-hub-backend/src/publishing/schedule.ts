@@ -44,8 +44,8 @@ function readiness(draft: Candidate): string | null {
     ? draft.reason || 'Publishing is on hold. Resolve the delivery issue before scheduling.'
     : 'Held; resolve the editorial findings before scheduling.';
   if (draft.topicState !== 'ready') return 'The topic is held or not ready for scheduling.';
-  if (draft.approval !== 'approved') return 'Waiting for approval of this exact version.';
   if (draft.review !== 'pass') return 'Waiting for a passed editorial review.';
+  if (draft.approval !== 'approved') return 'Waiting for approval of this exact version.';
   if (typeof draft.content.account !== 'string' || !draft.content.account.trim() || draft.content.account === '(not connected)') {
     return 'Destination account is not connected; rebind it and approve the new version.';
   }
@@ -195,7 +195,8 @@ export async function listSchedule(db: Pool, includeDrafts = false): Promise<Sch
   const sources = includeDrafts ? (await db.query<{ topicId: string; id: string; title: string; url: string | null }>(
     `SELECT s.topic_id AS "topicId",s.item_id AS id,COALESCE(c.title,s.title) AS title,COALESCE(c.url,s.url) AS url FROM publishing_sources s
       LEFT JOIN content_items c ON c.id=s.item_id WHERE s.topic_id=ANY($1::uuid[])`, [candidates.map(d => d.topicId)])).rows : [];
-  return candidates.filter(d => (includeDrafts || d.approval === 'approved') && !completed(d, history)).map(d => {
+  return candidates.filter(d => d.approval !== 'rejected' && (d.topicState !== 'rejected' || d.approval === 'approved')
+    && (includeDrafts || d.approval === 'approved') && !completed(d, history)).map(d => {
     const feed = feedFor(d, settings);
     const blocker = readiness(d) ?? packageBlocker(d, candidates);
     return { draftId: d.id, topicId: d.topicId, title: String(d.content.title ?? d.title), destination: d.destination,

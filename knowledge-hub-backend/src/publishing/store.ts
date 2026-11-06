@@ -3,7 +3,6 @@ import { recordPublishingDraft } from '../ai/aiLedger.js';
 import type { Pool, PoolClient } from 'pg';
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
 import { cleanUrl } from '../integrations/discovery/feedReader.js';
-import { MS_PER_HOUR } from '../config/constants.js';
 import { microsoftRelevanceSql } from '../utils/microsoftRelevance.js';
 import { parsePolicy, PUBLISH_LIMITS, type PublishingFeed, type Topic, type Source, type Draft, type Delivery, type FeedId } from './contracts.js';
 
@@ -44,7 +43,7 @@ export async function saveFeed(db: Pool, id: FeedId, revision: unknown, enabled:
       WHERE id=$1 AND revision=$2 RETURNING id,enabled,revision,policy`, [id, revision, enabled, JSON.stringify(parsed)]);
     if (!result.rows[0]) throw new ConflictError('Feed changed. Reload before saving.', 'PUBLISHING_CONFLICT');
     if (prior?.policy.guidance !== parsed.guidance) await c.query(`UPDATE publishing_drafts SET review='pending',approval='pending',reviewed_at=NULL,
-      reason='Editorial guidance changed; review and approval required.' WHERE (destination='bluesky')=$1`, [id === 'bluesky']);
+      reason='Editorial guidance changed; review and approval required.' WHERE (destination='bluesky')=$1 AND review<>'pass'`, [id === 'bluesky']);
     await event(c, null, actor, 'feed-configured', result.rows[0]);
     return result.rows[0];
   });
@@ -58,7 +57,7 @@ export async function listTopics(db: Pool, offset = 0, shortlist = false): Promi
     FROM publishing_topics JOIN publishing_drafts d ON d.topic_id=publishing_topics.id
     WHERE state='ready' AND d.destination IN ('bluesky','blog') AND d.review='pass' AND NOT d.held
       AND ${writtenPublishingSourcesSql('publishing_topics.id')}
-      AND d.approval='pending' AND d.reviewed_at>NOW()-INTERVAL '24 hours'
+      AND d.approval='pending' AND d.reviewed_at IS NOT NULL
       AND NOT EXISTS(SELECT 1 FROM publishing_drafts scheduled
         WHERE scheduled.topic_id=d.topic_id AND scheduled.approval='approved')
       AND NOT EXISTS(SELECT 1 FROM publishing_schedule scheduled
@@ -76,10 +75,10 @@ export async function listTopics(db: Pool, offset = 0, shortlist = false): Promi
       AND (d.variant='source' OR (SELECT COUNT(*) FROM publishing_drafts companion
         WHERE companion.topic_id=d.topic_id AND companion.destination IN ('blog','linkedin') AND companion.review='pass'
           AND NOT companion.held AND companion.approval<>'rejected'
-          AND companion.reviewed_at>NOW()-INTERVAL '24 hours')=${PUBLISH_LIMITS.packageDestinations})
+          AND companion.reviewed_at IS NOT NULL)=${PUBLISH_LIMITS.packageDestinations})
       AND (d.destination='bluesky' OR EXISTS(SELECT 1 FROM publishing_drafts hook
         WHERE hook.topic_id=d.topic_id AND hook.destination='linkedin' AND hook.review='pass' AND NOT hook.held
-          AND hook.approval<>'rejected' AND hook.reviewed_at>NOW()-INTERVAL '24 hours'
+          AND hook.approval<>'rejected' AND hook.reviewed_at IS NOT NULL
           AND hook.reviewed_blog_version=d.version AND NULLIF(BTRIM(hook.content->>'copy'),'') IS NOT NULL))
     ), shortlist AS (
       SELECT id FROM publishing_topics WHERE id IN (
@@ -131,7 +130,7 @@ export async function intake(db: Pool): Promise<void> {
         ON CONFLICT DO NOTHING RETURNING item_id`, [row.id, id, row.title, url, row.discoveredAt]);
       if (inserted.rowCount && !existing.rows.length) {
         await c.query(`UPDATE publishing_drafts SET review='pending',approval='pending',reviewed_at=NULL,
-          reason='Additional source coverage requires review.' WHERE topic_id=$1 AND approval='pending' AND NOT held
+          reason='Additional source coverage requires review.' WHERE topic_id=$1 AND approval='pending' AND NOT held AND review<>'pass'
           AND NOT EXISTS(SELECT 1 FROM publishing_schedule s WHERE s.draft_id=publishing_drafts.id)`, [id]);
       }
       await c.query('DELETE FROM publishing_topics WHERE id=$1 AND NOT EXISTS(SELECT 1 FROM publishing_sources WHERE topic_id=$1)', [id]);
@@ -155,9 +154,8 @@ export async function saveDraft(db: Pool, topicId: string, destination: Draft['d
 function assertApprovable(d: Draft): void {
   const complete = (d.destination === 'blog' ? ['title', 'summary', 'content'] : ['copy'])
     .every(field => typeof d.content[field] === 'string' && Boolean(d.content[field].trim()));
-  if (!complete || d.held || d.review !== 'pass' || !d.reviewedAt
-    || Date.now() - new Date(d.reviewedAt).getTime() > PUBLISH_LIMITS.staleHours * MS_PER_HOUR) {
-    throw new ValidationError(`${d.destination === 'blog' ? 'Blog' : d.destination === 'linkedin' ? 'LinkedIn' : 'Bluesky'} v${d.version} needs complete copy and a current passed review before scheduling.`);
+  if (!complete || d.held || d.review !== 'pass' || !d.reviewedAt) {
+    throw new ValidationError(`${d.destination === 'blog' ? 'Blog' : d.destination === 'linkedin' ? 'LinkedIn' : 'Bluesky'} v${d.version} needs complete copy and a passed review before scheduling.`);
   }
 }
 export async function approvePackage(db: Pool, topicId: string, versions: { blog: unknown; linkedin: unknown }, actor: string): Promise<void> {
@@ -220,6 +218,29 @@ export async function discardDraft(db: Pool, id: string, versions: Record<string
     await c.query(`UPDATE publishing_drafts SET approval='rejected',held=TRUE,reason='Discarded by the user; source article retained.',updated_at=NOW()
       WHERE id=ANY($1::uuid[])`, [discarded.map(draft => draft.id)]);
     await event(c, target.topicId, actor, 'drafts-discarded', { drafts: discarded.map(draft => ({ id: draft.id, version: draft.version })), sourceRetained: true });
+  });
+}
+export async function rejectDraftTopic(db: Pool, topicId: string, versions: Record<string, unknown>, actor: string): Promise<void> {
+  await transaction(db, async c => {
+    const topic = await c.query('SELECT id FROM publishing_topics WHERE id=$1 FOR NO KEY UPDATE', [topicId]);
+    if (!topic.rowCount) throw new NotFoundError('Publishing topic');
+    const drafts = (await c.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts WHERE topic_id=$1 ORDER BY id FOR UPDATE`, [topicId])).rows;
+    if (!drafts.length) throw new ValidationError('This topic has no draft to reject.');
+    const protectedRows = await c.query(`SELECT id FROM publishing_deliveries WHERE topic_id=$1
+      OR draft_id=ANY($2::uuid[]) UNION ALL SELECT draft_id AS id FROM publishing_schedule WHERE draft_id=ANY($2::uuid[])`,
+    [topicId, drafts.map(draft => draft.id)]);
+    if (drafts.some(draft => draft.approval === 'approved') || protectedRows.rowCount) {
+      throw new ConflictError('This topic has approved, scheduled or attempted posts; no drafts were rejected.', 'PUBLISHING_PROTECTED');
+    }
+    if (drafts.some(draft => versions[draft.id] !== draft.version)) {
+      throw new ConflictError('The draft changed. Reload before rejecting it.', 'PUBLISHING_CONFLICT');
+    }
+    await c.query(`UPDATE publishing_drafts SET approval='rejected',held=TRUE,
+      reason='Rejected by the user; source article retained.',updated_at=NOW() WHERE topic_id=$1`, [topicId]);
+    await c.query("UPDATE publishing_topics SET state='rejected',error='Rejected by the user.' WHERE id=$1", [topicId]);
+    await event(c, topicId, actor, 'draft-topic-rejected', {
+      drafts: drafts.map(draft => ({ id: draft.id, version: draft.version })), sourceRetained: true,
+    });
   });
 }
 export async function holdTopic(db: Pool, id: string, rejected: boolean, actor: string, reason: string): Promise<void> {
