@@ -46,6 +46,8 @@ Her personality is curious, candid, warm and understated. She recognises playful
 
 Note reviews include native table cells and nested text, preserving row and cell boundaries in both the current-note chat context and backend note rendering. Explicitly requested open-note edits apply directly through the live editor's exclusive action bridge, retaining history, undo, formatting and revision/conflict checks. Pending writing is saved before a new note-chat turn. The tool queues validated edits rather than claiming a saved result; the client reports actual saved, partial or blocked outcomes after persistence. An account-, note- and assistant-message-scoped session receipt prevents reconnect/re-render duplication; an interrupted receipt is not replayed. Loading chat history never applies an edit. Discussion alone is not edit authorisation. An explicitly requested preview still uses Apply/Discard, and existing Design-readiness, specialist-candidate and external-delivery approvals are unchanged. Invalid edit batches are rejected rather than silently proposing only the valid subset. If time runs out with an incomplete batch, it remains a manual preview with unfinished verification explicitly reported.
 
+Edit matching simulates earlier queued text replacements before checking later ones. Matching failures return bounded exact saved paragraphs as well as headings, and the turn permits at most three failed edit attempts. Multi-edit and structural batches receive one bounded internal-consistency check before queueing, including dependent question stems, options, answers and explanations; this is not an external fact-check or a guarantee of content quality. Accepted batches receive an immediate runtime acknowledgement without another model round, so duplicate patches, unrelated retrieval or a slow final reply do not hold up editor delivery. A rejected follow-on batch or exhausted turn budget keeps unfinished work as a preview. The runtime intercepts unsupported note-save claims. In compact Think chat, a request to save an amendment to the open note uses its existing edit capability, not a disconnected chat-only draft, even when the request mentions `save_output`.
+
 Short confirmations resolve against the immediately preceding agreed action. A bounded execution repair catches accepted read offers answered without a read and final first-person promises to perform work. It allows one correction within the existing turn budget, never grants write permission from an accepted read, and must not replay a successful mutation or queued specialist job. If it still cannot act, it reports incompletion instead of another promise. Diagram-save loss is not inferred from a complaint; current saved evidence must be read.
 
 The learning loop reuses Memory's approval-based suggestions. Weekly review pairs each user correction with its preceding assistant reply, records the source conversation and verifies the supporting user quote. It can propose collaboration and verification preferences as well as style preferences; it must not treat assistant assertions as user instructions, generalise one-off prototype permissions or turn software defects into user workarounds. Suggestions remain inactive until approved. Deterministic defects belong in fixes and regression tests, not learned excuses.
@@ -440,6 +442,18 @@ as Present. Presenter uses the selected script and output display. Existing live
 output is reused where applicable, without automatically starting scrolling.
 Only actual save, presentation-start, visual-validation or browser-launch failures
 are shown; stale visual warnings are checked against the newly prepared snapshot.
+
+An explicit icon request takes precedence over Ariadne's text-only reference
+compositions: explanatory scenes use meaningful supported symbols with room for
+their labels, while retaining spoken cue timing. A close scene may opt into
+`brandMark: "ibm-8bar"` when requested. The shared web/Desktop renderer supplies
+the official reversed white IBM eight-bar artwork on transparency in the
+lower-right, separate from the typographic statement and its emphasis beats.
+No other scene accepts a brand mark, and unrelated scripts remain unbranded.
+Athena's existing visual read/edit and pending Review/Apply tools carry the
+typed field; visual generation never applies it automatically. Audience output
+requires Desktop's `scriptVisualBranding` capability; older installations keep
+plain presenting available and report the update requirement only for visuals.
 
 Both script editors offer **Spoken text**, **Script title**, **Chapter** and
 **Section heading** in their existing script toolbar. These are semantic paragraph
@@ -1022,7 +1036,12 @@ condition if the task is saved but its assessment cannot be queued.
 direction. This is an intent assessment, not a keyword trigger.
 Leaving direction blank retains that owner's latest nonempty direction across
 the task's full proposal history, including after a failed attempt or an older
-blank reassessment. New nonempty direction replaces it only in a new proposal.
+blank reassessment. New nonempty direction takes precedence only in a new proposal.
+Assessment also receives bounded, owner-scoped direction history. Earlier source,
+sender and audience requirements remain unless explicitly superseded; a correction
+to "just draft the email" does not erase the research needed to draft it.
+An email that needs public research remains an email proposal with approved public
+queries, rather than a research note that postpones the requested email.
 Assessment includes bounded, attributed task activity, including source pointers
 and user corrections. The effective direction is displayed with the proposal
 before approval; assistant progress is not user authorization.
@@ -1072,6 +1091,18 @@ when the core deliverable is substantive. Research formatting resumption reuses
 a source/fulfillment-reviewed checkpoint; older checkpoints must retrieve and
 review evidence again rather than bypass the gate. The review is an additional
 bounded model call, not a claim that generated content is infallible.
+The readiness reviewer receives the approved deliverable and confirmed direction,
+not the old task title or historical failure messages as competing instructions.
+Before accepting a final draft, the execution loop gives one bounded correction
+when required source reads or approved public discovery are missing.
+Generated writing and bounded actual-source evidence are checkpointed in the
+leased job before readiness review. A failed review retains its specific feedback.
+A retry or newly approved proposal can reuse a retained draft from the same owner
+and unchanged task snapshot within one day, explicitly dated as prior evidence,
+then generate and review the current deliverable again. Replacement/refresh runs
+retrieve evidence afresh. Source exclusions in either the current or originating
+session disable this reuse; failure to check exclusions fails closed. Retention
+does not create a completed result, send anything, or grant new search approval.
 Returning an already-saved result explicitly says no new work or readiness review
 was performed, rather than recertifying a legacy draft as complete.
 

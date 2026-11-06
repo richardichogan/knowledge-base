@@ -54,10 +54,11 @@ import type { MapChangeProposal } from './mapEdits.js';
 import { LOCAL_FILE_TOOLS, localFilesPrompt, type LocalFileWriteProposal, type LocalFolder } from './localFiles.js';
 import { ukClock } from '../sync/ukClock.js';
 import { recordTurnTrace, setTraceProject, withTurnTrace, withTurnSpan } from './turnTrace.js';
-import { executionFollowThroughRepair } from './dialoguePolicy.js';
+import { executionFollowThroughRepair, requestsOpenNoteEdit, unconfirmedNoteEditClaim } from './dialoguePolicy.js';
 
 const RAG_USED_LIMIT = 10;
 const TOOL_ERROR_LOG_CHARS = 400;
+const NOTE_EDIT_MAX_FAILURES = 3;
 const MAX_ROUND_SCREENSHOTS = 6;
 const NOTE_SUMMARY_MAX_TOKENS = 400;
 const ROLLUP_MAX_TOKENS = 400;
@@ -98,6 +99,8 @@ export interface TurnHooks {
   validateToolCall?: (name: string, args: Record<string, unknown>) => void;
   /** Evidence actually supplied to the model, after exclusions and context admission. */
   onToolResult?: (name: string, result: unknown) => void;
+  /** A bounded worker can require evidence before accepting the model's final answer. */
+  beforeReply?: () => string | undefined;
   /** Background turns use an inactivity deadline while a checkpointed source read is making progress. */
   onReadingProgress?: (() => void) | undefined;
   signal?: AbortSignal;
@@ -138,6 +141,9 @@ const NO_OUTPUTS_PANEL_NOTE = [
     'deliverable (spec, stories, prompt, draft) in your reply itself, with prompts and code in a fenced code block ' +
     'so he can copy them. Do not say you saved anything to Outputs. If an earlier deliverable is listed under ' +
     'Outputs below, he cannot see it here — give him its content in the reply when he needs it.',
+  'Exception: when an editable Think note is open and he asks to amend that note or save a revised/merged version of it, ' +
+    'use propose_note_edit on that note, even if his wording mentions save_output. Do not leave requested note updates ' +
+    'only in chat or claim editing is unavailable because Outputs is hidden. Preserve the existing editor and formatting.',
 ].join('\n');
 
 /** Output budget for a turn that edits the open note: a long redraft must not be cut off. */
@@ -453,6 +459,10 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
   let capabilityClaimRepaired = false;
   let actionDenialRepaired = false;
   let executionRepaired = false;
+  let replyConstraintRepaired = false;
+  let noteEditFailures = 0;
+  let noteEditRejectedAfterQueue = false;
+  let noteClaimRepaired = false;
   const calledTools = new Set<string>();
   const pendingReads = new Map<string, PendingRead>();
   let readingMs = 0;
@@ -513,7 +523,31 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
     }
     if (response.toolCalls.length === 0) {
       const reply = response.content ?? '';
-      const executionRepair = executionFollowThroughRepair(safeHistory, userMessage, reply, calledTools);
+      const constraint = hooks.beforeReply?.();
+      if (constraint) {
+        if (replyConstraintRepaired || wrapUp || i >= maxRounds - 1) throw new Error(`The required evidence could not be established: ${constraint}`);
+        replyConstraintRepaired = true;
+        hooks.onReset?.();
+        messages.push({ role: 'user', content: `[Runtime evidence requirement: ${constraint}]` });
+        continue;
+      }
+      const queuedNoteEdits = toolContext.noteEdits?.length ?? 0;
+      if (queuedNoteEdits > 0 && unconfirmedNoteEditClaim(reply)) {
+        await recordTurnTrace('action.unconfirmed_note_claim', { reply, queued: queuedNoteEdits });
+        hooks.onReset?.();
+        if (!noteClaimRepaired && !wrapUp && i < maxRounds - 1) {
+          noteClaimRepaired = true;
+          messages.push({ role: 'user', content: '[Runtime edit receipt: the note edits are queued for the live editor, not confirmed saved. Correct the reply to distinguish prepared changes from persistence. Do not repeat or add edits. The editor will report saved, partial or blocked status.]' });
+          nextRoundTool = 'none';
+          continue;
+        }
+        return 'The requested note edits are prepared for the live editor. Saving has not yet been confirmed; the editor will report whether they were saved, partially applied or blocked.';
+      }
+      const expectedNoteEdit = Boolean(toolContext.noteId)
+        && !toolContext.noteId?.startsWith('doc:') && !toolContext.noteId?.startsWith('map:')
+        && permittedTools.some(tool => tool.function.name === 'propose_note_edit')
+        && requestsOpenNoteEdit(safeHistory, userMessage);
+      const executionRepair = executionFollowThroughRepair(safeHistory, userMessage, reply, calledTools, expectedNoteEdit, queuedNoteEdits > 0);
       if (executionRepair) {
         if (executionRepaired || wrapUp || i >= maxRounds - 1) {
           hooks.onReset?.();
@@ -665,6 +699,9 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
       onToolCall?.(call.function.name);
       hooks.onActivity?.(describeToolActivity(call.function.name, call.function.arguments));
       try {
+        if (call.function.name === 'propose_note_edit' && noteEditFailures >= NOTE_EDIT_MAX_FAILURES) {
+          throw new Error('The bounded note-edit repair attempts are exhausted. No further edit batch was executed.');
+        }
         if (wholeReadRequested && failedDocumentReads.has(documentReadKey)) {
           throw new Error('This document already failed its bounded reading attempts in this turn. No further model reading was attempted. Report the incomplete coverage; saved checkpoints can be resumed on a later turn.');
         }
@@ -851,6 +888,10 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
             note: 'The full read did not finish. Any committed page checkpoints remain saved; no unvalidated page was counted as read. Do not retry this source again in this turn. Report the actual incomplete coverage. On a later turn, resumeReading:true can continue saved checkpoints. Do not describe this as an empty or missing body, and do not claim a complete review.' }) };
       }
       if (result !== null && typeof result === 'object' && 'error' in result) {
+        if (call.function.name === 'propose_note_edit') {
+          noteEditFailures++;
+          noteEditRejectedAfterQueue ||= (toolContext.noteEdits?.length ?? 0) > 0;
+        }
         toolErrorCount++;
         console.warn(`[ai] tool ${call.function.name} returned an error: ${String((result as { error: unknown }).error).slice(0, TOOL_ERROR_LOG_CHARS)}`);
       }
@@ -894,6 +935,23 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
         if (used !== undefined) attachEvidence(used, ledger);
       }
       messages.push({ role: 'tool', tool_call_id: call.id, content: toolContent });
+    }
+    if ((toolContext.noteEdits?.length ?? 0) > 0) {
+      if (noteEditRejectedAfterQueue) {
+        hooks.onReset?.();
+        return incomplete('Part of the requested note-edit work was rejected. The accepted portion is not confirmation that the complete request is ready.');
+      }
+      if (Date.now() - turnStart - readingMs < turnBudgetMs) {
+        hooks.onReset?.();
+        return toolContext.noteEdits?.every(edit => edit.delivery === 'preview')
+          ? 'The requested edit preview is ready for review. It has not been applied or saved.'
+          : 'The requested note edits are prepared for the live editor. Saving has not yet been confirmed; the editor will report whether they were saved, partially applied or blocked.';
+      }
+      messages.push({ role: 'user', content: '[Runtime edit delivery: a validated note-edit batch is queued. Return a short accurate acknowledgement now so the live editor can apply it. No further searches or duplicate edit batches. These are prepared edits, not a save receipt; the editor reports persistence. Do not claim all changes saved.]' });
+      nextRoundTool = 'none';
+    } else if (noteEditFailures >= NOTE_EDIT_MAX_FAILURES) {
+      hooks.onReset?.();
+      return 'The requested edits could not pass the note matching or consistency checks after three attempts. No note edits were queued or saved. The recorded tool errors identify the failed passages; I have stopped rather than repeating the same unsuccessful batches.';
     }
     if (roundImages.length > 0) {
       messages.push({

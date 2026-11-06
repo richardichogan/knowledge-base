@@ -8,6 +8,7 @@ export interface VisualPacket {
     layout?: PresentationVisualScene['layout'];
     composition?: VisualComposition;
     presenterLayout?: boolean;
+    brandMark?: PresentationVisualScene['brandMark'];
     section?: number;
   } | null;
   revealed: number;

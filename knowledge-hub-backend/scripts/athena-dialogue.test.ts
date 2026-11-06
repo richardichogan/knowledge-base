@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { assembleMessages } from '../src/ai/contextBuilder.js';
-import { DIALOGUE_POLICY_PROMPT, buildDialogueTurnPrompt, dialogueRepairInstruction, dialogueTurnMode, executionFollowThroughRepair, inViewReviewScope, isDialogueOnlyTurn } from '../src/ai/dialoguePolicy.js';
+import { DIALOGUE_POLICY_PROMPT, buildDialogueTurnPrompt, dialogueRepairInstruction, dialogueTurnMode, executionFollowThroughRepair, inViewReviewScope, isDialogueOnlyTurn, requestsOpenNoteEdit, unconfirmedNoteEditClaim } from '../src/ai/dialoguePolicy.js';
 import { DIALOGUE_SCENARIOS, SYNTHETIC_DIALOGUE_CONTEXT, dialogueFindings } from './athena-dialogue-fixtures.js';
 import type { AthenaPersona, ConversationMessage } from '../src/types/aiContext.js';
 
@@ -9,6 +9,21 @@ const personas: AthenaPersona[] = [
   'general', 'brainstorming', 'copilot_coach', 'blog_post', 'demo_designer',
   'web_designer', 'podcast_prep', 'podcast_show_notes',
 ];
+
+test('requested note updates cannot be replaced by prose or an unsupported save claim', () => {
+  assert.equal(requestsOpenNoteEdit([], 'Re-write/amend the actual note!!!'), true);
+  assert.equal(requestsOpenNoteEdit([], 'Merge the best version and save it with save_output.'), true);
+  assert.equal(requestsOpenNoteEdit([], 'Fix the issues you highlighted.'), true);
+  assert.equal(requestsOpenNoteEdit([], 'Read-only: do not update the note.'), false);
+  assert.equal(requestsOpenNoteEdit([], 'Can you fix this? I mean your last answer, not the note.'), false);
+  assert.equal(requestsOpenNoteEdit([], 'Compare these two documents.'), false);
+  assert.ok(executionFollowThroughRepair([], 'Update the note', 'Here is the revised article.', new Set(), true));
+  assert.equal(executionFollowThroughRepair([], 'Update the note', 'Prepared the edits.', new Set(['propose_note_edit']), true, true), null);
+  for (const claim of ['Done. I have updated the note.', 'Replaced the giveaway answers.', 'I’ve saved the changes.']) {
+    assert.equal(unconfirmedNoteEditClaim(claim), true, claim);
+  }
+  assert.equal(unconfirmedNoteEditClaim('Prepared the edits; the editor will report whether they saved.'), false);
+});
 
 test('accepting an offered saved-state check requires a read, not speculation or another offer', () => {
   const history: ConversationMessage[] = [{ role: 'assistant', content: 'If you want, I can check the latest revision and tell you whether the property changes are still there.' }];

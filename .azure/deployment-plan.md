@@ -2,6 +2,42 @@
 
 **Status:** Validated
 
+**Icon visuals and IBM closing mark release (2026-11-06):**
+- Application-only release to the existing Alliance Tenant Reporting targets.
+  No infrastructure, region, networking, registry authentication, roles or policy
+  changes. Desktop 0.1.16 publishes through the existing GitHub auto-updater.
+- All validation checks pass:
+  - [x] Core validation: sync main; backend/frontend/Desktop type checks; release
+    suites once, with only failed/affected checks repeated; lint non-regression.
+  - [x] Build verification: backend/frontend production builds and Desktop package.
+  - [x] Azure Policy validation: unchanged existing ACA/SWA resources and roles.
+- Preserve the approved pending visual Review/Apply boundary. Verify actual icons
+  in every explanatory scene, one IBM mark on the final scene, unchanged script.
+
+**Section 7: Validation Proof — icons and closing mark (2026-11-06):**
+- `git pull --no-rebase origin main`: main current at `4a9324e8`, including
+  swim lanes. The existing shared packed-refs maintenance lock remains untouched.
+- Backend, frontend and Desktop `tsc --noEmit` pass. Backend/frontend
+  production builds pass; lint non-regression passes at 542/623 and 21/41.
+- Full isolated backend release suite ran once: 1093/1094 initially passed.
+  Fixed the earlier edit guard's false positive for "last answer, not the note";
+  affected tool-catalog 15/15 and dialogue 20/20 now pass. No suite restart.
+- Full isolated frontend release suite ran once. All visual checks pass,
+  including branding round-trip, trusted logo rendering and older-Desktop
+  plain presenting. Its only failure was the pre-swim-lane source assertion
+  naming allColTasks; updated it to the actual per-lane filter, rerun 4/4 pass.
+- Desktop release suite 13/13 and presentation/visual suite 21/21 pass.
+  `npm run dist` packages 0.1.16 successfully using the existing unsigned
+  electron-builder configuration; no signing configuration was changed.
+- Azure reads confirm Alliance Tenant Reporting, uksouth RG, existing Free SWA
+  and healthy ACA v308/revision 0000305. No RBAC/IaC changes are required.
+- Validation workflow uses an in-memory Enum.Parse compatibility substitution:
+  the supplied Enum.TryParse overload is unavailable in Windows PowerShell 5.
+  All actual validation actions ran; no installed skill file was modified.
+- Logs: icon-logo-backend-tests.log, icon-logo-backend-affected.log,
+  icon-logo-web-tests.log, icon-logo-web-build.log and icon-logo-desktop-dist.log
+  in this session's files. No local browser was launched.
+
 **Plan Blocked status and accumulated usability release (2026-11-05):**
 - All validation checks pass:
   - [x] 1. Core validation: fetched and merged origin/main; both applications

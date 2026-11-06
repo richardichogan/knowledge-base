@@ -8,6 +8,7 @@ import type { PoolClient } from 'pg';
 import { assignTaskAgent, recordTaskAgentActivity, taskAssistanceSignature } from '../src/work/taskAgentActivity.js';
 import { rowToTask } from '../src/routes/tasks.js';
 import { parseTaskAssistanceReview, requireCurrentTaskDirection, requireTaskAssistanceReady, taskAssistanceContext } from '../src/work/taskAssistanceContract.js';
+import { parseTaskDraftCheckpoint } from '../src/work/taskAssistanceDraft.js';
 
 const proposal = {
   kind: 'research', summary: 'Compare First Mate with Athena', approach: 'Verify the repository and read architecture evidence.',
@@ -170,7 +171,8 @@ async function activityFixture() {
     CREATE TABLE task_tags(task_id TEXT,tag_id TEXT);
     INSERT INTO task_tags VALUES('task','topic');
     CREATE TABLE task_assistance(id TEXT PRIMARY KEY,task_id TEXT,task_signature TEXT,
-      task_snapshot JSONB,approved_at TIMESTAMPTZ);
+      task_snapshot JSONB,approved_at TIMESTAMPTZ,owner_id TEXT,direction TEXT DEFAULT '',
+      created_at TIMESTAMPTZ DEFAULT now());
     CREATE TABLE agent_jobs(id TEXT PRIMARY KEY,subject_id TEXT,attempts INTEGER,status TEXT);
     INSERT INTO agent_jobs VALUES('job','task',1,'queued');
     CREATE TABLE task_notes(id UUID PRIMARY KEY,task_id TEXT REFERENCES tasks(id),body TEXT,
@@ -183,7 +185,7 @@ async function activityFixture() {
     },
   } as unknown as PoolClient;
   const task = rowToTask((await db.query<Record<string, unknown>>(`SELECT *,ARRAY['topic'] AS taxonomy_tag_ids FROM tasks`)).rows[0]!);
-  await db.query(`INSERT INTO task_assistance VALUES('proposal','task',$1,$2,now())`,
+  await db.query(`INSERT INTO task_assistance(id,task_id,task_signature,task_snapshot,approved_at) VALUES('proposal','task',$1,$2,now())`,
     [taskAssistanceSignature(task), JSON.stringify(task)]);
   const job = { id: 'job', specialist: 'task-researcher', subject_type: 'task', subject_id: 'task', attempts: 1, status: 'queued' };
   return { db, client, task, job };
@@ -271,9 +273,7 @@ test('TASK-ASSIST-10: queue, recovery and live task activity share the same inte
 test('TASK-ASSIST-11: blank reassessments retain owner direction beyond the visible proposal history', async () => {
   const { db, client } = await activityFixture();
   try {
-    await db.exec(`ALTER TABLE task_assistance ADD owner_id TEXT, ADD direction TEXT DEFAULT '',
-      ADD created_at TIMESTAMPTZ DEFAULT now();
-      UPDATE task_assistance SET owner_id='owner',direction='Read the original training note and tighten it into a Word document.',
+    await db.exec(`UPDATE task_assistance SET owner_id='owner',direction='Read the original training note and tighten it into a Word document.',
         created_at='2026-11-03T13:01:00Z';
       INSERT INTO task_assistance(id,task_id,owner_id,direction,created_at)
         SELECT 'blank-'||i,'task','owner','',TIMESTAMPTZ '2026-11-03T13:06:00Z'+i*INTERVAL '1 minute'
@@ -282,6 +282,7 @@ test('TASK-ASSIST-11: blank reassessments retain owner direction beyond the visi
         VALUES('another-owner','task','someone-else','Write an email instead.','2026-11-03T15:00:00Z')`);
     const retained = await taskAssistanceContext(client, 'task', 'owner', '   ');
     assert.equal(retained.direction, 'Read the original training note and tighten it into a Word document.');
+    assert.deepEqual(retained.directionHistory, [retained.direction]);
     assert.equal((await taskAssistanceContext(client, 'task', 'owner')).direction, retained.direction);
     assert.equal((await taskAssistanceContext(client, 'task', 'owner', '  Compare the two source documents.  ')).direction,
       'Compare the two source documents.');
@@ -292,8 +293,43 @@ test('TASK-ASSIST-11: blank reassessments retain owner direction beyond the visi
       'the blank email proposal must be reassessed, not silently granted the earlier document instruction');
     await db.query(`INSERT INTO task_assistance(id,task_id,owner_id,direction,created_at)
       VALUES('new-direction','task','owner','Compare both source documents.','2026-11-03T16:00:00Z')`);
+    const updated = await taskAssistanceContext(client, 'task', 'owner', 'Just draft the email.');
+    assert.equal(updated.direction, 'Just draft the email.');
+    assert.deepEqual(updated.directionHistory, [retained.direction, 'Compare both source documents.']);
+    assert.equal(updated.directionHistoryMayBePartial, false);
     await assert.rejects(requireCurrentTaskDirection(client, 'task', 'owner', retained.direction), /direction changed/);
   } finally { await db.close(); }
+});
+
+test('retained task drafts preserve evidence and rejection feedback without claiming readiness', () => {
+  const checkpoint = {
+    proposalId: 'approved', taskSignature: 'snapshot', direction: 'Draft the email using these sources.',
+    body: 'An unfinished source-backed draft.', sourcesRead: 1, publicSearches: 1, publicSourcesRead: 1,
+    sourceEvidence: [{ tool: 'fetch_web_page', excerpt: '{"content":"Actual source read"}', truncated: false }],
+    capturedAt: '2026-11-06T12:05:00Z', reviewFeedback: 'Include the actual email, not messaging points.',
+  };
+  assert.deepEqual(parseTaskDraftCheckpoint(checkpoint), checkpoint);
+  assert.throws(() => parseTaskDraftCheckpoint({ ...checkpoint, sourceEvidence: [] }), /missing/);
+  assert.throws(() => parseTaskDraftCheckpoint({ ...checkpoint, sourcesRead: -1 }), /sourcesRead/);
+  assert.throws(() => parseTaskDraftCheckpoint({ ...checkpoint, capturedAt: 'unknown' }), /capture date/);
+  assert.throws(() => parseTaskDraftCheckpoint({ ...checkpoint, body: '' }), /empty/);
+  assert.throws(() => parseTaskDraftCheckpoint({ ...checkpoint,
+    sourceEvidence: [{ tool: 'fetch_web_page', excerpt: 'x'.repeat(12_001), truncated: false }] }), /source evidence/);
+});
+
+test('task drafting retains work before review and email research uses the same approval boundaries', async () => {
+  const service = await readFile(new URL('../src/work/taskAssistance.ts', import.meta.url), 'utf8');
+  const drafts = await readFile(new URL('../src/work/taskAssistanceDraft.ts', import.meta.url), 'utf8');
+  assert.match(service, /const publicResearch = row\.proposal\.publicQueries\.length > 0/);
+  assert.match(service, /directionHistory: intent\.directionHistory/);
+  assert.match(service, /await saveTaskDraft\(context, draft\);[\s\S]*?task-deliverable-review/);
+  assert.match(service, /beforeReply:[\s\S]*?sourcesRead === 0/);
+  assert.match(service, /draft\.reviewFeedback = review\.reason/);
+  const review = service.slice(service.indexOf("setAiWorkflowStage('task-deliverable-review')"),
+    service.indexOf('const noteId = row.id'));
+  assert.doesNotMatch(review, /task: row\.task_snapshot|taskActivity: intent\.activity/);
+  assert.match(drafts, /a\.owner_id=\$2 AND a\.task_signature=\$3 AND a\.approved_at IS NOT NULL/);
+  assert.match(drafts, /lease_until>clock_timestamp/);
 });
 
 test('TASK-ASSIST-12: task context includes attributed activity, declaring bounded or clipped history', async () => {

@@ -26,6 +26,31 @@ const geometryContext = async () => {
   return { route: context.connectionGeometry as typeof connectionGeometry, ring: context.connectionRing as typeof connectionRing };
 };
 
+test('closing logo uses the official reversed white artwork with no background and is strictly opt-in', async () => {
+  const source = await readFile(join(__dirname, '../../assets/visuals.js'), 'utf8');
+  const children: Array<{ className?: string; alt?: string; src?: string }> = [];
+  const layer = { classList: { add() {} }, append(...items: typeof children) { children.push(...items); } };
+  const context = createContext({ layer, html: (_tag: string, className: string) => ({
+    className, append() {},
+  }), emphasised: () => ({}), setCloseMarks() {} });
+  runInContext(source.replace(/^import .*;\r?$/gm, '').replace(/^export /gm, ''), context);
+  const start = source.indexOf('  function closeScene(');
+  const end = source.indexOf('  function illustration(', start);
+  runInContext(source.slice(start, end), context);
+  const scene = { title: 'Put your strategy to work', subtitle: '', items: [] };
+  context.closeScene(scene, 0);
+  assert.equal(children.length, 1);
+  children.length = 0;
+  context.closeScene({ ...scene, brandMark: 'ibm-8bar' }, 0);
+  const logo = children.find(child => child.className === 'slide-close__brand');
+  assert.equal(logo?.alt, 'IBM eight-bar logo');
+  const svg = decodeURIComponent(logo!.src!.replace('data:image/svg+xml,', ''));
+  assert.match(svg, /viewBox="57.6 61.7 1109.6 440.2" fill="#ffffff"/);
+  assert.equal((svg.match(/<rect /g) ?? []).length, 17);
+  assert.doesNotMatch(svg, /<script|<image|<foreignObject|style=|background|<text/);
+  assert.match(svg, /M304.2,473.9v28h227c29.1,0,55.8-10.6,76.2-28H304.2z/);
+});
+
 test('lifecycle arcs share one clockwise ring and stop short of each stage for the arrowhead', async () => {
   const { route, ring } = await geometryContext();
   const nodes = [

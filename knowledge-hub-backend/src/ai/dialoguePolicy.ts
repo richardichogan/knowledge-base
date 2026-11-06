@@ -42,6 +42,14 @@ export const DIALOGUE_POLICY_PROMPT = [
     '"I am going to" or "I will" as a final answer. If blocked, state the specific failure and what remains undone. ' +
     'Do not infer that a save was overwritten from a complaint; read the current revision and compare the actual content. ' +
     'Approval applies only to the offered action: accepting a read never approves a write, candidate application or publishing.',
+    'When revising an existing article, assessment or other deliverable, integrate requested amendments into that artefact, ' +
+      'not a standalone suggested section or an acknowledgement. If the editable note is the agreed target, use its edit tool. ' +
+      'Before proposing an edit, check dependent content as a unit: question stems, options, correct answers and explanations ' +
+      'must remain coherent. Preserve required references and untouched material. An accepted note-edit batch is queued, ' +
+      'not saved; stop after acceptance so the editor can apply it, and let its persistence receipt establish completion.',
+  'When revising writing already present in this conversation or the current note, use that material directly. ' +
+      'Do not rediscover the article or repeat public-source searches just to incorporate an agreed wording change. ' +
+      'Retrieve again only for missing evidence, an explicit source check or a fact that needs updating.',
   'If he corrects you, update the premise and address what he actually meant, briefly, without defending the earlier essay. ' +
     'If he is playfully sarcastic, brief dry wit can be the whole appropriate reply. If he is frustrated with you, fix the ' +
     'problem, not his mood: no defensive joke, patronising reassurance or lecture. Neither requires a forced question. ' +
@@ -84,10 +92,33 @@ export function dialogueRequestText(message: string): string {
   return message.replace(/^\s*\[Viewing (?:note|canvas|document):[^\n]*\]\s*/i, '').trim();
 }
 
+export function requestsOpenNoteEdit(history: ConversationMessage[], userMessage: string): boolean {
+  const request = dialogueRequestText(userMessage);
+  if (/\b(?:don't|do not|without)\s+(?:edit|change|update|save|overwrite)\b|\bread[- ]only\b/i.test(request)) return false;
+  if (/\bnot\s+(?:(?:the|my|your|this|that|open|actual)\s+)?(?:note|document|article)\b/i.test(request)) return false;
+  const edit = /\b(?:rewrite|re-write|redraft|amend|update|edit|apply|save|fix|correct|replace|integrate)\b/i.test(request);
+  if (edit && /\b(?:note|document in view|open document|actual article|existing (?:article|document|output)|save_output)\b/i.test(request)) return true;
+  if (/\b(?:fix|correct|apply)\b[\s\S]{0,80}\b(?:issues? (?:you|we)|(?:changes|amendments) (?:you|we))\b/i.test(request)) return true;
+  if (/^(?:yes|yep|ok|okay|do it|go ahead)(?:,?\s+please)?[.!\s]*$/i.test(request)) {
+    const previous = history.at(-1);
+    return previous?.role === 'assistant'
+      && /\b(?:I can|shall I|would you like me to)\s+(?:amend|update|edit|fix|rewrite)\b/i.test(previous.content);
+  }
+  return false;
+}
+
+export function unconfirmedNoteEditClaim(reply: string): boolean {
+  const text = reply.replace(/[*_`]/g, '');
+  return /^\s*(?:done|saved|updated|replaced|fixed)\b/i.test(text)
+    || /\b(?:I(?:['’]ve|\s+have)?\s+(?:now\s+)?(?:saved|updated|applied|rewritten|replaced|fixed)|(?:changes|edits|amendments)\s+(?:are|have been)\s+(?:saved|applied)|(?:saved|updated)\s+(?:in|to)\s+(?:the|your)\s+note)\b/i.test(text);
+}
+
 /** A bounded runtime backstop for replies that promise work instead of executing it. */
 export function executionFollowThroughRepair(
   history: ConversationMessage[], userMessage: string, reply: string, calledTools: ReadonlySet<string>,
+  expectedNoteEdit = false, noteEditsQueued = false,
 ): string | null {
+  if (noteEditsQueued) return null;
   const previous = history.at(-1);
   const acceptedRead = /^(?:yes|yep|yeah|ok|okay|go ahead|do it)(?:,?\s+please)?[.!\s]*$/i.test(dialogueRequestText(userMessage))
     && previous?.role === 'assistant'
@@ -95,7 +126,8 @@ export function executionFollowThroughRepair(
   const hasRead = [...calledTools].some(name => /^(?:read_|get_|search_|list_|inspect_)/.test(name));
   const promise = /\bI(?:['’]m\s+going\s+to|\s+am\s+going\s+to|['’]ll|\s+will)\s+(?:now\s+)?(?:re[- ]?)?(?:read|check|verify|inspect|save|update|apply|write|edit|fix|create|add|remove)\b/i
     .test(reply.replace(/[*_`]/g, ''));
-  if ((!acceptedRead || hasRead) && !promise) return null;
+  const missingNoteEdit = expectedNoteEdit && !calledTools.has('propose_note_edit');
+  if ((!acceptedRead || hasRead) && !promise && !missingNoteEdit) return null;
   return 'Execution check: the proposed final reply has not completed an agreed action. Interpret the latest request in its conversation context. ' +
     'For an accepted offer to check, retrieve the current saved target now; do not speculate about overwritten changes. ' +
     'For an explicitly authorised edit, use the appropriate permitted tool now, preserving the agreed scope and all approval boundaries. ' +

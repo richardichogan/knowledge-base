@@ -31,6 +31,10 @@ export interface NoteEditProposal {
 }
 
 const ACTIONS: readonly NoteEditAction[] = ['append', 'prepend', 'add_to_section', 'replace_section', 'delete_section', 'replace_text', 'replace_all'];
+const REPAIR_CONTEXT_CHARS = 24_000;
+const REPAIR_MATCH_LIMIT = 12;
+const REPAIR_PRECEDING_PARAGRAPHS = 3;
+const REPAIR_FOLLOWING_PARAGRAPHS = 6;
 
 export function allowsStructuralNoteEdits(message: string): boolean {
   const request = message.replace(/^\s*\[Viewing (?:note|document):[^\n]*\]\s*/i, '');
@@ -103,6 +107,26 @@ export function noteHeadings(blocks: NoteBlock[]): string[] {
   return blocks.filter((b) => b.type === 'heading').map(blockText).filter((t) => t.trim() !== '');
 }
 
+export function noteEditRepairContext(blocks: NoteBlock[], edits: NoteEditProposal[]): { paragraphs: string[]; partial: boolean } {
+  const texts = flattenBlocks(blocks).map(blockText).filter(text => text.trim());
+  if (texts.reduce((sum, text) => sum + text.length, 0) <= REPAIR_CONTEXT_CHARS) return { paragraphs: texts, partial: false };
+  const terms = edits.flatMap(edit => (edit.find ?? edit.heading ?? '').toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) ?? []);
+  const ranked = texts.map((text, index) => ({ index, score: terms.reduce((sum, term) => sum + Number(text.toLowerCase().includes(term)), 0) }))
+    .filter(row => row.score > 0).sort((a, b) => b.score - a.score || a.index - b.index).slice(0, REPAIR_MATCH_LIMIT);
+  const indices = new Set<number>();
+  for (const row of ranked) for (let index = Math.max(0, row.index - REPAIR_PRECEDING_PARAGRAPHS);
+    index <= Math.min(texts.length - 1, row.index + REPAIR_FOLLOWING_PARAGRAPHS); index++) indices.add(index);
+  const selected = indices.size ? [...indices].sort((a, b) => a - b).map(index => texts[index]!) : texts;
+  const paragraphs: string[] = [];
+  let chars = 0;
+  for (const text of selected) {
+    if (chars + text.length > REPAIR_CONTEXT_CHARS) break;
+    paragraphs.push(text);
+    chars += text.length;
+  }
+  return { paragraphs, partial: paragraphs.length !== texts.length };
+}
+
 /**
  * Problems with proposed edits against the note's current blocks: section
  * headings that aren't in the note, and "find" text that isn't in it.
@@ -153,10 +177,12 @@ export function checkEditsAgainstNote(edits: NoteEditProposal[], blocks: NoteBlo
     if (reported && wanted !== '' && (e.action === 'add_to_section' || e.action === 'replace_section' || e.action === 'delete_section') && !hasHeading(wanted)) {
       problems.push(`edit ${n}: there is no heading "${e.heading ?? ''}" in the note${i > 0 ? ' (as it will be after the edits before this one)' : ''}`);
     }
-    if (reported && e.action === 'replace_text' && e.find !== undefined) {
+    if (e.action === 'replace_text' && e.find !== undefined) {
       const find = e.find;
       const matches = texts.filter(t => t.includes(find));
-      if (matches.length !== 1 || matches[0]?.indexOf(find) !== matches[0]?.lastIndexOf(find)) problems.push(`edit ${n}: "find" must match exactly once in a single paragraph or list item; copy a unique passage from the note`);
+      if (matches.length !== 1 || matches[0]?.indexOf(find) !== matches[0]?.lastIndexOf(find)) {
+        if (reported) problems.push(`edit ${n}: "find" must match exactly once in a single paragraph or list item; copy a unique passage from the note`);
+      }
       else texts = texts.map(text => text.includes(find) ? text.replace(find, () => markdown ?? '') : text);
     }
     // Carry this edit's effect on the headings forward.

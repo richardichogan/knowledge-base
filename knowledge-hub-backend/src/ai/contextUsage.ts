@@ -153,7 +153,29 @@ export function recordToolEvidence(ledger: EvidenceLedger, toolName: string, res
   if (RECORD_TOOLS.has(toolName)) { recordRecordTool(ledger, toolName, result); return; }
   if (STRUCTURED_RESULT_TOOLS.has(toolName)) { recordStructuredTool(ledger, toolName, result, args); return; }
   const r = result as Record<string, unknown>;
+  if (toolName === 'fetch_web_page' && r['success'] === true && typeof r['url'] === 'string'
+    && typeof r['content'] === 'string' && r['content'].trim()) {
+    noteRead(ledger, { kind: 'web', id: r['url'] }, {
+      title: typeof r['title'] === 'string' ? r['title'] : null, locator: r['url'], text: r['content'], origin: 'live',
+    });
+    return;
+  }
+  if (toolName === 'read_past_chat' && typeof args['sessionId'] === 'string'
+    && Array.isArray(r['messages']) && r['messages'].length > 0) {
+    noteRead(ledger, { kind: 'chat', id: args['sessionId'] }, {
+      title: typeof r['title'] === 'string' ? r['title'] : null, text: JSON.stringify(r),
+    });
+    return;
+  }
   const kind = toolName.includes('diagram') ? 'diagram' : toolName.includes('library') ? 'document' : toolName.includes('chat') ? 'chat' : toolName.includes('output') ? 'output' : 'item';
+  if (toolName === 'search_past_chats' && Array.isArray(r['chats'])) {
+    for (const chat of r['chats'] as Array<{ sessionId?: string; title?: string; href?: string }>) {
+      if (typeof chat.sessionId === 'string' && chat.sessionId !== '') {
+        noteFound(ledger, { kind: 'chat', id: chat.sessionId }, { title: chat.title ?? null, locator: chat.href ?? null });
+      }
+    }
+    return;
+  }
   const list = Array.isArray(r['results']) ? r['results'] : Array.isArray(r['documents']) ? r['documents'] : [];
   const rows = list as Array<{ id?: string; title?: string; url?: string | null; version?: string; content?: string; updatedAt?: string; projectId?: string | null }>;
   if (SEARCH_TOOLS.has(toolName)) {

@@ -13,6 +13,41 @@ const ENTRANCE_MS = 600;
 const DRAW_MS = 700;
 const STAGGER_MS = 90;
 const TEXT_SIZES = ['xl', 'l', 'm', 's'];
+// Official reversed artwork, without the construction grid; geometry is unchanged.
+// https://www.ibm.com/design/language/4cd1ac2975364715d895c04784521ee9/8bar-neg.svg
+const IBM_8BAR = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="57.6 61.7 1109.6 440.2" fill="#ffffff">
+<rect x="57.6" y="473.9" width="215.8" height="28"/><rect x="57.6" y="415" width="215.8" height="28"/>
+<rect x="119.2" y="356.2" width="92.5" height="28"/><rect x="119.2" y="297.3" width="92.5" height="28"/>
+<rect x="119.2" y="238.5" width="92.5" height="28"/><rect x="119.2" y="179.7" width="92.5" height="28"/>
+<rect x="57.6" y="120.8" width="215.8" height="28"/><rect x="57.6" y="62" width="215.8" height="28"/>
+<path d="M304.2,473.9v28h227c29.1,0,55.8-10.6,76.2-28H304.2z"/>
+<path d="M304.2,415v28h329c5-8.7,9-18.2,11.8-28H304.2z"/>
+<polygon points="365.8,356.2 365.8,384.2 365.8,384.2 458.3,384.2 458.3,356.2"/>
+<path d="M610.4,297.3H365.8v28h267.3C626.9,314.7,619.4,305.2,610.4,297.3z"/>
+<path d="M365.8,238.5v28h244.6c9-8.1,16.5-17.7,22.7-28H365.8z"/>
+<path d="M644.6,148.8c-2.8-9.8-6.7-19.3-11.8-28H304.2v28H644.6z"/>
+<path d="M607.3,90c-20.5-17.4-47.1-28-76.2-28h-227v28H607.3z"/>
+<polygon points="365.8,179.7 365.8,207.7 365.8,207.7 458.3,207.7 458.3,179.7"/>
+<path d="M550.7,207.7h94.7c2.2-9,3.4-18.5,3.4-28h-98.1V207.7z"/>
+<path d="M550.7,356.2v28h98.1c0-9.5-1.1-19.1-3.4-28H550.7z"/>
+<rect x="674" y="473.6" width="154.1" height="28"/><rect x="674" y="414.7" width="154.1" height="28"/>
+<rect x="735.7" y="355.9" width="92.5" height="28"/><rect x="735.7" y="297.1" width="92.5" height="28"/>
+<rect x="735.7" y="238.2" width="92.5" height="28"/>
+<rect x="1013.1" y="473.6" width="154.1" height="28"/><rect x="1013.1" y="414.7" width="154.1" height="28"/>
+<rect x="1013.1" y="355.9" width="92.5" height="28"/><rect x="1013.1" y="297.1" width="92.5" height="28"/>
+<polygon points="1013.1,266.2 1105.5,266.2 1105.5,238.2 1013.1,238.2 932.1,238.2 922.5,266.2 1003.5,266.2 1013.1,239.6"/>
+<polygon points="1105.5,179.4 952.5,179.4 943,207.4 1105.5,207.4"/>
+<polygon points="993.4,61.7 983.6,89.7 1167.2,89.7 1167.2,61.7"/>
+<polygon points="920.6,501.3 930.4,473.6 910.8,473.6"/>
+<polygon points="899.9,442.8 941.3,442.8 951.1,414.7 890,414.7"/>
+<polygon points="879.1,383.9 962.1,383.9 971.9,355.9 869.3,355.9"/>
+<polygon points="858.4,325.1 982.8,325.1 992.9,297.1 848.3,297.1"/>
+<polygon points="909.1,238.2 828.1,238.2 828.1,239.6 837.6,266.2 918.6,266.2"/>
+<polygon points="735.7,207.4 898.2,207.4 888.6,179.4 735.7,179.4"/>
+<polygon points="963.2,148.6 1167.2,148.6 1167.2,120.5 973,120.5"/>
+<polygon points="868.2,120.5 674,120.5 674,148.6 878,148.6"/>
+<polygon points="847.7,61.7 674,61.7 674,89.7 857.5,89.7"/>
+</svg>`;
 const XHTML = 'http://www.w3.org/1999/xhtml';
 const SVG = 'http://www.w3.org/2000/svg';
 const pad = value => String(value).padStart(2, '0');
@@ -639,6 +674,12 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
     if (scene.subtitle) content.append(emphasised('p', 'slide-close__setup', scene.subtitle, phrases, 'underline', used));
     content.append(statement, html('p', 'slide-close__thanks', 'Thank you'));
     layer.append(content);
+    if (scene.brandMark === 'ibm-8bar') {
+      const logo = html('img', 'slide-close__brand');
+      logo.alt = 'IBM eight-bar logo';
+      logo.src = `data:image/svg+xml,${encodeURIComponent(IBM_8BAR)}`;
+      layer.append(logo);
+    }
     setCloseMarks(revealed, true);
   }
   function illustration(artwork) {

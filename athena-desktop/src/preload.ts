@@ -18,6 +18,7 @@ if (process.isMainFrame && athenaOrigin !== '' && window.location.origin === ath
       scriptVisualCompositions: true,
       scriptVisualMotion: true,
       scriptVisualCraft: true,
+      scriptVisualBranding: true,
       scriptVisualVideo: true,
       videoState: () => ipcRenderer.invoke('presentation:video-state'),
       setVideoMode: (mode: unknown, noteId: string) => ipcRenderer.invoke('presentation:video-mode', { mode, noteId }),

@@ -15,7 +15,7 @@ import { annotatedPresentation } from '../src/features/podcasts/scriptAnnotation
 import { SCRIPT_COLOUR_VALUES } from '../src/features/podcasts/scriptRichText';
 import { parseScriptVisuals, parseVisualArtwork, parseVisualComposition, scriptVisualSource, visualSourceCurrent, type VisualScriptBlock } from '../../knowledge-hub-backend/src/utils/scriptVisuals';
 import { parsePresentationVisuals } from '../../athena-desktop/src/elgatoProtocol';
-import { openPresentationVisuals, presentedVisualIssue, recordPresentedVisuals } from '../src/features/autocue/presentedVisuals';
+import { openPresentationVisuals, presentedVisualIssue, recordPresentedVisuals, visualBrandingIssue } from '../src/features/autocue/presentedVisuals';
 
 test('opening browser visuals waits for presentation startup and checks the newly saved snapshot', async () => {
   const calls: string[] = [];
@@ -123,6 +123,47 @@ test('static header treatments and typographic titles round-trip without mixing 
   assert.throws(() => parseScriptVisuals({ ...pack, scenes: [{ ...title,
     composition: { ...composition, imageTreatment: 'inset' },
   }] }, section), /image/i);
+});
+
+test('closing IBM branding survives saved script and presentation parsing without branding other scenes', () => {
+  const section: VisualScriptBlock = { id: 'section', type: 'heading', props: { scriptSection: true }, children: [
+    { id: 'spoken', type: 'paragraph', content: [{ type: 'text', text: 'Put your AI strategy to work.' }] },
+  ] };
+  const scene = { id: 'close', template: 'close', title: 'Put your AI strategy to work', subtitle: '',
+    cue: { blockId: 'spoken', quote: '' }, items: [], imageUrl: '', imageAlt: '',
+    brandMark: 'ibm-8bar', composition: { label: 'Start with your business', imagePrompt: '', nodes: [], links: [] } };
+  const pack = { version: 1, source: scriptVisualSource(section), scenes: [scene] };
+  assert.equal(parseScriptVisuals(pack, section).scenes[0]?.brandMark, 'ibm-8bar');
+  section.props!['scriptVisuals'] = JSON.stringify(pack);
+  const prepared = presentationScript(JSON.stringify([section]), { script: true });
+  assert.equal(prepared.visualIssue, null);
+  assert.equal(prepared.visuals[0]?.brandMark, 'ibm-8bar');
+  assert.equal(visualBrandingIssue(prepared.visuals, true), null);
+  assert.match(visualBrandingIssue(prepared.visuals, false)!, /Update Athena Desktop/);
+  assert.equal(visualBrandingIssue([], false), null);
+  assert.equal(parsePresentationVisuals(prepared.visuals, prepared.text.length)?.[0]?.brandMark, 'ibm-8bar');
+  for (const brandMark of ['html', 'https://example.com/logo.svg', null]) {
+    assert.throws(() => parseScriptVisuals({ ...pack, scenes: [{ ...scene, brandMark }] }), /brand mark/);
+    assert.throws(() => parsePresentationVisuals([{ ...prepared.visuals[0], brandMark }], prepared.text.length), /brand mark/);
+  }
+  assert.throws(() => parseScriptVisuals({ ...pack, scenes: [{ ...scene, template: 'title' }] }), /brand mark/);
+  assert.throws(() => parsePresentationVisuals([{ ...prepared.visuals[0], template: 'title' }], prepared.text.length), /brand mark/);
+  const { brandMark: _mark, ...unbranded } = scene;
+  assert.equal(parseScriptVisuals({ ...pack, scenes: [unbranded] }).scenes[0]?.brandMark, undefined);
+});
+
+test('older Desktop can present plain text and shows the branding error only when opening visuals', async () => {
+  const issue = visualBrandingIssue([{ brandMark: 'ibm-8bar' }], false);
+  let started = false, opened = false;
+  await assert.rejects(openPresentationVisuals(async () => { started = true; }, () => issue,
+    async () => { opened = true; }), /closing IBM logo/);
+  assert.equal(started, true);
+  assert.equal(opened, false);
+  const notes = await readFile(new URL('../src/notes/NotesPage.tsx', import.meta.url), 'utf8');
+  const presenter = await readFile(new URL('../src/features/autocue/Presenter.tsx', import.meta.url), 'utf8');
+  assert.match(notes, /visuals: brandingIssue \? \[\] : script.visuals/);
+  assert.match(presenter, /visuals: brandingIssue \? \[\] : visuals/);
+  assert.doesNotMatch(notes + presenter, /if \([^;\n]*scriptVisualBranding[^;\n]*throw/);
 });
 
 test('illustrated scenes retain bounded vector art and reject executable paths and invalid geometry', () => {

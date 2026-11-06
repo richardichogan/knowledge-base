@@ -12,7 +12,7 @@ test('selected Plan tasks retain the normal Board/Focus content and compact form
   assert.doesNotMatch(page, /scopedTasks\.map\(task => <ReviewItem/);
   assert.match(page, /TaskDescription className="kb-card__body" text=\{task\.body\}/);
   assert.match(preview, /renderMarkdownPreview\(text\)/);
-  assert.match(page, /isRecentDone[\s\S]*!showOlderDone \? allColTasks\.filter\(isRecentDone\)/);
+  assert.match(page, /const laneTasks = column\.id === 'completed' && !showOlderDone\s*\? allLaneTasks\.filter\(isRecentDone\)/);
 });
 test('task previews clamp one inline flow without fixed-height paragraph cropping', async () => {
   const renderer = await readFile(new URL('../src/utils/markdown.ts', import.meta.url), 'utf8');

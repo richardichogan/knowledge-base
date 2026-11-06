@@ -10,7 +10,7 @@ import { FoundryClient, type LlmMessage, type LlmToolDefinition } from '../src/a
 import { emptyContextUsed } from '../src/ai/contextUsage.js';
 import { focusTools, selectRequiredToolChoice, selectKnowledgeRetrievalChoice } from '../src/ai/toolRouting.js';
 import type { NoteEditProposal } from '../src/ai/noteEdits.js';
-import { allowsStructuralNoteEdits, checkEditsAgainstNote } from '../src/ai/noteEdits.js';
+import { allowsStructuralNoteEdits, checkEditsAgainstNote, noteEditRepairContext } from '../src/ai/noteEdits.js';
 import { blocksToTextWithImages, blockContentSpans } from '../src/utils/noteContent.js';
 import { scriptNoteBlocks } from '../src/utils/scriptNoteContent.js';
 import { readFile } from 'node:fs/promises';
@@ -684,7 +684,7 @@ test('a repair after a formatting complaint uses exact edits instead of conversa
   });
   const noteEdits: NoteEditProposal[] = [];
   try {
-    await handleConversationTurn(db, [
+    const reply = await handleConversationTurn(db, [
       { role: 'user', content: 'You changed all the formatting!' },
       { role: 'assistant', content: 'I should keep the note formatting and title. Shall I fix it?' },
     ], 'do it properly!!!!!', 'standard', 'general', sessionId,
@@ -692,12 +692,17 @@ test('a repair after a formatting complaint uses exact edits instead of conversa
     { noteId: outputId, noteEdits }, { onDelta: () => {}, onAudit: () => {} });
     assert.equal(noteEdits.length, 1);
     assert.equal(noteEdits[0]?.action, 'replace_text');
+    assert.equal(calls, 2, 'accepted edits are delivered without another model round');
+    assert.match(reply, /Saving has not yet been confirmed/);
   } finally { completion.mock.restore(); query.mock.restore(); await db.end(); }
 });
 
 test('time limit after RTR-style edit production preserves the preview without claiming completion or requesting a retry', async () => {
   const db = new Pool();
-  const query = mock.method(db, 'query', async () => ({ rows: [] }));
+  const query = mock.method(db, 'query', async (sql: string) => ({ rows: sql.includes('SELECT content FROM notes') ? [{
+    content: { contentJson: JSON.stringify([{ type: 'paragraph', content: [{ text: 'Existing requirements' }] }]) },
+  }] : [] }));
+  const consistency = mock.method(FoundryClient.prototype, 'chat', async () => JSON.stringify({ ready: true, reason: 'The proposed content is internally consistent.' }));
   let now = 1_000;
   const clock = mock.method(Date, 'now', () => now);
   let calls = 0;
@@ -721,8 +726,42 @@ test('time limit after RTR-style edit production preserves the preview without c
     assert.doesNotMatch(reply, /try again|ask a more specific question/);
     assert.equal(completion.mock.callCount(), 2);
   } finally {
-    clock.mock.restore(); completion.mock.restore(); query.mock.restore(); await db.end();
+    clock.mock.restore(); completion.mock.restore(); consistency.mock.restore(); query.mock.restore(); await db.end();
   }
+});
+
+test('a later edit batch is checked against earlier queued replacements, not the unchanged saved text', () => {
+  const blocks = [{ type: 'paragraph', content: [{ text: 'The original question.' }] }];
+  const first: NoteEditProposal = { action: 'replace_text', find: 'original', markdown: 'revised', summary: 'Revise' };
+  const second: NoteEditProposal = { action: 'replace_text', find: 'revised', markdown: 'corrected', summary: 'Correct' };
+  assert.deepEqual(checkEditsAgainstNote([first, second], blocks, 1), []);
+  assert.match(checkEditsAgainstNote([first, first], blocks, 1).join(' '), /match exactly once/);
+  const context = noteEditRepairContext(blocks, [first]);
+  assert.deepEqual(context, { paragraphs: ['The original question.'], partial: false });
+});
+
+test('a mismatched assessment stem and answer batch is rejected before the editor receives it', async () => {
+  const db = new Pool();
+  const blocks = [
+    { type: 'heading', content: [{ text: 'Assessment' }] },
+    { type: 'paragraph', content: [{ text: '16. Which description explains the lifecycle?' }] },
+    { type: 'paragraph', content: [{ text: 'A. Discover, operate and improve.' }] },
+  ];
+  const query = mock.method(db, 'query', async () => ({ rows: [{ content: { contentJson: JSON.stringify(blocks) } }] }));
+  const consistency = mock.method(FoundryClient.prototype, 'chat', async (_model: unknown, messages: LlmMessage[]) => {
+    assert.match(JSON.stringify(messages), /Which description explains the lifecycle/);
+    assert.match(JSON.stringify(messages), /Digital Worker holds a role/);
+    return JSON.stringify({ ready: false, reason: 'Q16 asks about lifecycle but the replacement option describes worker roles.' });
+  });
+  const noteEdits: NoteEditProposal[] = [];
+  try {
+    const result = await executeToolCall(db, 'propose_note_edit', JSON.stringify({
+      edits: [{ action: 'replace_text', find: 'Discover, operate and improve.', markdown: 'A Digital Worker holds a role.', summary: 'Update answer' },
+        { action: 'replace_text', find: 'Which description', markdown: 'Which account', summary: 'Tighten wording' }],
+    }), undefined, { noteId: outputId, noteEdits });
+    assert.match(JSON.stringify(result), /Q16 asks about lifecycle/);
+    assert.deepEqual(noteEdits, []);
+  } finally { consistency.mock.restore(); query.mock.restore(); await db.end(); }
 });
 
 test('ordinary and source-bound requests do not perform automatic knowledge, graph or past-chat searches', async () => {

@@ -5,7 +5,7 @@ import { nextNotesPage } from '../../notes/noteListState';
 import { desktopErrorMessage, getDesktop, type DesktopCommand, type DesktopCommandState } from '../../types/desktop';
 import type { PresentationDisplay } from '../../../../athena-desktop/src/elgatoProtocol';
 import { preparePresentationScript } from './preparePresentationScript';
-import { openPresentationVisuals } from './presentedVisuals';
+import { openPresentationVisuals, visualBrandingIssue } from './presentedVisuals';
 import { requiresVisualMotion, requiresVisualCraft } from './presentationScript';
 import { authSession } from '../../services/authSession';
 import { api } from '../../services/api';
@@ -64,6 +64,7 @@ export function Presenter(): React.JSX.Element {
     || visualScenes.some(scene => scene.composition) && !desktop?.scriptVisualCompositions
     || requiresVisualMotion(visualScenes) && !desktop?.scriptVisualMotion
     || requiresVisualCraft(visualScenes) && !desktop?.scriptVisualCraft);
+  const brandingIssue = visualBrandingIssue(visualScenes, desktop?.scriptVisualBranding);
 
   async function action(fn: () => Promise<unknown>, message?: string): Promise<void> {
     if (busyRef.current) return;
@@ -119,7 +120,7 @@ export function Presenter(): React.JSX.Element {
       if (visuals?.some(scene => scene.composition) && !desktop.scriptVisualCompositions) throw new Error('Update Athena Desktop to present layered visuals. Web preview remains available.');
       if (visuals && requiresVisualMotion(visuals) && !desktop.scriptVisualMotion) throw new Error('Update Athena Desktop to present the new visual animations and presenter layout. Web preview remains available.');
       if (visuals && requiresVisualCraft(visuals) && !desktop.scriptVisualCraft) throw new Error('Update Athena Desktop to present the corrected connectors, image headers and video guide. Web preview remains available.');
-      await desktop.start({ noteId: selected.id, title: selected.title, text: script.text, runs: script.runs, ...(visuals ? { visuals } : {}), displayId: Number(displayId) });
+      await desktop.start({ noteId: selected.id, title: selected.title, text: script.text, runs: script.runs, ...(visuals ? { visuals: brandingIssue ? [] : visuals } : {}), displayId: Number(displayId) });
     }
   };
   const play = (): void => {
@@ -171,7 +172,7 @@ export function Presenter(): React.JSX.Element {
       <aside className="kh-presenter__controls" aria-label="Presenter controls">
         <button type="button" disabled={busy || !canStart || !desktop.openVisuals} onClick={() => {
           if (desktop.openVisuals) void action(() => openPresentationVisuals(startPresentation,
-            () => script && 'visualIssue' in script ? script.visualIssue : null, () => desktop.openVisuals!()));
+            () => (script && 'visualIssue' in script ? script.visualIssue : null) ?? brandingIssue, () => desktop.openVisuals!()));
         }}>Open browser visuals</button>
         <section>
           <h2>Output display</h2>

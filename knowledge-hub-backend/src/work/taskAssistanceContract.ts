@@ -3,10 +3,13 @@ import { record } from '../agents/workforce/contracts.js';
 import { ConflictError, ValidationError } from '../types/errors.js';
 
 const ACTIVITY_LIMIT = 30;
+const DIRECTION_HISTORY_LIMIT = 6;
 const ACTIVITY_BODY_LIMIT = 3000;
 const REVIEW_REASON_LIMIT = 3000;
 export interface TaskAssistanceContext {
   direction: string;
+  directionHistory: string[];
+  directionHistoryMayBePartial: boolean;
   activity: { body: string; activity: unknown; createdAt: string; truncated: boolean }[];
   activityMayBePartial: boolean;
 }
@@ -30,11 +33,16 @@ export async function taskAssistanceContext(
   db: Pick<Pool, 'query'>, taskId: string, ownerId: string, direction?: string,
 ): Promise<TaskAssistanceContext> {
   const previous = direction?.trim() ? '' : await latestTaskDirection(db, taskId, ownerId);
+  const directions = (await db.query<{ direction: string }>(
+    `SELECT direction FROM task_assistance WHERE task_id=$1 AND owner_id=$2 AND btrim(direction)<>''
+     ORDER BY created_at DESC,id DESC LIMIT $3`, [taskId, ownerId, DIRECTION_HISTORY_LIMIT])).rows;
   const activity = (await db.query<{ body: string; activity: unknown; created_at: Date | string }>(
     'SELECT body,activity,created_at FROM task_notes WHERE task_id=$1 ORDER BY created_at DESC,id DESC LIMIT $2',
     [taskId, ACTIVITY_LIMIT])).rows;
   return {
     direction: direction?.trim() || previous || '',
+    directionHistory: [...new Set(directions.reverse().map(item => item.direction.trim()))],
+    directionHistoryMayBePartial: directions.length === DIRECTION_HISTORY_LIMIT,
     activity: activity.reverse().map(item => ({ body: item.body.slice(0, ACTIVITY_BODY_LIMIT), activity: item.activity,
       createdAt: String(item.created_at), truncated: item.body.length > ACTIVITY_BODY_LIMIT })),
     activityMayBePartial: activity.length === ACTIVITY_LIMIT,

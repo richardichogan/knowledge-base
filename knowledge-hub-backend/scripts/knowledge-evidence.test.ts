@@ -8,6 +8,29 @@ import { emptyContextUsed, attachEvidence, recordToolEvidence } from '../src/ai/
 
 const ref = (id: string, kind = 'note') => ({ kind, id });
 
+test('chat search results are found evidence, while opened chats and fetched web pages are read evidence', () => {
+  const ledger = createLedger();
+  recordToolEvidence(ledger, 'search_past_chats', { chats: [
+    { sessionId: 'chat-1', title: 'Earlier article', href: '/chat?session=chat-1' },
+  ] });
+  assert.equal(ledgerCounts(ledger).found, 1);
+  assert.equal(ledgerCounts(ledger).read, 0);
+  assert.equal(finalizeEvidenceAnswer('Revised article.', { budget: new TurnBudget(), counts: ledgerCounts(ledger),
+    retrievalUsed: true, deterministicPath: false, deterministicComplete: true }), 'Revised article.');
+  recordToolEvidence(ledger, 'read_past_chat', { title: 'Earlier article', messages: [
+    { role: 'user', content: 'Keep the original conclusion.' },
+  ] }, { sessionId: 'chat-1' });
+  assert.equal(ledger.entries.get('chat:chat-1')?.state, 'read');
+  recordToolEvidence(ledger, 'fetch_web_page', { success: true, url: 'https://example.test/article',
+    content: 'A fetched original source.', title: 'Public source' });
+  assert.equal(ledger.entries.get('web:https://example.test/article')?.state, 'read');
+  const missing = createLedger();
+  recordToolEvidence(missing, 'fetch_web_page', { success: false, url: 'https://example.test', content: 'Unavailable' });
+  recordToolEvidence(missing, 'search_past_chats', { chats: [] });
+  assert.equal(ledgerCounts(missing).read, 0);
+  assert.match(finalizeEvidenceAnswer('No source confirmed.', { budget: new TurnBudget(), counts: ledgerCounts(missing),
+    retrievalUsed: true, deterministicPath: false, deterministicComplete: true }), /did not find any matching record/);
+});
 test('document reviews reserve primary-source room independently of supporting lookups', () => {
   assert.equal(isDocumentReviewRequest('If you look at the RTR product spec we worked on yesterday'), true);
   assert.equal(isDocumentReviewRequest('Review this specification in full'), true);
