@@ -5,12 +5,29 @@ import { ConflictError, ValidationError } from '../types/errors.js';
 
 const MAX_DRAFT_CHARS = 60_000;
 const MAX_EVIDENCE_CHARS = 48_000;
-const MAX_SOURCE_CHARS = 12_000;
+const MAX_SOURCE_CHARS = MAX_EVIDENCE_CHARS;
 
 export interface TaskSourceEvidence {
   tool: string;
   excerpt: string;
   truncated: boolean;
+}
+
+export function retainTaskSourceEvidence(sources: TaskSourceEvidence[], tool: string, evidence: unknown): void {
+  const raw = JSON.stringify(evidence);
+  if (!raw) return;
+  const identity = (text: string): string => {
+    try {
+      const value = JSON.parse(text) as { record?: { ref?: unknown }; url?: string };
+      return JSON.stringify(value.record?.ref ?? value.url ?? text);
+    } catch { return text; }
+  };
+  const key = identity(raw);
+  const previous = sources.findIndex(source => source.tool === tool && identity(source.excerpt) === key);
+  if (previous !== -1) sources.splice(previous, 1);
+  const remaining = MAX_EVIDENCE_CHARS - sources.reduce((sum, source) => sum + source.excerpt.length, 0);
+  if (remaining <= 0) return;
+  sources.push({ tool, excerpt: raw.slice(0, remaining), truncated: raw.length > remaining });
 }
 
 export interface TaskDraftCheckpoint {

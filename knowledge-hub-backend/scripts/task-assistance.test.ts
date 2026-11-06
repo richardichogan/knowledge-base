@@ -8,7 +8,7 @@ import type { Pool, PoolClient } from 'pg';
 import { assignTaskAgent, recordTaskAgentActivity, taskAssistanceSignature } from '../src/work/taskAgentActivity.js';
 import { rowToTask } from '../src/routes/tasks.js';
 import { parseTaskAssistanceReview, requireCurrentTaskDirection, requireTaskAssistanceReady, taskAssistanceContext } from '../src/work/taskAssistanceContract.js';
-import { parseTaskDraftCheckpoint, saveTaskDraft } from '../src/work/taskAssistanceDraft.js';
+import { parseTaskDraftCheckpoint, retainTaskSourceEvidence, saveTaskDraft, type TaskSourceEvidence } from '../src/work/taskAssistanceDraft.js';
 import { withAgentAttempt } from '../src/agents/attempt.js';
 
 const proposal = {
@@ -315,7 +315,24 @@ test('retained task drafts preserve evidence and rejection feedback without clai
   assert.throws(() => parseTaskDraftCheckpoint({ ...checkpoint, capturedAt: 'unknown' }), /capture date/);
   assert.throws(() => parseTaskDraftCheckpoint({ ...checkpoint, body: '' }), /empty/);
   assert.throws(() => parseTaskDraftCheckpoint({ ...checkpoint,
-    sourceEvidence: [{ tool: 'fetch_web_page', excerpt: 'x'.repeat(12_001), truncated: false }] }), /source evidence/);
+    sourceEvidence: [{ tool: 'fetch_web_page', excerpt: 'x'.repeat(48_001), truncated: false }] }), /source evidence/);
+});
+
+test('task evidence retains complete briefing endings, distinct sources and bounded rereads', () => {
+  const sources: TaskSourceEvidence[] = [];
+  const briefing = { record: { ref: { id: 'briefing' }, content: 'a'.repeat(17_190) + 'Final supported claim.' } };
+  retainTaskSourceEvidence(sources, 'read_knowledge_record', briefing);
+  retainTaskSourceEvidence(sources, 'read_knowledge_record', briefing);
+  assert.equal(sources.length, 1);
+  assert.equal(sources[0]?.truncated, false);
+  assert.deepEqual(JSON.parse(sources[0]!.excerpt), briefing);
+  retainTaskSourceEvidence(sources, 'read_knowledge_record',
+    { record: { ref: { id: 'linking' }, content: 'b'.repeat(11_099) } });
+  assert.equal(sources.length, 2);
+  assert.equal(sources[1]?.truncated, false);
+  retainTaskSourceEvidence(sources, 'read_knowledge_record', { content: 'c'.repeat(48_000) });
+  assert.equal(sources[2]?.truncated, true);
+  assert.equal(sources.reduce((sum, source) => sum + source.excerpt.length, 0), 48_000);
 });
 
 test('task drafting retains work before review and email research uses the same approval boundaries', async () => {
@@ -326,6 +343,10 @@ test('task drafting retains work before review and email research uses the same 
   assert.match(service, /await saveTaskDraft\(context, draft\);[\s\S]*?task-deliverable-review/);
   assert.match(service, /beforeReply:[\s\S]*?sourcesRead === 0/);
   assert.match(service, /draft\.reviewFeedback = review\.reason/);
+  assert.match(service, /source\.truncated\) continue/);
+  assert.match(service, /actual retrieved[\s\S]*?briefings are valid evidence/);
+  assert.match(service, /Never invent navigation, URLs or registration/);
+  assert.match(service, /Do not initiate unapproved public searches/);
   const review = service.slice(service.indexOf("setAiWorkflowStage('task-deliverable-review')"),
     service.indexOf('const noteId = row.id'));
   assert.doesNotMatch(review, /task: row\.task_snapshot|taskActivity: intent\.activity/);
