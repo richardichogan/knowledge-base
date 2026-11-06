@@ -2,6 +2,27 @@
 
 **Status:** Validated
 
+**Task-draft checkpoint UUID hotfix (2026-11-06):**
+- Released application commit `3a4252e8` to branch and main. Both checkpoint
+  lease predicates now type the optional owner as UUID, matching `agent_jobs`.
+- Backend/frontend `tsc --noEmit` and backend production build pass.
+  Affected isolated task-assistance checks pass 25/25, including execution of
+  both checkpoint queries with UUID owners, null-owner compatibility, rejected
+  ownership and expired leases. Earlier full release suites are reused; no
+  frontend/Desktop files or infrastructure changed.
+- ACR run `ca9r` built v310. Revision `kh-prod-api-vnet--0000307` is
+  Healthy/RunningAtMaxScale with 100% traffic; the old revision stopped.
+  Startup confirms migrations complete, pool warmed and production worker running.
+- Retried the existing approved email proposal through `approveTaskAssistance`,
+  job `505b5e99-f07c-40cd-a256-e1825251101e`. The checkpoint now persists the
+  actual draft, source evidence and review feedback successfully.
+- The retry remains blocked by readiness review, not SQL: it read the full
+  17,190-character Daily Briefing but retained only a truncated 12,000-character
+  evidence excerpt; the reviewer rejected a briefing-only source and two
+  unsupported claims. `result_note_id` remains null. Exact account-linking
+  instructions are absent from this draft. No email was sent, no completed
+  result was claimed, and no further retry or review bypass was attempted.
+
 **Icon visuals and IBM closing mark release (2026-11-06):**
 - Application-only release to the existing Alliance Tenant Reporting targets.
   No infrastructure, region, networking, registry authentication, roles or policy
