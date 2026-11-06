@@ -24,7 +24,8 @@ import { TagPicker } from '../components/TagPicker';
 import { EntityChip } from '../identity';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 import { EntityLinks, useEntityRelationships } from '../components/connections/EntityLinks';
-import type { PlanTask as Task, TaskStatus, TaskPriority } from '../types/task';
+import type { PlanTask as Task, TaskStatus, TaskPriority, ChecklistItem } from '../types/task';
+import { TaskChecklist } from '../features/plan/TaskChecklist';
 import { FOCUS_GROUPS, focusDate, groupForFocus, isRecentlyCompleted, originHref, originLabel, taskHealth, RECENT_COMPLETED_DAYS, type FocusGroupId } from '../features/plan/taskInsights';
 import { dateOnlyToLocal, localDateKey } from '../utils/dateOnly';
 import { requireApiData, requireApiSuccess, describeApiError } from '../services/apiError';
@@ -854,6 +855,7 @@ export const TaskEditor: React.FC<TaskEditorProps & { inline?: boolean }> = ({
   const [linkedTagIds, setLinkedTagIds] = useState<string[]>([]);
   const [recurringCadence, setRecurringCadence] = useState<string>('none');
   const [waitingOn, setWaitingOn] = useState('');
+  const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [statusChangeNote, setStatusChangeNote] = useState('');
   const statusChanged = inline && initial != null && status !== initial.status;
   const canSave = !saving && Boolean(title.trim()) && (!statusChanged || Boolean(statusChangeNote.trim()));
@@ -871,6 +873,7 @@ export const TaskEditor: React.FC<TaskEditorProps & { inline?: boolean }> = ({
     setLinkedTagIds(initial?.taxonomyTagIds?.length ? initial.taxonomyTagIds : initial?.linkedTagId ? [initial.linkedTagId] : []);
     setRecurringCadence(initial?.recurringCadence ?? 'none');
     setWaitingOn(initial?.waitingOn ?? '');
+    setChecklist(initial?.checklist ?? []);
     setStatusChangeNote('');
   }, [initial, open, defaultStatus, defaultProjectId]);
 
@@ -890,6 +893,7 @@ export const TaskEditor: React.FC<TaskEditorProps & { inline?: boolean }> = ({
       tags: inline ? initial?.tags ?? [] : [],
       taxonomyTagIds: linkedTagIds,
       recurringCadence: recurringCadence === 'none' ? null : recurringCadence as Task['recurringCadence'],
+      ...(inline || checklist.length > 0 ? { checklist } : {}),
       ...(inline && initial ? { expectedStatus: initial.status, statusChangeNote: statusChanged ? statusChangeNote.trim() : '' } : {}),
     });
   };
@@ -904,6 +908,8 @@ export const TaskEditor: React.FC<TaskEditorProps & { inline?: boolean }> = ({
 
         {/* Notes — full width */}
         <TextArea id="t-body" labelText={inline ? 'Description' : 'Notes'} rows={3} value={body} onChange={(e) => setBody(e.target.value)} />
+
+        {inline && <TaskChecklist editable idPrefix="t-check" items={checklist} onChange={setChecklist} />}
 
         {/* Project + Status — side by side */}
         <div className="kb-modal-form__row">

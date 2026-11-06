@@ -58,6 +58,8 @@ function taskLine(task: PlanTask, projectName: (id: string) => string, today: st
   if (task.status === 'waiting' && task.waitingOn) bits.push(`waiting on ${task.waitingOn}`);
   const health = taskHealth(task, now);
   if (health) bits.push(health.label.toLowerCase());
+  const items = task.checklist ?? [];
+  if (items.length > 0) bits.push(`checklist ${items.filter(i => i.done).length}/${items.length}`);
   return `* ${task.title} [${bits.filter(Boolean).join(', ')}]`;
 }
 
@@ -83,6 +85,7 @@ export function taskAthenaPrompt(task: PlanTask, projectName: string): string {
     `Status: ${STATUS_LABEL[task.status]}${task.status === 'waiting' && task.waitingOn ? ` on ${task.waitingOn}` : ''} · Priority: ${task.priority} · Workstream: ${projectName}`,
     task.dueDate ? `Due: ${task.dueDate}` : 'No due date',
     task.body ? `Details: ${task.body}` : '',
+    task.checklist?.length ? `Checklist:\n${task.checklist.map(i => `- [${i.done ? 'x' : ' '}] ${i.title}`).join('\n')}` : '',
   ].filter(Boolean).join('\n');
   return `Discuss how you can advance this task, not automate away my responsibility. Assess actual capabilities and missing evidence.
 Research, review, investigation and comparison mean source-backed research, not an email request. Prioritise workstream artefacts and diagrams.

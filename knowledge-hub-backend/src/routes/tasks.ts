@@ -18,6 +18,7 @@ import { reviewPlan } from '../services/planReview.js';
 import { atRiskTasks, getCheckin, isLaterDueDate, saveCheckin, workDay } from '../services/planNudges.js';
 import { prepareAutomaticTaskAssistance } from '../work/taskAssistanceQueue.js';
 import { recordTaskStatusChange } from '../work/taskStatusChange.js';
+import { parseChecklist, readChecklist, type ChecklistItem } from '../services/taskChecklist.js';
 
 const ISO_DATE_LENGTH = 10;
 const MAX_SETTLED = 50;
@@ -41,6 +42,7 @@ export interface Task {
   linkedTagId: string | null;
   taxonomyTagIds: string[];
   recurringCadence: 'daily' | 'weekly' | 'fortnightly' | 'monthly' | null;
+  checklist: ChecklistItem[];
   /** How many times the due date has been pushed later. */
   rescheduleCount: number;
   archived: boolean;
@@ -73,6 +75,7 @@ export function rowToTask(row: Record<string, unknown>): Task {
     linkedTagId: row['linked_tag_id'] as string | null ?? null,
     taxonomyTagIds: ((row['taxonomy_tag_ids'] as string[] | null) ?? []).filter(Boolean),
     recurringCadence: (row['recurring_cadence'] as Task['recurringCadence']) ?? null,
+    checklist: readChecklist(row['checklist']),
     rescheduleCount: Number(row['reschedule_count'] ?? 0),
     archived: Boolean(row['archived']),
     origin: typeof row['origin_type'] === 'string'
@@ -235,7 +238,7 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       const previousStatus = previous.rows[0]?.status;
       const previousDue = previous.rows[0]?.due_date ?? null;
       if (previousStatus === undefined) throw new NotFoundError(`Task ${id} not found`);
-      const input = req.body as Partial<{ title: string; body: string; status: string; statusChangeNote: string; expectedStatus: string; projectId: string; tags: string[]; priority: string; task_type: Task['task_type']; dueDate: string | null; startDate: string | null; endDate: string | null; linkedTagId: string | null; taxonomyTagIds: string[]; recurringCadence: string | null; waitingOn: string | null }>;
+      const input = req.body as Partial<{ title: string; body: string; status: string; statusChangeNote: string; expectedStatus: string; projectId: string; tags: string[]; priority: string; task_type: Task['task_type']; dueDate: string | null; startDate: string | null; endDate: string | null; linkedTagId: string | null; taxonomyTagIds: string[]; recurringCadence: string | null; waitingOn: string | null; checklist: unknown }>;
       if (input.task_type !== undefined && !['standard', 'cert_session', 'cert_review'].includes(input.task_type)) throw new ValidationError('Invalid task type');
       const fields: string[] = [];
       const params: unknown[] = [];
@@ -248,6 +251,7 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
         await recordTaskStatusChange(db, String(id), previousStatus, status, input);
         add('status', status);
       }
+      if (input.checklist !== undefined) add('checklist', JSON.stringify(parseChecklist(input.checklist)));
       if ('waitingOn' in input) add('waiting_on', input.waitingOn?.trim() || null);
       if (input.projectId !== undefined) add('project_id', input.projectId);
       if (input.tags !== undefined) add('tags', input.tags);
