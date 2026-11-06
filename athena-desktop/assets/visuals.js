@@ -1,6 +1,7 @@
 /* Trusted DOM renderer; scene data never contributes executable markup. */
 import { connectionGeometry, connectionRing } from './visualGeometry.js';
 import { createPresenterVideo } from './visualVideo.js';
+import { buildVisualAsset } from './visualAssets.js';
 
 export const VISUAL_BUILD_INTERVAL_MS = 1600;
 const SLIDE_WIDTH = 1600;
@@ -8,9 +9,40 @@ const SLIDE_HEIGHT = 900;
 const AREA = { left: 80, top: 240, right: 1520, bottom: 800 };
 const PRESENTER_SCALE = 2 / 3;
 const ICON_DISC = 112;
+const ROLE_SCALE = { hero: 1.45, secondary: 0.8 };
+const roleScale = node => Object.hasOwn(ROLE_SCALE, node.role) ? ROLE_SCALE[node.role] : 1;
+const iconDisc = node => ICON_DISC * roleScale(node);
+const movesNode = node => !!node.states?.some(state => state.x !== undefined || state.y !== undefined || state.scale !== undefined);
+const fadesNode = node => !!node.states?.some(state => state.opacity !== undefined);
+
+/** A node's authored position, scale, opacity and focus once every state up to this build step has applied (last write wins). */
+export function visualNodeState(node, revealed) {
+  const state = { x: node.x, y: node.y, scale: 1, opacity: 1, focus: false };
+  for (const change of node.states ?? []) {
+    if (change.at > revealed) break;
+    for (const key of Object.keys(state)) if (change[key] !== undefined) state[key] = change[key];
+  }
+  return state;
+}
+
+/** Maps the node's authored box onto its state: the box centre lands on the state's position and scales about itself. */
+function stateFrame(node, state) {
+  const x = state.x + node.width / 2 - state.scale * (node.x + node.width / 2);
+  const y = state.y + node.height / 2 - state.scale * (node.y + node.height / 2);
+  return { transform: `translate(${x}px, ${y}px) scale(${state.scale})`, opacity: state.opacity };
+}
+
+/** An asset's svg fills its node box but draws centred and aspect-true; connectors and obstacles should follow the drawing. */
+function tightDrawing(element, rect) {
+  const [, , width, height] = (element.getAttribute('viewBox') ?? '').split(/\s+/).map(Number);
+  if (!(width > 0 && height > 0)) return rect;
+  const fit = Math.min(rect.width / width, rect.height / height);
+  return { x: rect.x + (rect.width - width * fit) / 2, y: rect.y + (rect.height - height * fit) / 2, width: width * fit, height: height * fit };
+}
 const EASE = 'cubic-bezier(0.2, 0, 0.38, 0.9)';
 const ENTRANCE_MS = 600;
 const DRAW_MS = 700;
+const STATE_MS = 900;
 const STAGGER_MS = 90;
 const TEXT_SIZES = ['xl', 'l', 'm', 's'];
 // Official reversed artwork, without the construction grid; geometry is unchanged.
@@ -101,11 +133,12 @@ export function alignVisualNodes(nodes, links = []) {
   const connected = new Set(links.flatMap(link => [link.from, link.to]));
   const hubs = new Set(nodes.filter(node => hubText(node, nodes, connected)).map(node => node.id));
   const edge = node => node.kind === 'text' && !connected.has(node.id) && !hubs.has(node.id);
-  const lineY = node => node.kind === 'icon' ? node.y + ICON_DISC / 2 : node.y + node.height / 2;
+  const lineY = node => node.kind === 'icon' ? node.y + iconDisc(node) / 2 : node.y + node.height / 2;
   const lineX = node => edge(node) ? node.x : node.x + node.width / 2;
-  const placeY = (node, value) => { node.y = node.kind === 'icon' ? value - ICON_DISC / 2 : value - node.height / 2; };
+  const placeY = (node, value) => { node.y = node.kind === 'icon' ? value - iconDisc(node) / 2 : value - node.height / 2; };
   const placeX = (node, value) => { node.x = edge(node) ? value : value - node.width / 2; };
-  const peersOf = list => list.filter(node => node.kind !== 'image');
+  // Nodes whose states move or scale them keep their authored position: the build sequence depends on it.
+  const peersOf = list => list.filter(node => node.kind !== 'image' && !movesNode(node));
   const attempt = change => {
     const next = layout.map(node => ({ ...node }));
     change(next);
@@ -157,7 +190,7 @@ export function alignVisualNodes(nodes, links = []) {
   attempt(next => {
     const sets = [];
     for (const node of peersOf(next)) {
-      const set = sets.find(group => group[0].kind === node.kind
+      const set = sets.find(group => group[0].kind === node.kind && group[0].role === node.role
         && Math.abs(group[0].width - node.width) <= group[0].width * 0.25
         && Math.abs(group[0].height - node.height) <= group[0].height * 0.25);
       if (set) set.push(node); else sets.push([node]);
@@ -179,69 +212,15 @@ export function alignVisualNodes(nodes, links = []) {
   return layout;
 }
 
+/** A still grid and a fixed pool of light: the drawn graphics are the only thing on the slide that moves. */
 function createBackdrop(document) {
-  const view = document.defaultView;
   const element = document.createElement('div');
   element.className = 'slide-backdrop';
   element.setAttribute('aria-hidden', 'true');
   const glow = document.createElement('div');
   glow.className = 'slide-backdrop__glow';
-  const canvas = document.createElement('canvas');
-  canvas.className = 'slide-backdrop__network';
-  canvas.width = SLIDE_WIDTH;
-  canvas.height = SLIDE_HEIGHT;
-  element.append(glow, canvas);
-  let context = null;
-  try { context = typeof canvas.getContext === 'function' ? canvas.getContext('2d') : null; } catch { context = null; }
-  let seed = 7;
-  const random = () => (seed = seed * 16807 % 2147483647) / 2147483647;
-  const points = Array.from({ length: 44 }, () => ({ x: random() * SLIDE_WIDTH, y: random() * SLIDE_HEIGHT,
-    vx: (random() - 0.5) * 0.3, vy: (random() - 0.5) * 0.3, accent: random() < 0.18 }));
-  const draw = () => {
-    if (!context) return;
-    context.clearRect(0, 0, SLIDE_WIDTH, SLIDE_HEIGHT);
-    context.lineWidth = 1;
-    for (let i = 0; i < points.length; i++) {
-      for (let j = i + 1; j < points.length; j++) {
-        const a = points[i], b = points[j];
-        const distance = Math.hypot(a.x - b.x, a.y - b.y);
-        if (distance > 230) continue;
-        context.strokeStyle = `rgba(120, 169, 255, ${(0.1 * (1 - distance / 230)).toFixed(3)})`;
-        context.beginPath();
-        context.moveTo(a.x, a.y);
-        context.lineTo(b.x, b.y);
-        context.stroke();
-      }
-    }
-    for (const point of points) {
-      context.fillStyle = point.accent ? 'rgba(69, 137, 255, 0.55)' : 'rgba(141, 141, 141, 0.22)';
-      context.fillRect(point.x - 3, point.y - 3, 6, 6);
-    }
-  };
-  let frame = 0, running = false, live = false, visible = true;
-  const step = () => {
-    if (!running) return;
-    for (const point of points) {
-      point.x += point.vx; point.y += point.vy;
-      if (point.x < 0 || point.x > SLIDE_WIDTH) point.vx *= -1;
-      if (point.y < 0 || point.y > SLIDE_HEIGHT) point.vy *= -1;
-    }
-    draw();
-    frame = view.requestAnimationFrame(step);
-  };
-  const update = () => {
-    const run = live && visible && !document.hidden && !!context && typeof view?.requestAnimationFrame === 'function';
-    if (run && !running) { running = true; frame = view.requestAnimationFrame(step); }
-    else if (!run && running) { running = false; view.cancelAnimationFrame(frame); }
-  };
-  document.addEventListener('visibilitychange', update);
-  draw();
-  return {
-    element,
-    live(value) { live = value; update(); },
-    visible(value) { visible = value; update(); },
-    dispose() { live = false; update(); document.removeEventListener('visibilitychange', update); },
-  };
+  element.append(glow);
+  return { element, live() {}, visible() {}, dispose() {} };
 }
 
 let nextRenderer = 0;
@@ -277,8 +256,13 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
   const resizer = typeof view?.ResizeObserver === 'function' ? new view.ResizeObserver(fit) : null;
   resizer?.observe(stage);
   fit();
+  let inViewport = true;
   const visibility = typeof view?.IntersectionObserver === 'function'
-    ? new view.IntersectionObserver(entries => backdrop.visible(entries.some(entry => entry.isIntersecting))) : null;
+    ? new view.IntersectionObserver(entries => {
+      inViewport = entries.some(entry => entry.isIntersecting);
+      backdrop.visible(inViewport);
+      setLive();
+    }) : null;
   visibility?.observe(stage);
   let signature = '';
   let layer = null;
@@ -295,6 +279,7 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
   const reveals = new Map();
   const animations = new Map();
   const loops = new Map();
+  let stated = [];
   const motionPreference = view?.matchMedia?.('(prefers-reduced-motion: reduce)');
   const reduced = () => !!motionPreference?.matches;
   const iconPaths = {
@@ -305,6 +290,10 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
     system: 'M9 9h14v14H9ZM13 1v8M19 1v8M13 23v8M19 23v8M1 13h8M1 19h8M23 13h8M23 19h8',
     arrow: 'M3 16h25M19 7l9 9-9 9',
     boundary: 'M16 2 29 8v9c0 6-7 11-13 14C10 28 3 23 3 17V8ZM10 16l4 4 9-10',
+    clock: 'M16 4a12 12 0 1 0 0 24 12 12 0 0 0 0-24ZM16 9v7l5 3',
+    quality: 'M16 3.5 19.2 12.1 28.4 12.5 21.1 18.2 23.6 27 16 21.9 8.4 27 10.9 18.2 3.6 12.5 12.8 12.1Z',
+    coin: 'M5 7c0-1.7 4.9-3 11-3s11 1.3 11 3-4.9 3-11 3S5 8.7 5 7ZM5 7v6c0 1.7 4.9 3 11 3s11-1.3 11-3V7M5 13v6c0 1.7 4.9 3 11 3s11-1.3 11-3v-6M5 19v5c0 1.7 4.9 3 11 3s11-1.3 11-3v-5',
+    gauge: 'M3 22a13 13 0 1 1 26 0M16 22l6-8M16 9v3.5M6.8 12.8l2.5 2.5M25.2 12.8l-2.5 2.5',
   };
   function svgElement(tag, attributes = {}) {
     const element = document.createElementNS(SVG, tag);
@@ -324,10 +313,19 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
   function stopLoop(element) { loops.get(element)?.cancel(); loops.delete(element); }
   function stopLoops() { for (const element of [...loops.keys()]) stopLoop(element); }
   function setLive() {
-    live = wantsMotion && !reduced();
-    slide.classList.toggle('visual-slide--live', live);
+    const motionPermitted = !reduced();
+    live = wantsMotion && motionPermitted && inViewport && !document.hidden;
+    slide.classList.toggle('visual-slide--live', motionPermitted);
+    slide.classList.toggle('visual-slide--motion-paused', motionPermitted && !live);
+    for (const active of animations.values()) {
+      for (const animation of active) {
+        if (live) animation.play();
+        else if (motionPermitted) animation.pause();
+      }
+    }
     backdrop.live(live);
     if (!live) stopLoops();
+    else syncLoops();
   }
   const reduceMotion = () => {
     if (reduced()) {
@@ -338,6 +336,8 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
     syncLoops();
   };
   motionPreference?.addEventListener?.('change', reduceMotion);
+  const updateDocumentVisibility = () => setLive();
+  document.addEventListener('visibilitychange', updateDocumentVisibility);
   function showStatus() {
     status.textContent = packetError || imageError;
     status.hidden = !status.textContent;
@@ -361,6 +361,7 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
     const active = animations.get(owner) ?? new Set();
     active.add(animation);
     animations.set(owner, active);
+    if (!live && !reduced()) animation.pause();
     animation.onfinish = () => { active.delete(animation); };
   }
   function travel(token, path, delay) {
@@ -394,6 +395,21 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
     const complete = ring.links.length > 0 && ring.links.every(group => group.classList.contains('composition-visible'));
     if (!live || !complete) stopLoop(ring.dot);
     else if (!loops.has(ring.dot)) loops.set(ring.dot, orbit(ring, delays.get(ring) ?? 0));
+  }
+  /** Moves, scales, fades and spotlights nodes to wherever the narration has taken them; recomputed from the step so seeking is reversible. */
+  function applyStates(revealed, previous, smooth, opening) {
+    for (const { node, element, mover } of stated) {
+      const next = visualNodeState(node, revealed);
+      element.classList.toggle('visual-node--focus', next.focus);
+      if (!mover) continue;
+      const target = stateFrame(node, next);
+      const origin = stateFrame(node, visualNodeState(node, previous));
+      if (smooth && (origin.transform !== target.transform || origin.opacity !== target.opacity)) {
+        animate(mover, mover, [origin, target], { duration: STATE_MS, delay: opening + 120, easing: EASE });
+      }
+      mover.style.transform = target.transform;
+      mover.style.opacity = String(target.opacity);
+    }
   }
   function setReveals(revealed, motion = true) {
     if (!layer) return;
@@ -445,6 +461,7 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
         animate(element, element, [{ opacity: 0 }, { opacity: 1 }], { duration: ENTRANCE_MS, delay: opening, easing: EASE });
       }
     }
+    applyStates(revealed, previousRevealed, smooth, opening);
     previousRevealed = revealed;
     syncLoops(loopDelays);
   }
@@ -469,6 +486,7 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
   function nodeElement(scene, node, linked) {
     const size = TEXT_SIZES.includes(node.size) ? node.size : 'm';
     const element = html('div', `visual-node visual-node--${node.kind} visual-tone--${node.tone}`
+      + (Object.hasOwn(ROLE_SCALE, node.role) ? ` visual-node--${node.role}` : '')
       + (node.kind === 'text' ? ` visual-text--${size}${linked ? ' visual-node--centred' : ''}` : ''));
     let ripple = null;
     if (node.kind === 'image') {
@@ -490,6 +508,9 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
     } else if (node.kind === 'panel' && node.icon) {
       const icon = glyph(node.icon);
       if (icon) element.append(icon);
+    } else if (node.kind === 'asset') {
+      const drawing = buildVisualAsset(document, node.asset);
+      if (drawing) element.append(drawing);
     }
     if (node.kicker) element.append(html('p', 'visual-node__kicker', node.kicker));
     if (node.label) {
@@ -519,8 +540,10 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
     const svg = svgElement('svg', { viewBox: `0 0 ${SLIDE_WIDTH} ${SLIDE_HEIGHT}`, role: 'group', 'aria-label': scene.title });
     svg.classList.add('composition');
     const defs = svgElement('defs');
-    const scale = presenter ? PRESENTER_SCALE : 1;
-    const offsetY = presenter ? AREA.top + (AREA.bottom - AREA.top) * (1 - scale) / 2 - AREA.top * scale : 0;
+    // A composition that frames itself around the presenter video is authored at full size; others shrink into the left two thirds.
+    const framed = presenter && composition.frame === 'around-presenter';
+    const scale = presenter && !framed ? PRESENTER_SCALE : 1;
+    const offsetY = presenter && !framed ? AREA.top + (AREA.bottom - AREA.top) * (1 - scale) / 2 - AREA.top * scale : 0;
     const content = svgElement('g', { transform: `translate(${AREA.left - AREA.left * scale} ${offsetY}) scale(${scale})` });
     const reference = svgElement('rect', { width: SLIDE_WIDTH, height: SLIDE_HEIGHT, fill: 'none', 'aria-hidden': 'true' });
     const ringLayer = svgElement('g');
@@ -540,7 +563,13 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
       holder.append(element);
       reveals.set(holder, { node, ripple });
       subjects.set(node.id, element);
-      content.append(holder);
+      if (node.states?.length) {
+        const mover = movesNode(node) || fadesNode(node) ? svgElement('g') : null;
+        mover?.classList.add('composition-mover');
+        mover?.append(holder);
+        stated.push({ node, element, mover });
+        content.append(mover ?? holder);
+      } else content.append(holder);
     });
     layer.append(svg);
     const frame = reference.getBoundingClientRect();
@@ -551,18 +580,23 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
       return rect.width && rect.height ? { x: (rect.left - frame.left) / unit, y: (rect.top - frame.top) / unit,
         width: rect.width / unit, height: rect.height / unit } : null;
     };
+    const measureDrawn = element => {
+      const rect = measure(element);
+      return rect && element.classList.contains('visual-asset') ? tightDrawing(element, rect) : rect;
+    };
     const nodes = placed.map(node => {
       const element = subjects.get(node.id);
       const box = { x: node.x, y: node.y, width: node.width, height: node.height };
-      const parts = [...element.children].map(measure).filter(Boolean);
+      const parts = [...element.children].map(measureDrawn).filter(Boolean);
       const left = Math.min(...parts.map(rect => rect.x)), top = Math.min(...parts.map(rect => rect.y));
       const union = parts.length ? { x: left, y: top, width: Math.max(...parts.map(rect => rect.x + rect.width)) - left,
         height: Math.max(...parts.map(rect => rect.y + rect.height)) - top } : box;
       const solid = node.kind === 'panel' || node.kind === 'image' || !parts.length;
       const bounds = solid ? box : union;
       const lead = node.kind === 'icon' ? element.querySelector('.visual-node__disc')
-        : node.kind === 'text' ? element.querySelector('h2') : null;
-      return { id: node.id, bounds, anchor: lead ? measure(lead) ?? bounds : bounds, obstacles: solid ? [bounds] : parts };
+        : node.kind === 'text' ? element.querySelector('h2')
+          : node.kind === 'asset' ? element.querySelector('.visual-asset') : null;
+      return { id: node.id, bounds, anchor: lead ? measureDrawn(lead) ?? bounds : bounds, obstacles: solid ? [bounds] : parts };
     });
     const geometryRing = connectionRing(composition.links, nodes);
     ring = null;
@@ -790,6 +824,7 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
     for (const owner of [...animations.keys()]) cancelAnimations(owner);
     stopLoops();
     reveals.clear();
+    stated = [];
     ring = null;
     previousRevealed = -1;
     buildSteps = visualBuildSteps(scene?.items ?? []);
@@ -821,8 +856,10 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
     for (const owner of [...animations.keys()]) cancelAnimations(owner);
     stopLoops();
     reveals.clear();
+    stated = [];
     resizer?.disconnect();
     visibility?.disconnect();
+    document.removeEventListener('visibilitychange', updateDocumentVisibility);
     backdrop.dispose();
     presenterVideo.dispose();
     slide.remove();

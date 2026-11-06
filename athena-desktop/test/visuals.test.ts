@@ -5,8 +5,9 @@ import { join } from 'node:path';
 import { createContext, runInContext } from 'node:vm';
 import type { connectionGeometry, connectionRing } from '../assets/visualGeometry';
 import type { createPresenterVideo } from '../assets/visualVideo';
-import type { VisualVideoState } from '../assets/visualComposition';
-import type { alignVisualNodes, visualBuildSteps } from '../assets/visuals';
+import type { VisualNode, VisualVideoState } from '../assets/visualComposition';
+import type { alignVisualNodes, visualBuildSteps, visualNodeState } from '../assets/visuals';
+import type { buildVisualAsset, VISUAL_ASSETS, VisualAssetPart } from '../assets/visualAssets';
 
 test('preview and audience group simultaneous cues into the same visual build', async () => {
   const context = createContext({});
@@ -124,6 +125,137 @@ test('alignment snaps near-miss peers to shared centre lines and equal sizes wit
   assert.equal(apart[1]!.height, 112);
   assert.equal(apart[1]!.y - (apart[0]!.y + apart[0]!.height), 20);
   assert.equal(apart[0]!.x + apart[0]!.width / 2, apart[1]!.x + apart[1]!.width / 2);
+});
+
+const visualsContext = async () => {
+  const context = createContext({});
+  runInContext((await readFile(join(__dirname, '../../assets/visuals.js'), 'utf8'))
+    .replace(/^import .*;\r?$/gm, '').replace(/^export /gm, ''), context);
+  return context;
+};
+
+test('offscreen and hidden visual surfaces pause motion without losing reveal state', async () => {
+  const source = await readFile(join(__dirname, '../../assets/visuals.js'), 'utf8');
+  assert.match(source, /document\.addEventListener\('visibilitychange'/);
+  assert.match(source, /animation\.pause\(\)/);
+  assert.match(source, /animation\.play\(\)/);
+  assert.match(source, /visual-slide--motion-paused/);
+  assert.match(source, /setReveals\(packet\.revealed, wantsMotion\)/);
+});
+
+test('build states accumulate in reveal order and are recomputed from the reveal count so rewinding restores them', async () => {
+  const stateAt: typeof visualNodeState = (await visualsContext()).visualNodeState;
+  const resting = { x: 100, y: 300, scale: 1, opacity: 1, focus: false };
+  assert.deepEqual({ ...stateAt({ x: 100, y: 300 }, 9) }, resting);
+  const node: Pick<VisualNode, 'x' | 'y' | 'states'> = { x: 100, y: 300, states: [
+    { at: 2, x: 400, y: 320, focus: true },
+    { at: 4, scale: 0.8, opacity: 0.5 },
+    { at: 6, focus: false },
+  ] };
+  const at = (revealed: number) => ({ ...stateAt(node, revealed) });
+  assert.deepEqual(at(0), resting);
+  assert.deepEqual(at(1), resting);
+  const moved = { x: 400, y: 320, scale: 1, opacity: 1, focus: true };
+  assert.deepEqual(at(2), moved);
+  assert.deepEqual(at(3), moved);
+  const shrunk = { ...moved, scale: 0.8, opacity: 0.5 };
+  assert.deepEqual(at(4), shrunk);
+  assert.deepEqual(at(5), shrunk);
+  assert.deepEqual(at(6), { ...shrunk, focus: false });
+  assert.deepEqual(at(40), { ...shrunk, focus: false });
+  assert.deepEqual(at(3), moved);
+  assert.deepEqual(at(0), resting);
+});
+
+test('alignment treats roles as different subjects and leaves nodes whose states move them where they were authored', async () => {
+  const align: typeof alignVisualNodes = (await visualsContext()).alignVisualNodes;
+  const panel = (id: string, x: number, y: number, width: number, height: number): VisualNode => ({ id, kind: 'panel', x, y, width, height,
+    label: id, detail: '', tone: 'blue', icon: '', reveal: 0 });
+  const size = (node: VisualNode): string => `${node.width}x${node.height}`;
+  const [first, second] = [panel('a', 120, 400, 320, 140), panel('b', 640, 418, 260, 120)] as [VisualNode, VisualNode];
+  assert.deepEqual(Array.from(align([first, second]), size), ['320x144', '320x144']);
+  assert.deepEqual(Array.from(align([{ ...first, role: 'hero' }, { ...second, role: 'secondary' }]), size), ['320x144', '256x128']);
+
+  const trio = [first, panel('b', 640, 418, 300, 150), panel('c', 1140, 392, 320, 140)] as [VisualNode, VisualNode, VisualNode];
+  const centreLines = (nodes: VisualNode[]): number => new Set(nodes.map(node => node.y + node.height / 2)).size;
+  assert.equal(centreLines(align(trio)), 1);
+  const moving = align([trio[0], trio[1], { ...trio[2], states: [{ at: 1, scale: 1.1 }] }]);
+  assert.deepEqual({ x: moving[2]!.x, y: moving[2]!.y, width: moving[2]!.width, height: moving[2]!.height },
+    { x: 1140, y: 392, width: 320, height: 140 });
+  assert.equal(centreLines([moving[0]!, moving[1]!]), 1);
+  assert.equal(centreLines(align([trio[0], trio[1], { ...trio[2], states: [{ at: 1, opacity: 0.4 }] }])), 1);
+});
+
+class FakeSvgElement {
+  attributes = new Map<string, string>();
+  properties = new Map<string, string>();
+  children: FakeSvgElement[] = [];
+  style = { transformOrigin: '', setProperty: (name: string, value: string): void => { this.properties.set(name, value); } };
+  constructor(readonly name: string) {}
+  setAttribute(name: string, value: string): void { this.attributes.set(name, value); }
+  append(...children: FakeSvgElement[]): void { this.children.push(...children); }
+}
+
+test('every drawn graphic is plain bounded data that builds into inline svg with one entrance wrapper per part', async () => {
+  const context = createContext({});
+  const source = (await readFile(join(__dirname, '../../assets/visualAssets.js'), 'utf8')).replace(/^export /gm, '');
+  const library = runInContext(`${source}\n;({ VISUAL_ASSETS, buildVisualAsset })`, context) as
+    { VISUAL_ASSETS: typeof VISUAL_ASSETS; buildVisualAsset: typeof buildVisualAsset };
+  const document = { createElementNS: (_namespace: string, name: string) => new FakeSvgElement(name) } as unknown as Document;
+  const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+  const attributes: Record<string, string[]> = { rect: ['x', 'y', 'width', 'height', 'rx'], circle: ['cx', 'cy', 'r'],
+    line: ['x1', 'y1', 'x2', 'y2'], path: ['d'], g: [] };
+  const check = (id: string, part: VisualAssetPart): void => {
+    const name = `${id} ${part.shape}`;
+    assert.ok(Object.hasOwn(attributes, part.shape), `${name} is a known shape`);
+    if (part.paint !== undefined) assert.ok(['solid', 'soft', 'line', 'ink', 'inkline', 'shade', 'tint'].includes(part.paint), `${name} paint`);
+    if (part.tone !== undefined) assert.ok(['teal', 'blue', 'purple', 'neutral', 'warning', 'success', 'light'].includes(part.tone), `${name} tone`);
+    if (part.w !== undefined) assert.ok(finite(part.w) && part.w > 0, `${name} stroke width`);
+    if (part.draw) assert.ok(part.paint === 'line' || part.paint === 'inkline', `${name} only strokes draw on`);
+    if (part.dash !== undefined) assert.equal(part.dash, 'dashes');
+    if (part.motion === 'flow') assert.equal(part.dash, 'dashes', `${name} flows along a dashed stroke`);
+    if (part.motion === 'spin' || part.motion === 'spin-reverse' || part.motion === 'twinkle') {
+      assert.ok(part.shape === 'g' && part.origin?.length === 2 && part.origin.every(finite), `${name} turns about a drawn origin`);
+    }
+    if (part.shape === 'g') {
+      assert.equal(part.attrs, undefined, `${name} carries no attributes`);
+      assert.ok(part.parts && part.parts.length > 0, `${name} has parts`);
+      for (const child of part.parts) check(id, child);
+      return;
+    }
+    assert.equal(part.parts, undefined, `${name} has no children`);
+    const given = Object.entries(part.attrs ?? {});
+    assert.deepEqual(given.map(([key]) => key).filter(key => !attributes[part.shape]!.includes(key)), [], `${name} attribute names`);
+    if (part.shape === 'path') assert.match(String(part.attrs?.d), /^[MmLlHhVvCcSsQqTtAaZz0-9.,\s+-]+$/, `${name} path data`);
+    else assert.ok(given.length > 0 && given.every(([, value]) => finite(value)), `${name} geometry`);
+  };
+  const walk = (element: FakeSvgElement): FakeSvgElement[] => [element, ...element.children.flatMap(walk)];
+
+  const ids = Object.keys(library.VISUAL_ASSETS);
+  assert.ok(ids.length > 0);
+  for (const id of ids) {
+    const spec = library.VISUAL_ASSETS[id as keyof typeof VISUAL_ASSETS];
+    assert.ok(finite(spec.width) && spec.width > 0 && finite(spec.height) && spec.height > 0, `${id} drawing size`);
+    assert.ok(spec.parts.length > 0, `${id} has parts`);
+    for (const part of spec.parts) check(id, part);
+    const svg = library.buildVisualAsset(document, id) as unknown as FakeSvgElement | null;
+    assert.ok(svg, `${id} builds`);
+    assert.equal(svg.name, 'svg');
+    assert.equal(svg.attributes.get('viewBox'), `0 0 ${spec.width} ${spec.height}`);
+    assert.equal(svg.attributes.get('aria-hidden'), 'true');
+    assert.equal(svg.attributes.get('focusable'), 'false');
+    assert.equal(svg.children.length, spec.parts.length);
+    svg.children.forEach((entry, index) => {
+      assert.equal(entry.attributes.get('class'), 'visual-asset__entry');
+      assert.equal(entry.properties.get('--part-index'), String(index));
+      assert.equal(entry.children.length, 1);
+    });
+    for (const element of walk(svg)) {
+      assert.ok(['svg', 'g', 'rect', 'circle', 'line', 'path'].includes(element.name), `${id} draws only ${element.name}`);
+      assert.deepEqual([...element.attributes.keys()].filter(key => /^on|href|^style$/i.test(key)), [], `${id} ${element.name} markup`);
+    }
+  }
+  for (const id of ['unknown', 'constructor', '__proto__', 'toString', 'hasOwnProperty']) assert.equal(library.buildVisualAsset(document, id), null, id);
 });
 
 class FixtureElement {

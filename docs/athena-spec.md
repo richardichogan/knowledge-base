@@ -455,6 +455,24 @@ typed field; visual generation never applies it automatically. Audience output
 requires Desktop's `scriptVisualBranding` capability; older installations keep
 plain presenting available and report the update requirement only for visuals.
 
+**Drawn graphics, roles and build states.** Composition nodes can use `kind: "asset"`
+with one of twelve trusted vector graphics (foundation, workforce-pair, copilot, agent,
+automation, system, owner, outcome, boundary, layers, process, plan). Nodes may carry a
+`role` (hero, primary, secondary) and up to four timed `states` (position, scale, opacity,
+focus) that build the scene as the narration reaches later cues. `composition.frame:
+"around-presenter"` keeps a presenter-layout scene at full size around the presenter video
+instead of shrinking it, with every box and state kept clear of the video area. Four icons
+(clock, quality, coin, gauge) join the existing set. Compositions only ever name an asset
+id; the shared renderer owns all markup and motion, honouring reduced motion. Athena's
+`read_script_visuals` returns these fields with a compact grammar guide (assets, roles,
+states, presenter-safe area) for saved sections and pending results; she edits them by
+queueing Ariadne through `design_script_visuals`, and the result is reviewed and applied
+through the unchanged protected Review/Apply path. Nonessential motion pauses while the
+visual stage is offscreen or the document is hidden; cue state continues to follow the
+reading position and is recomputed after seeking. Presenting these graphics requires
+Desktop's `scriptVisualAssets` capability; older installations plain-present and report
+the update requirement only when browser visuals are opened.
+
 Both script editors offer **Spoken text**, **Script title**, **Chapter** and
 **Section heading** in their existing script toolbar. These are semantic paragraph
 and heading blocks, not colour conventions. Standalone notes persist their normal

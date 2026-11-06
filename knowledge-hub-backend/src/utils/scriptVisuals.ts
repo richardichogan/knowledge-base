@@ -11,6 +11,39 @@ const LIMITS = {
 const CONTENT_AREA = { left: 80, right: 1520, top: 240, bottom: 800, lastTop: 790,
   minSize: 40, maxWidth: 1440, maxHeight: 550 };
 const ART_AREA = { minX: -1600, maxX: 3200, minY: -900, maxY: 1800, maxRadius: 1600, minOpacity: 0.05 };
+export const VISUAL_ASSET_IDS = ['foundation', 'workforce-pair', 'copilot', 'agent', 'automation', 'system', 'owner',
+  'outcome', 'boundary', 'layers', 'process', 'plan'] as const;
+export const VISUAL_ICON_IDS = ['', 'person', 'worker', 'document', 'check', 'system', 'arrow', 'boundary', 'clock', 'quality', 'coin', 'gauge'] as const;
+const NODE_KINDS = ['panel', 'text', 'icon', 'image', 'asset'];
+const NODE_STATES = { perNode: 4, minScale: 0.5, maxScale: 1.4 };
+/** The presenter video (x1088–1520, y557–800) plus a 24px margin: framed graphics must stay clear of it. */
+export const PRESENTER_VIDEO_AREA = { left: 1064, top: 533, right: 1520, bottom: 800 };
+const ASSET_GUIDE: Record<typeof VISUAL_ASSET_IDS[number], string> = {
+  foundation: 'square, teal: a classical pediment on columns and a base; an operating model, platform or governance foundation',
+  'workforce-pair': '3:2, teal base: a person (purple) and a digital worker (blue) standing together; people and digital workers managed as one workforce',
+  copilot: 'square, blue: a speech-bubble assistant with a sparkle; AI that advises a person',
+  agent: 'square, teal: a hexagon with an orbiting ring and three connected nodes; a specialist agent with a defined role',
+  automation: 'square, neutral: two meshing gears; fixed, repeatable automation',
+  system: 'square, teal: a framed stack of three connected rows; a system or connected systems',
+  owner: 'square, purple: a person holding a green accountability shield; the accountable human owner',
+  outcome: 'square, success green: a target struck by an arrow; the business outcome',
+  boundary: 'square, warning amber: a dashed line with a padlock beside a person; where authority and approval sit',
+  layers: 'square, blue: three stacked isometric slabs, the top one solid; implementation layers or a stack',
+  process: '91:50 wide, blue: a request flowing through two documents to a result; one process from start to finish',
+  plan: 'square, teal: a clipboard with checkbox rows; a plan, controls or success measures',
+};
+/** Read by Athena and the visual designer so edits use exactly the vocabulary the renderer and both parsers accept. */
+export const VISUAL_GRAMMAR = {
+  nodeKinds: ['panel', 'text', 'icon', 'image', 'asset'],
+  asset: 'kind "asset" draws a trusted vector graphic named by `asset` above its label/detail caption. The drawing fills the box above the caption, centred and true to its proportions, so give the box the graphic\'s proportions plus about 72px for a one-line caption (96px for a hero) and make a hero graphic\'s box the largest on the scene. Assets draw themselves in with their cue and idle gently while presenting; leave `icon` empty on them.',
+  assets: ASSET_GUIDE,
+  icons: VISUAL_ICON_IDS.filter(Boolean),
+  role: 'Optional on panel, icon and asset nodes: hero (captions and icon symbols 1.45× with a glow on drawn graphics; use once per scene), primary (default), secondary (0.8×). A role never resizes the box, so make the hero\'s box the largest on the scene.',
+  states: `Optional build steps per node (up to ${NODE_STATES.perNode}): {at, x?, y?, scale?, opacity?, focus?}. "at" is a whole reveal number after the node's own reveal, ascending. x/y give the box's new top-left corner, scale ${NODE_STATES.minScale}–${NODE_STATES.maxScale} grows or shrinks it about its centre, opacity 0–1, focus true adds a highlight ring or glow. Later states keep earlier x/y/scale. Connected nodes may only change focus.`,
+  frame: 'composition.frame "around-presenter" (only with presenterLayout true) keeps the scene at full size around the presenter video instead of shrinking it; every node box, including each state, must then avoid the presenter area.',
+  presenterArea: PRESENTER_VIDEO_AREA,
+  contentArea: { left: CONTENT_AREA.left, right: CONTENT_AREA.right, top: CONTENT_AREA.top, bottom: CONTENT_AREA.bottom },
+};
 export type VisualTemplate = typeof VISUAL_TEMPLATES[number];
 export interface VisualCue { blockId: string; quote: string }
 export interface VisualArtwork {
@@ -48,9 +81,10 @@ function text(value: unknown, limit: number, label: string, empty = false): stri
   if (typeof value !== 'string' || value.length > limit || (!empty && !value.trim())) throw new Error(`Invalid visual ${label}.`);
   return value;
 }
-export function parseVisualComposition(value: unknown, reveals: number, titleOnly = false): VisualComposition {
+export function parseVisualComposition(value: unknown, reveals: number, titleOnly = false, presenter = false): VisualComposition {
   const data = object(value);
   if (data.imageTreatment !== undefined && data.imageTreatment !== 'full' && data.imageTreatment !== 'blend') throw new Error('Invalid header image treatment.');
+  if (data.frame !== undefined && data.frame !== 'around-presenter') throw new Error('Invalid composition frame. Use "around-presenter" or omit it.');
   if (!Array.isArray(data.nodes) || (!data.nodes.length && !data.imageTreatment && !titleOnly) || data.nodes.length > LIMITS.subjects
     || !Array.isArray(data.links) || data.links.length > LIMITS.subjects) throw new Error('A composition needs 1–24 nodes and at most 24 connections.');
   if (data.imageTreatment && (data.nodes.length || data.links.length || reveals)) throw new Error('A header image cannot be mixed with diagram nodes, connections or animated builds.');
@@ -69,15 +103,23 @@ export function parseVisualComposition(value: unknown, reveals: number, titleOnl
     return value as VisualNode['tone'];
   };
   const ids = new Set<string>();
+  const boxes = new Map<string, Array<{ left: number; top: number; right: number; bottom: number }>>();
   const nodes = data.nodes.map((raw): VisualNode => {
     const node = object(raw);
     const id = text(node.id, LIMITS.nodeId, 'node id');
     if (ids.has(id)) throw new Error('Composition node ids must be unique.');
     ids.add(id);
-    if (!['panel', 'text', 'icon', 'image'].includes(String(node.kind))) throw new Error(`Invalid composition node kind "${String(node.kind)}" on node "${id}". Use panel, text or icon.`);
+    const kind = String(node.kind);
+    if (!NODE_KINDS.includes(kind)) throw new Error(`Invalid composition node kind "${kind}" on node "${id}". Use panel, text, icon, image or asset.`);
     const icon = node.icon ?? '';
-    if (!['', 'person', 'worker', 'document', 'check', 'system', 'arrow', 'boundary'].includes(String(icon))) {
-      throw new Error(`Invalid composition icon "${String(icon)}" on node "${id}". Use "", person, worker, document, check, system, arrow or boundary.`);
+    if (!(VISUAL_ICON_IDS as readonly string[]).includes(String(icon))) {
+      throw new Error(`Invalid composition icon "${String(icon)}" on node "${id}". Use "", ${VISUAL_ICON_IDS.filter(Boolean).join(', ')}.`);
+    }
+    if (kind === 'asset') {
+      if (!(VISUAL_ASSET_IDS as readonly string[]).includes(String(node.asset))) throw new Error(`Invalid composition asset "${String(node.asset)}" on node "${id}". Use ${VISUAL_ASSET_IDS.join(', ')}.`);
+    } else if (node.asset !== undefined) throw new Error(`Composition node "${id}" can only name an asset when its kind is "asset".`);
+    if (node.role !== undefined && (!['hero', 'primary', 'secondary'].includes(String(node.role)) || !['panel', 'icon', 'asset'].includes(kind))) {
+      throw new Error(`Invalid composition role on node "${id}". Use hero, primary or secondary on a panel, icon or asset node; text nodes use size.`);
     }
     const x = number(node.x, CONTENT_AREA.left, CONTENT_AREA.right), y = number(node.y, CONTENT_AREA.top, CONTENT_AREA.lastTop);
     const width = number(node.width, CONTENT_AREA.minSize, CONTENT_AREA.maxWidth), height = number(node.height, CONTENT_AREA.minSize, CONTENT_AREA.maxHeight);
@@ -85,9 +127,43 @@ export function parseVisualComposition(value: unknown, reveals: number, titleOnl
     if (node.entrance !== undefined && !['fade', 'rise', 'left', 'right', 'scale', 'wipe'].includes(String(node.entrance))) throw new Error('Invalid composition entrance.');
     if (node.emphasis !== undefined && !['highlight', 'underline', 'strike'].includes(String(node.emphasis))) throw new Error('Invalid composition emphasis.');
     if (node.size !== undefined && !['xl', 'l', 'm', 's'].includes(String(node.size))) throw new Error('Invalid composition text size.');
-    return { id, kind: node.kind as VisualNode['kind'], x, y, width, height,
+    const appears = reveal(node.reveal);
+    const placed = [{ left: x, top: y, right: x + width, bottom: y + height }];
+    const states = node.states === undefined ? undefined : ((): VisualNodeState[] => {
+      if (!Array.isArray(node.states) || !node.states.length || node.states.length > NODE_STATES.perNode) throw new Error(`Node "${id}" states need 1–${NODE_STATES.perNode} entries.`);
+      let previous = appears, left = x, top = y, scale = 1;
+      return node.states.map((entry): VisualNodeState => {
+        const state = object(entry);
+        const at = reveal(state.at);
+        if (at <= previous) throw new Error(`State reveals on node "${id}" must increase and come after the node appears (reveal ${appears}).`);
+        previous = at;
+        const result: VisualNodeState = { at };
+        if (state.x !== undefined) result.x = number(state.x, CONTENT_AREA.left, CONTENT_AREA.right);
+        if (state.y !== undefined) result.y = number(state.y, CONTENT_AREA.top, CONTENT_AREA.lastTop);
+        if (state.scale !== undefined) result.scale = number(state.scale, NODE_STATES.minScale, NODE_STATES.maxScale);
+        if (state.opacity !== undefined) result.opacity = number(state.opacity, 0, 1);
+        if (state.focus !== undefined) {
+          if (typeof state.focus !== 'boolean' || !['panel', 'icon', 'asset'].includes(kind)) throw new Error(`Only panel, icon and asset nodes can take focus; node "${id}" cannot.`);
+          result.focus = state.focus;
+        }
+        if (Object.keys(result).length === 1) throw new Error(`A state on node "${id}" at reveal ${at} must change position, scale, opacity or focus.`);
+        left = result.x ?? left; top = result.y ?? top; scale = result.scale ?? scale;
+        const w = width * scale, h = height * scale;
+        const box = { left: left + (width - w) / 2, top: top + (height - h) / 2, right: left + (width + w) / 2, bottom: top + (height + h) / 2 };
+        if (box.left < CONTENT_AREA.left || box.top < CONTENT_AREA.top || box.right > CONTENT_AREA.right || box.bottom > CONTENT_AREA.bottom) {
+          throw new Error(`The state at reveal ${at} moves node "${id}" outside the presentation content area.`);
+        }
+        placed.push(box);
+        return result;
+      });
+    })();
+    boxes.set(id, placed);
+    return { id, kind: kind as VisualNode['kind'], x, y, width, height,
       label: text(node.label, LIMITS.nodeLabel, 'node label', true), detail: text(node.detail, LIMITS.nodeDetail, 'node detail', true),
-      icon: icon as VisualNode['icon'], tone: tone(node.tone), reveal: reveal(node.reveal),
+      icon: icon as VisualNode['icon'], tone: tone(node.tone), reveal: appears,
+      ...(kind === 'asset' ? { asset: node.asset as NonNullable<VisualNode['asset']> } : {}),
+      ...(node.role === undefined ? {} : { role: node.role as NonNullable<VisualNode['role']> }),
+      ...(states === undefined ? {} : { states }),
       ...(node.entrance === undefined ? {} : { entrance: node.entrance as NonNullable<VisualNode['entrance']> }),
       ...(node.emphasis === undefined ? {} : { emphasis: node.emphasis as NonNullable<VisualNode['emphasis']> }),
       ...(node.size === undefined ? {} : { size: node.size as NonNullable<VisualNode['size']> }),
@@ -99,6 +175,10 @@ export function parseVisualComposition(value: unknown, reveals: number, titleOnl
     if (!ids.has(from) || !ids.has(to) || from === to || !['solid', 'dashed'].includes(String(link.style))) throw new Error('Invalid composition connection.');
     const at = reveal(link.reveal);
     if (nodes.some(node => (node.id === from || node.id === to) && node.reveal > at)) throw new Error('Connections cannot appear before their endpoints.');
+    for (const end of [from, to]) {
+      const moves = nodes.find(node => node.id === end)?.states?.some(state => state.x !== undefined || state.y !== undefined || state.scale !== undefined || state.opacity !== undefined);
+      if (moves) throw new Error(`Node "${end}" is connected, so its states can only change focus: connections do not follow nodes that move, scale or fade.`);
+    }
     if (link.motion !== undefined && !['draw', 'flow'].includes(String(link.motion))) throw new Error('Invalid composition connection motion.');
     if (link.route !== undefined && !['direct', 'arc'].includes(String(link.route))) throw new Error('Invalid composition connection route.');
     for (const port of [link.fromPort, link.toPort]) {
@@ -110,8 +190,17 @@ export function parseVisualComposition(value: unknown, reveals: number, titleOnl
       ...(link.fromPort === undefined ? {} : { fromPort: link.fromPort as NonNullable<VisualLink['fromPort']> }),
       ...(link.toPort === undefined ? {} : { toPort: link.toPort as NonNullable<VisualLink['toPort']> }) };
   });
+  if (presenter && data.frame === 'around-presenter') {
+    const area = PRESENTER_VIDEO_AREA;
+    for (const [id, placed] of boxes) {
+      if (placed.some(box => box.left < area.right && box.right > area.left && box.top < area.bottom && box.bottom > area.top)) {
+        throw new Error(`Node "${id}" overlaps the presenter video (x ${area.left}–${area.right}, y ${area.top}–${area.bottom}). Keep framed graphics in the free area left of it or above it.`);
+      }
+    }
+  }
   return { label: text(data.label, LIMITS.sceneLabel, 'scene label', true), imagePrompt: text(data.imagePrompt, LIMITS.imagePrompt, 'image brief', true), nodes, links,
-    ...(data.imageTreatment === undefined ? {} : { imageTreatment: data.imageTreatment as NonNullable<VisualComposition['imageTreatment']> }) };
+    ...(data.imageTreatment === undefined ? {} : { imageTreatment: data.imageTreatment as NonNullable<VisualComposition['imageTreatment']> }),
+    ...(data.frame === undefined ? {} : { frame: 'around-presenter' as const }) };
 }
 export function parseVisualArtwork(value: unknown): VisualArtwork {
   const input = object(value);
@@ -252,7 +341,7 @@ export function parseScriptVisuals(value: unknown, section?: VisualScriptBlock):
     if (imageUrl && !/^https:\/\//i.test(imageUrl)) throw new Error('Visual images require an HTTPS URL.');
     if (template === 'image' && !imageUrl && !scene.composition) throw new Error('An image scene requires an existing image.');
     const composition = scene.composition === undefined ? undefined
-      : parseVisualComposition(scene.composition, template === 'close' ? 0 : scene.items.length, template === 'title' || template === 'close');
+      : parseVisualComposition(scene.composition, template === 'close' ? 0 : scene.items.length, template === 'title' || template === 'close', scene.presenterLayout === true);
     if (composition?.imageTreatment && (!['title', 'image'].includes(template) || (!imageUrl && !composition.imagePrompt) || scene.artwork)) {
       throw new Error('Full-screen or blended imagery belongs to a static title/image scene with a supplied image or image brief.');
     }
@@ -302,6 +391,6 @@ export function readSectionVisuals(section: VisualScriptBlock): ScriptVisuals | 
   const raw = section.props?.scriptVisuals;
   return typeof raw === 'string' && raw ? parseScriptVisuals(raw) : null;
 }
-import type { VisualComposition, VisualNode, VisualLink } from '../types/visualComposition.js';
+import type { VisualComposition, VisualNode, VisualNodeState, VisualLink } from '../types/visualComposition.js';
 
 export type { VisualComposition } from '../types/visualComposition.js';

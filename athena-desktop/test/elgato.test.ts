@@ -72,6 +72,38 @@ test('desktop validates composed nodes, geometry and connections at its independ
   ] } }], 20), /connection/);
 });
 
+test('desktop validates drawn graphics, roles, build states and the presenter frame at its trust boundary', () => {
+  const hero = { id: 'hero', kind: 'asset', asset: 'foundation', role: 'hero', x: 120, y: 250, width: 300, height: 372,
+    label: 'Operating model', detail: '', icon: '', tone: 'teal', reveal: 1,
+    states: [{ at: 2, focus: true }, { at: 3, x: 200, y: 280, scale: 0.8, opacity: 0.9 }] };
+  const gauge = { id: 'gauge', kind: 'icon', role: 'secondary', x: 560, y: 300, width: 200, height: 220,
+    label: 'Quality', detail: '', icon: 'gauge', tone: 'blue', reveal: 2 };
+  const composition = { label: 'Operating model', imagePrompt: '', frame: 'around-presenter', nodes: [hero, gauge], links: [] };
+  const scene = { id: 'framed', template: 'concept', title: 'Work becoming organised', subtitle: '', imageUrl: '', imageAlt: '',
+    presenterLayout: true, at: 0, composition, items: [10, 20, 30].map(at => ({ label: `Step ${at / 10}`, detail: '', at })) };
+  assert.deepEqual(parsePresentationVisuals([scene], 40), [scene]);
+  const link = { from: 'hero', to: 'gauge', label: '', tone: 'teal', reveal: 2, style: 'solid' };
+  const changed = (patch: Record<string, unknown>, extra: Record<string, unknown> = {}) => [{ ...scene,
+    composition: { ...composition, ...extra, nodes: [{ ...hero, ...patch }, gauge] } }];
+  const rejected: Array<[string, Record<string, unknown>, RegExp]> = [
+    ['an unknown asset', { asset: 'dragon' }, /asset/],
+    ['an asset name on a panel', { kind: 'panel' }, /asset/],
+    ['an unknown role', { role: 'giant' }, /role/],
+    ['a role on a text node', { kind: 'text', asset: undefined, role: 'hero' }, /role/],
+    ['an unknown icon', { icon: 'rocket' }, /node type/],
+    ['too many states', { states: [1, 2, 3, 4, 5].map(at => ({ at, focus: true })) }, /states/],
+    ['a repeated state reveal', { states: [{ at: 2, focus: true }, { at: 2, focus: false }] }, /state order/],
+    ['an empty state', { states: [{ at: 2 }] }, /composition state\./],
+    ['a non-boolean focus', { states: [{ at: 2, focus: 'yes' }] }, /focus/],
+    ['a scale beyond range', { states: [{ at: 2, scale: 3 }] }, /geometry/],
+    ['a state outside the stage', { states: [{ at: 2, x: 1500 }] }, /outside the stage/],
+  ];
+  for (const [name, patch, error] of rejected) assert.throws(() => parsePresentationVisuals(changed(patch), 40), error, name);
+  assert.throws(() => parsePresentationVisuals(changed({}, { frame: 'fullscreen' }), 40), /frame/);
+  assert.throws(() => parsePresentationVisuals(changed({}, { links: [link] }), 40), /connected/);
+  assert.ok(parsePresentationVisuals(changed({ states: [{ at: 2, focus: true }] }, { links: [link] }), 40));
+});
+
 test('desktop accepts standalone static headers and typographic titles, not image/diagram mixtures', () => {
   const composition = { label: 'Chapter one', imagePrompt: '', nodes: [], links: [] };
   const title = { id: 'one', template: 'title', title: 'Human responsibility', subtitle: '', imageUrl: '', imageAlt: '',
@@ -102,6 +134,10 @@ test('local scene delivery holds scenes, reverses reveals and rejects cross-orig
     assert.equal(page.headers.get('permissions-policy'), 'camera=(self), microphone=()');
     assert.equal(page.headers.get('access-control-allow-origin'), null);
     await page.text();
+    const assets = await fetch(new URL('visualAssets.js', url));
+    assert.equal(assets.status, 200);
+    assert.equal(assets.headers.get('content-type'), 'text/javascript');
+    assert.match(await assets.text(), /export const VISUAL_ASSETS/);
     assert.equal((await fetch(new URL('/wrong/', url))).status, 404);
     assert.equal((await fetch(url, { headers: { Origin: 'https://untrusted.example' } })).status, 403);
     assert.equal((await fetch(url, { method: 'POST' })).status, 403);

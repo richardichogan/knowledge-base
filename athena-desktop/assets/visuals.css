@@ -28,9 +28,6 @@ body, .visual-root { margin: 0; height: 100vh; overflow: hidden; background: #16
   background: linear-gradient(90deg, rgba(22, 22, 22, 0.6), rgba(22, 22, 22, 0) 58%), linear-gradient(0deg, rgba(22, 22, 22, 0.7), rgba(22, 22, 22, 0) 22%); }
 .slide-backdrop__glow { position: absolute; width: 1200px; height: 1200px; right: -440px; top: -640px; border-radius: 50%;
   background: radial-gradient(circle, rgba(15, 98, 254, 0.22), rgba(15, 98, 254, 0.06) 45%, rgba(15, 98, 254, 0) 68%); }
-.slide-backdrop__network { position: absolute; inset: 0; width: 100%; height: 100%; }
-.visual-slide--live .slide-backdrop__glow { animation: slide-breathe 14s ease-in-out infinite alternate; }
-@keyframes slide-breathe { from { transform: scale(0.92); opacity: 0.7; } to { transform: translate(-60px, 40px) scale(1.08); opacity: 1; } }
 .slide-layers, .slide-layer { position: absolute; inset: 0; }
 .slide-layers { z-index: 1; }
 .slide-layer--leaving { pointer-events: none; }
@@ -108,16 +105,17 @@ body, .visual-root { margin: 0; height: 100vh; overflow: hidden; background: #16
 .visual-node__icon { flex-shrink: 0; fill: none; stroke: var(--node-tone); stroke-width: 1.75; stroke-linejoin: round; stroke-linecap: round; }
 
 .visual-node--panel { padding: 24px 28px; overflow: hidden; background: #262626; border-left: 4px solid var(--node-tone); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04); }
-.visual-node--panel h2 { font-size: 32px; font-weight: 400; line-height: 1.2; letter-spacing: -0.005em; }
-.visual-node--panel .visual-node__icon { width: 40px; height: 40px; }
+.visual-node--panel h2 { font-size: calc(32px * var(--role-scale, 1)); font-weight: 400; line-height: 1.2; letter-spacing: -0.005em; }
+.visual-node--panel .visual-node__detail { font-size: calc(22px * var(--role-scale, 1)); }
+.visual-node--panel .visual-node__icon { width: calc(40px * var(--role-scale, 1)); height: calc(40px * var(--role-scale, 1)); }
 
 .visual-node--icon { justify-content: flex-start; align-items: center; gap: 20px; text-align: center; }
-.visual-node--icon h2 { font-size: 30px; font-weight: 400; line-height: 1.2; text-align: center; }
+.visual-node--icon h2 { font-size: calc(30px * var(--role-scale, 1)); font-weight: 400; line-height: 1.2; text-align: center; }
 .visual-node--icon .visual-node__kicker, .visual-node--icon .visual-node__detail { text-align: center; }
-.visual-node--icon .visual-node__detail { font-size: 20px; }
-.visual-node__disc { position: relative; flex-shrink: 0; width: 112px; height: 112px; display: grid; place-items: center; border-radius: 50%;
+.visual-node--icon .visual-node__detail { font-size: calc(20px * var(--role-scale, 1)); }
+.visual-node__disc { position: relative; flex-shrink: 0; width: calc(112px * var(--role-scale, 1)); height: calc(112px * var(--role-scale, 1)); display: grid; place-items: center; border-radius: 50%;
   border: 3px solid var(--node-tone); background: color-mix(in srgb, var(--node-tone) 12%, #161616); }
-.visual-node__disc .visual-node__icon { width: 52px; height: 52px; }
+.visual-node__disc .visual-node__icon { width: calc(52px * var(--role-scale, 1)); height: calc(52px * var(--role-scale, 1)); }
 .visual-node__ripple { position: absolute; inset: -3px; border-radius: 50%; border: 2px solid var(--node-tone); opacity: 0; pointer-events: none; }
 .visual-node__dot { width: 20px; height: 20px; border-radius: 50%; background: var(--node-tone); }
 
@@ -133,6 +131,57 @@ body, .visual-root { margin: 0; height: 100vh; overflow: hidden; background: #16
 
 .visual-node--image { overflow: hidden; }
 .visual-node--image img { width: 100%; height: 100%; object-fit: cover; }
+
+/* Roles: one hero reads first and secondary nodes step back; sizes follow --role-scale (the renderer sizes icon discs the same way). */
+.visual-node--hero { --role-scale: 1.45; }
+.visual-node--secondary { --role-scale: 0.8; }
+
+/* Drawn graphics: a trusted vector asset above its caption, centred in the node box. */
+.visual-node--asset { justify-content: center; align-items: center; gap: 16px; text-align: center; }
+.visual-node--asset > .visual-asset { flex: 1 1 0; min-height: 0; width: 100%; transition: filter 500ms var(--visual-ease); }
+.visual-node--asset h2 { font-size: calc(30px * var(--role-scale, 1)); font-weight: 400; line-height: 1.2; text-align: center; }
+.visual-node--asset .visual-node__kicker, .visual-node--asset .visual-node__detail { text-align: center; }
+.visual-node--asset .visual-node__detail { font-size: calc(20px * var(--role-scale, 1)); }
+.visual-asset { display: block; overflow: visible; --part-tone: var(--node-tone, var(--visual-teal)); }
+.visual-asset [data-tone='teal'] { --part-tone: var(--visual-teal); }
+.visual-asset [data-tone='blue'] { --part-tone: var(--visual-blue); }
+.visual-asset [data-tone='purple'] { --part-tone: var(--visual-purple); }
+.visual-asset [data-tone='neutral'] { --part-tone: var(--visual-neutral); }
+.visual-asset [data-tone='warning'] { --part-tone: var(--visual-warning); }
+.visual-asset [data-tone='success'] { --part-tone: var(--visual-success); }
+.visual-asset [data-tone='light'] { --part-tone: #f4f4f4; }
+.visual-asset__part { stroke-linecap: round; stroke-linejoin: round; }
+.visual-asset__part--solid { fill: var(--part-tone); }
+.visual-asset__part--soft { fill: var(--part-tone); fill-opacity: 0.18; stroke: var(--part-tone); stroke-width: calc(var(--w, 4) * 1px); }
+.visual-asset__part--line { fill: none; stroke: var(--part-tone); stroke-width: calc(var(--w, 5) * 1px); }
+.visual-asset__part--ink { fill: #161616; }
+.visual-asset__part--inkline { fill: none; stroke: #161616; stroke-width: calc(var(--w, 5) * 1px); }
+.visual-asset__part--shade { fill: var(--part-tone); fill-opacity: 0.5; }
+.visual-asset__part--tint { fill: var(--part-tone); fill-opacity: 0.3; }
+.visual-asset [data-dash='dashes'] { stroke-dasharray: 14 10; }
+
+/* Assets assemble part by part as their cue lands; strokes draw on; idle motion belongs to the drawing, never the node. */
+.visual-asset__entry { transform-box: fill-box; transform-origin: center; }
+.composition-visible:not(.composition-settled) .visual-asset__entry { animation: asset-assemble 640ms var(--visual-ease) calc(var(--emphasis-delay, 420ms) - 320ms + var(--part-index, 0) * 90ms) backwards; }
+.composition-visible:not(.composition-settled) .visual-asset__part--draw { animation: asset-draw 900ms var(--visual-ease) calc(var(--emphasis-delay, 420ms) - 80ms + var(--part-index, 0) * 90ms) backwards; }
+@keyframes asset-assemble { from { opacity: 0; transform: scale(0.72); } to { opacity: 1; transform: none; } }
+@keyframes asset-draw { from { opacity: 0; stroke-dasharray: 1; stroke-dashoffset: 1; } 8% { opacity: 1; } to { opacity: 1; stroke-dasharray: 1; stroke-dashoffset: 0; } }
+.visual-slide--live .visual-asset [data-motion='spin'] { animation: asset-spin 30s linear infinite; }
+.visual-slide--live .visual-asset [data-motion='spin-reverse'] { animation: asset-spin 17.5s linear infinite reverse; }
+.visual-slide--live .visual-asset [data-motion='flow'] { animation: asset-flow 1.4s linear infinite; }
+.visual-slide--live .visual-asset [data-motion='twinkle'] { animation: asset-twinkle 3.2s ease-in-out infinite; }
+.visual-slide--motion-paused * { animation-play-state: paused !important; }
+@keyframes asset-spin { to { transform: rotate(360deg); } }
+@keyframes asset-flow { to { stroke-dashoffset: -24; } }
+@keyframes asset-twinkle { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(0.7) rotate(20deg); opacity: 0.6; } }
+
+/* Build states: a node the narration moves or fades rides a mover group so its layout box never changes. */
+.composition-mover { transform-box: view-box; transform-origin: 0 0; }
+.visual-node { transition: box-shadow 500ms var(--visual-ease); }
+.visual-node--panel.visual-node--focus { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04), 0 0 0 3px var(--node-tone); }
+.visual-node--icon.visual-node--focus .visual-node__disc { box-shadow: 0 0 0 4px #161616, 0 0 0 7px var(--node-tone); }
+.visual-node__disc { transition: box-shadow 500ms var(--visual-ease); }
+.visual-node--asset.visual-node--focus > .visual-asset, .visual-node--asset.visual-node--hero > .visual-asset { filter: drop-shadow(0 14px 28px color-mix(in srgb, var(--node-tone) 38%, transparent)); }
 
 /* Ambient motion: a slight float keeps standalone subjects alive; pulsing is reserved for warnings. */
 .visual-slide--live .composition-visible:not(.composition-linked) > .visual-node { animation: visual-float 6s ease-in-out var(--float-delay, 0s) infinite alternate; }
@@ -233,9 +282,12 @@ body, .visual-root { margin: 0; height: 100vh; overflow: hidden; background: #16
 #status[hidden] { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .slide-backdrop__glow, .slide-title-block > *, .scene-content, .item--visible, .visual-node, .visual-node__disc,
+  .slide-title-block > *, .scene-content, .item--visible, .visual-node, .visual-node__disc,
+  .visual-asset__entry, .visual-asset__part, .visual-asset [data-motion],
+  .composition-visible:not(.composition-settled) .visual-asset__entry,
+  .composition-visible:not(.composition-settled) .visual-asset__part--draw,
   .composition-visible:not(.composition-settled) .visual-emphasis,
   .composition-visible:not(.composition-settled) .visual-emphasis--strike::after { animation: none !important; }
-  .slide-progress > span { transition: none; }
+  .slide-progress > span, .visual-node, .visual-node__disc, .visual-node--asset > .visual-asset { transition: none; }
   .composition-token, .composition-ring__dot { display: none; }
 }

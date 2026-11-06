@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import { build } from 'esbuild';
-import { presentationScript, requiresVisualCraft, requiresVisualMotion } from '../src/features/autocue/presentationScript';
+import { presentationScript, requiresVisualAssets, requiresVisualCraft, requiresVisualMotion } from '../src/features/autocue/presentationScript';
 import { appendVoiceTranscript, finishVoiceTranscript, submitVoiceTranscript } from '../src/services/voiceTranscript';
 import { encodeWav, resampleVoiceAudio } from '../src/components/athena/speech';
 import { parseScriptBullets, scriptSentenceLines } from '../src/features/podcasts/scriptFormatting';
@@ -13,9 +13,10 @@ import { scriptRichDocument, scriptRichText } from '../src/features/podcasts/scr
 import { scriptAnnotationRuns, scriptInlineContent, scriptReadingText, spokenScriptText } from '../../knowledge-hub-backend/src/podcasts/scriptAnnotations';
 import { annotatedPresentation } from '../src/features/podcasts/scriptAnnotations';
 import { SCRIPT_COLOUR_VALUES } from '../src/features/podcasts/scriptRichText';
-import { parseScriptVisuals, parseVisualArtwork, parseVisualComposition, scriptVisualSource, visualSourceCurrent, type VisualScriptBlock } from '../../knowledge-hub-backend/src/utils/scriptVisuals';
-import { parsePresentationVisuals } from '../../athena-desktop/src/elgatoProtocol';
-import { openPresentationVisuals, presentedVisualIssue, recordPresentedVisuals, visualBrandingIssue } from '../src/features/autocue/presentedVisuals';
+import { parseScriptVisuals, parseVisualArtwork, parseVisualComposition, scriptVisualSource, visualSourceCurrent, VISUAL_ASSET_IDS, VISUAL_GRAMMAR, VISUAL_ICON_IDS, type VisualScriptBlock } from '../../knowledge-hub-backend/src/utils/scriptVisuals';
+import { PRESENTATION_ASSET_IDS, parsePresentationVisuals } from '../../athena-desktop/src/elgatoProtocol';
+import { VISUAL_ASSETS } from '../../athena-desktop/assets/visualAssets.js';
+import { desktopVisualIssue, openPresentationVisuals, presentedVisualIssue, recordPresentedVisuals, visualAssetsIssue, visualBrandingIssue } from '../src/features/autocue/presentedVisuals';
 
 test('opening browser visuals waits for presentation startup and checks the newly saved snapshot', async () => {
   const calls: string[] = [];
@@ -54,6 +55,8 @@ test('both browser visuals controls start presenting rather than require an exis
   assert.match(notes, /onOpenVisuals=\{openVisualsHandler\}/);
   assert.match(presenter, /openPresentationVisuals\(startPresentation,/);
   assert.doesNotMatch(presenter, /disabled=\{busy \|\| !connected \|\| !desktop.openVisuals\}/);
+  assert.doesNotMatch(presenter, /disabled=\{[^}]*!desktop\.openVisuals/);
+  assert.match(presenter, /Update Athena Desktop to open browser visuals/);
 });
 
 test('layered compositions preserve semantic links and reject unsafe geometry and impossible reveal order', () => {
@@ -161,9 +164,169 @@ test('older Desktop can present plain text and shows the branding error only whe
   assert.equal(opened, false);
   const notes = await readFile(new URL('../src/notes/NotesPage.tsx', import.meta.url), 'utf8');
   const presenter = await readFile(new URL('../src/features/autocue/Presenter.tsx', import.meta.url), 'utf8');
-  assert.match(notes, /visuals: brandingIssue \? \[\] : script.visuals/);
-  assert.match(presenter, /visuals: brandingIssue \? \[\] : visuals/);
-  assert.doesNotMatch(notes + presenter, /if \([^;\n]*scriptVisualBranding[^;\n]*throw/);
+  assert.match(notes, /visuals: desktopIssue \? \[\] : script.visuals/);
+  assert.match(presenter, /visuals: desktopIssue \? \[\] : visuals/);
+  assert.doesNotMatch(notes + presenter, /visualsUnsupported/);
+  assert.doesNotMatch(notes + presenter, /if \([^;\n]*scriptVisual(?:s|Compositions|Motion|Craft|Branding|Assets)[^;\n]*throw/);
+});
+
+const FRAME_CUE = { blockId: 'spoken', quote: '' };
+const framedScene = (composition: unknown, count = 3) => ({ id: 'framed', template: 'concept', title: 'Work becoming organised', subtitle: '',
+  imageUrl: '', imageAlt: '', presenterLayout: true, at: 0, composition,
+  items: Array.from({ length: count }, (_, index) => ({ label: `Step ${index + 1}`, detail: '', at: (index + 1) * 10 })) });
+const framedPack = (composition: unknown, presenterLayout?: boolean, count = 3) => ({ version: 1, source: '', scenes: [{
+  id: 'framed', template: 'concept', title: 'Work becoming organised', subtitle: '', cue: FRAME_CUE, imageUrl: '', imageAlt: '',
+  ...(presenterLayout === undefined ? {} : { presenterLayout }), composition,
+  items: Array.from({ length: count }, (_, index) => ({ label: `Step ${index + 1}`, detail: '', cue: FRAME_CUE })) }] });
+
+test('framed scenes with drawn graphics, roles and build states survive the script, presentation and Desktop parsers unchanged', () => {
+  const section: VisualScriptBlock = { id: 'section', type: 'heading', props: { scriptSection: true }, children: [
+    { id: 'spoken', type: 'paragraph', content: [{ type: 'text', text: 'Strategy needs an operating model.' }] },
+  ] };
+  const composition = { label: 'Work becoming organised', imagePrompt: '', frame: 'around-presenter', nodes: [
+    { id: 'pair', kind: 'asset', asset: 'workforce-pair', role: 'hero', x: 120, y: 250, width: 360, height: 372,
+      label: 'One workforce', detail: '', icon: '', tone: 'teal', reveal: 1,
+      states: [{ at: 2, focus: true }, { at: 3, x: 220, y: 300, scale: 0.8, opacity: 0.9 }] },
+    { id: 'request', kind: 'panel', x: 560, y: 300, width: 280, height: 150, label: 'Request', detail: '', icon: 'document',
+      tone: 'blue', reveal: 1, states: [{ at: 3, focus: true }] },
+    { id: 'result', kind: 'panel', x: 900, y: 300, width: 280, height: 150, label: 'Result', detail: '', icon: 'check',
+      tone: 'success', reveal: 2 },
+    { id: 'time', kind: 'icon', role: 'secondary', x: 560, y: 520, width: 200, height: 220, label: 'Time', detail: '', icon: 'clock',
+      tone: 'blue', reveal: 3 },
+  ], links: [{ from: 'request', to: 'result', label: 'Handoff', tone: 'teal', reveal: 2, style: 'solid' }] };
+  assert.deepEqual(parseVisualComposition(composition, 3, false, true), composition);
+  const pack = { ...framedPack(composition, true), source: scriptVisualSource(section) };
+  assert.deepEqual(parseScriptVisuals(pack, section).scenes[0]?.composition, composition);
+  section.props!['scriptVisuals'] = JSON.stringify(pack);
+  const prepared = presentationScript(JSON.stringify([section]), { script: true });
+  assert.equal(prepared.visualIssue, null);
+  assert.deepEqual(prepared.visuals[0]?.composition, composition);
+  assert.equal(requiresVisualAssets(prepared.visuals), true);
+  assert.deepEqual(parsePresentationVisuals(prepared.visuals, prepared.text.length)?.[0]?.composition, composition);
+  assert.deepEqual(parsePresentationVisuals([framedScene(composition)], 40), [framedScene(composition)]);
+});
+
+test('drawn graphics, roles, build states and the presenter frame are rejected consistently by the script and Desktop parsers', () => {
+  const hero = { id: 'hero', kind: 'asset', asset: 'foundation', role: 'hero', x: 120, y: 250, width: 300, height: 372,
+    label: 'Operating model', detail: '', icon: '', tone: 'teal', reveal: 1 };
+  const compose = (patch: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) => (
+    { label: '', imagePrompt: '', nodes: [{ ...hero, ...patch }], links: [], ...extra });
+  const script = (composition: unknown) => parseVisualComposition(composition, 2, false, true);
+  const desktop = (composition: unknown) => parsePresentationVisuals([framedScene(composition, 2)], 40);
+  assert.equal(script(compose()).nodes[0]?.asset, 'foundation');
+  assert.equal(desktop(compose())?.[0]?.composition?.nodes[0]?.asset, 'foundation');
+  const rejected: Array<[string, Record<string, unknown>, RegExp, RegExp]> = [
+    ['an unknown asset', { asset: 'dragon' }, /asset/, /asset/],
+    ['an asset name on a panel', { kind: 'panel' }, /asset/, /asset/],
+    ['an unknown role', { role: 'giant' }, /role/, /role/],
+    ['a role on a text node', { kind: 'text', asset: undefined, role: 'hero' }, /role/, /role/],
+    ['an unknown icon', { kind: 'icon', asset: undefined, role: undefined, icon: 'rocket' }, /icon/, /node type/],
+    ['an empty state list', { states: [] }, /states need/, /composition states/],
+    ['five states', { states: [2, 3, 4, 5, 6].map(at => ({ at, focus: true })) }, /states need/, /composition states/],
+    ['a repeated state reveal', { states: [{ at: 2, focus: true }, { at: 2, focus: false }] }, /must increase/, /state order/],
+    ['a state before the node appears', { states: [{ at: 1, focus: true }] }, /must increase/, /state order/],
+    ['a state beyond the last item', { states: [{ at: 3, focus: true }] }, /geometry or reveal/, /geometry/],
+    ['a fractional state reveal', { states: [{ at: 1.5, focus: true }] }, /whole item/, /reveal/],
+    ['a state that changes nothing', { states: [{ at: 2 }] }, /must change/, /composition state\./],
+    ['a non-boolean focus', { states: [{ at: 2, focus: 'yes' }] }, /take focus/, /composition focus/],
+    ['focus on a text node', { kind: 'text', asset: undefined, role: undefined, states: [{ at: 2, focus: true }] }, /take focus/, /composition focus/],
+    ['a scale beyond range', { states: [{ at: 2, scale: 3 }] }, /geometry or reveal/, /geometry/],
+    ['an opacity beyond range', { states: [{ at: 2, opacity: 1.5 }] }, /geometry or reveal/, /geometry/],
+    ['a state that moves out of the content area', { states: [{ at: 2, x: 1500 }] }, /outside the presentation content area/, /outside the stage/],
+    ['a state that scales out of the content area', { states: [{ at: 2, scale: 1.4 }] }, /outside the presentation content area/, /outside the stage/],
+  ];
+  for (const [name, patch, scriptError, desktopError] of rejected) {
+    assert.throws(() => script(compose(patch)), scriptError, `script parser: ${name}`);
+    assert.throws(() => desktop(compose(patch)), desktopError, `Desktop parser: ${name}`);
+  }
+  assert.throws(() => script(compose({}, { frame: 'fullscreen' })), /frame/);
+  assert.throws(() => desktop(compose({}, { frame: 'fullscreen' })), /frame/);
+  const connected = (states: unknown) => ({ label: '', imagePrompt: '', nodes: [{ ...hero, states },
+    { ...hero, id: 'other', kind: 'panel', asset: undefined, role: undefined, x: 600, width: 280, height: 150 }],
+    links: [{ from: 'hero', to: 'other', label: '', tone: 'teal', reveal: 1, style: 'solid' }] });
+  assert.throws(() => script(connected([{ at: 2, x: 200 }])), /connected/);
+  assert.throws(() => desktop(connected([{ at: 2, x: 200 }])), /connected/);
+  assert.equal(script(connected([{ at: 2, focus: true }])).links.length, 1);
+  assert.equal(desktop(connected([{ at: 2, focus: true }]))?.[0]?.composition?.links.length, 1);
+});
+
+test('framed graphics must stay clear of the presenter video, including every build state, only on presenter scenes', () => {
+  const hero = { id: 'hero', kind: 'asset', asset: 'foundation', x: 1100, y: 600, width: 300, height: 150,
+    label: 'Operating model', detail: '', icon: '', tone: 'teal', reveal: 1 };
+  const framed = (patch: Record<string, unknown> = {}) => ({ label: '', imagePrompt: '', frame: 'around-presenter',
+    nodes: [{ ...hero, ...patch }], links: [] });
+  assert.throws(() => parseVisualComposition(framed(), 2, false, true), /overlaps the presenter video/);
+  assert.equal(parseVisualComposition(framed(), 2).nodes.length, 1);
+  assert.equal(parseVisualComposition({ ...framed(), frame: undefined }, 2, false, true).nodes.length, 1);
+  const travelling = { x: 600, y: 300, states: [{ at: 2, x: 1200, y: 600 }] };
+  assert.throws(() => parseVisualComposition(framed(travelling), 2, false, true), /presenter video/);
+  assert.equal(parseVisualComposition(framed({ x: 600, y: 300, states: [{ at: 2, x: 700 }] }), 2, false, true).nodes.length, 1);
+  assert.throws(() => parseScriptVisuals(framedPack(framed(), true, 2)), /presenter video/);
+  assert.equal(parseScriptVisuals(framedPack(framed(), false, 2)).scenes.length, 1);
+  assert.equal(parseScriptVisuals(framedPack(framed(), undefined, 2)).scenes.length, 1);
+});
+
+test('plain presenting never depends on drawn-graphics support: only opening visuals reports an older Desktop', async () => {
+  const node = { id: 'node', kind: 'panel', x: 120, y: 260, width: 300, height: 200, label: 'Node', detail: '', icon: 'worker',
+    tone: 'teal', reveal: 1 };
+  const visualsFor = (patch: Record<string, unknown> = {}, frame?: string) => parsePresentationVisuals([framedScene({
+    label: '', imagePrompt: '', nodes: [{ ...node, ...patch }], links: [], ...(frame ? { frame } : {}) }, 2)], 40)!;
+  assert.equal(requiresVisualAssets(visualsFor()), false);
+  assert.equal(requiresVisualAssets([]), false);
+  const drawn = visualsFor({ kind: 'asset', asset: 'system', icon: '' });
+  const triggers: Record<string, ReturnType<typeof visualsFor>> = {
+    'a drawn graphic': drawn,
+    'a node role': visualsFor({ role: 'secondary' }),
+    'a build state': visualsFor({ states: [{ at: 2, focus: true }] }),
+    'the presenter frame': visualsFor({}, 'around-presenter'),
+    ...Object.fromEntries(['clock', 'quality', 'coin', 'gauge'].map(icon => [`the ${icon} icon`, visualsFor({ icon })])),
+  };
+  for (const [name, visuals] of Object.entries(triggers)) {
+    assert.equal(requiresVisualAssets(visuals), true, name);
+    assert.equal(visualAssetsIssue(visuals, true), null, name);
+    assert.match(visualAssetsIssue(visuals, false)!, /Update Athena Desktop to present the drawn graphics and build states/, name);
+    assert.match(visualAssetsIssue(visuals, undefined)!, /drawn graphics/, name);
+  }
+  assert.equal(visualAssetsIssue(visualsFor(), false), null);
+  assert.equal(visualAssetsIssue(undefined, false), null);
+  const closing = parsePresentationVisuals([{ id: 'close', template: 'close', title: 'Put it to work', subtitle: '', imageUrl: '', imageAlt: '',
+    brandMark: 'ibm-8bar', at: 0, items: [], composition: { label: '', imagePrompt: '', nodes: [], links: [] } }], 40)!;
+  const both = [...drawn, ...closing];
+  assert.match(desktopVisualIssue(both, {})!, /closing IBM logo/);
+  assert.match(desktopVisualIssue(both, { scriptVisualBranding: true })!, /drawn graphics/);
+  assert.match(desktopVisualIssue(both, { scriptVisualBranding: true, scriptVisualAssets: true, scriptVisuals: true })!, /layered visuals/);
+  assert.match(desktopVisualIssue(visualsFor(), {})!, /synchronised browser visuals/);
+  assert.equal(desktopVisualIssue(visualsFor(), {
+    scriptVisuals: true, scriptVisualCompositions: true, scriptVisualMotion: true, scriptVisualCraft: true,
+  }), null);
+  assert.equal(desktopVisualIssue(undefined, undefined), null);
+  let started = false, opened = false;
+  await assert.rejects(openPresentationVisuals(async () => { started = true; }, () => desktopVisualIssue(drawn, {}),
+    async () => { opened = true; }), /drawn graphics and build states/);
+  assert.equal(started, true);
+  assert.equal(opened, false);
+  const preload = await readFile(new URL('../../athena-desktop/src/preload.ts', import.meta.url), 'utf8');
+  assert.match(preload, /scriptVisualAssets: true/);
+});
+
+test('every trusted drawing and icon is known to both parsers, the renderer library and the grammar Athena reads', () => {
+  const ids = [...VISUAL_ASSET_IDS].sort();
+  assert.deepEqual([...PRESENTATION_ASSET_IDS].sort(), ids);
+  assert.deepEqual(Object.keys(VISUAL_ASSETS).sort(), ids);
+  assert.deepEqual(Object.keys(VISUAL_GRAMMAR.assets).sort(), ids);
+  assert.deepEqual(VISUAL_GRAMMAR.icons, VISUAL_ICON_IDS.filter(Boolean));
+  const node = { id: 'node', kind: 'asset', asset: 'system', x: 120, y: 250, width: 240, height: 312, label: 'Node', detail: '', icon: '',
+    tone: 'teal', reveal: 1 };
+  const compose = (patch: Record<string, unknown>) => ({ label: '', imagePrompt: '', nodes: [{ ...node, ...patch }], links: [] });
+  for (const asset of ids) {
+    assert.doesNotThrow(() => parseVisualComposition(compose({ asset }), 1), asset);
+    assert.doesNotThrow(() => parsePresentationVisuals([framedScene(compose({ asset }), 1)], 40), asset);
+  }
+  for (const icon of VISUAL_ICON_IDS) {
+    const symbol = { kind: 'icon', asset: undefined, icon };
+    assert.doesNotThrow(() => parseVisualComposition(compose(symbol), 1), `icon "${icon}"`);
+    assert.doesNotThrow(() => parsePresentationVisuals([framedScene(compose(symbol), 1)], 40), `icon "${icon}"`);
+  }
 });
 
 test('illustrated scenes retain bounded vector art and reject executable paths and invalid geometry', () => {

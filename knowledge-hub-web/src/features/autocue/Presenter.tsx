@@ -5,8 +5,7 @@ import { nextNotesPage } from '../../notes/noteListState';
 import { desktopErrorMessage, getDesktop, type DesktopCommand, type DesktopCommandState } from '../../types/desktop';
 import type { PresentationDisplay } from '../../../../athena-desktop/src/elgatoProtocol';
 import { preparePresentationScript } from './preparePresentationScript';
-import { openPresentationVisuals, visualBrandingIssue } from './presentedVisuals';
-import { requiresVisualMotion, requiresVisualCraft } from './presentationScript';
+import { openPresentationVisuals, desktopVisualIssue } from './presentedVisuals';
 import { authSession } from '../../services/authSession';
 import { api } from '../../services/api';
 import { requireApiData } from '../../services/apiError';
@@ -60,11 +59,7 @@ export function Presenter(): React.JSX.Element {
   const annotationUnsupported = !!script?.runs.some(run => run.styles.some(style => style.startsWith('colour-') || style.startsWith('cue-')))
     && !desktop?.scriptAnnotations;
   const visualScenes = script && 'visuals' in script ? script.visuals : undefined;
-  const visualsUnsupported = !!visualScenes?.length && (!desktop?.scriptVisuals
-    || visualScenes.some(scene => scene.composition) && !desktop?.scriptVisualCompositions
-    || requiresVisualMotion(visualScenes) && !desktop?.scriptVisualMotion
-    || requiresVisualCraft(visualScenes) && !desktop?.scriptVisualCraft);
-  const brandingIssue = visualBrandingIssue(visualScenes, desktop?.scriptVisualBranding);
+  const desktopIssue = desktopVisualIssue(visualScenes, desktop);
 
   async function action(fn: () => Promise<unknown>, message?: string): Promise<void> {
     if (busyRef.current) return;
@@ -111,16 +106,12 @@ export function Presenter(): React.JSX.Element {
   const rows = notes.data?.pages.flatMap(page => page.items) ?? [];
   const selected = note.data;
   const currentListed = rows.some(item => item.id === noteId);
-  const canStart = !expired && !!selected && !!script?.text.trim() && !!displayId && !note.isFetching && !episode.isFetching && !preparedScript.isFetching && !annotationUnsupported && !visualsUnsupported;
+  const canStart = !expired && !!selected && !!script?.text.trim() && !!displayId && !note.isFetching && !episode.isFetching && !preparedScript.isFetching && !annotationUnsupported;
   const startPresentation = async (): Promise<void> => {
     if (!desktop || !canStart || !selected || !script) throw new Error('Choose a saved script and an available output display before presenting.');
     if (!connected || playback?.noteId !== selected.id || playback?.displayId !== Number(displayId)) {
       const visuals = 'visuals' in script ? script.visuals : undefined;
-      if (visuals?.length && !desktop.scriptVisuals) throw new Error('Update Athena Desktop to present synchronised browser visuals.');
-      if (visuals?.some(scene => scene.composition) && !desktop.scriptVisualCompositions) throw new Error('Update Athena Desktop to present layered visuals. Web preview remains available.');
-      if (visuals && requiresVisualMotion(visuals) && !desktop.scriptVisualMotion) throw new Error('Update Athena Desktop to present the new visual animations and presenter layout. Web preview remains available.');
-      if (visuals && requiresVisualCraft(visuals) && !desktop.scriptVisualCraft) throw new Error('Update Athena Desktop to present the corrected connectors, image headers and video guide. Web preview remains available.');
-      await desktop.start({ noteId: selected.id, title: selected.title, text: script.text, runs: script.runs, ...(visuals ? { visuals: brandingIssue ? [] : visuals } : {}), displayId: Number(displayId) });
+      await desktop.start({ noteId: selected.id, title: selected.title, text: script.text, runs: script.runs, ...(visuals ? { visuals: desktopIssue ? [] : visuals } : {}), displayId: Number(displayId) });
     }
   };
   const play = (): void => {
@@ -167,12 +158,15 @@ export function Presenter(): React.JSX.Element {
             : 'Choose a saved note with text to see its script here.'}</p>
         <p>The output uses a saved snapshot. Edits will not change a live presentation.</p>
         {annotationUnsupported && <p className="kh-presenter__error" role="alert">Update Athena Desktop to present script colours and visual delivery cues.</p>}
-        {visualsUnsupported && <p className="kh-presenter__error" role="alert">Update Athena Desktop to present synchronised browser visuals.</p>}
       </section>
       <aside className="kh-presenter__controls" aria-label="Presenter controls">
-        <button type="button" disabled={busy || !canStart || !desktop.openVisuals} onClick={() => {
-          if (desktop.openVisuals) void action(() => openPresentationVisuals(startPresentation,
-            () => (script && 'visualIssue' in script ? script.visualIssue : null) ?? brandingIssue, () => desktop.openVisuals!()));
+        <button type="button" disabled={busy || !canStart} onClick={() => {
+          if (!desktop.openVisuals) {
+            void action(async () => { throw new Error('Update Athena Desktop to open browser visuals.'); });
+            return;
+          }
+          void action(() => openPresentationVisuals(startPresentation,
+            () => (script && 'visualIssue' in script ? script.visualIssue : null) ?? desktopIssue, () => desktop.openVisuals!()));
         }}>Open browser visuals</button>
         <section>
           <h2>Output display</h2>

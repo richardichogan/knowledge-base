@@ -21,7 +21,7 @@ import { scriptVisualNarration } from '../services/scriptVisualDesigner.js';
 import { queueScriptVisuals, readScriptVisualJob } from '../services/scriptVisualJobs.js';
 import { scriptVisualJobEdits, SCRIPT_VISUAL_SPECIALIST } from '../utils/scriptVisualJobs.js';
 import { listAgentJobs } from '../agents/engine.js';
-import { readSectionVisuals, scriptVisualSource, visualSourceBlocks, visualSourceCurrent, SCRIPT_VISUAL_SOURCE_BUDGET, SCRIPT_VISUAL_INSTRUCTION_LIMIT, type VisualScriptBlock } from '../utils/scriptVisuals.js';
+import { readSectionVisuals, scriptVisualSource, visualSourceBlocks, visualSourceCurrent, SCRIPT_VISUAL_SOURCE_BUDGET, SCRIPT_VISUAL_INSTRUCTION_LIMIT, VISUAL_GRAMMAR, type VisualScriptBlock } from '../utils/scriptVisuals.js';
 import { getDiscoverPicks, refreshDiscoverPicks } from '../services/discoverPicks.js';
 import { PUBLISHING_TOOL, executePublishingTool } from './publishingTools.js';
 import { executeDesignTool, type DesignTurnState } from './designTools.js';
@@ -738,7 +738,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
       type: 'function',
       function: {
         name: 'read_script_visuals',
-        description: 'Read actual saved Script visuals, cue state and background visual jobs. Omit sectionId to list sections and recent jobs. Supply jobId to read a pending result (sectionId retrieves its full scenes, source and cues). A template "close" scene is the end page: subtitle is the setup line, title the closing statement, items are emphasised phrases from them, and the renderer adds the "Thank you" sign-off. Never infer content from titles; pending visuals have not been applied.',
+        description: 'Read actual saved Script visuals, cue state and background visual jobs. Omit sectionId to list sections and recent jobs. Supply jobId to read a pending result (sectionId retrieves its full scenes, source and cues). A template "close" scene is the end page: subtitle is the setup line, title the closing statement, items are emphasised phrases from them, and the renderer adds the "Thank you" sign-off. Scene compositions are complete: node kind "asset" draws a named vector graphic, nodes may carry a hero/secondary role and timed build states, and composition.frame keeps a scene around the presenter video; the result includes a grammar guide for these fields. Never infer content from titles; pending visuals have not been applied.',
         parameters: { type: 'object', properties: { sectionId: { type: 'string' }, jobId: { type: 'string' } } },
       },
     },
@@ -746,7 +746,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
       type: 'function',
       function: {
         name: 'design_script_visuals',
-        description: 'Queue Ariadne to generate or revise visuals for one saved Script section in the background. Only for explicit visual requests; read current visuals first for revisions. Returns a job receipt immediately, NOT completed visuals. Saves a pending result for explicit user review/application; never applies automatically. The user can keep working or navigate away. Concepts and meaningful animation first.',
+        description: 'Queue Ariadne to generate or revise visuals for one saved Script section in the background. Only for explicit visual requests; read current visuals first for revisions. Returns a job receipt immediately, NOT completed visuals. Saves a pending result for explicit user review/application; never applies automatically. The user can keep working or navigate away. Concepts and meaningful animation first; Ariadne can draw library graphics, give a hero element dominance and build a scene in timed steps, so ask for those directly.',
         parameters: { type: 'object', properties: {
           sectionId: { type: 'string' }, instruction: { type: 'string' },
         }, required: ['sectionId', 'instruction'] },
@@ -1397,7 +1397,7 @@ export async function executeToolCall(
                 sections: result.sections.map(item => ({ sectionId: item.section.id, title: item.section.content, scenes: item.visuals.scenes.length })),
                 note: 'Read a section by id for the full retained scenes and source. Generation alone never applies visuals; matches-current compares this result with the saved script now.' };
               if (!draft) throw new ValidationError('Choose a section in this pending result.');
-              return { jobId, application, conflict, section: draft.section, visuals: draft.visuals,
+              return { jobId, application, conflict, section: draft.section, visuals: draft.visuals, grammar: VISUAL_GRAMMAR,
                 note: 'This is retrieved retained generation content. Use current section reads for the saved editor state. Images require separate image evidence.' };
             }
             if (turn.readOnly || !turn.noteEdits || turn.noteEdits.length) throw new ValidationError('Finish pending editor changes and explicitly approve this result in an editable turn.');
@@ -1422,7 +1422,7 @@ export async function executeToolCall(
             const images = imageUrls.length ? await db.query<{ blob_url: string; caption: string; vision_analysis: string }>(
               'SELECT blob_url, caption, vision_analysis FROM kb_images WHERE blob_url = ANY($1::text[])', [imageUrls],
             ) : { rows: [] };
-            return { sectionId, blocks: await scriptVisualNarration(section), cueBlocks: visualSourceBlocks(section), scenes: visuals?.scenes ?? [],
+            return { sectionId, blocks: await scriptVisualNarration(section), cueBlocks: visualSourceBlocks(section), scenes: visuals?.scenes ?? [], grammar: VISUAL_GRAMMAR,
               imageEvidence: imageUrls.map(url => {
                 const image = images.rows.find(image => image.blob_url === url);
                 return { url, caption: image?.caption ?? '', visualAnalysis: image?.vision_analysis ?? '',

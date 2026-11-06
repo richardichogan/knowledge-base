@@ -20,6 +20,13 @@ export function requiresVisualCraft(scenes: PresentationVisualScene[]): boolean 
     || scene.composition?.links.some(link => link.fromPort || link.toPort));
 }
 
+const ASSET_GRAMMAR_ICONS: ReadonlySet<string> = new Set(['clock', 'quality', 'coin', 'gauge']);
+/** True when a scene uses drawn graphics, node roles, build states, the presenter frame or an icon older Desktop builds cannot parse. */
+export function requiresVisualAssets(scenes: PresentationVisualScene[]): boolean {
+  return scenes.some(scene => scene.composition?.frame
+    || scene.composition?.nodes.some(node => node.kind === 'asset' || node.role || node.states || ASSET_GRAMMAR_ICONS.has(node.icon)));
+}
+
 const SENTENCES = new Intl.Segmenter('en-GB', { granularity: 'sentence' });
 const LIST_LIKE_LINE = /^\s*(?:[•◦▪▫‣⁃∙·●○■□◆◇►▸▶➤→✓✔✗✘★☆*+\-–—]|\(?\d+[.)]|\(?[a-z][.)])\s/iu;
 const ABBREVIATION_END = /(?:^|[\s("'‘“])(?:Mr|Mrs|Ms|Mx|Dr|Prof|Rev|Hon|St|Mt|Sgt|Capt|Lt|Col|Gen|Sen|Gov|Fr|Sr|Jr|vs|cf|approx|e\.g|i\.e|[A-Z])\.$/u;

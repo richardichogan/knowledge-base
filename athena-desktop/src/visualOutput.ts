@@ -89,7 +89,7 @@ export class VisualOutput {
     if (this.server) return this.address;
     const generation = this.generation;
     const token = randomBytes(32).toString('hex');
-    const files = new Map(await Promise.all(['visuals.html', 'visuals.js', 'visuals.css', 'visualGeometry.js', 'visualVideo.js'].map(async name =>
+    const files = new Map(await Promise.all(['visuals.html', 'visuals.js', 'visuals.css', 'visualGeometry.js', 'visualAssets.js', 'visualVideo.js'].map(async name =>
       [name, await readFile(join(this.assets, name))] as const)));
     if (generation !== this.generation) throw new Error('The presentation closed before the browser output was ready.');
     const server = createServer((request, response) => {
