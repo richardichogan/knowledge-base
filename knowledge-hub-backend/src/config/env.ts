@@ -224,6 +224,11 @@ export const env = {
   // tools only.
   get TAVILY_API_KEY() { return credentialValue('TAVILY_API_KEY', optional('TAVILY_API_KEY')); },
 
+  // Microsoft Decision-1 shadow routing (trace review only). Disabled unless the key is set.
+  DECISION1_ENDPOINT: optionalWithDefault('DECISION1_ENDPOINT', 'https://fdy-imagine-demo.services.ai.azure.com/providers/microsoft/v1/systemone'),
+  DECISION1_DEPLOYMENT: optionalWithDefault('DECISION1_DEPLOYMENT', 'decision-1'),
+  DECISION1_API_KEY: optional('DECISION1_API_KEY'),
+
   // Admin / CRON
   ADMIN_PASSWORD: optional('ADMIN_PASSWORD'),
   CRON_SECRET: optional('CRON_SECRET'),

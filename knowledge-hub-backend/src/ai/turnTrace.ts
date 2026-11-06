@@ -117,6 +117,22 @@ export async function recordTurnTrace(kind: string, payload: unknown): Promise<v
   }
 }
 
+/**
+ * Captures the active trace so an out-of-band observer (e.g. shadow routing) can append one event
+ * after the turn has finished. It never affects the turn's measurement or capture-completeness.
+ */
+export function deferredTurnTraceRecorder(): ((kind: string, payload: unknown) => Promise<void>) | undefined {
+  const trace = activeTrace.getStore();
+  if (!trace || trace.closed || !trace.started) return undefined;
+  return async (kind, payload) => {
+    const sequence = ++trace.sequence;
+    try {
+      await trace.db.query('INSERT INTO ai_turn_trace_events(trace_id,sequence,kind,payload) VALUES($1,$2,$3,$4::jsonb)',
+        [trace.id, sequence, kind, JSON.stringify(redactTrace(payload ?? null))]);
+    } catch { console.error('[turn-trace] Deferred event not saved:', { traceId: trace.id, kind }); }
+  };
+}
+
 export async function withTurnTrace<T>(
   db: Pool, sessionId: string | undefined, input: unknown, signal: AbortSignal | undefined, run: () => Promise<T>,
 ): Promise<T> {

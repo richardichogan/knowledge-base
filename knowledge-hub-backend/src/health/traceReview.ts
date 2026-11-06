@@ -6,6 +6,7 @@ import { readTurnTrace, redactTrace } from '../ai/turnTrace.js';
 import { withAiWorkflow } from '../ai/aiWorkflow.js';
 import { ConflictError, ValidationError } from '../types/errors.js';
 import type { HealthFilters } from './knowledgeHealth.js';
+import { reviewRoutingShadow } from '../ai/routingShadow.js';
 import { diagramReceipt, deniesDiagramSave, deniesEditingCapability, unconfirmedDiagramClaim, type DiagramReceipt } from '../ai/diagramActionEvidence.js';
 
 const PAGE_SIZE = 20;
@@ -212,6 +213,10 @@ export async function evaluateSavedTrace(
            WHERE trace_id=$1 AND kind IN ('capability.catalog','model.request','tool.result','action.prior','turn.output')
            ORDER BY sequence`, [traceId]);
         checks.push(...reviewActionEvidence(captured.rows));
+        const routing = await db.query<{ sequence: number; kind: string; payload: unknown }>(
+          `SELECT sequence,kind,payload FROM ai_turn_trace_events
+           WHERE trace_id=$1 AND kind IN ('capability.catalog','tool.result','routing.shadow') ORDER BY sequence`, [traceId]);
+        checks.push(reviewRoutingShadow(routing.rows));
       } else {
         checks.push({ criterion: 'action_evidence', verdict: 'uncertain',
           reason: 'Captured content exceeds the bounded action-review budget; inspect paged events. No actions were replayed.', evidenceSequences: [] });

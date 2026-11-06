@@ -54,6 +54,7 @@ import type { MapChangeProposal } from './mapEdits.js';
 import { LOCAL_FILE_TOOLS, localFilesPrompt, type LocalFileWriteProposal, type LocalFolder } from './localFiles.js';
 import { ukClock } from '../sync/ukClock.js';
 import { recordTurnTrace, setTraceProject, withTurnTrace, withTurnSpan } from './turnTrace.js';
+import { startRoutingShadow } from './routingShadow.js';
 import { executionFollowThroughRepair, requestsOpenNoteEdit, unconfirmedNoteEditClaim } from './dialoguePolicy.js';
 
 const RAG_USED_LIMIT = 10;
@@ -204,6 +205,7 @@ async function conversationTurn(
   await recordTurnTrace('context.resolved', { pageContext,
     target: { noteId: toolContext.noteId, designOwner: toolContext.designOwner, podcastOwner: toolContext.podcastOwner },
     model, persona, readOnly: hooks.readOnlyTools === true });
+  startRoutingShadow({ userMessage, history, pageContext, persona });
   const workforceRequestId = randomUUID();
   hooks.signal?.throwIfAborted();
   hooks.onActivity?.('Loading context');
