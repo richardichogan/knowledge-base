@@ -37,6 +37,26 @@
 - Logs: icon-logo-backend-tests.log, icon-logo-backend-affected.log,
   icon-logo-web-tests.log, icon-logo-web-build.log and icon-logo-desktop-dist.log
   in this session's files. No local browser was launched.
+- Released application commit `df8d087e` to branch and main. Backend v309 is
+  ready as revision `kh-prod-api-vnet--0000306`, Healthy with 100% latest traffic;
+  startup confirms migrations complete, pool warmed and production worker running.
+- Production SWA serves the matching entrypoint and logo-capable lazy chunks:
+  appBootstrap-DpnX4YBB.js SHA-256
+  `6e30d408cef42ec73f217dda80dd89ef1c4605e9fdc4e26793b0f2a07c3ac27e`
+  and scriptAnnotations-CYENA3hR.js SHA-256
+  `d061113bdccb7df49b001a0ee73c5472ca57727a8437709138520617318648a3`.
+- Desktop 0.1.16 is published at
+  https://github.com/richardichogan/knowledge-base/releases/tag/v0.1.16.
+  The publisher initially raced release creation and left only its blockmap;
+  completed the same release with the already built installer and latest.yml.
+  All three uploaded assets' GitHub digests match the local release files.
+- The commissioned candidate completed through the normal production specialist.
+  Domain read and protected edit preparation accept all four sections. Actual
+  data contains 26 icons across six explanatory scenes and one final-only IBM
+  mark; all eight scene IDs, titles, labels and spoken cues are unchanged.
+  Original note revision/timestamp remain unchanged; explicit Review/Apply is
+  still required. Physical presentation and live Athena conversation behaviour
+  remain unverified; no browser or automatic application was used.
 
 **Plan Blocked status and accumulated usability release (2026-11-05):**
 - All validation checks pass:
