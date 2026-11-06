@@ -2,6 +2,55 @@
 
 **Status:** Validated
 
+**Narrated storyboard graphics release (2026-11-06):**
+- Application commit `0d469d7d`, merged with current main as `616ef935`, was
+  pushed to `main` and `richardichogan-special-doodle`. GitHub accepted the
+  requested direct main push with its pull-request rule bypass reported.
+- Existing application-only AZCLI release: no infrastructure, region, identity,
+  permissions, authentication settings or dependency changes. Azure MCP's
+  tenant mismatch did not affect the correctly authenticated local Azure CLI.
+- ACR run `ca9u` built `kh-prod-api:v313` from GitHub commit `616ef935`.
+  Revision `kh-prod-api-vnet--0000310` is Healthy/RunningAtMaxScale with
+  100% traffic. Startup confirms migrations complete, pool warmed 8/8,
+  specialist worker and scheduler running.
+
+**Section 7: Validation Proof - narrated storyboard graphics (2026-11-06):**
+- Frontend/backend/Desktop typechecks passed after the merge. Both application
+  production builds passed. Affected frontend presentation checks passed 44/44;
+  Desktop release checks passed 13/13 and visual/Elgato checks 26/26.
+  Previously completed unchanged release suites were reused, not restarted.
+- Production Think HTML and the entrypoint `index-BOub5SPP.js` return 200.
+  The entrypoint and both new-visual bundles match the local build byte-for-byte:
+  `appBootstrap-CxGGWifq.js` SHA-256
+  `8f3b98ab64a6d2cbb3e43dc59d3aa1e4d0b17be1e31160e0dc2b5bbcd5621ad1`;
+  `scriptAnnotations-Dc9EzhZP.js` SHA-256
+  `84396501c7f99a3f842247e251bc1932dbe10e30a4db9bbdbf8151b24287f3b8`.
+- Desktop 0.1.17 is published with its installer, blockmap and latest.yml.
+  All three uploaded digests match local files. The existing unsigned
+  electron-builder configuration is unchanged. The initial release-creation
+  race was resolved by completing the same release, not creating another.
+- Reread the current "Why Imagine Enterprise" script at revision 143, not
+  the stale revision-139 artifact. Normal `queueScriptVisuals` commissioning
+  and the production specialist produced pending job
+  `b3716c7f-a0f1-4300-a35c-d832271b8f2f`: four sections and eight scenes,
+  with 17 drawn assets, the workforce lifecycle, capability rearrangement,
+  process-to-plan transformation, four measurement dimensions and final IBM mark.
+- Existing scene identities, titles, subtitles, item text/cues and presenter
+  layouts are retained. One new opening item cues the approved foundation
+  graphic at the existing spoken phrase "operating model".
+- The actual Athena `read_script_visuals` handler retrieves all four complete
+  retained sections with the new grammar and reports `application: pending`,
+  without conflicts. Protected edit preparation accepts all four sections.
+  No apply operation ran; the saved note remains revision 143 with unchanged
+  content SHA-256
+  `885265e2fcfb4ee3ec6e7d688d304d0f17c7258b508b8d5601e7468c15ad5b0b`.
+- Review/Apply remains the user's decision. No browser was launched, no live
+  chat answer or physical presentation was claimed verified, and no
+  authentication or consent settings were changed.
+- Evidence: `storyboard-served-frontend.json`, `why-imagine-live-source.json`,
+  `why-imagine-storyboard-receipt.json`, `why-imagine-storyboard-result.json`
+  and `why-imagine-athena-retrieval.json` in this session's files.
+
 **Approved email evidence correction (2026-11-06):**
 - Released `889a7f12` to branch and main; ACR run `ca9s` built v311.
   Revision `kh-prod-api-vnet--0000308` is Healthy/RunningAtMaxScale with
