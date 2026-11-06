@@ -1,9 +1,9 @@
 /**
  * TasksPage — the Plan's task views.
- * Board columns: Backlog | In Progress | Blocked | Waiting | Completed, scrolling
- * horizontally when the workspace is narrower than the columns. Athena-created
- * tasks wait in the Inbox tray above until accepted or dismissed. The Focus
- * view regroups the same open tasks by what needs attention next.
+ * The Board groups projects into collapsible swim lanes across Backlog,
+ * In Progress, Blocked, Waiting and Completed. Athena-created tasks wait in
+ * the Inbox tray above until accepted or dismissed. Focus regroups open tasks
+ * by what needs attention next.
  */
 
 import React, { useRef, useState, useEffect } from 'react';
@@ -13,7 +13,7 @@ import {
   InlineLoading, InlineNotification,
   Modal, TextInput, TextArea, Select, SelectItem,
 } from '@carbon/react';
-import { Add, ArrowRight, ChatLaunch, Checkmark, Close, Edit, Launch, OverflowMenuVertical, Repeat, Upload } from '@carbon/icons-react';
+import { Add, ArrowRight, ChatLaunch, Checkmark, ChevronDown, Close, Edit, Launch, OverflowMenuVertical, Repeat, Upload } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { useProjects, type ProjectRecord } from '../services/useProjects';
 import { ProjectOptions } from '../components/ProjectOptions';
@@ -21,7 +21,7 @@ import { useUseCases } from '../hooks/useUseCases';
 import { PRODUCT_KIND_LABELS, STAGE_LABELS, type UseCase } from '../types/useCases';
 import { boardColumnForUseCase } from '../features/useCases/useCaseView';
 import { TagPicker } from '../components/TagPicker';
-import { EntityChip, IdentityChip, identitiesFor, useIdentity } from '../identity';
+import { EntityChip } from '../identity';
 import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 import { EntityLinks, useEntityRelationships } from '../components/connections/EntityLinks';
 import type { PlanTask as Task, TaskStatus, TaskPriority } from '../types/task';
@@ -46,6 +46,16 @@ const COLUMNS: { id: TaskStatus; label: string }[] = [
   { id: 'completed',   label: 'Completed' },
 ];
 
+interface WorkstreamLane {
+  key: string;
+  projectId: string | null;
+  name: string;
+  tasks: Map<TaskStatus, Task[]>;
+  useCases: Map<TaskStatus, UseCase[]>;
+  openCount: number;
+  completedCount: number;
+}
+
 export type TasksView = 'board' | 'focus';
 
 const PRIORITY_LABEL: Record<TaskPriority, string> = {
@@ -59,6 +69,20 @@ const PRIORITY_LABEL: Record<TaskPriority, string> = {
 
 function getProjectName(id: string, projects: ProjectRecord[]): string {
   return projects.find((p) => p.id === id)?.name ?? id;
+}
+
+function workstreamKey(projectId: string | null, projectName: string | null = null): string {
+  if (projectId !== null && projectId !== '' && projectId !== 'personal') return `project:${projectId}`;
+  const name = projectName?.trim();
+  return name ? `name:${name.toLocaleLowerCase('en-GB')}` : 'unassigned';
+}
+
+function emptyWorkstreamLane(key: string, projectId: string | null, name: string): WorkstreamLane {
+  return { key, projectId, name, tasks: new Map(), useCases: new Map(), openCount: 0, completedCount: 0 };
+}
+
+function addToGroup<T>(groups: Map<TaskStatus, T[]>, status: TaskStatus, item: T): void {
+  groups.set(status, [...(groups.get(status) ?? []), item]);
 }
 
 function formatDue(iso: string): string {
@@ -159,8 +183,6 @@ const TaskCard: React.FC<{
   onAskAthena?: ((task: Task) => void) | undefined;
 }> = ({ task, busy, selected = false, projects, onMove, onDelete, onEdit, onSelect, onAskAthena }) => {
   const [dragging, setDragging] = useState(false);
-  const identity = useIdentity();
-  const resolvedTags = identitiesFor(identity, task.taxonomyTagIds ?? [], task.projectId);
 
   const done = task.status === 'completed';
   const showPriority = !done && task.priority === 'urgent';
@@ -175,6 +197,7 @@ const TaskCard: React.FC<{
       aria-busy={busy}
       onDragStart={(e) => {
         e.dataTransfer.setData('taskId', task.id);
+        e.dataTransfer.setData('projectId', task.projectId);
         e.dataTransfer.effectAllowed = 'move';
         setDragging(true);
       }}
@@ -203,7 +226,7 @@ const TaskCard: React.FC<{
       </p>
     )}
 
-    {(resolvedTags.length > 0 || showPriority || health) && (
+    {(showPriority || health) && (
       <div className="kb-card__tags">
         {showPriority && (
           <span className={`kb-card__priority-pill kb-card__priority-pill--${task.priority}`}>
@@ -213,7 +236,6 @@ const TaskCard: React.FC<{
         {health && (
           <span className={`kb-card__health kb-card__health--${health.kind}`} title={health.title}>{health.label}</span>
         )}
-        {resolvedTags.map((t) => <IdentityChip key={t.tagId} identity={t} />)}
       </div>
     )}
 
@@ -810,6 +832,7 @@ interface TaskEditorProps {
   open: boolean;
   initial: Task | null;
   defaultStatus: TaskStatus;
+  defaultProjectId?: string;
   projects: ProjectRecord[];
   onClose: () => void;
   onSave: (data: TaskEditorInput) => void;
@@ -818,12 +841,12 @@ interface TaskEditorProps {
 }
 
 export const TaskEditor: React.FC<TaskEditorProps & { inline?: boolean }> = ({
-  open, initial, defaultStatus, projects, onClose, onSave, saving, error, inline = false,
+  open, initial, defaultStatus, defaultProjectId = 'personal', projects, onClose, onSave, saving, error, inline = false,
 }) => {
   const [title,       setTitle]       = useState('');
   const [body,        setBody]        = useState('');
   const [status,      setStatus]      = useState<TaskStatus>(defaultStatus);
-  const [projectId,   setProjectId]   = useState('personal');
+  const [projectId,   setProjectId]   = useState(defaultProjectId);
   const [priority,    setPriority]    = useState<TaskPriority>('normal');
   const [startDate,   setStartDate]   = useState('');
   const [endDate,     setEndDate]     = useState('');
@@ -840,7 +863,7 @@ export const TaskEditor: React.FC<TaskEditorProps & { inline?: boolean }> = ({
     setTitle(initial?.title ?? '');
     setBody(initial?.body ?? '');
     setStatus(initial?.status ?? defaultStatus);
-    setProjectId(initial?.projectId ?? 'personal');
+    setProjectId(initial?.projectId ?? defaultProjectId);
     setPriority(initial?.priority ?? 'normal');
     setStartDate(initial?.startDate ?? '');
     setEndDate(initial?.endDate ?? '');
@@ -849,7 +872,7 @@ export const TaskEditor: React.FC<TaskEditorProps & { inline?: boolean }> = ({
     setRecurringCadence(initial?.recurringCadence ?? 'none');
     setWaitingOn(initial?.waitingOn ?? '');
     setStatusChangeNote('');
-  }, [initial, open, defaultStatus]);
+  }, [initial, open, defaultStatus, defaultProjectId]);
 
   const submit = (): void => {
     if (!canSave) return;
@@ -997,11 +1020,13 @@ export const TasksPage: React.FC<{
   const [editTask,      setEditTask]      = useState<Task | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [addStatus,     setAddStatus]     = useState<TaskStatus>('backlog');
+  const [addProjectId, setAddProjectId] = useState('personal');
   const [showOlderDone, setShowOlderDone] = useState(false);
+  const [collapsedWorkstreams, setCollapsedWorkstreams] = useState<Record<string, boolean>>({});
   const { projects } = useProjects();
   const { data: useCases = [], isPending: useCasesPending, error: useCasesError, refetch: refetchUseCases } = useUseCases();
 
-  const [dragOverCol, setDragOverCol] = useState<TaskStatus | null>(null);
+  const [dragOverWorkstreamCell, setDragOverWorkstreamCell] = useState<string | null>(null);
 
   const { data, isPending, isError, error: loadError, refetch } = useQuery({
     queryKey: ['tasks', filterProject],
@@ -1145,6 +1170,58 @@ export const TasksPage: React.FC<{
 
   const selectedTask = tasks.find(task => task.id === selectedTaskId) ?? selectedDetail.data?.task;
   const reviewFocusGroups = selectedTaskId && view === 'focus' ? groupForFocus(scopedTasks, localDateKey(new Date())) : null;
+  const workstreamLanes = (() => {
+    const lanes = new Map<string, WorkstreamLane>();
+    const ensureLane = (key: string, projectId: string | null, name: string): WorkstreamLane => {
+      let lane = lanes.get(key);
+      if (lane === undefined) {
+        lane = emptyWorkstreamLane(key, projectId, name);
+        lanes.set(key, lane);
+      }
+      return lane;
+    };
+
+    for (const task of scopedTasks) {
+      if (task.status === 'inbox') continue;
+      const projectId = task.projectId === 'personal' || task.projectId === '' ? null : task.projectId;
+      const key = workstreamKey(projectId);
+      const name = projectId === null ? 'No workstream' : getProjectName(projectId, projects);
+      addToGroup(ensureLane(key, projectId, name).tasks, task.status, task);
+    }
+
+    if (filterTag === '') {
+      for (const useCase of useCases) {
+        const status = boardColumnForUseCase(useCase.stage);
+        if (status === null || (filterProject !== '' && useCase.projectId !== filterProject)) continue;
+        const projectId = useCase.projectId;
+        const name = projectId !== null ? getProjectName(projectId, projects) : useCase.projectName ?? 'No workstream';
+        const key = workstreamKey(projectId, useCase.projectName);
+        addToGroup(ensureLane(key, projectId, name).useCases, status, useCase);
+      }
+    }
+
+    const completedId: TaskStatus = 'completed';
+    for (const lane of lanes.values()) {
+      for (const column of COLUMNS) {
+        const laneTasks = lane.tasks.get(column.id) ?? [];
+        const count = laneTasks.length + (lane.useCases.get(column.id)?.length ?? 0);
+        if (column.id === completedId) {
+          lane.completedCount += (showOlderDone ? laneTasks : laneTasks.filter(task => busyTaskIds.has(task.id) || isRecentlyCompleted(task))).length
+            + (lane.useCases.get(column.id)?.length ?? 0);
+        } else lane.openCount += count;
+      }
+    }
+    return [...lanes.values()].sort((a, b) => b.openCount - a.openCount || a.name.localeCompare(b.name, 'en-GB'));
+  })();
+  const olderDoneCount = scopedTasks.filter((task) => task.status === 'completed'
+    && !busyTaskIds.has(task.id) && !isRecentlyCompleted(task)).length;
+
+  const openAddTask = (status: TaskStatus, projectId = 'personal'): void => {
+    setEditTask(null);
+    setAddStatus(status);
+    setAddProjectId(projectId);
+    setModalOpen(true);
+  };
   const taskViews = <>
       {isPending && <InlineLoading description="Loading…" />}
       {isError && <DataNotice title="Tasks are unavailable" error={loadError} onRetry={() => { void refetch(); }} />}
@@ -1155,6 +1232,9 @@ export const TasksPage: React.FC<{
       {view === 'board' && filterTag !== '' && useCases.some((useCase) => boardColumnForUseCase(useCase.stage) !== null)
         && <p className="kb-board__notice">Use cases are hidden while a tag filter is active because they do not have task tags.</p>}
       {view === 'board' && filterTag === '' && useCasesPending && <InlineLoading description="Loading use cases…" />}
+      {view === 'board' && !isPending && !isError && workstreamLanes.length === 0
+        && (filterTag !== '' || (!useCasesPending && useCasesError === null))
+        && <p className="kb-workstreams__empty">No tasks or use cases match these filters.</p>}
 
       <InboxTray
         tasks={inboxTasks}
@@ -1169,7 +1249,7 @@ export const TasksPage: React.FC<{
       {view === 'focus' && (
         <>
         <div className="kb-focus__actions">
-          <button type="button" className="kb-import-btn" onClick={() => { setEditTask(null); setAddStatus('backlog'); setModalOpen(true); }}>
+          <button type="button" className="kb-import-btn" onClick={() => { openAddTask('backlog'); }}>
             <Add size={16} /> Add task
           </button>
         </div>
@@ -1185,83 +1265,123 @@ export const TasksPage: React.FC<{
         </>
       )}
 
-      {view === 'board' && <div className="kb-board">
-        {COLUMNS.map((col) => {
-          const allColTasks = scopedTasks.filter((t) => t.status === col.id);
-          const colUseCases = filterTag === '' ? useCases
-            .filter((useCase) => filterProject === '' || useCase.projectId === filterProject)
-            .filter((useCase) => boardColumnForUseCase(useCase.stage) === col.id)
-            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) : [];
-          // Completed tasks auto-archive after 14 days; only this week's (and any still saving) stay visible by default.
-          const isRecentDone = (t: Task): boolean => busyTaskIds.has(t.id) || isRecentlyCompleted(t);
-          const olderDone = col.id === 'completed' ? allColTasks.filter((t) => !isRecentDone(t)).length : 0;
-          const colTasks = col.id === 'completed' && !showOlderDone ? allColTasks.filter(isRecentDone) : allColTasks;
-          return (
-            <div
-              key={col.id}
-              className={`kb-col${dragOverCol === col.id ? ' kb-col--drag-over' : ''}`}
-              onDragOver={(e) => { e.preventDefault(); setDragOverCol(col.id); }}
-              onDragLeave={() => { setDragOverCol(null); }}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDragOverCol(null);
-                const taskId = e.dataTransfer.getData('taskId');
-                if (taskId && beginTaskAction(taskId)) { moveTaskMutation.mutate({ id: taskId, status: col.id }); }
-              }}
-            >
-
-              <div className="kb-col__head">
-                <span className="kb-col__name">{col.label}</span>
-                {allColTasks.length + colUseCases.length > 0 && (
-                  <span className="kb-col__count">{allColTasks.length + colUseCases.length}</span>
-                )}
-              </div>
-
-              <div className="kb-col__cards">
-                {colUseCases.map((useCase) => <UseCaseBoardCard key={useCase.id} useCase={useCase} />)}
-                {colTasks.map((task) => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    busy={busyTaskIds.has(task.id)}
-                    selected={selectedTaskId === task.id}
-                    projects={projects}
-                    onMove={moveTask}
-                    onDelete={(id) => { if (beginTaskAction(id)) deleteMutation.mutate(id); }}
-                    onEdit={openEditor}
-                    onSelect={selectTask}
-                    onAskAthena={askAthenaAbout}
-                  />
-                ))}
-                {col.id === 'completed' && colTasks.length === 0 && olderDone > 0 && (
-                  <p className="kb-col__empty">Nothing completed in the last {RECENT_COMPLETED_DAYS} days.</p>
-                )}
-                {olderDone > 0 && (
-                  <button type="button" className="kb-col__more" aria-expanded={showOlderDone} onClick={() => { setShowOlderDone((v) => !v); }}>
-                    {showOlderDone ? `Hide ${olderDone} older` : `Show ${olderDone} older`}
+      {view === 'board' && <section className="kb-workstreams" aria-label="Plan tasks grouped by workstream">
+        <div className="kb-workstreams__grid">
+          {COLUMNS.map((column) => {
+            const taskCount = scopedTasks.filter((task) => task.status === column.id).length;
+            const useCaseCount = filterTag === '' ? useCases
+              .filter((useCase) => filterProject === '' || useCase.projectId === filterProject)
+              .filter((useCase) => boardColumnForUseCase(useCase.stage) === column.id).length : 0;
+            return (
+              <div className="kb-workstreams__column-head" key={column.id}>
+                <span className="kb-col__name">{column.label}</span>
+                <span className="kb-workstreams__column-meta">
+                  <button type="button" className="kb-workstreams__add kb-workstreams__add--column"
+                    aria-label={`Add task in ${column.label}`} title={`Add task in ${column.label}`}
+                    onClick={() => { openAddTask(column.id); }}>
+                    <Add size={16} />
                   </button>
-                )}
+                  {column.id === 'completed' && olderDoneCount > 0 && (
+                    <button type="button" className="kb-workstreams__older"
+                      aria-expanded={showOlderDone}
+                      onClick={() => { setShowOlderDone((value) => !value); }}>
+                      {showOlderDone ? `Hide ${olderDoneCount} older` : `Show ${olderDoneCount} older`}
+                    </button>
+                  )}
+                  {taskCount + useCaseCount > 0 && <span className="kb-col__count">{taskCount + useCaseCount}</span>}
+                </span>
               </div>
+            );
+          })}
 
-              <button
-                className="kb-col__add"
-                onClick={() => { setEditTask(null); setAddStatus(col.id); setModalOpen(true); }}
-              >
-                <Add size={16} />
-                Add task
-              </button>
-
-            </div>
-          );
-        })}
-      </div>}
+          {workstreamLanes.map((lane) => {
+            const laneSize = lane.openCount + lane.completedCount;
+            const collapsed = collapsedWorkstreams[lane.key] ?? (laneSize > 20);
+            return (
+              <React.Fragment key={lane.key}>
+                <div className="kb-workstreams__lane-head">
+                  <button type="button" className="kb-workstreams__lane-toggle" aria-expanded={!collapsed}
+                    onClick={() => { setCollapsedWorkstreams((current) => ({ ...current, [lane.key]: !(current[lane.key] ?? (laneSize > 20)) })); }}>
+                    <ChevronDown size={16} className={`kb-workstreams__caret${collapsed ? ' kb-workstreams__caret--collapsed' : ''}`} />
+                    {lane.projectId !== null
+                      ? <EntityChip projectId={lane.projectId} fallbackLabel={lane.name} className="kb-workstreams__project" />
+                      : <span className="kb-workstreams__lane-name">{lane.name}</span>}
+                    <span className="kb-workstreams__lane-count">{lane.openCount} open · {lane.completedCount} completed</span>
+                  </button>
+                  {(lane.projectId !== null || lane.key === 'unassigned') && (
+                    <button type="button" className="kb-workstreams__add" aria-label={`Add task to ${lane.name}`}
+                      onClick={() => { openAddTask('backlog', lane.projectId ?? 'personal'); }}>
+                      <Add size={16} /><span>Add task</span>
+                    </button>
+                  )}
+                </div>
+                {COLUMNS.map((column) => {
+                  const allLaneTasks = lane.tasks.get(column.id) ?? [];
+                  // Completed tasks auto-archive after 14 days; keep recent completions visible by default.
+                  const isRecentDone = (task: Task): boolean => busyTaskIds.has(task.id) || isRecentlyCompleted(task);
+                  const olderInLane = column.id === 'completed' ? allLaneTasks.filter((task) => !isRecentDone(task)).length : 0;
+                  const laneTasks = column.id === 'completed' && !showOlderDone
+                    ? allLaneTasks.filter(isRecentDone)
+                    : allLaneTasks;
+                  const laneUseCases = [...(lane.useCases.get(column.id) ?? [])]
+                    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+                  const cellKey = `${lane.key}:${column.id}`;
+                  const isEmpty = laneTasks.length + laneUseCases.length === 0;
+                  return (
+                    <div
+                      key={column.id}
+                      className={`kb-workstreams__cell${isEmpty ? ' kb-workstreams__cell--empty' : ''}${dragOverWorkstreamCell === cellKey ? ' kb-workstreams__cell--drag-over' : ''}`}
+                      hidden={collapsed}
+                      onDragOver={(event) => { event.preventDefault(); setDragOverWorkstreamCell(cellKey); }}
+                      onDragLeave={(event) => {
+                        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOverWorkstreamCell(null);
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        setDragOverWorkstreamCell(null);
+                        const taskId = event.dataTransfer.getData('taskId');
+                        const sourceProjectId = event.dataTransfer.getData('projectId');
+                        const sourceLaneKey = workstreamKey(sourceProjectId === 'personal' || sourceProjectId === '' ? null : sourceProjectId);
+                        if (sourceLaneKey !== lane.key) {
+                          setSaveError('Edit the task to change its workstream; dragging only changes status.');
+                        } else if (taskId && beginTaskAction(taskId)) {
+                          moveTaskMutation.mutate({ id: taskId, status: column.id });
+                        }
+                      }}
+                    >
+                      {laneUseCases.map((useCase) => <UseCaseBoardCard key={useCase.id} useCase={useCase} />)}
+                      {laneTasks.map((task) => (
+                        <TaskCard
+                          key={task.id}
+                          task={task}
+                          busy={busyTaskIds.has(task.id)}
+                          selected={selectedTaskId === task.id}
+                          projects={projects}
+                          onMove={moveTask}
+                          onDelete={(id) => { if (beginTaskAction(id)) deleteMutation.mutate(id); }}
+                          onEdit={openEditor}
+                          onSelect={selectTask}
+                          onAskAthena={askAthenaAbout}
+                        />
+                      ))}
+                      {olderInLane > 0 && laneTasks.length === 0 && !showOlderDone && (
+                        <p className="kb-workstreams__empty-note">Nothing completed in the last {RECENT_COMPLETED_DAYS} days.</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </React.Fragment>
+            );
+          })}
+        </div>
+      </section>}
       </>;
   return (
     <div className="kb-page">
       {selectedTaskId ? <ReviewWorkspace storageKey="plan-task" label="Plan tasks"
         context={{ type: 'task', id: selectedTaskId, title: selectedTask?.title ?? 'Task',
           ...(selectedTask?.projectId ? { projectId: selectedTask.projectId } : {}),
-          detail: `${JSON.stringify(selectedTask)}\nVisible ${view} task groups, with the same workstream/tag and completed-task filters as the normal Plan view:\n${JSON.stringify({
+          detail: `${JSON.stringify(selectedTask)}\nVisible ${view === 'board' ? 'workstream swim lanes across status columns' : `${view} task groups`}, with the same workstream/tag and completed-task filters as the normal Plan view:\n${JSON.stringify({
             filterProject, filterTag, showOlderDone,
             groups: reviewFocusGroups
               ? [{ label: 'Inbox', ids: inboxTasks.map(task => task.id) }, ...FOCUS_GROUPS.map(group => ({
@@ -1271,6 +1391,14 @@ export const TasksPage: React.FC<{
                 label: column.label, ids: scopedTasks.filter(task => task.status === column.id
                   && (task.status !== 'completed' || showOlderDone || busyTaskIds.has(task.id) || isRecentlyCompleted(task))).map(task => task.id),
               }))],
+            ...(view === 'board' ? { workstreams: workstreamLanes.map(lane => ({
+              name: lane.name,
+              collapsed: collapsedWorkstreams[lane.key] ?? (lane.openCount + lane.completedCount > 20),
+              taskIds: COLUMNS.flatMap(column => (lane.tasks.get(column.id) ?? [])
+                .filter(task => task.status !== 'completed' || showOlderDone || busyTaskIds.has(task.id) || isRecentlyCompleted(task))
+                .map(task => task.id)),
+              useCaseIds: COLUMNS.flatMap(column => (lane.useCases.get(column.id) ?? []).map(useCase => useCase.id)),
+            })) } : {}),
           })}\nHelp me assesses capability before an explicit approval. Do not execute assistance from a casual discussion or complete this task automatically.` }}
         list={<section className="kb-task-review-list" aria-labelledby="plan-task-list-heading">
           <div className="today-brief__section-heading">
@@ -1292,6 +1420,7 @@ export const TasksPage: React.FC<{
         open={modalOpen}
         initial={editTask}
         defaultStatus={addStatus}
+        defaultProjectId={addProjectId}
         projects={projects}
         error={saveError}
         onClose={() => { setModalOpen(false); setEditTask(null); setSaveError(null); }}

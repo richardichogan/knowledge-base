@@ -3276,42 +3276,6 @@ p, h1, h2, h3, h4, h5, h6, dl, dt, dd, blockquote {
   color: var(--cds-text-primary);
 }
 
-// Fixed-minimum columns filling full height; the board scrolls sideways when
-// the workspace is narrower than the columns.
-.kb-board {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(18rem, 1fr);
-  gap: 1.5rem;
-  flex: 1;
-  min-height: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding-bottom: 0.5rem; // keeps the horizontal scrollbar off the column borders
-}
-
-.kb-col {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  background: var(--cds-layer-01);
-  border: 1px solid var(--cds-border-subtle-00);
-  padding: 1rem 0 0 1rem; // right padding removed — handled by cards + gutter
-  overflow: hidden; // clip children, scroll is on __cards
-}
-
-// Column header row: name + count
-.kb-col__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1rem;
-  padding-bottom: 0.75rem;
-  padding-right: 1rem; // restore right spacing for header
-  border-bottom: 1px solid var(--cds-border-subtle-01);
-  flex-shrink: 0;
-}
-
 .kb-col__name {
   font-size: var(--kh-text-meta);
   font-family: 'IBM Plex Mono', monospace;
@@ -3328,60 +3292,176 @@ p, h1, h2, h3, h4, h5, h6, dl, dt, dd, blockquote {
   font-variant-numeric: tabular-nums;
 }
 
-// Scrollable list of cards
-.kb-col__cards {
+.kb-workstreams {
+  display: block;
   flex: 1;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  // keep a right gutter so scrollbar doesn't overlap cards
-  padding-right: 0.5rem;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
   scrollbar-gutter: stable;
-
+  padding-bottom: 0.5rem;
 }
 
-// "Add task" ghost button — sits below card list
-.kb-col__empty {
-  margin: 0;
-  padding: 0.5rem 0;
-  font-size: 0.75rem;
-  color: var(--cds-text-helper);
+.kb-workstreams__grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(18rem, 1fr));
+  column-gap: 1rem;
+  width: max(100%, calc(5 * 18rem + 4rem));
 }
 
-.kb-col__more {
-  align-self: flex-start;
-  flex-shrink: 0;
-  background: none;
-  border: none;
-  padding: 0.375rem 0;
-  font-size: 0.75rem;
+.kb-workstreams__column-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 0.75rem 0;
+  background: var(--cds-background);
+  border-bottom: 1px solid var(--cds-border-subtle-01);
+}
+
+.kb-workstreams__column-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.kb-workstreams__older {
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--cds-link-primary);
+  font: inherit;
+  font-size: var(--kh-text-meta);
   cursor: pointer;
 
   &:hover { text-decoration: underline; }
-  &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 1px; }
+  &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
 }
 
-.kb-col__add {
+.kb-workstreams__lane-head {
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: 0.375rem;
-  background: none;
-  border: none;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.75rem 0;
+  margin-top: 0.5rem;
+  border-top: 1px solid var(--cds-border-subtle-01);
+}
+
+.kb-workstreams__lane-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.25rem 0;
+  border: 0;
+  background: transparent;
+  color: var(--cds-text-primary);
+  text-align: left;
   cursor: pointer;
+
+  &:hover .kb-workstreams__lane-name { color: var(--kh-accent); }
+  &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+}
+
+.kb-workstreams__caret {
+  flex: 0 0 auto;
+  color: var(--cds-icon-secondary);
+  transition: transform 120ms ease;
+
+  &--collapsed { transform: rotate(-90deg); }
+}
+
+.kb-workstreams__project { flex: 0 1 auto; }
+
+.kb-workstreams__lane-name {
+  overflow: hidden;
+  color: var(--cds-text-primary);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kb-workstreams__lane-count {
+  flex: 0 0 auto;
   color: var(--cds-text-secondary);
-  font-size: var(--kh-text-body);
-  padding: 0.625rem 0;
-  margin-top: 0.75rem;
-  padding-right: 1rem; // restore right spacing
-  flex-shrink: 0;
-  transition: color 100ms;
+  font-size: var(--kh-text-meta);
+}
+
+.kb-workstreams__add {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: var(--kh-control-height);
+  padding: 0 0.5rem;
+  border: 1px solid transparent;
+  border-radius: var(--kh-control-radius);
+  background: transparent;
+  color: var(--cds-text-secondary);
+  font: inherit;
+  font-size: var(--kh-text-meta);
+  cursor: pointer;
 
   &:hover {
-    color: var(--cds-link-primary);
+    border-color: var(--cds-border-subtle-01);
+    background: var(--cds-layer-hover-02);
+    color: var(--cds-text-primary);
   }
+  &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
 }
+
+.kb-workstreams__add--column {
+  justify-content: center;
+  width: var(--kh-control-height);
+  min-width: var(--kh-control-height);
+  padding: 0;
+}
+
+.kb-workstreams__cell {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+  min-width: 0;
+  min-height: 3rem;
+  padding: 0.25rem 0 0.75rem;
+}
+
+.kb-workstreams .kb-card__project { display: none; }
+
+.kb-workstreams__cell[hidden] { display: none; }
+
+.kb-workstreams__cell--empty {
+  align-self: start;
+  width: 100%;
+  min-height: 2.5rem;
+  border: 1px dashed var(--cds-border-subtle-01);
+  border-radius: var(--kh-radius-sm);
+}
+
+.kb-workstreams__cell--drag-over {
+  outline: 2px solid var(--cds-support-info);
+  outline-offset: -2px;
+  background: var(--cds-layer-hover-01);
+}
+
+.kb-workstreams__empty,
+.kb-workstreams__empty-note {
+  margin: 0;
+  padding: 0.75rem 0;
+  color: var(--cds-text-secondary);
+  font-size: var(--kh-text-body);
+}
+
+.kb-workstreams__empty-note { font-size: var(--kh-text-meta); }
 
 // ── Card ──────────────────────────────────────────────────────────────────────
 
@@ -9357,16 +9437,11 @@ body.kh-pane-resizing {
   margin-top: 4px;
 }
 
-// ── Kanban drag-and-drop ──────────────────────────────────────────────────────
+// ── Task card drag-and-drop ───────────────────────────────────────────────────
 
 .kb-card--dragging {
   opacity: 0.4;
   cursor: grabbing;
-}
-
-.kb-col--drag-over {
-  background: var(--cds-layer-selected-01);
-  border-color: var(--cds-interactive);
 }
 
 // ── Header tag action badge ───────────────────────────────────────────────────

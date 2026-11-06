@@ -10,9 +10,10 @@ import { api } from '../../services/api';
 import { requireApiSuccess } from '../../services/apiError';
 import { useProjects } from '../../services/useProjects';
 import { localDateKey } from '../../utils/dateOnly';
+import type { PlanView } from '../../utils/planPreferences';
 import { planContextDetail } from './taskInsights';
 
-export function usePlanAthena(filterProject: string, filterTag: string): (prompt: string) => void {
+export function usePlanAthena(filterProject: string, filterTag: string, view: PlanView): (prompt: string) => void {
   const { setAthenaContext, openAthena, pageContext: currentContext } = useAthenaContext();
   const { projects } = useProjects();
   const { data } = useQuery({
@@ -23,8 +24,14 @@ export function usePlanAthena(filterProject: string, filterTag: string): (prompt
     const items = data?.success === true ? data.data.items : [];
     const tasks = filterTag ? items.filter((t) => t.taxonomyTagIds.includes(filterTag)) : items;
     const projectName = (id: string): string => projects.find((p) => p.id === id)?.name ?? id;
-    return { type: 'task', title: 'Plan', id: 'plan', detail: planContextDetail(tasks, projectName, localDateKey(new Date())) };
-  }, [data, filterTag, projects]);
+    const viewDescription = view === 'board'
+      ? 'Current Plan view: Board, arranged as collapsible workstream swim lanes across status columns. Moving a task between workstreams requires editing its workstream.'
+      : `Current Plan view: ${view}.`;
+    return {
+      type: 'task', title: 'Plan', id: 'plan',
+      detail: `${viewDescription}\n${planContextDetail(tasks, projectName, localDateKey(new Date()))}`,
+    };
+  }, [data, filterTag, projects, view]);
   useEffect(() => {
     if (currentContext?.type === 'task' && currentContext.id !== 'plan') return;
     setAthenaContext(pageContext);

@@ -72,7 +72,7 @@ export const PlanPage: React.FC = () => {
   }, [searchParams]);
   const [importOpen, setImportOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
-  const askAthena = usePlanAthena(filterProject, filterTag);
+  const askAthena = usePlanAthena(filterProject, filterTag, view);
   const flatTags = useFlatTags();
   const { data: projects = [] } = useProjects();
 
