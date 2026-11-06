@@ -145,7 +145,7 @@ async function saveResearchCheckpoint(context: SpecialistContext, checkpoint: Re
     const saved = await client.query(`UPDATE agent_jobs SET input=jsonb_set(input,'{researchFormattingCheckpoint}',$3::jsonb),
         result=$5::jsonb,updated_at=NOW()
       WHERE id=$1 AND attempts=$2 AND status='running' AND specialist='task-researcher'
-        AND lease_until>clock_timestamp() AND ($4::text IS NULL OR lease_owner=$4) RETURNING id`,
+        AND lease_until>clock_timestamp() AND ($4::uuid IS NULL OR lease_owner=$4) RETURNING id`,
     [context.jobId, context.attempt, JSON.stringify(checkpoint), currentAgentAttempt()?.owner ?? null,
       JSON.stringify({ data: pendingResearchData(checkpoint, context.subjectId),
         summary: 'Iris retained the research draft for formatting amendment; no completed Think note is claimed.' })]);

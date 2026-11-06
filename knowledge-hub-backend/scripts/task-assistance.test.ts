@@ -4,11 +4,12 @@ import { readFile } from 'node:fs/promises';
 import { amendResearchFormatting, assistanceId, isPublicSearchEvidence, isReadEvidence, parseAssistanceProposal, researchAmendmentPreservesContent, researchNoteBlocks, validateAssistanceSearch } from '../src/work/taskAssistance.js';
 import { AiError } from '../src/types/errors.js';
 import { PGlite } from '@electric-sql/pglite';
-import type { PoolClient } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import { assignTaskAgent, recordTaskAgentActivity, taskAssistanceSignature } from '../src/work/taskAgentActivity.js';
 import { rowToTask } from '../src/routes/tasks.js';
 import { parseTaskAssistanceReview, requireCurrentTaskDirection, requireTaskAssistanceReady, taskAssistanceContext } from '../src/work/taskAssistanceContract.js';
-import { parseTaskDraftCheckpoint } from '../src/work/taskAssistanceDraft.js';
+import { parseTaskDraftCheckpoint, saveTaskDraft } from '../src/work/taskAssistanceDraft.js';
+import { withAgentAttempt } from '../src/agents/attempt.js';
 
 const proposal = {
   kind: 'research', summary: 'Compare First Mate with Athena', approach: 'Verify the repository and read architecture evidence.',
@@ -330,6 +331,56 @@ test('task drafting retains work before review and email research uses the same 
   assert.doesNotMatch(review, /task: row\.task_snapshot|taskActivity: intent\.activity/);
   assert.match(drafts, /a\.owner_id=\$2 AND a\.task_signature=\$3 AND a\.approved_at IS NOT NULL/);
   assert.match(drafts, /lease_until>clock_timestamp/);
+});
+
+test('draft and research checkpoints execute against UUID lease owners and preserve ownership guards', async () => {
+  const db = new PGlite();
+  const jobId = '00000000-0000-4000-8000-000000000001';
+  const owner = '00000000-0000-4000-8000-000000000002';
+  const otherOwner = '00000000-0000-4000-8000-000000000003';
+  const signal = new AbortController().signal;
+  const checkpoint = {
+    proposalId: 'approved', taskSignature: 'snapshot', direction: 'Draft the email.',
+    body: 'Subject: Training\n\nSource-backed email.', sourcesRead: 1, publicSearches: 0, publicSourcesRead: 0,
+    sourceEvidence: [{ tool: 'read_knowledge_record', excerpt: '{"content":"Training source"}', truncated: false }],
+    capturedAt: '2026-11-06T16:47:00Z', reviewFeedback: '',
+  };
+  const client = {
+    query: async (sql: string, params?: unknown[]) => {
+      const result = await db.query(sql, params);
+      return { rows: result.rows, rowCount: result.rows.length || result.affectedRows };
+    },
+    release: () => {},
+  };
+  const context = { db: { connect: async () => client } as unknown as Pool,
+    jobId, attempt: 1, subjectId: 'task', input: {}, progress: () => {}, signal };
+  try {
+    await db.exec(`CREATE TABLE agent_jobs(id uuid PRIMARY KEY, attempts integer, status text, specialist text,
+      lease_owner uuid, lease_until timestamptz, assignment_id uuid, input jsonb DEFAULT '{}',
+      result jsonb, updated_at timestamptz DEFAULT now())`);
+    await db.query(`INSERT INTO agent_jobs(id,attempts,status,specialist,lease_owner,lease_until)
+      VALUES($1,1,'running','task-researcher',$2,now()+INTERVAL '1 hour')`, [jobId, owner]);
+    await saveTaskDraft(context, checkpoint);
+    await withAgentAttempt({ jobId, attempt: 1, owner, assignmentId: null, signal },
+      () => saveTaskDraft(context, checkpoint));
+    assert.deepEqual((await db.query<{ input: { taskDraftCheckpoint: unknown } }>(
+      'SELECT input FROM agent_jobs WHERE id=$1', [jobId])).rows[0]?.input.taskDraftCheckpoint, checkpoint);
+    await assert.rejects(withAgentAttempt({ jobId, attempt: 1, owner: otherOwner, assignmentId: null, signal },
+      () => saveTaskDraft(context, checkpoint)), /no longer owns/);
+
+    const service = await readFile(new URL('../src/work/taskAssistance.ts', import.meta.url), 'utf8');
+    const researchSql = service.match(/const saved = await client\.query\(`(UPDATE agent_jobs SET input=jsonb_set\(input,'\{researchFormattingCheckpoint\}'[\s\S]*?)`,/);
+    assert.ok(researchSql, 'execute the production research checkpoint query, not a duplicated SQL fixture');
+    for (const leaseOwner of [owner, null]) {
+      const saved = await db.query(researchSql[1]!, [jobId, 1, JSON.stringify({ markdown: checkpoint.body }),
+        leaseOwner, JSON.stringify({ pending: true })]);
+      assert.equal(saved.rows.length, 1);
+    }
+    assert.equal((await db.query(researchSql[1]!, [jobId, 1, '{}', otherOwner, '{}'])).rows.length, 0);
+    await db.query('UPDATE agent_jobs SET lease_until=now()-INTERVAL \'1 second\' WHERE id=$1', [jobId]);
+    await assert.rejects(saveTaskDraft(context, checkpoint), /no longer owns/);
+    assert.equal((await db.query(researchSql[1]!, [jobId, 1, '{}', owner, '{}'])).rows.length, 0);
+  } finally { await db.close(); }
 });
 
 test('TASK-ASSIST-12: task context includes attributed activity, declaring bounded or clipped history', async () => {

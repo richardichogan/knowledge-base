@@ -87,7 +87,7 @@ export async function saveTaskDraft(context: SpecialistContext, checkpoint: Task
     const saved = await client.query(`UPDATE agent_jobs SET
       input=jsonb_set(input,'{taskDraftCheckpoint}',$3::jsonb),updated_at=now()
       WHERE id=$1 AND attempts=$2 AND status='running' AND lease_until>clock_timestamp()
-        AND ($4::text IS NULL OR lease_owner=$4) RETURNING id`,
+        AND ($4::uuid IS NULL OR lease_owner=$4) RETURNING id`,
     [context.jobId, context.attempt, JSON.stringify(checkpoint), currentAgentAttempt()?.owner ?? null]);
     if (!saved.rowCount) throw new ConflictError('This attempt no longer owns the retained task draft.', 'AGENT_ATTEMPT_CONFLICT');
     await client.query('COMMIT');
