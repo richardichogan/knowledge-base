@@ -2,6 +2,34 @@
 
 **Status:** Validated
 
+**Approved email evidence correction (2026-11-06):**
+- Released `889a7f12` to branch and main; ACR run `ca9s` built v311.
+  Revision `kh-prod-api-vnet--0000308` is Healthy/RunningAtMaxScale with
+  100% traffic. Startup confirms migrations, warmed pool and production worker;
+  the old revision stopped before the retry was queued.
+- Both application `tsc --noEmit` checks, backend production build and all
+  26 directly affected isolated task-assistance checks pass. Earlier unchanged
+  release suites are reused; no frontend, Desktop, infrastructure or roles changed.
+- Evidence retains complete reads within the existing 48,000-character total,
+  deduplicates rereads and excludes old clipped checkpoints pending reread.
+  Readiness now honours explicitly approved briefing-based email contracts
+  without accepting unsupported claims, invented steps or unapproved searches.
+- Normal approved retry `ef402b20-36ce-47f4-aae4-8ceb58faeca4` completed.
+  Independently reread actual persisted Think note
+  `47358104-c73e-468a-b0e8-e862a4c3d6e1`, titled
+  "Email draft: Draft the Advanced Specialisations email for Chris to send to all".
+  It contains To/Cc/Subject, a copyable first-person Chris email and review gaps.
+  The full 17,190-character briefing is retained in an 18,303-character evidence
+  record with `truncated=false`; the readiness check passed before persistence.
+- The saved draft does not contain exact account-linking instructions; it
+  explicitly identifies that gap. Internal discovery found older briefing
+  references to Tyne Fuchs's linking communication and Shaudy Moraga's reshare,
+  not the actual procedure. Recipients/Cc, deadline and named badge-holder
+  collection still require human review (older internal guidance prohibits
+  sharing badge-holder lists). This is a saved review draft, not a send-ready
+  message or a claim that registration instructions were retrieved.
+- The task remains `in-progress`; no email was sent and no task was completed.
+
 **Task-draft checkpoint UUID hotfix (2026-11-06):**
 - Released application commit `3a4252e8` to branch and main. Both checkpoint
   lease predicates now type the optional owner as UUID, matching `agent_jobs`.
