@@ -105,7 +105,6 @@ export function TaskDetail({ taskId, onBackToPlan, presentation = 'plan' }: {
   const refreshWithResult = Boolean(latest?.resultNoteId) && visibleJobs.length === 0;
   return <article className="kh-task-detail">
     <header className="kh-task-detail__header">
-      {presentation === 'plan' && backToPlan}
       {presentation === 'today' && <div className="kh-task-detail__identity-row">
         <EntityChip projectId={task.projectId} fallbackLabel={project} size="md" />
         {backToPlan}

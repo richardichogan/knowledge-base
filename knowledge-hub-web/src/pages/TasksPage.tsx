@@ -26,7 +26,7 @@ import { ConnectionsPanel } from '../components/connections/ConnectionsPanel';
 import { EntityLinks, useEntityRelationships } from '../components/connections/EntityLinks';
 import type { PlanTask as Task, TaskStatus, TaskPriority, ChecklistItem } from '../types/task';
 import { TaskChecklist } from '../features/plan/TaskChecklist';
-import { FOCUS_GROUPS, focusDate, groupForFocus, isRecentlyCompleted, originHref, originLabel, taskHealth, RECENT_COMPLETED_DAYS, type FocusGroupId } from '../features/plan/taskInsights';
+import { FOCUS_GROUPS, focusDate, groupForFocus, originHref, originLabel, taskHealth, type FocusGroupId } from '../features/plan/taskInsights';
 import { dateOnlyToLocal, localDateKey } from '../utils/dateOnly';
 import { requireApiData, requireApiSuccess, describeApiError } from '../services/apiError';
 import { DataNotice } from '../components/DataNotice';
@@ -38,6 +38,9 @@ import { TaskDescription } from '../components/TaskDescription';
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 // ── Config ────────────────────────────────────────────────────────────────────
+
+const COLLAPSED_WORKSTREAMS_KEY = 'kh-plan-collapsed-workstreams';
+const COMPLETED_PREVIEW_COUNT = 5;
 
 const COLUMNS: { id: TaskStatus; label: string }[] = [
   { id: 'backlog',     label: 'Backlog' },
@@ -1025,10 +1028,27 @@ export const TasksPage: React.FC<{
   const [modalOpen,      setModalOpen]      = useState(false);
   const [editTask,      setEditTask]      = useState<Task | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!selectedTaskId) return;
+    // Wait for ReviewWorkspace to settle its measured pane width, which reflows card heights.
+    const timer = window.setTimeout(() => {
+      document.querySelector('.kb-task-review-list .kb-card--selected, .kb-task-review-list .kb-focus-row--selected')
+        ?.scrollIntoView({ block: 'nearest' });
+    }, 150);
+    return () => { window.clearTimeout(timer); };
+  }, [selectedTaskId]);
   const [addStatus,     setAddStatus]     = useState<TaskStatus>('backlog');
   const [addProjectId, setAddProjectId] = useState('personal');
   const [showOlderDone, setShowOlderDone] = useState(false);
-  const [collapsedWorkstreams, setCollapsedWorkstreams] = useState<Record<string, boolean>>({});
+  const [collapsedWorkstreams, setCollapsedWorkstreams] = useState<Record<string, boolean>>(() => {
+    try {
+      const stored: unknown = JSON.parse(window.localStorage.getItem(COLLAPSED_WORKSTREAMS_KEY) ?? '{}');
+      return stored && typeof stored === 'object' ? stored as Record<string, boolean> : {};
+    } catch { return {}; }
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem(COLLAPSED_WORKSTREAMS_KEY, JSON.stringify(collapsedWorkstreams)); } catch { /* storage unavailable */ }
+  }, [collapsedWorkstreams]);
   const { projects } = useProjects();
   const { data: useCases = [], isPending: useCasesPending, error: useCasesError, refetch: refetchUseCases } = useUseCases();
 
@@ -1176,6 +1196,13 @@ export const TasksPage: React.FC<{
 
   const selectedTask = tasks.find(task => task.id === selectedTaskId) ?? selectedDetail.data?.task;
   const reviewFocusGroups = selectedTaskId && view === 'focus' ? groupForFocus(scopedTasks, localDateKey(new Date())) : null;
+  // Task completion time is the last update to a completed task.
+  const visibleCompletedTasks = (tasks: Task[]): Task[] => {
+    const newestFirst = [...tasks].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    if (showOlderDone) return newestFirst;
+    return [...newestFirst.slice(0, COMPLETED_PREVIEW_COUNT),
+      ...newestFirst.slice(COMPLETED_PREVIEW_COUNT).filter(task => busyTaskIds.has(task.id))];
+  };
   const workstreamLanes = (() => {
     const lanes = new Map<string, WorkstreamLane>();
     const ensureLane = (key: string, projectId: string | null, name: string): WorkstreamLane => {
@@ -1212,15 +1239,15 @@ export const TasksPage: React.FC<{
         const laneTasks = lane.tasks.get(column.id) ?? [];
         const count = laneTasks.length + (lane.useCases.get(column.id)?.length ?? 0);
         if (column.id === completedId) {
-          lane.completedCount += (showOlderDone ? laneTasks : laneTasks.filter(task => busyTaskIds.has(task.id) || isRecentlyCompleted(task))).length
+          lane.completedCount += visibleCompletedTasks(laneTasks).length
             + (lane.useCases.get(column.id)?.length ?? 0);
         } else lane.openCount += count;
       }
     }
     return [...lanes.values()].sort((a, b) => b.openCount - a.openCount || a.name.localeCompare(b.name, 'en-GB'));
   })();
-  const olderDoneCount = scopedTasks.filter((task) => task.status === 'completed'
-    && !busyTaskIds.has(task.id) && !isRecentlyCompleted(task)).length;
+  const totalDoneCount = workstreamLanes.reduce((count, lane) => count + (lane.tasks.get('completed')?.length ?? 0), 0);
+  const hasMoreDone = workstreamLanes.some(lane => (lane.tasks.get('completed')?.length ?? 0) > COMPLETED_PREVIEW_COUNT);
 
   const openAddTask = (status: TaskStatus, projectId = 'personal'): void => {
     setEditTask(null);
@@ -1271,7 +1298,7 @@ export const TasksPage: React.FC<{
         </>
       )}
 
-      {view === 'board' && <section className="kb-workstreams" aria-label="Plan tasks grouped by workstream">
+      {view === 'board' && <section className={`kb-workstreams${selectedTaskId ? ' kb-workstreams--list' : ''}`} aria-label="Plan tasks grouped by workstream">
         <div className="kb-workstreams__grid">
           {COLUMNS.map((column) => {
             const taskCount = scopedTasks.filter((task) => task.status === column.id).length;
@@ -1287,11 +1314,11 @@ export const TasksPage: React.FC<{
                     onClick={() => { openAddTask(column.id); }}>
                     <Add size={16} />
                   </button>
-                  {column.id === 'completed' && olderDoneCount > 0 && (
+                  {column.id === 'completed' && (hasMoreDone || showOlderDone) && (
                     <button type="button" className="kb-workstreams__older"
                       aria-expanded={showOlderDone}
                       onClick={() => { setShowOlderDone((value) => !value); }}>
-                      {showOlderDone ? `Hide ${olderDoneCount} older` : `Show ${olderDoneCount} older`}
+                      {showOlderDone ? `Show latest ${COMPLETED_PREVIEW_COUNT}` : `Show all completed (${totalDoneCount})`}
                     </button>
                   )}
                   {taskCount + useCaseCount > 0 && <span className="kb-col__count">{taskCount + useCaseCount}</span>}
@@ -1301,13 +1328,12 @@ export const TasksPage: React.FC<{
           })}
 
           {workstreamLanes.map((lane) => {
-            const laneSize = lane.openCount + lane.completedCount;
-            const collapsed = collapsedWorkstreams[lane.key] ?? (laneSize > 20);
+            const collapsed = collapsedWorkstreams[lane.key] ?? false;
             return (
               <React.Fragment key={lane.key}>
                 <div className="kb-workstreams__lane-head">
                   <button type="button" className="kb-workstreams__lane-toggle" aria-expanded={!collapsed}
-                    onClick={() => { setCollapsedWorkstreams((current) => ({ ...current, [lane.key]: !(current[lane.key] ?? (laneSize > 20)) })); }}>
+                    onClick={() => { setCollapsedWorkstreams((current) => ({ ...current, [lane.key]: !(current[lane.key] ?? false) })); }}>
                     <ChevronDown size={16} className={`kb-workstreams__caret${collapsed ? ' kb-workstreams__caret--collapsed' : ''}`} />
                     {lane.projectId !== null
                       ? <EntityChip projectId={lane.projectId} fallbackLabel={lane.name} className="kb-workstreams__project" />
@@ -1323,12 +1349,7 @@ export const TasksPage: React.FC<{
                 </div>
                 {COLUMNS.map((column) => {
                   const allLaneTasks = lane.tasks.get(column.id) ?? [];
-                  // Completed tasks auto-archive after 14 days; keep recent completions visible by default.
-                  const isRecentDone = (task: Task): boolean => busyTaskIds.has(task.id) || isRecentlyCompleted(task);
-                  const olderInLane = column.id === 'completed' ? allLaneTasks.filter((task) => !isRecentDone(task)).length : 0;
-                  const laneTasks = column.id === 'completed' && !showOlderDone
-                    ? allLaneTasks.filter(isRecentDone)
-                    : allLaneTasks;
+                  const laneTasks = column.id === 'completed' ? visibleCompletedTasks(allLaneTasks) : allLaneTasks;
                   const laneUseCases = [...(lane.useCases.get(column.id) ?? [])]
                     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
                   const cellKey = `${lane.key}:${column.id}`;
@@ -1355,6 +1376,9 @@ export const TasksPage: React.FC<{
                         }
                       }}
                     >
+                      {selectedTaskId && !isEmpty && <h3 className="kb-workstreams__cell-label">
+                        {column.label}<span>{laneTasks.length + laneUseCases.length}</span>
+                      </h3>}
                       {laneUseCases.map((useCase) => <UseCaseBoardCard key={useCase.id} useCase={useCase} />)}
                       {laneTasks.map((task) => (
                         <TaskCard
@@ -1370,9 +1394,6 @@ export const TasksPage: React.FC<{
                           onAskAthena={askAthenaAbout}
                         />
                       ))}
-                      {olderInLane > 0 && laneTasks.length === 0 && !showOlderDone && (
-                        <p className="kb-workstreams__empty-note">Nothing completed in the last {RECENT_COMPLETED_DAYS} days.</p>
-                      )}
                     </div>
                   );
                 })}
@@ -1394,14 +1415,16 @@ export const TasksPage: React.FC<{
                 label: group.label, ids: reviewFocusGroups[group.id].map(task => task.id),
               }))]
               : [{ label: 'Inbox', ids: inboxTasks.map(task => task.id) }, ...COLUMNS.map(column => ({
-                label: column.label, ids: scopedTasks.filter(task => task.status === column.id
-                  && (task.status !== 'completed' || showOlderDone || busyTaskIds.has(task.id) || isRecentlyCompleted(task))).map(task => task.id),
+                label: column.label, ids: column.id === 'completed'
+                  ? workstreamLanes.flatMap(lane => visibleCompletedTasks(lane.tasks.get('completed') ?? [])).map(task => task.id)
+                  : scopedTasks.filter(task => task.status === column.id).map(task => task.id),
               }))],
             ...(view === 'board' ? { workstreams: workstreamLanes.map(lane => ({
               name: lane.name,
-              collapsed: collapsedWorkstreams[lane.key] ?? (lane.openCount + lane.completedCount > 20),
-              taskIds: COLUMNS.flatMap(column => (lane.tasks.get(column.id) ?? [])
-                .filter(task => task.status !== 'completed' || showOlderDone || busyTaskIds.has(task.id) || isRecentlyCompleted(task))
+              collapsed: collapsedWorkstreams[lane.key] ?? false,
+              taskIds: COLUMNS.flatMap(column => (column.id === 'completed'
+                ? visibleCompletedTasks(lane.tasks.get(column.id) ?? [])
+                : lane.tasks.get(column.id) ?? [])
                 .map(task => task.id)),
               useCaseIds: COLUMNS.flatMap(column => (lane.useCases.get(column.id) ?? []).map(useCase => useCase.id)),
             })) } : {}),

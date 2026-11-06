@@ -3439,6 +3439,34 @@ p, h1, h2, h3, h4, h5, h6, dl, dt, dd, blockquote {
 
 .kb-workstreams__cell[hidden] { display: none; }
 
+// While a task is open, the board collapses to one readable column: lanes stay, statuses become sub-headings.
+.kb-workstreams--list {
+  .kb-workstreams__grid {
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+  }
+  .kb-workstreams__column-head,
+  .kb-workstreams__cell--empty { display: none; }
+  .kb-workstreams__lane-head { margin-top: 0; }
+  .kb-workstreams__lane-toggle { flex: 1 1 0; flex-wrap: wrap; row-gap: 0.25rem; }
+  .kb-workstreams__project { flex: none; max-width: 100%; }
+  .kb-workstreams__add > span { display: none; }
+  .kb-workstreams__cell { min-height: 0; padding: 0 0 1rem; }
+}
+
+.kb-workstreams__cell-label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0.25rem 0 0;
+  color: var(--cds-text-secondary);
+  font-size: var(--kh-text-meta);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  > span { font-weight: 400; letter-spacing: 0; }
+}
+
 .kb-workstreams__cell--empty {
   align-self: start;
   width: 100%;
