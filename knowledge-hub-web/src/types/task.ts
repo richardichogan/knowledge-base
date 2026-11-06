@@ -19,6 +19,8 @@ export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
 export type TaskType = 'standard' | 'cert_session' | 'cert_review';
 export type RecurringCadence = 'daily' | 'weekly' | 'fortnightly' | 'monthly';
 
+export interface ChecklistItem { id: string; title: string; done: boolean }
+
 export interface PlanTask {
   assistanceStatus?: 'queued' | 'failed' | 'skipped';
   id: string;
@@ -38,6 +40,7 @@ export interface PlanTask {
   linkedTagId: string | null;
   taxonomyTagIds: string[];
   recurringCadence: RecurringCadence | null;
+  checklist?: ChecklistItem[];
   /** How many times the due date has been pushed later. */
   rescheduleCount?: number;
   archived: boolean;

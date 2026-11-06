@@ -48,6 +48,7 @@ import { canonicalContentSql } from '../db/contentVisibility.js';
 import { createNoteRecord } from '../routes/notes.js';
 import { rowToTask, type Task } from '../routes/tasks.js';
 import { TASK_STATUSES, normaliseTaskStatus } from '../services/taskStatus.js';
+import { parseChecklist } from '../services/taskChecklist.js';
 import { CONTENT_STORE } from '../routes/documents.js';
 import { AI_TOOL_SEARCH_DEFAULT_LIMIT, AI_TOOL_SEARCH_MAX_LIMIT } from '../config/constants.js';
 import { env } from '../config/env.js';
@@ -590,6 +591,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
             appendBody: { type: 'string', description: 'Text to add to the end of the description (keeps what is there).' },
             specFromOutputId: { type: 'string', description: "Id of an Output in this chat: its latest version goes into the task description under a '## Spec' heading, replacing any earlier Spec section and keeping the rest." },
             tags: { type: 'array', items: { type: 'string' }, description: "Replaces the task's Plan tags." },
+            checklist: { type: 'array', items: { type: 'object', properties: { id: { type: 'string', description: 'Existing item id; omit for a new item.' }, title: { type: 'string' }, done: { type: 'boolean' } }, required: ['title'] }, description: "Replaces the task's whole checklist (sub-tasks with title and done tick). Read the current checklist first (it is in the task context and update_task results), keep existing ids, and send every item you want kept." },
             linkThisChat: { type: 'boolean', description: 'If true, links this chat to the task.' },
           },
           required: [],
@@ -2077,6 +2079,7 @@ function summariseTask(task: Task): Record<string, unknown> {
     priority: task.priority,
     projectId: task.projectId,
     dueDate: task.dueDate,
+    ...(task.checklist.length > 0 && { checklist: task.checklist }),
     // Deep link back into the Plan board — lets chat replies point at the
     // actual task in the app instead of just naming it in plain text.
     url: `${env.FRONTEND_BASE_URL}/plan?taskId=${task.id}`,
@@ -2316,6 +2319,7 @@ async function updateTask(db: Pool, args: Record<string, unknown>, sessionId: st
   if (typeof args['body'] === 'string') add('body', args['body']);
   // Status is never written by a chat tool, even when a no-op request races another editor.
   if (typeof args['waitingOn'] === 'string') add('waiting_on', args['waitingOn'].trim() || null);
+  if (args['checklist'] !== undefined) add('checklist', JSON.stringify(parseChecklist(args['checklist'])));
   if (TASK_PRIORITIES.includes(args['priority'] as typeof TASK_PRIORITIES[number])) add('priority', args['priority']);
   if ('dueDate' in args) add('due_date', args['dueDate'] === null ? null : (typeof args['dueDate'] === 'string' ? args['dueDate'] : null));
 

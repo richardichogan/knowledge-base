@@ -9,7 +9,8 @@ import { DataNotice } from '../../components/DataNotice';
 import { ConnectionsPanel } from '../../components/connections/ConnectionsPanel';
 import { TaskActivitySection, TaskEditor, TaskNoteText, type TaskEditorInput } from '../../pages/TasksPage';
 import { taskAthenaPrompt } from './taskInsights';
-import type { PlanTask } from '../../types/task';
+import { TaskChecklist } from './TaskChecklist';
+import type { ChecklistItem, PlanTask } from '../../types/task';
 import { ArrowLeft, ArrowRight, Launch } from '@carbon/icons-react';
 import { EntityChip, IdentityChip, identitiesFor, useIdentity } from '../../identity';
 import { confirmDialog } from '../../services/appDialogs';
@@ -65,6 +66,10 @@ export function TaskDetail({ taskId, onBackToPlan, presentation = 'plan' }: {
       setEditing(false);
       await refresh();
     },
+  });
+  const tick = useMutation({
+    mutationFn: async (checklist: ChecklistItem[]) => requireApiData(await api.updateTask(taskId, { checklist })),
+    onSuccess: refresh,
   });
   const copy = useMutation({
     mutationFn: async (id: string) => {
@@ -127,6 +132,9 @@ export function TaskDetail({ taskId, onBackToPlan, presentation = 'plan' }: {
       saving={edit.isPending} error={edit.error instanceof Error ? edit.error.message : null}
       onClose={() => { if (!edit.isPending) setEditing(false); }} onSave={input => { if (!edit.isPending) edit.mutate(input); }} />}
     {!editing && task.body && <p className="kh-task-detail__body"><TaskNoteText text={task.body} /></p>}
+    {!editing && <TaskChecklist idPrefix="task-check" items={task.checklist ?? []} editable disabled={tick.isPending}
+      onChange={items => { tick.mutate(items); }} />}
+    {!editing && tick.error instanceof Error && <p className="kh-task-checklist__error" role="alert">Checklist not saved: {tick.error.message}</p>}
     {!editing && task.waitingOn && <p>Waiting on: {task.waitingOn}</p>}
     {task.externalUrl && <a className="dc-explore__source-link" href={task.externalUrl} target="_blank" rel="noreferrer">Original task source <Launch size={16} /></a>}
     <section className="kh-task-detail__assistance" aria-labelledby={`task-assistance-${task.id}`}>
