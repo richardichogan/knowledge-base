@@ -382,7 +382,7 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
     if (name === 'fetch_web_page') return filtered && projectId === null;
     // Other readers do not enforce content filters. Structured queries and Design reads enforce project IDs only.
     return !filtered && (BUILD_READ_TOOLS.includes(name as typeof BUILD_READ_TOOLS[number]) || name === 'read_use_case'
-      || STRUCTURED_TOOL_NAMES.has(name) || name === 'read_project_progress_reviews' || name === 'read_design_package' || name === 'read_podcast_script' || name === 'read_work_content');
+      || STRUCTURED_TOOL_NAMES.has(name) || name === 'read_project_progress_reviews' || name === 'read_design_package' || name === 'read_podcast_script' || name === 'read_work_content' || name === 'list_drafts');
   };
   if (design) catalog.load(['read_design_package']);
   if (toolContext.podcastOwner) catalog.load(['read_podcast_script', 'read_podcast_campaign']);

@@ -16,9 +16,26 @@ import { EntityChip, IdentityChip, identitiesFor, useIdentity } from '../../iden
 import { confirmDialog } from '../../services/appDialogs';
 import { setTaskChatBridge } from '../../utils/activeBlockNoteEditor';
 
-export function TaskDetail({ taskId, onBackToPlan, presentation = 'plan' }: {
-  taskId: string; onBackToPlan?: () => void; presentation?: 'plan' | 'today';
+function taskStatusLabel(status: string): string {
+  return status === 'in-progress' ? 'In progress' : status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+function formatDue(dueDate: string, status: string): { label: string; overdue: boolean } {
+  const [y, m, d] = dueDate.slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return { label: dueDate, overdue: false };
+  const date = new Date(y, m - 1, d);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const label = date.toLocaleDateString('en-GB', {
+    weekday: 'short', day: 'numeric', month: 'short', ...(y !== today.getFullYear() ? { year: 'numeric' } : {}),
+  });
+  return { label, overdue: status !== 'completed' && date < today };
+}
+
+export function TaskDetail({ taskId, onBackToPlan, backLabel = 'Plan', presentation = 'plan' }: {
+  taskId: string; onBackToPlan?: () => void; backLabel?: string; presentation?: 'plan' | 'today';
 }): React.ReactElement {
+  const [editorActions, setEditorActions] = useState<HTMLDivElement | null>(null);
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { projects } = useProjects();
@@ -30,6 +47,7 @@ export function TaskDetail({ taskId, onBackToPlan, presentation = 'plan' }: {
   const editingRef = useRef(editing);
   editingRef.current = editing;
   const [direction, setDirection] = useState('');
+  const [showDirection, setShowDirection] = useState(false);
   const [copyStatus, setCopyStatus] = useState('');
   const [copyError, setCopyError] = useState<unknown>(null);
   const [automaticHelpError, setAutomaticHelpError] = useState<Error | null>(null);
@@ -52,7 +70,7 @@ export function TaskDetail({ taskId, onBackToPlan, presentation = 'plan' }: {
   }), [taskId, refresh]);
   const assess = useMutation({
     mutationFn: async () => requireApiData(await api.assessTaskAssistance(taskId, direction)),
-    onSuccess: async () => { setDirection(''); await refresh(); },
+    onSuccess: async () => { setDirection(''); setShowDirection(false); await refresh(); },
   });
   const approve = useMutation({
     mutationFn: async (proposalId: string) => requireApiData(await api.approveTaskAssistance(taskId, proposalId)),
@@ -87,7 +105,7 @@ export function TaskDetail({ taskId, onBackToPlan, presentation = 'plan' }: {
       })) return;
       if (onBackToPlan) onBackToPlan();
       else navigate(presentation === 'today' ? `/plan?taskId=${encodeURIComponent(taskId)}` : '/plan');
-    })(); }}>{presentation === 'today' ? <>View in Plan<ArrowRight size={16} /></> : <><ArrowLeft size={16} />Back to Plan</>}</button>;
+    })(); }}>{presentation === 'today' ? <>View in Plan<ArrowRight size={16} /></> : <><ArrowLeft size={16} />Back to {backLabel}</>}</button>;
   const task = detail.data?.task;
   if (!task) return <div className="kh-task-detail">
     {backToPlan}
@@ -102,51 +120,62 @@ export function TaskDetail({ taskId, onBackToPlan, presentation = 'plan' }: {
   const busy = assess.isPending || approve.isPending || active;
   const visibleJobs = detail.data?.jobs.filter(job => !(job.status === 'done' && !job.error && latest?.resultNoteId
     && job.result?.['noteId'] === latest.resultNoteId)) ?? [];
-  const refreshWithResult = Boolean(latest?.resultNoteId) && visibleJobs.length === 0;
+  const due = task.dueDate ? formatDue(task.dueDate, task.status) : null;
+  const decisions = latest?.proposal.humanDecisions.length ?? 0;
+  const assistStatus = active && !latest ? 'Athena is preparing a help proposal. You will be notified when it is ready.'
+    : !latest ? 'No proposal yet. Nothing starts until you approve it here.'
+      : latest.resultNoteId ? 'Result ready for your review.'
+        : `Proposal ready${decisions ? ` · ${decisions} decision${decisions === 1 ? '' : 's'} stay with you` : ''}.`;
   return <article className="kh-task-detail">
     <header className="kh-task-detail__header">
-      {presentation === 'today' && <div className="kh-task-detail__identity-row">
+      <div className="kh-task-detail__identity-row">
         <EntityChip projectId={task.projectId} fallbackLabel={project} size="md" />
         {backToPlan}
-      </div>}
-      <div className="kh-task-detail__meta">
-        {presentation === 'plan' && <EntityChip projectId={task.projectId} fallbackLabel={project} size="md" />}
-        <span>{task.status === 'in-progress' ? 'In progress' : task.status.charAt(0).toUpperCase() + task.status.slice(1)} · {task.priority} priority{task.dueDate ? ` · Due ${task.dueDate}` : ''}</span>
       </div>
-      <h2>{task.title}</h2>
-      {(tags.length > 0 || otherTags.length > 0) && <div className="kh-chip-row kh-task-detail__tags" aria-label="Task topics">
-        {tags.map(tag => <IdentityChip key={tag.tagId} identity={tag} size="md" />)}
-        {otherTags.map(name => <EntityChip key={name} name={name} size="md" />)}
-      </div>}
+      {!editing && <>
+        <p className="kh-task-detail__meta">
+          {taskStatusLabel(task.status)} · {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
+          {due && <> · <span className={due.overdue ? 'kh-task-detail__due--overdue' : undefined}>{due.overdue ? 'Overdue · ' : ''}Due {due.label}</span></>}
+        </p>
+        {task.waitingOn && <p className="kh-task-detail__waiting">Waiting on <strong>{task.waitingOn}</strong></p>}
+        <h2>{task.title}</h2>
+        {(tags.length > 0 || otherTags.length > 0) && <div className="kh-chip-row kh-task-detail__tags" aria-label="Task topics">
+          {tags.map(tag => <IdentityChip key={tag.tagId} identity={tag} size="md" />)}
+          {otherTags.map(name => <EntityChip key={name} name={name} size="md" />)}
+        </div>}
+      </>}
       <div className="kh-task-detail__actions dc-article-toolbar">
-        {!editing && <button type="button" className="dc-explore__action" disabled={taskChatBusy}
+        {editing && <div className="kh-task-detail__editor-actions" ref={setEditorActions} />}
+        {!editing && <button type="button" className="dc-explore__primary" disabled={taskChatBusy}
           onClick={() => { edit.reset(); setEditingTask(task); setEditing(true); }}>Edit task</button>}
-        <button type="button" className="dc-explore__primary" disabled={editing} onClick={() => { openAthena(taskAthenaPrompt(task, project), {
+        <button type="button" className="dc-explore__action" disabled={editing} onClick={() => { openAthena(taskAthenaPrompt(task, project), {
           type: 'task', id: task.id, title: task.title, projectId: task.projectId,
           detail: `${JSON.stringify(task)}\nDiscuss assistance only. Execution requires the saved proposal's Approve and start action in this task view.`,
         }); }}>Discuss with Athena</button>
       </div>
     </header>
     {editing && <TaskEditor inline open initial={editingTask ?? task} defaultStatus={editingTask?.status ?? task.status} projects={projects}
-      saving={edit.isPending} error={edit.error instanceof Error ? edit.error.message : null}
+      actionsTarget={editorActions} saving={edit.isPending} error={edit.error instanceof Error ? edit.error.message : null}
       onClose={() => { if (!edit.isPending) setEditing(false); }} onSave={input => { if (!edit.isPending) edit.mutate(input); }} />}
     {!editing && task.body && <p className="kh-task-detail__body"><TaskNoteText text={task.body} /></p>}
     {!editing && <TaskChecklist idPrefix="task-check" items={task.checklist ?? []} editable disabled={tick.isPending}
       onChange={items => { tick.mutate(items); }} />}
     {!editing && tick.error instanceof Error && <p className="kh-task-checklist__error" role="alert">Checklist not saved: {tick.error.message}</p>}
-    {!editing && task.waitingOn && <p>Waiting on: {task.waitingOn}</p>}
     {task.externalUrl && <a className="dc-explore__source-link" href={task.externalUrl} target="_blank" rel="noreferrer">Original task source <Launch size={16} /></a>}
     <section className="kh-task-detail__assistance" aria-labelledby={`task-assistance-${task.id}`}>
       <h3 id={`task-assistance-${task.id}`}>How Athena could help</h3>
-      <p>Athena prepares a proposal for new non-recurring tasks and notifies you when it is ready. Inbox tasks wait until you accept them. Recurring tasks use Help me on request. Research, drafting and changes do not start until you approve them here.</p>
-      <label className="kh-task-detail__field">Direction or clarification <span>(optional)</span>
-        <textarea value={direction} maxLength={3000} disabled={busy || editing} rows={3}
+      <p className="kh-task-detail__assist-status" role="status">{assistStatus}</p>
+      {showDirection ? <label className="kh-task-detail__field">Direction or clarification <span>(optional)</span>
+        <textarea value={direction} maxLength={3000} disabled={busy || editing} rows={3} autoFocus
           onChange={event => { setDirection(event.target.value); }}
-          placeholder="What should she look at, compare or prepare? Leave blank to keep your last direction." />
-      </label>
-      <button type="button" className="dc-explore__primary" disabled={busy || editing}
-        onClick={() => { assess.mutate(); }}>{assess.isPending ? 'Assessing what Athena can do...' : latest ? 'Reassess with this direction' : 'Help me'}</button>
-      {active && !latest && <p role="status">Athena is preparing a help proposal. You will be notified when it is ready.</p>}
+          placeholder="What should Athena look at, compare or prepare? Leave blank to keep your last direction." />
+      </label> : null}
+      <div className="kh-task-detail__actions">
+        <button type="button" className={latest ? 'dc-explore__action' : 'dc-explore__primary'} disabled={busy || editing}
+          onClick={() => { assess.mutate(); }}>{assess.isPending ? 'Assessing what Athena can do...' : latest ? direction.trim() ? 'Reassess with this direction' : 'Reassess' : 'Help me'}</button>
+        {!showDirection && <button type="button" className="dc-explore__action" disabled={busy || editing}
+          onClick={() => { setShowDirection(true); }}>Add direction</button>}
+      </div>
       {assess.error && <DataNotice title="Assistance assessment failed" error={assess.error} />}
       {automaticHelpError && <DataNotice title="Task saved; help proposal needs attention" error={automaticHelpError} />}
       {detail.isError && <DataNotice title="Assistance status could not refresh" error={detail.error} onRetry={() => { void detail.refetch(); }} />}
@@ -171,7 +200,6 @@ export function TaskDetail({ taskId, onBackToPlan, presentation = 'plan' }: {
         {latest.resultNoteId && <div className="kh-task-detail__actions">
           <Link className="dc-explore__source-link" to={`/think?noteId=${encodeURIComponent(latest.resultNoteId)}`}>Open result in Think</Link>
           {latest.proposal.kind === 'email' && <button type="button" className="dc-explore__action" disabled={copy.isPending} onClick={() => { copy.mutate(latest.id); }}>{copy.isPending ? 'Copying...' : 'Copy email draft'}</button>}
-          {!active && refreshWithResult && <button type="button" className="dc-explore__action" disabled={detail.isFetching} onClick={() => { void detail.refetch(); }}>Refresh assistance status</button>}
         </div>}
       </div>}
       {approve.error && <DataNotice title="Assistance could not start" error={approve.error} />}
@@ -183,7 +211,6 @@ export function TaskDetail({ taskId, onBackToPlan, presentation = 'plan' }: {
         {job.error && <p className="kh-task-detail__error" role="alert">{job.error}</p>}
         {typeof job.result?.['noteId'] === 'string' && <Link className="dc-explore__source-link" to={`/think?noteId=${encodeURIComponent(job.result['noteId'])}`}>Open saved result</Link>}
       </div>)}
-      {!active && !refreshWithResult && <button type="button" className="dc-explore__action" disabled={detail.isFetching} onClick={() => { void detail.refetch(); }}>Refresh assistance status</button>}
     </section>
     <TaskActivitySection taskId={task.id} />
     <ConnectionsPanel refId={task.id} refType="task" />

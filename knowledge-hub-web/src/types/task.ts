@@ -23,6 +23,8 @@ export interface ChecklistItem { id: string; title: string; done: boolean }
 
 export interface PlanTask {
   assistanceStatus?: 'queued' | 'failed' | 'skipped';
+  /** Latest Athena assistance state, set by the board list endpoint. */
+  athenaState?: 'help-ready' | 'working' | 'result-ready' | null;
   id: string;
   title: string;
   body: string;

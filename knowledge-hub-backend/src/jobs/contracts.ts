@@ -7,7 +7,7 @@ export const JOB_LIMITS = {
   dateInput: 40, folderCount: 100, deviceError: 2000, report: 250000,
 } as const;
 
-export type JobKind = 'content-sync' | 'm365-import' | 'weekly-microsoft' | 'prompt' | 'discover-picks';
+export type JobKind = 'content-sync' | 'm365-import' | 'weekly-microsoft' | 'prompt' | 'discover-picks' | 'task-review';
 export interface JobDefinition {
   name: string;
   kind: JobKind;
@@ -86,7 +86,7 @@ export function parseJob(value: unknown): JobDefinition {
   const name = text(v.name, 'job name', JOB_LIMITS.name);
   if (!name) throw new ValidationError('Give the job a name.');
   const kind = v.kind;
-  if (kind !== 'content-sync' && kind !== 'm365-import' && kind !== 'weekly-microsoft' && kind !== 'prompt' && kind !== 'discover-picks') throw new ValidationError('Unknown job action.');
+  if (kind !== 'content-sync' && kind !== 'm365-import' && kind !== 'weekly-microsoft' && kind !== 'prompt' && kind !== 'discover-picks' && kind !== 'task-review') throw new ValidationError('Unknown job action.');
   const s = object(v.schedule);
   const timezone = text(s.timezone, 'timezone', JOB_LIMITS.timezone);
   try { new Intl.DateTimeFormat('en-GB', { timeZone: timezone }).format(); }
@@ -102,6 +102,7 @@ export function parseJob(value: unknown): JobDefinition {
   if (outputs.some(o => o === 'bluesky' || o === 'linkedin') && !outputs.includes('blog')) throw new ValidationError('Social workflows require a published blog link.');
   if (kind === 'content-sync' && outputs.length) throw new ValidationError('Content sync has no publishing outputs.');
   if (kind === 'discover-picks' && outputs.length) throw new ValidationError('Discover picks only refresh the Today list; they have no publishing outputs.');
+  if (kind === 'task-review' && outputs.length) throw new ValidationError('Task review only proposes help on Plan tasks; drafts stay in Plan > Drafts and nothing is sent.');
   if (kind === 'm365-import' && outputs.length) throw new ValidationError('Daily Insights outputs are its imported tasks, meetings and audit results; additional publishing/file outputs belong in a prompt job.');
   const prompt = text(v.prompt ?? '', 'prompt', JOB_LIMITS.prompt);
   if (kind === 'prompt' && !prompt) throw new ValidationError('A scheduled prompt needs instructions.');

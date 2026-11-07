@@ -18,6 +18,7 @@ import { reviewPlan } from '../services/planReview.js';
 import { atRiskTasks, getCheckin, isLaterDueDate, saveCheckin, workDay } from '../services/planNudges.js';
 import { prepareAutomaticTaskAssistance } from '../work/taskAssistanceQueue.js';
 import { recordTaskStatusChange } from '../work/taskStatusChange.js';
+import { diffTaskForActivity, recordTaskCreated, recordTaskEdit, taxonomyTagNames } from '../work/taskEditActivity.js';
 import { parseChecklist, readChecklist, type ChecklistItem } from '../services/taskChecklist.js';
 
 const ISO_DATE_LENGTH = 10;
@@ -48,9 +49,13 @@ export interface Task {
   archived: boolean;
   /** First linked item (chat/note) — where the task came from. Only set by the list endpoint. */
   origin: { type: string; id: string; title: string; url: string } | null;
+  /** Latest Athena assistance state. Only set by the list endpoint. */
+  athenaState?: 'help-ready' | 'working' | 'result-ready' | null;
   createdAt: string;
   updatedAt: string;
 }
+
+const sameIds = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && [...a].sort().join() === [...b].sort().join();
 
 export function rowToTask(row: Record<string, unknown>): Task {
   const DATE_PART_WIDTH = 2;
@@ -81,6 +86,7 @@ export function rowToTask(row: Record<string, unknown>): Task {
     origin: typeof row['origin_type'] === 'string'
       ? { type: row['origin_type'], id: String(row['origin_id'] ?? ''), title: String(row['origin_title'] ?? ''), url: String(row['origin_url'] ?? '') }
       : null,
+    ...('athena_state' in row && { athenaState: (row['athena_state'] as Task['athenaState']) ?? null }),
     createdAt: String(row['created_at']),
     updatedAt: String(row['updated_at']),
   };
@@ -142,20 +148,34 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
       if (status) { params.push(normaliseTaskStatus(status) ?? status); conditions.push(`status = $${params.length}`); }
       if (projectId) { params.push(projectId); conditions.push(`project_id = $${params.length}`); }
       const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+      params.push('userId' in req && typeof req.userId === 'string' ? req.userId : null);
+      const ownerParam = `$${params.length}`;
       const result = await db.query<Record<string, unknown>>(
         `SELECT t.id, t.title, t.body, t.status, t.project_id, t.tags, t.priority,
                 t.due_date, t.start_date, t.end_date, t.external_url, t.linked_tag_id,
-                t.recurring_cadence, t.task_type, t.waiting_on, t.reschedule_count, t.archived, t.created_at, t.updated_at,
+                t.recurring_cadence, t.task_type, t.waiting_on, t.reschedule_count, t.archived, t.checklist, t.created_at, t.updated_at,
                 ARRAY_REMOVE(ARRAY_AGG(tt.tag_id), NULL) AS taxonomy_tag_ids,
-                o.target_type AS origin_type, o.target_id AS origin_id, o.target_title AS origin_title, o.target_url AS origin_url
+                o.target_type AS origin_type, o.target_id AS origin_id, o.target_title AS origin_title, o.target_url AS origin_url,
+                ast.athena_state
          FROM tasks t
          LEFT JOIN task_tags tt ON tt.task_id = t.id
          LEFT JOIN LATERAL (
            SELECT target_type, target_id, target_title, target_url FROM task_links
            WHERE task_id = t.id ORDER BY created_at ASC LIMIT 1
          ) o ON true
+         LEFT JOIN LATERAL (
+           SELECT CASE
+             WHEN EXISTS (SELECT 1 FROM agent_jobs j JOIN task_assistance pa ON pa.id::text = j.input->>'proposalId'
+               WHERE pa.task_id = t.id AND pa.owner_id = ${ownerParam} AND j.subject_type = 'task' AND j.subject_id = t.id
+                 AND j.status IN ('queued', 'running')) THEN 'working'
+             WHEN latest.approved_at IS NULL THEN 'help-ready'
+             WHEN latest.result_note_id IS NOT NULL THEN 'result-ready'
+           END AS athena_state
+           FROM (SELECT approved_at, result_note_id FROM task_assistance
+             WHERE task_id = t.id AND owner_id = ${ownerParam} ORDER BY created_at DESC LIMIT 1) latest
+         ) ast ON true
          ${where ? where.replace(/status/g, 't.status').replace(/project_id/g, 't.project_id') : ''}
-         GROUP BY t.id, o.target_type, o.target_id, o.target_title, o.target_url
+         GROUP BY t.id, o.target_type, o.target_id, o.target_title, o.target_url, ast.athena_state
          ORDER BY
            CASE t.status WHEN 'inbox' THEN 0 WHEN 'in-progress' THEN 1 WHEN 'blocked' THEN 2 WHEN 'waiting' THEN 3 WHEN 'backlog' THEN 4 WHEN 'completed' THEN 5 END,
            CASE t.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'normal' THEN 3 WHEN 'low' THEN 4 END,
@@ -194,6 +214,7 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
         await db.query(`INSERT INTO task_tags (task_id, tag_id) VALUES ${vals} ON CONFLICT DO NOTHING`, [task.id, ...tagIds]);
         task.taxonomyTagIds = tagIds;
       }
+      await recordTaskCreated(db, task.id, 'richard');
       await db.query('COMMIT');
       client.release();
       client = undefined;
@@ -234,10 +255,12 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       client = db;
       await db.query('BEGIN');
       const { id } = req.params;
-      const previous = await db.query<{ status: Task['status']; due_date: string | null }>(`SELECT status, to_char(due_date, 'YYYY-MM-DD') AS due_date FROM tasks WHERE id = $1 FOR UPDATE`, [id]);
-      const previousStatus = previous.rows[0]?.status;
-      const previousDue = previous.rows[0]?.due_date ?? null;
-      if (previousStatus === undefined) throw new NotFoundError(`Task ${id} not found`);
+      const previous = await db.query<Record<string, unknown>>(`SELECT *, to_char(due_date, 'YYYY-MM-DD') AS due_text FROM tasks WHERE id = $1 FOR UPDATE`, [id]);
+      const previousRow = previous.rows[0];
+      if (previousRow === undefined) throw new NotFoundError(`Task ${id} not found`);
+      const before = rowToTask(previousRow);
+      const previousStatus = before.status;
+      const previousDue = (previousRow['due_text'] as string | null) ?? null;
       const input = req.body as Partial<{ title: string; body: string; status: string; statusChangeNote: string; expectedStatus: string; projectId: string; tags: string[]; priority: string; task_type: Task['task_type']; dueDate: string | null; startDate: string | null; endDate: string | null; linkedTagId: string | null; taxonomyTagIds: string[]; recurringCadence: string | null; waitingOn: string | null; checklist: unknown }>;
       if (input.task_type !== undefined && !['standard', 'cert_session', 'cert_review'].includes(input.task_type)) throw new ValidationError('Invalid task type');
       const fields: string[] = [];
@@ -299,6 +322,10 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
         }
         task.taxonomyTagIds = tagIds;
       }
+      const tagNames = syncTags && !sameIds(existingTags.rows.map((row) => row.tag_id), task.taxonomyTagIds)
+        ? { before: await taxonomyTagNames(db, existingTags.rows.map((row) => row.tag_id)), after: await taxonomyTagNames(db, task.taxonomyTagIds) }
+        : undefined;
+      await recordTaskEdit(db, String(id), 'richard', await diffTaskForActivity(db, before, task, tagNames));
       const spawnedTasks: Task[] = [];
 
       // Auto-spawn next instance when a recurring task is completed
@@ -423,6 +450,13 @@ router.get('/:id/notes', (req: Request, res: Response, next: NextFunction): void
         createdAt: String(r['created_at']),
         activity: r['activity'],
       }));
+      const hasCreated = result.rows.some((r) => (r['activity'] as { action?: unknown } | null)?.action === 'task-created');
+      const created = hasCreated ? undefined
+        : (await db.query<{ created_at: Date }>('SELECT created_at FROM tasks WHERE id = $1', [req.params['id']])).rows[0];
+      if (created) {
+        notes.unshift({ id: `created-${String(req.params['id'])}`, taskId: String(req.params['id']), body: 'Task created',
+          createdAt: String(created.created_at), activity: { action: 'task-created' } });
+      }
       const body: ApiSuccess<TaskNote[]> = { success: true, data: notes };
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) { next(err); }

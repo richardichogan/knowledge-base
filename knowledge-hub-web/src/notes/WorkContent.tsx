@@ -4,7 +4,7 @@ import { api } from '../services/api';
 import { describeApiError, requireApiData } from '../services/apiError';
 import { noteDraftIdentity } from '../services/auth';
 import { WORK_DRAFT_PREFIX } from './noteDraftStorage';
-import type { WorkContent, WorkContentPatch } from '../types/workContent';
+import { DRAFT_CHANNEL_LABELS, type DraftChannel, type WorkContent, type WorkContentPatch } from '../types/workContent';
 
 export function useWorkContent(noteId: string, enabled: boolean, saveNote: () => Promise<boolean>) {
   const [data, setData] = useState<WorkContent | null>(null);
@@ -162,15 +162,26 @@ export function useWorkContent(noteId: string, enabled: boolean, saveNote: () =>
 export type WorkContentController = ReturnType<typeof useWorkContent>;
 export function EmailDraftFields({ work, disabled }: { work: WorkContentController; disabled: boolean }): React.ReactElement {
   const value = work.values;
-  return <div className="kh-work-email-fields" aria-label="Email draft fields">
-    {(['to', 'cc', 'subject'] as const).map(field => <label key={field}>
-      <span>{field === 'to' ? 'To' : field === 'cc' ? 'Cc' : 'Subject'}</span>
-      <input value={value?.[field] ?? ''} disabled={disabled || !value || value.status === 'sent'}
+  const chat = value !== undefined && value !== null && value.channel !== 'email';
+  const fields = chat ? ['to'] as const : ['to', 'cc', 'subject'] as const;
+  const locked = disabled || !value || value.status === 'sent';
+  return <div className={`kh-work-email-fields${chat ? ' kh-work-email-fields--chat' : ''}`} aria-label="Draft fields">
+    <label className="kh-work-email-fields__channel">
+      <span>Channel</span>
+      <select value={value?.channel ?? 'email'} disabled={locked}
+        onChange={event => { work.edit({ channel: event.target.value as DraftChannel }); }}>
+        {(Object.keys(DRAFT_CHANNEL_LABELS) as DraftChannel[]).map(channel =>
+          <option key={channel} value={channel}>{DRAFT_CHANNEL_LABELS[channel]}</option>)}
+      </select>
+    </label>
+    {fields.map(field => <label key={field}>
+      <span>{field === 'to' ? chat ? 'To (person or channel)' : 'To' : field === 'cc' ? 'Cc' : 'Subject'}</span>
+      <input value={value?.[field] ?? ''} disabled={locked}
         spellCheck={field === 'subject'}
         maxLength={field === 'subject' ? 500 : 2000} autoComplete="off"
         onChange={event => { work.edit({ [field]: event.target.value }); }} />
     </label>)}
-    <p>Draft only. Copy and send through IBM yourself.</p>
+    <p>{chat ? `Draft only. Copy it into ${DRAFT_CHANNEL_LABELS[value.channel]} and send it yourself.` : 'Draft only. Copy and send through IBM yourself.'}</p>
   </div>;
 }
 
@@ -180,8 +191,10 @@ export function WorkContentProperties({ work, disabled }: { work: WorkContentCon
   const [waiting, setWaiting] = useState(false);
   const [copied, setCopied] = useState(false);
   const run = (operation: () => Promise<void>): void => { void operation().catch(work.report); };
+  const chat = value !== undefined && value !== null && value.channel !== 'email';
+  const channelLabel = value ? DRAFT_CHANNEL_LABELS[value.channel] : 'Email';
   return <section className="kh-work-properties" aria-label="Work deliverable properties">
-    <h3>{value?.type === 'email-draft' ? 'Email draft' : 'Deliverable brief'}</h3>
+    <h3>{value?.type === 'email-draft' ? chat ? `${channelLabel} message draft` : 'Email draft' : 'Deliverable brief'}</h3>
     {work.error && <p className="kh-work-properties__error" role="alert">{work.error}</p>}
     {work.dirty && <p role="status">Properties draft retained{work.busy ? ' · Saving…' : ''}</p>}
     {work.recoveryConflict && <button type="button" className="notes-ghost-btn" onClick={() => { run(work.discard); }}>Discard properties draft and refresh</button>}
@@ -213,15 +226,15 @@ export function WorkContentProperties({ work, disabled }: { work: WorkContentCon
         <p>Status: <strong>{value.status === 'sent' ? 'Sent' : 'Draft'}</strong>{value.sentAt ? ` · ${new Date(value.sentAt).toLocaleString('en-GB')}` : ''}</p>
         {value.briefId && <a href={`/think?noteId=${value.briefId}`}>Linked deliverable brief</a>}
         {value.status === 'draft' && !confirmSent && <button type="button" className="notes-ghost-btn"
-          disabled={disabled || work.busy || !value.to || !value.subject} onClick={() => { setConfirmSent(true); }}>Mark Sent…</button>}
+          disabled={disabled || work.busy || !value.to || (!chat && !value.subject)} onClick={() => { setConfirmSent(true); }}>Mark Sent…</button>}
         {confirmSent && value.status === 'draft' && <div className="kh-work-properties__confirmation">
-          <p>Confirm you sent this email yourself. Athena has not sent it.</p>
+          <p>Confirm you sent this {chat ? `${channelLabel} message` : 'email'} yourself. Athena has not sent it.</p>
           <button type="button" className="notes-ghost-btn" disabled={disabled || work.busy} onClick={() => {
             run(async () => {
               await work.action(async loaded => requireApiData(await api.markEmailSent(loaded.noteId, loaded.revision, loaded.noteRevision)));
               setConfirmSent(false); setWaiting(true);
             });
-          }}>I sent this email</button>
+          }}>I sent this {chat ? 'message' : 'email'}</button>
           <button type="button" className="notes-ghost-btn" disabled={work.busy} onClick={() => { setConfirmSent(false); }}>Cancel</button>
         </div>}
         {value.status === 'sent' && value.taskId && !waiting && <button type="button" className="notes-ghost-btn"
@@ -240,12 +253,12 @@ export function WorkContentProperties({ work, disabled }: { work: WorkContentCon
       <div className="kh-work-properties__actions">
         {value.type === 'email-draft' && <button type="button" className="notes-ghost-btn" disabled={disabled || work.busy || work.recoveryConflict}
           onClick={() => { run(async () => { await work.copy(); setCopied(true); }); }}>
-          Copy email
+          {chat ? 'Copy message' : 'Copy email'}
         </button>}
         <button type="button" className="notes-ghost-btn" disabled={disabled || work.busy || work.dirty}
           onClick={() => { run(work.reload); }}>Refresh status</button>
       </div>
-      {copied && value.type === 'email-draft' && <p role="status">Copied. Paste into IBM Outlook and review before sending.</p>}
+      {copied && value.type === 'email-draft' && <p role="status">{chat ? `Copied. Paste into ${channelLabel} and review before sending.` : 'Copied. Paste into IBM Outlook and review before sending.'}</p>}
     </>}
   </section>;
 }

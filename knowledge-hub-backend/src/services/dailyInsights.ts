@@ -1,6 +1,7 @@
 import type { Pool, PoolClient } from 'pg';
 import { digest, normaliseIdentity, londonTime, type DailyInsights, type ExistingDailyTask } from './dailyInsightsParser.js';
 import { dailyReportDate, extractDailyInsights } from './dailyInsightsExtraction.js';
+import { comparableTaskRow, diffTaskForActivity, recordTaskCreated, recordTaskEdit } from '../work/taskEditActivity.js';
 
 const MEETING_ID_CHARS = 20;
 
@@ -128,6 +129,7 @@ async function capture(db: Pool, filename: string, text: string, sourcePath: str
           const made = await client.query<{ id: string }>(`INSERT INTO tasks (title, body, status, project_id, due_date, tags, priority)
             VALUES ($1,$2,'inbox',$3,$4,'{daily-insights}','normal') RETURNING id`, [task.title, body, project, task.due]);
           taskId = made.rows[0]?.id ?? null;
+          if (taskId !== null) await recordTaskCreated(client, taskId, 'system');
           if (taskId !== null) matchingTasks.push({
             id: taskId, title: task.title, body, status: 'inbox', archived: false, project_id: project, due_date: task.due,
           });
@@ -136,10 +138,15 @@ async function capture(db: Pool, filename: string, text: string, sourcePath: str
         } else result.tasksPreserved++;
       } else if (prior.snapshot != null && prior.task_id !== null && prior.last_report_date <= parsed.date) {
         // A full-row snapshot detects every user edit, including status, tags and scheduling.
-        const updated = await client.query(`UPDATE tasks SET title=$1, body=$2, project_id=$3, due_date=$4, updated_at=NOW()
-          WHERE id=$5 AND status='inbox' AND to_jsonb(tasks)=$6::jsonb RETURNING id`,
+        const updated = await client.query<Record<string, unknown>>(`UPDATE tasks SET title=$1, body=$2, project_id=$3, due_date=$4, updated_at=NOW()
+          WHERE id=$5 AND status='inbox' AND to_jsonb(tasks)=$6::jsonb RETURNING *`,
         [task.title, body, project, task.due, prior.task_id, JSON.stringify(prior.snapshot)]);
-        if ((updated.rowCount ?? 0) > 0) result.tasksUpdated++;
+        const updatedRow = updated.rows[0];
+        if (updatedRow !== undefined) {
+          result.tasksUpdated++;
+          await recordTaskEdit(client, prior.task_id, 'system',
+            await diffTaskForActivity(client, comparableTaskRow(prior.snapshot as Record<string, unknown>), comparableTaskRow(updatedRow)));
+        }
         else { owned = false; result.tasksPreserved++; }
       } else { result.tasksPreserved++; owned = false; }
       // Never adopt a user-edited or pre-existing task as importer-owned.

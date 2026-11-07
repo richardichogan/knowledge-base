@@ -16,12 +16,17 @@ import type { Note } from '../types/contentItem.js';
 
 export type WorkContentType = 'deliverable-brief' | 'email-draft';
 export interface WorkSource { type: 'note' | 'document'; id: string }
+export type DraftChannel = 'email' | 'slack' | 'teams';
+const DRAFT_CHANNELS: readonly DraftChannel[] = ['email', 'slack', 'teams'];
+const draftChannel = (value: unknown): DraftChannel => DRAFT_CHANNELS.includes(value as DraftChannel) ? value as DraftChannel : 'email';
 export interface WorkContent {
   noteId: string; type: WorkContentType; revision: number; noteRevision: number;
   taskId: string | null; taskTitle: string | null; taskUpdatedAt: string | null;
   targetFolder: string; fileName: string; sources: WorkSource[];
   producedFile: { id: string; url: string; modifiedAt: string | null; title: string } | null;
   briefId: string | null; to: string; cc: string; subject: string; status: 'draft' | 'sent'; sentAt: string | null;
+  /** Email drafts are copied into IBM mail; slack and teams drafts are short chat messages. */
+  channel: DraftChannel;
 }
 const MAX_BODY = 60_000;
 const SOURCE_LIMIT = 12;
@@ -99,7 +104,7 @@ export async function getWorkContent(db: Pool, id: string): Promise<WorkContent>
     revision: number; task_id: string | null; task_title: string | null; task_updated_at: string | null;
     target_folder?: string; file_name?: string; source_refs?: WorkSource[];
     produced_content_id?: string | null; produced_url?: string | null; produced_modified_at?: string | null; produced_title?: string | null;
-    brief_id?: string | null; recipients_to?: string; recipients_cc?: string; subject?: string; status?: 'draft' | 'sent'; sent_at?: string | null;
+    brief_id?: string | null; recipients_to?: string; recipients_cc?: string; subject?: string; status?: 'draft' | 'sent'; sent_at?: string | null; channel?: string;
   }>(note.type === 'deliverable-brief' ? `SELECT b.*,t.title AS task_title,t.updated_at::text AS task_updated_at,
     d.title AS produced_title,b.produced_modified_at::text FROM deliverable_briefs b
     LEFT JOIN tasks t ON t.id=b.task_id LEFT JOIN content_items d ON d.id=b.produced_content_id WHERE b.note_id=$1`
@@ -113,7 +118,7 @@ export async function getWorkContent(db: Pool, id: string): Promise<WorkContent>
     targetFolder: r.target_folder ?? '', fileName: r.file_name ?? '', sources: r.source_refs ?? [],
     producedFile: r.produced_content_id ? { id: r.produced_content_id, url: r.produced_url ?? '', modifiedAt: r.produced_modified_at ?? null, title: r.produced_title ?? '' } : null,
     briefId: r.brief_id ?? null, to: r.recipients_to ?? '', cc: r.recipients_cc ?? '', subject: r.subject ?? '',
-    status: r.status ?? 'draft', sentAt: r.sent_at ?? null,
+    status: r.status ?? 'draft', sentAt: r.sent_at ?? null, channel: draftChannel(r.channel),
   };
 }
 async function validateLinks(client: PoolClient, input: Record<string, unknown>, project: string | null): Promise<void> {
@@ -145,13 +150,17 @@ async function linkTask(client: PoolClient, taskId: string | null, id: string, t
 function parseFields(type: WorkContentType, input: Record<string, unknown>): Record<string, unknown> {
   const allowed = new Set(type === 'deliverable-brief'
     ? ['taskId', 'targetFolder', 'fileName', 'sources', 'revision', 'noteRevision', 'body']
-    : ['taskId', 'briefId', 'to', 'cc', 'subject', 'revision', 'noteRevision', 'body']);
+    : ['taskId', 'briefId', 'to', 'cc', 'subject', 'channel', 'revision', 'noteRevision', 'body']);
   if (Object.keys(input).some(key => !allowed.has(key))) throw new ValidationError('Unsupported work-content field. Sent status must be confirmed separately.');
   const patch: Record<string, unknown> = {};
   for (const key of ['taskId', 'briefId']) if (key in input) patch[key] = nullableId(input[key], key);
   for (const key of ['to', 'cc', 'subject']) if (key in input) {
     patch[key] = text(input[key], key, key === 'subject' ? SUBJECT_LIMIT : RECIPIENT_LIMIT);
     if (/[\r\n]/.test(String(patch[key]))) throw new ValidationError(`${key} must be a single line.`);
+  }
+  if ('channel' in input) {
+    if (!DRAFT_CHANNELS.includes(input.channel as DraftChannel)) throw new ValidationError('channel must be email, slack or teams.');
+    patch.channel = input.channel;
   }
   if ('sources' in input) patch.sources = parseSources(input.sources);
   return patch;
@@ -171,7 +180,7 @@ export async function saveWorkContent(db: Pool, id: string, input: Record<string
       throw new ConflictError('This note or its properties changed elsewhere. Keep your draft and reload before saving.', 'WORK_CONTENT_CONFLICT');
     }
     const patch = parseFields(note.type, input);
-    if (side.status === 'sent' && (input.body !== undefined || ['to', 'cc', 'subject'].some(key => key in patch))) {
+    if (side.status === 'sent' && (input.body !== undefined || ['to', 'cc', 'subject', 'channel'].some(key => key in patch))) {
       throw new ConflictError('This email is recorded as Sent. Create a new draft for a follow-up rather than changing the sent record.', 'WORK_EMAIL_SENT');
     }
     if (note.type === 'deliverable-brief' && ('targetFolder' in input || 'fileName' in input)) {
@@ -183,7 +192,7 @@ export async function saveWorkContent(db: Pool, id: string, input: Record<string
     await validateLinks(client, patch, note.project_id);
     const columns: Record<string, string> = {
       taskId: 'task_id', briefId: 'brief_id', targetFolder: 'target_folder', fileName: 'file_name',
-      sources: 'source_refs', to: 'recipients_to', cc: 'recipients_cc', subject: 'subject',
+      sources: 'source_refs', to: 'recipients_to', cc: 'recipients_cc', subject: 'subject', channel: 'channel',
     };
     const values: unknown[] = [id];
     const assignments = Object.entries(patch).map(([key, value]) => {
@@ -251,7 +260,7 @@ export async function createWorkContent(db: Pool, type: WorkContentType, input: 
       await linkNamedReferences(client, JSON.stringify({ title, contentType: type, contentJson: JSON.stringify(textToBlocks(body)) }), id), task.project_id]);
     await ensureSide(client, id, type);
     const table = type === 'deliverable-brief' ? 'deliverable_briefs' : 'email_drafts';
-    const columns: Record<string, string> = { taskId: 'task_id', briefId: 'brief_id', targetFolder: 'target_folder', fileName: 'file_name', sources: 'source_refs', to: 'recipients_to', cc: 'recipients_cc', subject: 'subject' };
+    const columns: Record<string, string> = { taskId: 'task_id', briefId: 'brief_id', targetFolder: 'target_folder', fileName: 'file_name', sources: 'source_refs', to: 'recipients_to', cc: 'recipients_cc', subject: 'subject', channel: 'channel' };
     const values: unknown[] = [id];
     const assignments = Object.entries(parsed).map(([key, value]) => {
       values.push(key === 'sources' ? JSON.stringify(value) : value); return `${columns[key]}=$${values.length}`;
@@ -277,7 +286,8 @@ async function createdNote(db: Pool, id: string): Promise<Note> {
 }
 export async function markEmailSent(db: Pool, id: string, input: Record<string, unknown>): Promise<WorkContent> {
   const current = await getWorkContent(db, id);
-  if (current.type !== 'email-draft' || input.confirmed !== true) throw new ValidationError('Confirm that you sent this email yourself.');
+  if (current.type !== 'email-draft' || input.confirmed !== true) throw new ValidationError('Confirm that you sent this draft yourself.');
+  const chat = current.channel !== 'email';
   if (!(await workText(db, id)).trim()) throw new ValidationError('An empty email cannot be marked Sent.');
   const client = await db.connect();
   try {
@@ -285,10 +295,12 @@ export async function markEmailSent(db: Pool, id: string, input: Record<string, 
     const note = await currentNote(client, id, true);
     if (note.revision !== input.noteRevision) throw new ConflictError('The email body changed. Review it before marking Sent.', 'WORK_CONTENT_CONFLICT');
     const result = await client.query(`UPDATE email_drafts SET status='sent',sent_at=now(),revision=revision+1
-      WHERE note_id=$1 AND revision=$2 AND status='draft' AND recipients_to<>'' AND subject<>''`, [id, input.revision]);
-    if (!result.rowCount) throw new ConflictError('Review the current draft, recipient and subject before marking Sent.', 'WORK_CONTENT_CONFLICT');
+      WHERE note_id=$1 AND revision=$2 AND status='draft' AND recipients_to<>''${chat ? '' : " AND subject<>''"}`, [id, input.revision]);
+    if (!result.rowCount) throw new ConflictError(chat ? 'Review the current draft and recipient before marking Sent.'
+      : 'Review the current draft, recipient and subject before marking Sent.', 'WORK_CONTENT_CONFLICT');
+    const channelName = current.channel === 'slack' ? 'Slack message' : current.channel === 'teams' ? 'Teams message' : 'Email';
     if (current.taskId) await client.query('INSERT INTO task_notes(task_id,body,activity) VALUES($1,$2,$3)',
-      [current.taskId, `Email "${current.subject}" marked Sent by Richard. Waiting-on status requires separate confirmation.`,
+      [current.taskId, `${channelName} ${chat ? `to ${current.to}` : `"${current.subject}"`} marked Sent by Richard. Waiting-on status requires separate confirmation.`,
         JSON.stringify({ actor: 'richard', action: 'email-sent-confirmed' })]);
     await client.query('COMMIT');
   } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
@@ -355,3 +367,21 @@ export async function reconcileDeliverables(db: Pool, root: string): Promise<voi
   } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
 }
 import { recordTaskStatusChange } from './taskStatusChange.js';
+
+export interface DraftSummary {
+  noteId: string; title: string; channel: DraftChannel; status: 'draft' | 'sent'; to: string; subject: string;
+  sentAt: string | null; updatedAt: string; taskId: string | null; taskTitle: string | null;
+}
+/** Every active email and chat draft for Plan > Drafts, unsent first. */
+export async function listDrafts(db: Pool): Promise<DraftSummary[]> {
+  const rows = (await db.query<{
+    note_id: string; title: string | null; channel: string | null; status: 'draft' | 'sent'; recipients_to: string; subject: string;
+    sent_at: string | null; updated_at: string; task_id: string | null; task_title: string | null;
+  }>(`SELECT e.note_id, note_list_metadata(n.content)->>'title' AS title, to_jsonb(e)->>'channel' AS channel, e.status,
+      e.recipients_to, e.subject, e.sent_at::text, n.updated_at::text AS updated_at, e.task_id, t.title AS task_title
+    FROM email_drafts e JOIN notes n ON n.id=e.note_id LEFT JOIN tasks t ON t.id=e.task_id
+    WHERE n.status='active' AND note_list_metadata(n.content)->>'contentType'='email-draft'
+    ORDER BY (e.status='sent'), n.updated_at DESC LIMIT 200`)).rows;
+  return rows.map(r => ({ noteId: r.note_id, title: r.title || r.subject || 'Untitled draft', channel: draftChannel(r.channel), status: r.status,
+    to: r.recipients_to, subject: r.subject, sentAt: r.sent_at, updatedAt: r.updated_at, taskId: r.task_id, taskTitle: r.task_title }));
+}

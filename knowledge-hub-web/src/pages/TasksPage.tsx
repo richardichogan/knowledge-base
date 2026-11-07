@@ -7,13 +7,15 @@
  */
 
 import React, { useRef, useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   InlineLoading, InlineNotification,
   Modal, TextInput, TextArea, Select, SelectItem,
 } from '@carbon/react';
-import { Add, ArrowRight, ChatLaunch, Checkmark, ChevronDown, Close, Edit, Launch, OverflowMenuVertical, Repeat, Upload } from '@carbon/icons-react';
+import { AthenaRibbon } from '../components/athena/AthenaRibbon';
+import { Add, ArrowRight, Calendar, ChatLaunch, Checkmark, ChevronDown, Close, Edit, Launch, OverflowMenuVertical, Repeat, Upload } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { useProjects, type ProjectRecord } from '../services/useProjects';
 import { ProjectOptions } from '../components/ProjectOptions';
@@ -175,6 +177,12 @@ const CardMenu: React.FC<{
 
 // ── Task card ─────────────────────────────────────────────────────────────────
 
+const ATHENA_CARD_STATE: Record<NonNullable<Task['athenaState']>, { label: string; title: string }> = {
+  'help-ready': { label: 'Help ready', title: 'Athena has proposed help — awaiting your approval' },
+  working: { label: 'Working', title: 'Athena is working on this task' },
+  'result-ready': { label: 'Result ready', title: 'Athena has finished — her result is ready' },
+};
+
 const TaskCard: React.FC<{
   task: Task;
   busy: boolean;
@@ -191,8 +199,9 @@ const TaskCard: React.FC<{
   const done = task.status === 'completed';
   const showPriority = !done && task.priority === 'urgent';
   const health = done ? null : taskHealth(task);
-  const origin = task.origin ?? null;
-  const originTo = origin ? originHref(origin) : null;
+  const checklistTotal = task.checklist?.length ?? 0;
+  const checklistDone = task.checklist?.filter(item => item.done).length ?? 0;
+  const athena = !done && task.athenaState ? { state: task.athenaState, ...ATHENA_CARD_STATE[task.athenaState] } : null;
   return (
     <article
       className={`kb-card kh-priority--${task.priority}${dragging ? ' kb-card--dragging' : ''}${done ? ' kb-card--done' : ''}${selected ? ' kb-card--selected' : ''}`}
@@ -211,7 +220,7 @@ const TaskCard: React.FC<{
     <div className="kb-card__header">
       <button type="button" className="kb-card__title kb-card__select" disabled={busy}
         aria-pressed={selected}
-        onClick={event => { event.stopPropagation(); onSelect(task); }}>{task.title}</button>
+        onClick={event => { event.stopPropagation(); onSelect(task); }}><span className="kb-card__title-text">{task.title}</span></button>
       <CardMenu
         task={task}
         busy={busy}
@@ -221,8 +230,6 @@ const TaskCard: React.FC<{
         onAskAthena={onAskAthena ? () => onAskAthena(task) : undefined}
       />
     </div>
-
-    {task.body !== '' && <TaskDescription className="kb-card__body" text={task.body} />}
 
     {task.status === 'waiting' && (
       <p className={`kb-card__waiting${task.waitingOn ? '' : ' kb-card__waiting--unset'}`}>
@@ -243,21 +250,26 @@ const TaskCard: React.FC<{
       </div>
     )}
 
-    {origin && originTo && (
-      <Link
-        className="kb-card__origin"
-        to={originTo}
-        title={`Created from ${originLabel(origin)}`}
-        onClick={(e) => { e.stopPropagation(); }}
-        draggable={false}
-      >
-        {originLabel(origin)}
-      </Link>
-    )}
-
     <div className="kb-card__footer">
       <EntityChip projectId={task.projectId} fallbackLabel={getProjectName(task.projectId, projects)} className="kb-card__project" />
       <div className="kb-card__footer-right">
+        {athena && (
+          <span className={`kb-card__athena kb-card__athena--${athena.state}`} title={athena.title}>
+            <AthenaRibbon mood={athena.state === 'working' ? 'thinking' : 'resting'} still={athena.state !== 'working'} size={14} />
+            <span>{athena.label}</span>
+          </span>
+        )}
+        {checklistTotal > 0 && (
+          <span className={`kb-card__subtasks${checklistDone === checklistTotal ? ' kb-card__subtasks--complete' : ''}`}
+            role="img" aria-label={`${checklistDone} of ${checklistTotal} sub-tasks done`} title={`${checklistDone} of ${checklistTotal} sub-tasks done`}>
+            <svg className="kb-card__ring" viewBox="0 0 16 16" aria-hidden="true">
+              <circle className="kb-card__ring-track" cx="8" cy="8" r="6" pathLength="100" />
+              <circle className="kb-card__ring-fill" cx="8" cy="8" r="6" pathLength="100"
+                strokeDasharray={`${(checklistDone / checklistTotal) * 100} 100`} />
+            </svg>
+            {checklistDone}/{checklistTotal}
+          </span>
+        )}
         {task.recurringCadence != null && (
           <span className="kb-card__recur" title={`Repeats ${task.recurringCadence}`}>
             <Repeat size={12} />
@@ -265,12 +277,12 @@ const TaskCard: React.FC<{
         )}
         {task.recurringCadence == null && task.dueDate != null && (
           <span className={`kb-card__due${!done && isDueOverdue(task.dueDate) ? ' kb-card__due--late' : ''}`}>
-            {formatDue(task.dueDate)}
+            <Calendar size={12} aria-hidden="true" />{formatDue(task.dueDate)}
           </span>
         )}
         {task.recurringCadence != null && task.startDate != null && (
           <span className={`kb-card__due${!done && isDueOverdue(task.startDate) ? ' kb-card__due--late' : ''}`}>
-            {formatDue(task.startDate)}
+            <Calendar size={12} aria-hidden="true" />{formatDue(task.startDate)}
           </span>
         )}
       </div>
@@ -455,10 +467,14 @@ const FocusView: React.FC<{
 
 // ── Task activity section (log + linked items) ────────────────────────────────
 
+interface TaskFieldChange { field: string; label: string; from: string | null; to: string | null; long?: boolean }
 interface TaskNote {
   id: string; body: string; createdAt: string;
-  activity?: { actor?: string; action?: string; from?: string; to?: string; proposedBy?: string; specialistId?: string; specialistName?: string } | null;
+  activity?: { actor?: string; action?: string; from?: string; to?: string; proposedBy?: string; specialistId?: string; specialistName?: string; changes?: TaskFieldChange[] } | null;
 }
+const isFieldChange = (value: unknown): value is TaskFieldChange => typeof value === 'object' && value !== null
+  && typeof (value as TaskFieldChange).label === 'string' && typeof (value as TaskFieldChange).field === 'string'
+  && ['from', 'to'].every(key => { const field = (value as Record<string, unknown>)[key]; return field === null || typeof field === 'string'; });
 function isTaskNote(value: unknown): value is TaskNote {
   if (typeof value !== 'object' || value === null
     || !('id' in value) || typeof value.id !== 'string'
@@ -466,10 +482,12 @@ function isTaskNote(value: unknown): value is TaskNote {
     || !('createdAt' in value) || typeof value.createdAt !== 'string' || !Number.isFinite(Date.parse(value.createdAt))) return false;
   if (!('activity' in value) || value.activity == null) return true;
   return typeof value.activity === 'object' && !Array.isArray(value.activity)
-    && Object.entries(value.activity).every(([key, field]) =>
-      !['actor', 'action', 'from', 'to', 'proposedBy', 'specialistId', 'specialistName'].includes(key) || typeof field === 'string');
+    && Object.entries(value.activity).every(([key, field]) => key === 'changes'
+      ? Array.isArray(field) && field.every(isFieldChange)
+      : !['actor', 'action', 'from', 'to', 'proposedBy', 'specialistId', 'specialistName'].includes(key) || typeof field === 'string');
 }
 const ACTIVITY_ACTIONS: Record<string, string> = {
+  'task-created': 'Created', 'task-edited': 'Edited',
   'status-changed': 'Status changed', 'note-added': 'Note added', 'research-refreshed': 'Research refreshed',
   'research-prepared': 'Research prepared', 'email-drafted': 'Email draft prepared',
   'task-prepared': 'Task preparation ready', 'email-sent-confirmed': 'Email sending confirmed', 'file-linked': 'File linked',
@@ -492,6 +510,33 @@ export function TaskNoteText({ text, noteLabel = 'Open note in Think' }: { text:
     }
     return part;
   })}</>;
+}
+
+const DATE_FIELDS = new Set(['dueDate', 'startDate', 'endDate']);
+const changeValue = (field: string, value: string | null): string => value === null ? 'None'
+  : DATE_FIELDS.has(field) && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? new Date(`${value}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : value;
+
+function TaskChangeList({ changes }: { changes: TaskFieldChange[] }): React.ReactElement {
+  return <ul className="kb-task-activity__changes">
+    {changes.map((change, index) => <li key={index} className="kb-task-activity__change">
+      {change.long ? <details className="kb-task-activity__long-change">
+        <summary>{change.label} changed</summary>
+        <div className="kb-task-activity__compare">
+          <div><span className="kb-task-activity__change-label">Before</span><p>{change.from ?? 'None'}</p></div>
+          <div><span className="kb-task-activity__change-label">After</span><p>{change.to ?? 'None'}</p></div>
+        </div>
+      </details>
+        : change.field === 'checklist' && (change.from === null || change.to === null)
+          ? <><span className="kb-task-activity__change-label">{change.label}</span><span>{change.to ?? change.from}</span></>
+          : <><span className="kb-task-activity__change-label">{change.label}</span>
+            <span className="kb-task-activity__change-values">
+              <span className="kb-task-activity__change-before">{changeValue(change.field, change.from)}</span>
+              <ArrowRight size={14} aria-label="to" />
+              <span>{changeValue(change.field, change.to)}</span>
+            </span></>}
+    </li>)}
+  </ul>;
 }
 
 export const TaskActivitySection: React.FC<{ taskId: string }> = ({ taskId }) => {
@@ -573,7 +618,9 @@ export const TaskActivitySection: React.FC<{ taskId: string }> = ({ taskId }) =>
                       <span className={`kb-task-activity__status kb-task-activity__status--${Object.hasOwn(STATUS_LABELS, to) ? to : 'backlog'}`}>{STATUS_LABELS[to] ?? to}</span>
                     </span>}
                   </div>}
-                  <p className="kb-task-activity__body"><TaskNoteText text={text} noteLabel={n.activity?.action === 'email-drafted' ? 'Open email draft in Think' : 'Open note in Think'} /></p>
+                  {n.activity?.action === 'task-edited' && n.activity.changes
+                    ? <TaskChangeList changes={n.activity.changes} />
+                    : n.activity?.action !== 'task-created' && <p className="kb-task-activity__body"><TaskNoteText text={text} noteLabel={n.activity?.action === 'email-drafted' ? 'Open email draft in Think' : 'Open note in Think'} /></p>}
                 </div>
                 );
               })}
@@ -844,9 +891,10 @@ interface TaskEditorProps {
   error: string | null;
 }
 
-export const TaskEditor: React.FC<TaskEditorProps & { inline?: boolean }> = ({
-  open, initial, defaultStatus, defaultProjectId = 'personal', projects, onClose, onSave, saving, error, inline = false,
+export const TaskEditor: React.FC<TaskEditorProps & { inline?: boolean; actionsTarget?: HTMLElement | null }> = ({
+  open, initial, defaultStatus, defaultProjectId = 'personal', projects, onClose, onSave, saving, error, inline = false, actionsTarget,
 }) => {
+  const formId = React.useId();
   const [title,       setTitle]       = useState('');
   const [body,        setBody]        = useState('');
   const [status,      setStatus]      = useState<TaskStatus>(defaultStatus);
@@ -986,15 +1034,18 @@ export const TaskEditor: React.FC<TaskEditorProps & { inline?: boolean }> = ({
         )}
       </fieldset>
   );
-  if (inline) return <form className="kh-task-detail__editor" aria-label="Edit task"
-    onSubmit={event => { event.preventDefault(); submit(); }}>
-    <h3>Edit task</h3>
-    {fields}
-    <div className="kh-task-detail__actions">
-      <button type="submit" className="dc-explore__primary" disabled={!canSave}>{saving ? 'Saving...' : 'Save task'}</button>
+  if (inline) {
+    // Save sits beside the task's own header actions when the detail view provides a slot for it.
+    const actions = <>
+      <button type="submit" form={formId} className="dc-explore__primary" disabled={!canSave}>{saving ? 'Saving...' : 'Save task'}</button>
       <button type="button" className="dc-explore__action" disabled={saving} onClick={onClose}>Cancel</button>
-    </div>
-  </form>;
+    </>;
+    return <form id={formId} className="kh-task-detail__editor" aria-label="Edit task"
+      onSubmit={event => { event.preventDefault(); submit(); }}>
+      {fields}
+      {actionsTarget ? createPortal(actions, actionsTarget) : <div className="kh-task-detail__actions">{actions}</div>}
+    </form>;
+  }
   return (
     <Modal
       open={open}
@@ -1432,11 +1483,11 @@ export const TasksPage: React.FC<{
         list={<section className="kb-task-review-list" aria-labelledby="plan-task-list-heading">
           <div className="today-brief__section-heading">
             <h2 id="plan-task-list-heading">{view === 'board' ? 'Board' : 'Focus'}</h2>
-            <button type="button" className="today-brief__quiet" onClick={() => { setSelectedTaskId(null); }}>Back to {view === 'board' ? 'Board' : 'Focus'}</button>
           </div>
           {taskViews}
         </section>}
-        detail={<TaskDetail key={selectedTaskId} taskId={selectedTaskId} onBackToPlan={() => { setSelectedTaskId(null); }} />} />
+        detail={<TaskDetail key={selectedTaskId} taskId={selectedTaskId} backLabel={view === 'board' ? 'Board' : 'Focus'}
+          onBackToPlan={() => { setSelectedTaskId(null); }} />} />
         : taskViews}
 
       <PodcastImportModal

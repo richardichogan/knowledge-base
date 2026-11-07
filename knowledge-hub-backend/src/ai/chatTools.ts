@@ -47,6 +47,7 @@ import { isOutsideCollectionTool, resolveSearchFilter, RetrievalScopeError, type
 import { canonicalContentSql } from '../db/contentVisibility.js';
 import { createNoteRecord } from '../routes/notes.js';
 import { rowToTask, type Task } from '../routes/tasks.js';
+import { diffTaskForActivity, recordTaskCreated, recordTaskEdit } from '../work/taskEditActivity.js';
 import { TASK_STATUSES, normaliseTaskStatus } from '../services/taskStatus.js';
 import { parseChecklist } from '../services/taskChecklist.js';
 import { CONTENT_STORE } from '../routes/documents.js';
@@ -1300,7 +1301,7 @@ export async function executeToolCall(
       const notes = (await db.query<{ id: string; body: string; created_at: Date; activity: unknown }>(
         'SELECT id,body,created_at,activity FROM task_notes WHERE task_id=$1 ORDER BY created_at ASC,id ASC LIMIT $2 OFFSET $3',
         [id, pageSize + 1, offset])).rows;
-      return { task: summariseTask(rowToTask(row)), notes: notes.slice(0, pageSize).map(note => ({
+      return { task: summariseTask(rowToTask(row)), taskCreatedAt: new Date(row['created_at'] as string | Date).toISOString(), notes: notes.slice(0, pageSize).map(note => ({
         id: note.id, body: note.body, createdAt: note.created_at.toISOString(), activity: note.activity,
       })), nextOffset: notes.length > pageSize ? offset + pageSize : null };
     }
@@ -2163,6 +2164,7 @@ async function createTask(
   if (row === undefined) return { error: 'Insert returned no rows' };
 
   const task = rowToTask(row);
+  await recordTaskCreated(db, task.id, 'athena');
   queueAutoTag(db, 'task', task.id);
   const tags = Array.isArray(args['tags']) ? await setTaskTags(db, task.id, args['tags']) : [];
   const linkedChat = args['linkThisChat'] === true && sessionId !== undefined ? await linkChat(db, task.id, sessionId) : false;
@@ -2357,15 +2359,18 @@ async function updateTask(db: Pool, args: Record<string, unknown>, sessionId: st
   fields.push('updated_at = NOW()');
   params.push(resolved.id);
   const result = await db.query<Record<string, unknown>>(
-    `WITH previous AS MATERIALIZED (SELECT id,status FROM tasks WHERE id=$${params.length} AND NOT archived FOR UPDATE)
-     UPDATE tasks t SET ${fields.join(', ')} FROM previous p WHERE t.id=p.id RETURNING t.*,p.status AS previous_status`,
+    `WITH previous AS MATERIALIZED (SELECT * FROM tasks WHERE id=$${params.length} AND NOT archived FOR UPDATE)
+     UPDATE tasks t SET ${fields.join(', ')} FROM previous p WHERE t.id=p.id RETURNING t.*,p.status AS previous_status,to_jsonb(p) AS previous_row`,
     params,
   );
   const row = result.rows[0];
   if (row === undefined) return { error: 'Update returned no rows' };
 
   const task = rowToTask(row);
+  const tagsBefore = wantsTags ? (await taskTagNames(db, [task.id])).get(task.id) ?? [] : [];
   const tags = wantsTags ? await setTaskTags(db, task.id, args['tags'] as unknown[]) : (await taskTagNames(db, [task.id])).get(task.id) ?? [];
+  await recordTaskEdit(db, task.id, 'athena', await diffTaskForActivity(db, rowToTask(row['previous_row'] as Record<string, unknown>), task,
+    wantsTags ? { before: tagsBefore, after: tags } : undefined));
   const linkedChat = wantsLink ? await linkChat(db, task.id, sessionId) : false;
   const assistance = row['previous_status'] === 'inbox' && task.status !== 'inbox'
     ? await prepareAutomaticTaskAssistance(db, task.id, userId, sessionId

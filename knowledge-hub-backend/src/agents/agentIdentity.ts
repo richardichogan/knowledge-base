@@ -12,7 +12,7 @@ const OWNERS: Record<RoleId, readonly string[]> = {
     'chat', 'chat-title', 'chat-summary', 'chat-rollup', 'chat-to-think', 'output-title', 'note-summary', 'next-steps',
     'decisions', 'passage-followup', 'task-assistance-assessment', 'task-assistance-assessor', 'memory-suggestions',
     'memory-review', 'agent-lesson-review', 'scheduled-prompt', 'knowledge-nightly-review', 'tagging-sweep',
-    'archive-tasks', 'connections', 'foundry-backfill',
+    'archive-tasks', 'connections', 'foundry-backfill', 'task-review', 'task-message-drafter',
   ],
   iris: ['task-researcher', 'chat-researcher', 'document-reading', 'document-review', 'deep-dive', 'blog-research', 'manual-blog-research'],
   calliope: [

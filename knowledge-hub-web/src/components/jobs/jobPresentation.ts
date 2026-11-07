@@ -4,6 +4,7 @@ export const jobKinds: Record<JobDefinition['kind'], string> = {
   prompt: 'Athena prompt', 'content-sync': 'Content sync',
   'm365-import': 'M365 report import', 'weekly-microsoft': 'Microsoft updates',
   'discover-picks': 'Worth posting today',
+  'task-review': 'Athena task review',
 };
 
 export const outputNames: Record<JobDefinition['outputs'][number], string> = {

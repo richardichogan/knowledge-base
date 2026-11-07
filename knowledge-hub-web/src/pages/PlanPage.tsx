@@ -11,7 +11,7 @@
 import React, { useEffect, useState } from 'react';
 import { usePageTitle } from '../navigation/PageTitle';
 import type { CarbonIconType } from '@carbon/icons-react';
-import { CenterCircle, Dashboard, Idea, TaskView, Upload } from '@carbon/icons-react';
+import { CenterCircle, Dashboard, Email, Idea, TaskView, Upload } from '@carbon/icons-react';
 import { Select, SelectItem } from '@carbon/react';
 import { Navigate, useSearchParams } from 'react-router-dom';
 import { TasksPage } from './TasksPage';
@@ -26,6 +26,7 @@ import { usePlanAthena } from '../features/plan/usePlanAthena';
 import { PlanReviewModal } from '../features/plan/PlanReviewModal';
 import { PageHeader } from '../components/PageHeader';
 import { UseCasesView } from '../features/useCases/UseCasesView';
+import { DraftsView } from '../features/drafts/DraftsView';
 
 interface ViewTab {
   key: PlanView;
@@ -37,6 +38,7 @@ const VIEW_TABS: ViewTab[] = [
   { key: 'board',    label: 'Board',     Icon: Dashboard },
   { key: 'focus',    label: 'Focus',     Icon: CenterCircle },
   { key: 'use-cases', label: 'Use cases', Icon: Idea },
+  { key: 'drafts',   label: 'Drafts',    Icon: Email },
 ];
 
 export const PlanPage: React.FC = () => {
@@ -63,10 +65,13 @@ export const PlanPage: React.FC = () => {
   // Deep link from "→ Use case" confirmations: /plan?view=use-cases&useCase=<id>
   const [searchParams, setSearchParams] = useSearchParams();
   const [linkedUseCase, setLinkedUseCase] = useState<string | null>(null);
+  const [linkedDraft, setLinkedDraft] = useState<string | null>(null);
   useEffect(() => {
-    if (searchParams.get('view') !== 'use-cases') return;
-    updatePreferences({ view: 'use-cases' });
-    setLinkedUseCase(searchParams.get('useCase'));
+    const linked = searchParams.get('view');
+    if (linked !== 'use-cases' && linked !== 'drafts') return;
+    updatePreferences({ view: linked });
+    if (linked === 'use-cases') setLinkedUseCase(searchParams.get('useCase'));
+    else setLinkedDraft(searchParams.get('draft'));
     setSearchParams({}, { replace: true });
   // eslint-disable-next-line react-hooks/exhaustive-deps -- run when the link changes only
   }, [searchParams]);
@@ -88,14 +93,14 @@ export const PlanPage: React.FC = () => {
       <PageHeader title="Plan" className="plan-page-header" actions={<>
           {(
             <>
-              <Select id="plan-filter-project" labelText="Filter by workstream" hideLabel size="sm"
+              {view !== 'drafts' && <Select id="plan-filter-project" labelText="Filter by workstream" hideLabel size="sm"
                 value={filterProject} onChange={(e) => updatePreferences({ project: e.target.value })}>
                 <SelectItem value="" text="All workstreams" />
                 {filterProject !== '' && !projects.some(project => project.id === filterProject)
                   && <SelectItem value={filterProject} text="Saved workstream scope (not available)" />}
                 <ProjectOptions projects={projects} selected={filterProject} />
-              </Select>
-              {view !== 'use-cases' && <Select id="plan-filter-tag" labelText="Filter by tag" hideLabel size="sm"
+              </Select>}
+              {(view === 'board' || view === 'focus') && <Select id="plan-filter-tag" labelText="Filter by tag" hideLabel size="sm"
                 value={filterTag} onChange={(e) => updatePreferences({ tag: e.target.value })}>
                 <SelectItem value="" text="All tags" />
                 {filterTag !== '' && !flatTags.some(tag => tag.id === filterTag)
@@ -113,7 +118,7 @@ export const PlanPage: React.FC = () => {
               </button>}
             </>
           )}
-          {view !== 'use-cases' && <button type="button" className="kb-import-btn" onClick={() => setReviewOpen(true)}
+          {(view === 'board' || view === 'focus') && <button type="button" className="kb-import-btn" onClick={() => setReviewOpen(true)}
             aria-label="Weekly review"
             title="Athena reviews your open tasks and suggests what to reschedule, close or split">
             <TaskView size={16} /> <span className="plan-action-label">Weekly review</span>
@@ -142,7 +147,8 @@ export const PlanPage: React.FC = () => {
 
       <PlanReviewModal open={reviewOpen} onClose={() => setReviewOpen(false)} />
 
-      {view === 'use-cases' ? <div className="plan-inner plan-inner--use-cases"><UseCasesView filterProject={filterProject} selectId={linkedUseCase} /></div> : <div className="plan-inner">
+      {view === 'use-cases' ? <div className="plan-inner plan-inner--use-cases"><UseCasesView filterProject={filterProject} selectId={linkedUseCase} /></div>
+        : view === 'drafts' ? <div className="plan-inner plan-inner--drafts"><DraftsView selectId={linkedDraft} /></div> : <div className="plan-inner">
         <TasksPage
           importOpen={importOpen}
           onImportClose={() => setImportOpen(false)}

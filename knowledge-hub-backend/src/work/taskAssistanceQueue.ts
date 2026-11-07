@@ -49,12 +49,13 @@ export async function queueTaskAssistanceAssessment(
   ownerId: string,
   origin: { kind: 'app' } | { kind: 'chat'; conversationId: string },
   once = false,
+  scheduled = false,
 ): Promise<Exclude<HandOffResult, { status: 'needs_confirmation' }>> {
   if (!ownerId.trim()) throw new ValidationError('Task assistance requires an authenticated owner.');
   const result = await handOff(db, {
     specialist: 'task-assistance-assessor',
     subjectId: taskId,
-    input: { ownerId },
+    input: { ownerId, ...(scheduled ? { scheduled: true } : {}) },
     requestedBy: origin.kind,
     ...(origin.kind === 'chat' ? { conversationId: origin.conversationId } : {}),
     confirmed: true,

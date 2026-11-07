@@ -33,9 +33,11 @@ export function usePlanAthena(filterProject: string, filterTag: string, view: Pl
     };
   }, [data, filterTag, projects, view]);
   useEffect(() => {
+    // The Drafts view supplies the open draft as Athena's context.
+    if (view === 'drafts') return;
     if (currentContext?.type === 'task' && currentContext.id !== 'plan') return;
     setAthenaContext(pageContext);
-  }, [pageContext, currentContext, setAthenaContext]);
+  }, [pageContext, currentContext, setAthenaContext, view]);
   useEffect(() => () => { setAthenaContext(null); }, [setAthenaContext]);
   return useCallback((prompt: string) => { openAthena(prompt, pageContext); }, [openAthena, pageContext]);
 }

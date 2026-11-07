@@ -460,12 +460,11 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
       if (excludeTaskEmails !== undefined && excludeTaskEmails !== 'true' && excludeTaskEmails !== 'false') {
         throw new ValidationError('excludeTaskEmails must be true or false');
       }
+      // Email and chat drafts live in Plan > Drafts, not in Think.
       if (excludeTaskEmails === 'true' && params[0] === 'active') conditions.push(`NOT (
         EXISTS (SELECT 1 FROM task_assistance assistance
-          WHERE assistance.result_note_id=n.id AND assistance.proposal->>'kind'='email')
-        OR EXISTS (SELECT 1 FROM email_drafts draft
-          WHERE draft.note_id=n.id AND draft.task_generated
-            AND note_list_metadata(n.content)->>'contentType'='email-draft')
+          WHERE assistance.result_note_id=n.id AND assistance.proposal->>'kind' IN ('email','message'))
+        OR note_list_metadata(n.content)->>'contentType'='email-draft'
       )`);
       if (grouped) conditions.push(`(
         note_list_metadata(n.content)->>'contentType'='design'

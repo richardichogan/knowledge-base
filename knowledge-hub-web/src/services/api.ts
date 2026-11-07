@@ -52,7 +52,7 @@ import type { PodcastPrepStatus } from '../types/podcastPrep';
 import type { DiscoverPicksResponse } from '../types/discoverPicks';
 import { requestCompletionNotifications } from '../chat/completionNotification';
 import type { PodcastEpisode, ScriptCard } from '../types/podcastEpisodes';
-import type { WorkContent, WorkContentPatch } from '../types/workContent';
+import type { DraftSummary, TaskReviewSummary, WorkContent, WorkContentPatch } from '../types/workContent';
 import type { LearningOverview, LearningQuestionView, LearningSession, LearningMessage, LearningTopicHistory } from '../types/learning';
 import type { DiscoverFormat, DiscoverParking, ParkingSelection } from '../types/discover';
 import type { WatchlistInput, Watchlist, WatchRun, WatchBaselineVersion, InterestWeight, WatchCompanyKnowledge } from '../types/watchlists';
@@ -2573,6 +2573,12 @@ export class KnowledgeHubApi {
     return (await this.client.get<ApiResponse<PodcastEpisode>>(`/api/podcast-episodes/${encodeURIComponent(id)}`)).data;
   }
 
+  async getDrafts(): Promise<ApiResponse<DraftSummary[]>> {
+    return (await this.client.get<ApiResponse<DraftSummary[]>>('/api/work-content/drafts')).data;
+  }
+  async getTaskReview(): Promise<ApiResponse<TaskReviewSummary | null>> {
+    return (await this.client.get<ApiResponse<TaskReviewSummary | null>>('/api/today/task-review')).data;
+  }
   async getWorkContent(id: string): Promise<ApiResponse<WorkContent>> {
     return (await this.client.get<ApiResponse<WorkContent>>(`/api/work-content/${encodeURIComponent(id)}`)).data;
   }

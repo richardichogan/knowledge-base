@@ -234,8 +234,8 @@ export function JobsPage({ onClose }: { onClose?: () => void }): React.ReactElem
         }}>Discuss with Athena</button></div>
         <section className="kh-jobs__form-section"><h3>Job details</h3><div className="kh-jobs__field-grid">
         <label>Name<input data-dialog-autofocus value={definition.name} onChange={e => setDefinition({ ...definition, name: e.target.value })} /></label>
-        <label>Action<select value={definition.kind} onChange={e => setDefinition({ ...definition, kind: e.target.value as JobDefinition['kind'], outputs: e.target.value === 'content-sync' || e.target.value === 'm365-import' || e.target.value === 'discover-picks' ? [] : ['think'] })}>
-          <option value="prompt">Scheduled Athena prompt</option><option value="content-sync">Content sync</option><option value="m365-import">Ingest M365 Markdown report</option><option value="weekly-microsoft">Weekly Microsoft updates</option><option value="discover-picks">Choose Discover articles worth posting today</option></select></label>
+        <label>Action<select value={definition.kind} onChange={e => setDefinition({ ...definition, kind: e.target.value as JobDefinition['kind'], outputs: e.target.value === 'content-sync' || e.target.value === 'm365-import' || e.target.value === 'discover-picks' || e.target.value === 'task-review' ? [] : ['think'] })}>
+          <option value="prompt">Scheduled Athena prompt</option><option value="content-sync">Content sync</option><option value="m365-import">Ingest M365 Markdown report</option><option value="weekly-microsoft">Weekly Microsoft updates</option><option value="discover-picks">Choose Discover articles worth posting today</option><option value="task-review">Review open tasks for Athena help</option></select></label>
         </div>
         {generates && <label>Prompt and editorial instructions<textarea rows={5} value={definition.prompt} onChange={e => setDefinition({ ...definition, prompt: e.target.value })} /></label>}
         </section>

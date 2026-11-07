@@ -247,6 +247,15 @@ export function buildTodayModel(data: TodayInputs, now: Date, since: string): To
     tone: 'normal', date: group.date, href: '/my-work', action: 'View activity', score: /feedback/.test(group.title) ? 30 : 10, source: 'Activity',
   });
   for (const note of data.notes) {
+    // Email and Slack/Teams drafts live in Plan › Drafts, not Think.
+    if (note.contentType === 'email-draft') {
+      if (fresh(note.updatedAt)) changes.push({
+        id: `change:note:${note.id}`, title: `Updated draft: ${note.title}`, type: 'Draft', ...project(note.projectId),
+        reason: 'Ready to review, copy and send yourself.', tone: 'normal', date: note.updatedAt,
+        href: `/plan?view=drafts&draft=${encodeURIComponent(note.id)}`, action: 'Review draft', score: 20, source: 'Plan',
+      });
+      continue;
+    }
     if (fresh(note.updatedAt)) changes.push({
       id: `change:note:${note.id}`, title: `Updated note: ${note.title}`,
       type: 'Think note', ...project(note.projectId), reason: 'Recently saved in Think.',

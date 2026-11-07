@@ -1,8 +1,9 @@
 import React, { useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, Renew } from '@carbon/icons-react';
 import { api } from '../services/api';
+import { requireApiData } from '../services/apiError';
 import { useTodayBrief, requireTodayData } from '../services/useTodayBrief';
 import { TODAY_LIMITS, todayItemDate, todayContext, type TodayItem } from '../services/todayViewModel';
 import { useAthenaContext } from '../context/AthenaContext';
@@ -108,7 +109,9 @@ export const HomePage: React.FC = () => {
   const [expandedChanges, setExpandedChanges] = useState(false);
   const podcast = usePodcastPrep();
   const discoverPicks = useDiscoverPicks();
-  const context = `${todayContext(model)}\n\n${picksContext(discoverPicks.picks, discoverPicks.saved?.generatedAt ?? null)}`;
+  const taskReview = useQuery({ queryKey: ['today-task-review'], queryFn: async () => requireApiData(await api.getTaskReview()), staleTime: 5 * 60_000 });
+  const reviewLine = taskReview.data ? `Athena checked your active tasks at ${new Date(taskReview.data.reviewedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}${new Date(taskReview.data.reviewedAt).toDateString() === new Date().toDateString() ? '' : ` on ${new Date(taskReview.data.reviewedAt).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}`} · ${taskReview.data.queued === 0 ? 'nothing new or changed' : `${taskReview.data.queued} new or changed sent for assessment`}` : null;
+  const context = `${todayContext(model)}${reviewLine ? `\n\nProactive task review: ${reviewLine}. Proposals appear as Athena markers on Plan cards; email and Slack/Teams drafts are in Plan › Drafts.` : ''}\n\n${picksContext(discoverPicks.picks, discoverPicks.saved?.generatedAt ?? null)}`;
   function ask(prompt: string, item?: TodayItem): void {
     if (item && item.id !== 'today-all-attention') setSelectedId(item.id);
     openAthena(prompt, item ? {
@@ -185,6 +188,7 @@ export const HomePage: React.FC = () => {
         </section>
         <section className="today-brief__attention" aria-labelledby="today-attention">
           <div className="today-brief__section-heading"><h2 id="today-attention">Needs your attention</h2><Link to="/plan">All tasks in Plan</Link></div>
+          {reviewLine && <p className="today-brief__nudge"><Link to="/plan">{reviewLine} <ArrowRight size={14} /></Link></p>}
           <SectionState queries={sectionQueries.attention} hasItems={visibleAttention.length > 0} empty="No deadlines, blockers, or open decisions need attention in the available recent sources." />
           {visibleAttention.map(renderItem)}
           {model.attention.length > TODAY_LIMITS.attention && <p className="today-brief__meta">

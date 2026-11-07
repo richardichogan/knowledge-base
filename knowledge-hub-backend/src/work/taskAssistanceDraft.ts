@@ -86,7 +86,7 @@ export async function retainedTaskDraft(
     JOIN task_assistance a ON a.id::text=j.input->>'proposalId'
     WHERE a.task_id=$1 AND a.owner_id=$2 AND a.task_signature=$3 AND a.approved_at IS NOT NULL
       AND j.subject_id::text=$1::text AND j.status IN ('failed','done')
-      AND j.specialist IN ('task-researcher','task-email-drafter','task-preparation-assistant')
+      AND j.specialist IN ('task-researcher','task-email-drafter','task-message-drafter','task-preparation-assistant')
       AND j.input ? 'taskDraftCheckpoint' AND j.updated_at>now()-INTERVAL '1 day'
     ORDER BY j.updated_at DESC LIMIT 1`, [taskId, ownerId, taskSignature])).rows[0];
   if (!row) return undefined;

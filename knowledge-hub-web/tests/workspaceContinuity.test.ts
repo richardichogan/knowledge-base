@@ -10,7 +10,9 @@ test('selected Plan tasks retain the normal Board/Focus content and compact form
   assert.match(page, /const taskViews = <>/);
   assert.match(page, /\{taskViews\}[\s\S]*: taskViews/);
   assert.doesNotMatch(page, /scopedTasks\.map\(task => <ReviewItem/);
-  assert.match(page, /TaskDescription className="kb-card__body" text=\{task\.body\}/);
+  assert.doesNotMatch(page, /TaskDescription className="kb-card__body"/);
+  assert.match(page, /TaskDescription className="kb-inbox-card__body"/);
+  assert.match(page, /className=\{`kb-card__progress/);
   assert.match(preview, /renderMarkdownPreview\(text\)/);
   assert.match(page, /const laneTasks = column\.id === 'completed' \? visibleCompletedTasks\(allLaneTasks\) : allLaneTasks/);
   assert.match(page, /const COMPLETED_PREVIEW_COUNT = 5;/);

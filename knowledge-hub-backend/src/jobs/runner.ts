@@ -25,6 +25,7 @@ import { editorialServices } from '../publishing/editorial.js';
 import { PUBLISH_LIMITS } from '../publishing/contracts.js';
 import { ValidationError } from '../types/errors.js';
 import { refreshDiscoverPicks } from '../services/discoverPicks.js';
+import { reviewActiveTasks } from '../work/taskReview.js';
 
 export class UnconfirmedDelivery extends Error {}
 const WEEKLY_SOCIAL_TOKENS = 2_000;
@@ -168,6 +169,16 @@ export async function executeRun(db: Pool, run: JobRun, lease: string, delivery:
         run.artifacts.picks = result.picks.map(p => ({ id: p.id, title: p.title, angle: p.angle }));
         run.artifacts.message = result.note ?? `Chose ${result.picks.length} Discover articles worth posting today.`;
         return run.artifacts.picks;
+      });
+    } else if (run.definition.kind === 'task-review') {
+      if (run.preview) run.artifacts = { message: 'Preview only: Athena would review open tasks that are new or changed, propose how it could help, and start any proposed research.' };
+      else await step(db, run, lease, 'task-review', async () => {
+        const review = await reviewActiveTasks(db);
+        run.artifacts.review = review;
+        run.artifacts.message = review.considered
+          ? `Reviewed ${review.considered} new or changed task${review.considered === 1 ? '' : 's'}; ${review.queued} queued for assessment.`
+          : 'No new or changed open tasks needed a review.';
+        return review;
       });
     } else if (run.definition.kind === 'm365-import') {
       if (run.preview) run.artifacts = { message: 'Preview only: the selected desktop will ingest the report for the scheduled date when available.', deviceId: run.definition.deviceId, folder: run.definition.inputFolder };

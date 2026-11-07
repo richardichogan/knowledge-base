@@ -16,7 +16,7 @@ export const JOB_TOOL: LlmToolDefinition = {
       runId: { type: 'string' },
       revision: { type: 'integer', description: 'Current revision from read/list; required for updates.' },
       enabled: { type: 'boolean', description: 'Propose enabling only after discussing the complete schedule and permissions.' },
-      definition: { type: 'object', description: 'Complete job: name,kind (content-sync,m365-import,weekly-microsoft,prompt,discover-picks — discover-picks chooses the three Discover articles worth posting, outputs must be empty),prompt,schedule:{timezone:IANA,days:[0 Sunday..6 Saturday],times:[HH:mm]},approval:required|automatic,deviceId,inputFolder,outputFolder,outputs:[think,slack,blog,bluesky,linkedin,file]. Empty local fields are valid for cloud jobs. Retain existing settings when editing.', additionalProperties: true },
+      definition: { type: 'object', description: 'Complete job: name,kind (content-sync,m365-import,weekly-microsoft,prompt,discover-picks,task-review — discover-picks chooses the three Discover articles worth posting; task-review has Athena review new or changed open tasks, propose help and start proposed research; both require empty outputs),prompt,schedule:{timezone:IANA,days:[0 Sunday..6 Saturday],times:[HH:mm]},approval:required|automatic,deviceId,inputFolder,outputFolder,outputs:[think,slack,blog,bluesky,linkedin,file]. Empty local fields are valid for cloud jobs. Retain existing settings when editing.', additionalProperties: true },
     }, required: ['action'] },
   },
 };
