@@ -1,5 +1,6 @@
 import { registerSpecialist } from '../registry.js';
-import { approveTaskAssistance, assessTaskAssistance, assistanceId, TASK_ASSISTANCE_SPECIALISTS, assistanceTask, parseAssistanceInput, requireApprovedAssistance, runTaskAssistance } from '../../work/taskAssistance.js';
+import { approveTaskAssistance, assessTaskAssistance, assistanceId, assistanceTask, parseAssistanceInput, requireApprovedAssistance, runTaskAssistance } from '../../work/taskAssistance.js';
+import { TASK_ASSISTANCE_SPECIALISTS } from '../../work/taskAssistanceSpecialists.js';
 import { ValidationError } from '../../types/errors.js';
 import type { SpecialistContext, SpecialistResult } from '../registry.js';
 

@@ -37,9 +37,8 @@ const RESULT_REVIEW_TOKENS = 1800;
 const RESULT_SOURCE_LIMIT = 48_000;
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const TAVILY_READ_TOOLS = new Set(['tavily-search', 'tavily_search', 'tavily-extract', 'tavily_extract']);
-export const TASK_ASSISTANCE_SPECIALISTS = {
-  research: 'task-researcher', email: 'task-email-drafter', message: 'task-message-drafter', support: 'task-preparation-assistant',
-} as const;
+import { TASK_ASSISTANCE_SPECIALISTS } from './taskAssistanceSpecialists.js';
+export { TASK_ASSISTANCE_SPECIALISTS };
 const DRAFT_HEADER = /^(to|cc|subject|channel)\s*:\s*(.*)$/i;
 /** Splits leading To/Cc/Subject/Channel lines from a drafted email or chat message into draft properties. */
 export function splitDraftHeaders(body: string, kind: 'email' | 'message'): {
