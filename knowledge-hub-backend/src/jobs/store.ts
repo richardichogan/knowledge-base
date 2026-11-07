@@ -72,6 +72,17 @@ export async function pauseJob(db: Pool, id: string, actor: string, archive = fa
     await c.query('COMMIT');
   } catch (error) { await c.query('ROLLBACK'); throw error; } finally { c.release(); }
 }
+export async function resumeJob(db: Pool, id: string, actor: string): Promise<void> {
+  const c = await db.connect();
+  try {
+    await c.query('BEGIN');
+    const job = await getJob(c, id);
+    if (job.archived) throw new ValidationError('That job is archived.');
+    await c.query('UPDATE managed_jobs SET enabled=TRUE, next_at=$2, updated_at=NOW() WHERE id=$1', [id, nextOccurrence(job.definition.schedule, new Date())]);
+    await audit(c, id, null, actor, 'resumed');
+    await c.query('COMMIT');
+  } catch (error) { await c.query('ROLLBACK'); throw error; } finally { c.release(); }
+}
 export async function enqueue(db: Db, job: ManagedJob, at: Date, key: string, preview: boolean, actor: string): Promise<JobRun> {
   if (!preview) readyToEnable(job.definition);
   if (!preview && !job.enabled) throw new ValidationError('Enable the saved job before running it. Preview is available while paused.');

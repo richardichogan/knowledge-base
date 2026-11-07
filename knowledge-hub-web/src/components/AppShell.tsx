@@ -21,6 +21,7 @@ import { useMediaQuery } from '../hooks/useMediaQuery';
 import { api } from '../services/api';
 import { resumeWorkspacePath, useWorkspaceContinuity } from '../navigation/workspaceContinuity';
 import { BackgroundWork } from './athena/BackgroundWork';
+import { AthenaLauncher } from './athena/AthenaLauncher';
 
 const DISCOVER_SEEN_KEY = 'kh-discover-seen';
 
@@ -142,9 +143,6 @@ export const AppShell: React.FC = () => {
         <nav className="kh-header__utilities" aria-label="Utility navigation">
           <button type="button" className="kh-header__utility" title="Search (Cmd+K / Ctrl+K)" aria-label="Search"
             onClick={() => { setPaletteOpen(true); setMenu(null); }}><Search size={20} /></button>
-          <button type="button" className="kh-header__utility kh-header__athena"
-            title={isThink && !hasEmbeddedAthena ? 'Open a note or canvas to use Athena' : 'Open Athena'} aria-label="Open Athena" disabled={isThink && !hasEmbeddedAthena}
-            onClick={() => { setMenu(null); launchAthena(); }}><img className="ai-brand-mark" src="/athena/ribbon-avatar-64.png" alt="" /></button>
           <BackgroundWork />
           <button type="button" ref={narrow ? mobileRef : toolsRef}
             className={`kh-header__utility${tool || menu ? ' kh-header__utility--active' : ''}`}
@@ -173,6 +171,7 @@ export const AppShell: React.FC = () => {
       <TagPanel open={tagPanelOpen} onClose={() => { setTagPanelOpen(false); }} />
       <ProjectsModal open={projectsOpen} onClose={() => { setProjectsOpen(false); }} />
       {!isThink && !hasEmbeddedAthena && <FloatingAIChat pageContext={pageContext ?? undefined} />}
+      <AthenaLauncher unavailable={isThink && !hasEmbeddedAthena ? 'Open a note or canvas to use Athena' : undefined} />
       <CommandPalette open={paletteOpen} onClose={() => { setPaletteOpen(false); }} onNavigationAction={selectAction}
         onSparkCapture={() => { setSparkModalOpen(true); }}
         onAskAthena={isThink && !hasEmbeddedAthena ? undefined : launchAthena} />

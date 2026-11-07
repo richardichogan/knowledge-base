@@ -6,7 +6,7 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { getDb } from '../db/db.js';
 import { handleConversationTurn, type TurnHooks, summariseSession, rollUpConversationSummary, formatSessionForThink, summarizeNoteContent, generateSessionTitle } from '../ai/conversationService.js';
-import { getOrCreateSessionHistory, getModelHistory, appendTurn, toConversationMessages, setSessionTitleIfMissing, listSessions, deleteSession, rollUpSummaryIfNeeded, getSessionPersona, setSessionPersona, getSessionProjectId, setSessionProjectId, getSessionIdForNote, linkSessionToNote, setGeneratedSessionTitle, renameSession, setSessionPinned, countUserTurns, searchSessions, setPendingTurn, getPendingTurn, setNextSteps } from '../ai/chatSessionStore.js';
+import { getOrCreateSessionHistory, getModelHistory, appendTurn, toConversationMessages, setSessionTitleIfMissing, listSessions, deleteSession, rollUpSummaryIfNeeded, getSessionPersona, setSessionPersona, getSessionProjectId, setSessionProjectId, getSessionIdForNote, linkSessionToNote, getSessionIdForItem, linkSessionToItem, ITEM_KEY_PATTERN, setGeneratedSessionTitle, renameSession, setSessionPinned, countUserTurns, searchSessions, setPendingTurn, getPendingTurn, setNextSteps } from '../ai/chatSessionStore.js';
 import { proposeWriteAction, confirmWriteAction, cancelWriteAction, getPendingProposals } from '../ai/writeActionService.js';
 import { textToBlocks } from '../ai/chatTools.js';
 import { draftSpecFromSession } from '../ai/specDraft.js';
@@ -103,7 +103,7 @@ export interface ChatTurnResult {
 /** Runs one chat turn from a /chat request body: saves it to the session and returns the reply payload. */
 export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = {}, userId?: string): Promise<ChatTurnResult> {
   hooks.signal?.throwIfAborted();
-  const { sessionId: providedSessionId, message, model, persona: requestedPersona, projectId, pageContext: requestedPageContext, noteId, screenReview, outputsPanel, localFolders: requestedLocalFolders } = reqBody as {
+  const { sessionId: providedSessionId, message, model, persona: requestedPersona, projectId, pageContext: requestedPageContext, noteId, itemKey, screenReview, outputsPanel, localFolders: requestedLocalFolders } = reqBody as {
     sessionId?: string;
     message?: string;
     model?: 'standard' | 'light' | 'reasoning';
@@ -111,6 +111,8 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
     projectId?: string | null;
     pageContext?: ChatPageContext;
     noteId?: string;
+    /** The task, project, Discover item or email this chat belongs to ('<type>:<id>'), outside Think. */
+    itemKey?: string;
     /** Look at the chat's screens together first: the journey, or the marked areas of some screens. */
     screenReview?: { mode?: 'journey' | 'focus'; screenIds?: string[] };
     /** False when the view has no Outputs panel (Think, floating chat, mobile). */
@@ -150,6 +152,8 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   // this note later instead of always showing the globally-active chat.
   if (typeof noteId === 'string' && noteId.trim() !== '') {
     await linkSessionToNote(db, effectiveSessionId, noteId.trim());
+  } else if (typeof itemKey === 'string' && ITEM_KEY_PATTERN.test(itemKey)) {
+    await linkSessionToItem(db, effectiveSessionId, itemKey);
   }
 
   if ('projectId' in reqBody) {
@@ -674,6 +678,25 @@ router.get('/sessions/note/:noteId', (req: Request, res: Response, next: NextFun
       const { noteId } = req.params as { noteId: string };
       const db = getDb();
       const sessionId = await getSessionIdForNote(db, noteId);
+      const body: ApiSuccess<{ sessionId: string | null }> = { success: true, data: { sessionId } };
+      res.status(HTTP_STATUS.OK).json(body);
+    } catch (err) {
+      next(err);
+    }
+  })();
+});
+
+/**
+ * GET /api/ai/sessions/item/:itemKey
+ * The chat already linked to a task, project, Discover item or email ('<type>:<id>'), if any —
+ * used by the floating Athena chat to keep one conversation per item.
+ */
+router.get('/sessions/item/:itemKey', (req: Request, res: Response, next: NextFunction): void => {
+  void (async () => {
+    try {
+      const { itemKey } = req.params as { itemKey: string };
+      if (!ITEM_KEY_PATTERN.test(itemKey)) throw new ValidationError('Invalid item key', { itemKey: 'invalid' });
+      const sessionId = await getSessionIdForItem(getDb(), itemKey);
       const body: ApiSuccess<{ sessionId: string | null }> = { success: true, data: { sessionId } };
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) {

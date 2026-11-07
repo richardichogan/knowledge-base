@@ -1546,6 +1546,14 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
+  /** The chat linked to a task, project, Discover item or email ('<type>:<id>'), if any — one conversation per item in the floating chat. */
+  async getSessionIdForItem(itemKey: string): Promise<ApiResponse<{ sessionId: string | null }>> {
+    const r = await this.client.get<ApiResponse<{ sessionId: string | null }>>(
+      `/api/ai/sessions/item/${encodeURIComponent(itemKey)}`,
+    );
+    return r.data;
+  }
+
   /** Generates an on-demand summary of a note's content, shown when a note has no chat started yet. */
   async summarizeNote(title: string, content: string): Promise<ApiResponse<{ summary: string }>> {
     const r = await this.client.post<ApiResponse<{ summary: string }>>(
@@ -2522,6 +2530,18 @@ export class KnowledgeHubApi {
   }
   async recordGoalProgress(input: { measureId: string; count?: number; done?: boolean; note?: string; date?: string }): Promise<ApiResponse<ProgressEntry>> {
     return (await this.client.post<ApiResponse<ProgressEntry>>('/api/today/goals/progress', input)).data;
+  }
+  async runGoalReview(): Promise<ApiResponse<GoalsOverview>> {
+    return (await this.client.post<ApiResponse<GoalsOverview>>('/api/today/goals/review', {})).data;
+  }
+  async decideGoalAdjustment(id: string, decision: 'accept' | 'dismiss'): Promise<ApiResponse<GoalsOverview>> {
+    return (await this.client.post<ApiResponse<GoalsOverview>>(`/api/today/goals/adjustments/${encodeURIComponent(id)}/${decision}`, {})).data;
+  }
+  async linkToGoal(target: { projectId: string } | { taskId: string }, goalId: string): Promise<ApiResponse<GoalsOverview>> {
+    return (await this.client.post<ApiResponse<GoalsOverview>>('/api/today/goals/links', { ...target, goalId })).data;
+  }
+  async setGoalMeasure(id: string, value: number | string): Promise<ApiResponse<GoalsOverview>> {
+    return (await this.client.post<ApiResponse<GoalsOverview>>(`/api/today/goals/measures/${encodeURIComponent(id)}`, { value })).data;
   }
   async refreshGoals(which: 'brief' | 'scorecard'): Promise<ApiResponse<GoalsOverview>> {
     return (await this.client.post<ApiResponse<GoalsOverview>>(`/api/today/goals/${which}/refresh`, {})).data;

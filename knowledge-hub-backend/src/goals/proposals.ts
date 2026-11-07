@@ -16,21 +16,24 @@ const IGNORED_WEEKS = 3;
 const OPEN_MS = 2 * 86_400_000;
 const TITLE_LIMIT = 200;
 
-export const PROPOSAL_TYPES = ['goal-move', 'date-proposal', 'deal-followup', 'promise', 'chase', 'cadence', 'content-package', 'cfp', 'chat-next-step'] as const;
+export const PROPOSAL_TYPES = ['goal-move', 'date-proposal', 'deal-followup', 'promise', 'chase', 'cadence', 'content-package', 'cfp', 'chat-next-step', 'goal-adjustment'] as const;
 export type ProposalType = typeof PROPOSAL_TYPES[number];
 export const PROPOSAL_LABELS: Record<ProposalType, string> = {
   'goal-move': 'Weekly moves', 'date-proposal': 'Due-date changes', 'deal-followup': 'Deal follow-up drafts', promise: 'Promises from meetings',
   chase: 'Chase drafts', cadence: 'Keep-in-touch nudges', 'content-package': 'Content packages', cfp: 'CFP shortlist', 'chat-next-step': 'Chat next steps',
+  'goal-adjustment': 'Monthly goal adjustments',
 };
 /** The weekly brief and scorecard are the backbone of the goals loop: reported, never switched off automatically. */
-const EXEMPT: ReadonlySet<ProposalType> = new Set(['goal-move', 'date-proposal']);
+const EXEMPT: ReadonlySet<ProposalType> = new Set(['goal-move', 'date-proposal', 'goal-adjustment']);
 
 export type ProposalOutcome = 'proposed' | 'accepted' | 'dismissed';
-export interface ProposalEntry { id: string; type: ProposalType; title: string; at: string; outcome: ProposalOutcome; decidedAt: string | null; draftId?: string }
+export interface ProposalEntry { id: string; type: ProposalType; title: string; at: string; outcome: ProposalOutcome; decidedAt: string | null; draftId?: string; surfacedAt?: string }
 interface Ledger {
   entries: ProposalEntry[];
   disabled: Partial<Record<ProposalType, { at: string; reason: string; by: 'athena' | 'richard' }>>;
   reenabledAt: Partial<Record<ProposalType, string>>;
+  /** Peak gating for proposals that have no ledger entry (or predate surfacedAt): candidate id → first shown. */
+  surfaced?: Record<string, string>;
 }
 const empty = (): Ledger => ({ entries: [], disabled: {}, reenabledAt: {} });
 
@@ -146,6 +149,65 @@ export async function proposalReport(db: Pool, now = new Date()): Promise<Propos
     byType: PROPOSAL_TYPES.map(type => ({ type, label: PROPOSAL_LABELS[type], ...count(recent.filter(e => e.type === type)) })).filter(t => t.proposed > 0),
     stopped: PROPOSAL_TYPES.flatMap(type => { const d = value.disabled[type]; return d ? [{ type, label: PROPOSAL_LABELS[type], ...d }] : []; }),
   };
+}
+
+/** Peak hours (UK): when Richard acts on proposals rather than skimming past them. */
+const PEAK_WINDOWS: ReadonlyArray<[number, number]> = [[9 * 60, 11 * 60], [16 * 60, 18 * 60]];
+export const PEAK_MAX = 3;
+
+function londonParts(at: Date): { day: number; minutes: number } {
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(at);
+  const get = (t: string) => parts.find(p => p.type === t)?.value ?? '';
+  const day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(get('weekday'));
+  return { day, minutes: Number(get('hour')) * 60 + Number(get('minute')) };
+}
+export function inPeakWindow(at = new Date()): boolean {
+  const { day, minutes } = londonParts(at);
+  return day >= 1 && day <= 5 && PEAK_WINDOWS.some(([a, b]) => minutes >= a && minutes < b);
+}
+/** The start of the next peak window, to the minute. */
+export function nextPeakWindow(at = new Date()): string {
+  let t = Math.ceil(at.getTime() / 60_000) * 60_000;
+  for (let i = 0; i < 8 * 24 * 60; i += 1, t += 60_000) {
+    const d = new Date(t);
+    if (inPeakWindow(d) && !inPeakWindow(new Date(t - 60_000))) return d.toISOString();
+  }
+  return new Date(t).toISOString();
+}
+
+/**
+ * Proactive proposals surface in peak hours only, at most three at a time, oldest first. Once surfaced an item stays
+ * visible until decided. Candidates are the ids currently on Today; anything not in the ledger predates it and shows.
+ */
+export async function gateProposals(db: Pool, candidateIds: string[], now = new Date()): Promise<{ visible: Set<string>; held: number; peak: boolean; nextWindow: string }> {
+  const peak = inPeakWindow(now);
+  const candidates = new Set(candidateIds);
+  const visible = await mutateState<Ledger, Set<string>>(db, LEDGER_KEY, empty(), value => {
+    value.entries ??= [];
+    const known = new Map(value.entries.map(e => [e.id, e]));
+    const surfaced: Record<string, string> = {};
+    for (const id of candidates) {
+      const at = known.get(id)?.surfacedAt ?? value.surfaced?.[id];
+      if (at) surfaced[id] = at;
+    }
+    // Once shown, a proposal stays until decided; new ones only fill free slots in peak hours.
+    const shown = new Set(Object.keys(surfaced));
+    if (peak) {
+      const order = (id: string) => known.get(id)?.at ?? '';
+      const waiting = candidateIds.filter(id => !shown.has(id)).sort((a, b) => order(a).localeCompare(order(b)));
+      for (const id of waiting) {
+        if (shown.size >= PEAK_MAX) break;
+        const at = now.toISOString();
+        surfaced[id] = at;
+        const e = known.get(id);
+        if (e) e.surfacedAt = at;
+        shown.add(id);
+      }
+    }
+    value.surfaced = surfaced;
+    return shown;
+  });
+  return { visible, held: candidateIds.filter(id => !visible.has(id)).length, peak, nextWindow: peak ? now.toISOString() : nextPeakWindow(now) };
 }
 
 /** Chat next steps: an offer is accepted when Richard's next message in that chat is one of the offered steps. */

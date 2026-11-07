@@ -46,6 +46,7 @@ import { AtRiskChatCard } from '../features/plan/AtRiskChatCard';
 import type { PaneWidthOptions } from '../hooks/usePersistedState';
 import { useChatDraft } from '../hooks/useChatDraft';
 import { sendChatTurn, followChatTurn, TurnDetachedError, type LiveTurnHandlers } from '../services/chatTurns';
+import { readSession } from '../services/athenaReplies';
 import { encodeWav, resampleVoiceAudio, blobToBase64, stripMarkdownForSpeech, splitForSpeech } from '../components/athena/speech';
 import { playSpeechChunks, type SpeechPlaybackAudio } from '../components/athena/speechPlayback';
 import { getVoiceVolume, MAX_VOICE_VOLUME, useVoiceVolume } from '../components/athena/voiceVolume';
@@ -121,6 +122,8 @@ interface AIChatPageProps {
    * inside this component.
    */
   onBusyChange?: ((busy: boolean) => void) | undefined;
+  /** Floating chat: the selected item ('<type>:<id>'); each item keeps its own conversation. */
+  itemKey?: string | undefined;
   /** Pins the chat to one existing conversation (e.g. a podcast episode's prep), without New chat or shared storage. */
   fixedSessionId?: string | undefined;
   hideToolbar?: boolean;
@@ -290,6 +293,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   promptRequest,
   title,
   onBusyChange,
+  itemKey,
   fixedSessionId,
   hideToolbar = false,
 }) => {
@@ -298,6 +302,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   // note-linking effect below) instead of sharing localStorage-persisted
   // session state with the floating widget / full-page chat.
   const isNoteLinkedPanel = compact && compactVariant === 'narrow';
+  // The floating chat keeps one conversation per selected task, project, Discover item or email.
+  const linkedItemKey = !isNoteLinkedPanel && !standalone && fixedSessionId === undefined ? itemKey : undefined;
+  const isItemLinked = linkedItemKey !== undefined;
   // Think notes and Library documents each keep their own linked conversation.
   // Canvases too (id "map:<id>"), so each canvas keeps its own chat and Athena can propose changes to it.
   const currentNoteId = isNoteLinkedPanel && (pageContext?.type === 'note' || pageContext?.type === 'document' || pageContext?.type === 'canvas') ? pageContext.conversationId ?? pageContext.id : undefined;
@@ -316,7 +323,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const SESSION_STORAGE_KEY = fixedSessionId !== undefined ? ''
     : standalone
     ? SESSION_STORAGE_KEY_STANDALONE
-    : isNoteLinkedPanel
+    : isNoteLinkedPanel || isItemLinked
       ? '' // no shared localStorage session for the Think-embedded panel — its session is driven entirely by the note-linking effect below.
       : compact
         ? SESSION_STORAGE_KEY_WIDGET
@@ -331,7 +338,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const [isShareLaunch] = useState(() => standalone && hasShareParams(new URLSearchParams(window.location.search)));
   const [sessionId, setSessionId] = useState<string | null>(() => {
     if (fixedSessionId !== undefined) return fixedSessionId;
-    if (isNoteLinkedPanel || isShareLaunch) return null;
+    if (isNoteLinkedPanel || isItemLinked || isShareLaunch) return null;
     try {
       // /chat?session=<id> — opens that chat (e.g. from a Plan task's linked chat).
       const linked = standalone ? new URLSearchParams(window.location.search).get('session') : null;
@@ -359,8 +366,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const draftPrefix = isNoteLinkedPanel
     ? `kh-athena-draft-note-${currentNoteId ?? 'unlinked'}`
+    : isItemLinked ? `kh-athena-draft-item-${linkedItemKey}`
     : `${SESSION_STORAGE_KEY}-draft`;
-  const draftKeyForSession = (id: string | null): string => isNoteLinkedPanel ? draftPrefix : `${draftPrefix}-${id ?? 'new'}`;
+  const draftKeyForSession = (id: string | null): string => isNoteLinkedPanel || isItemLinked ? draftPrefix : `${draftPrefix}-${id ?? 'new'}`;
   const [input, setInput, moveDraft] = useChatDraft(draftKeyForSession(sessionId));
   const hasUserWorkRef = useRef(false);
   hasUserWorkRef.current = sessionId !== null || input !== '' || messages.length > 0;
@@ -544,7 +552,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   // this entirely — its session/history is restored per-note by the
   // note-linking effect further down instead.
   useEffect(() => {
-    if (isNoteLinkedPanel) return;
+    if (isNoteLinkedPanel || isItemLinked) return;
     if (sessionId === null) return;
     let cancelled = false;
     void api.getSessionHistory(sessionId).then((result) => {
@@ -644,6 +652,46 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentNoteId]);
+
+  // Floating chat: switching to another task, project, Discover item or email loads that item's own
+  // conversation, or starts a fresh one for it. An answer still being written carries on in its chat.
+  const itemSwitchRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (linkedItemKey === undefined || itemSwitchRef.current === linkedItemKey) return;
+    itemSwitchRef.current = linkedItemKey;
+    let cancelled = false;
+    detachLiveTurn();
+    setMessages([]);
+    setSessionId(null);
+    setPendingActions([]);
+    setIsRestoringHistory(true);
+    setHistoryError(null);
+    void api.getSessionIdForItem(linkedItemKey).then(async (result) => {
+      if (cancelled) return;
+      if (!result.success) throw new Error(result.error.message);
+      const linkedSessionId = result.data.sessionId;
+      if (linkedSessionId !== null) {
+        setSessionId(linkedSessionId);
+        const history = await api.getSessionHistory(linkedSessionId);
+        if (cancelled) return;
+        if (!history.success) throw new Error(history.error.message);
+        setMessages(stripHistoryContextPrefixes(history.data.messages));
+        if (history.data.persona) setPersona(history.data.persona);
+        setActiveProjectId(history.data.projectId ?? '');
+        setIsRestoringHistory(false);
+        resumeSessionTurn(linkedSessionId);
+      } else {
+        setIsRestoringHistory(false);
+      }
+    }).catch((error: unknown) => {
+      if (!cancelled) reportHistoryError(error);
+    });
+    return () => {
+      cancelled = true;
+      if (itemSwitchRef.current === linkedItemKey) itemSwitchRef.current = undefined;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkedItemKey]);
 
   function persistSessionId(id: string, creating = false): void {
     if (sessionId === null && creating) moveDraft(draftKeyForSession(id));
@@ -771,10 +819,15 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.key]);
 
+  // Opening a chat reads any answer that finished there while no chat was showing it.
+  useEffect(() => {
+    if (sessionId) readSession(sessionId);
+  }, [sessionId]);
+
   // The first time Athena is opened each day she opens on the morning briefing
   // (not in the per-note/canvas panels, which keep their own chats).
   useEffect(() => {
-    if (isNoteLinkedPanel || promptRequest !== undefined || fixedSessionId !== undefined) return undefined;
+    if (isNoteLinkedPanel || isItemLinked || promptRequest !== undefined || fixedSessionId !== undefined) return undefined;
     // Opened on a specific chat (e.g. from a Plan task) — that chat wins.
     if (standalone && new URLSearchParams(window.location.search).get('session')) return undefined;
     let cancelled = false;
@@ -904,6 +957,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
             ...(background && { backgroundWork: background }),
             ...(ctx && { pageContext: ctx }),
             ...(isNoteLinkedPanel && currentNoteId !== undefined && { noteId: currentNoteId }),
+            ...(linkedItemKey !== undefined && { itemKey: linkedItemKey }),
             ...(screenReview !== undefined && { screenReview }),
             outputsPanel: standalone && !isMobile,
             ...(localFolders.length > 0 && { localFolders }),

@@ -77,6 +77,8 @@ export interface ChatRequest {
    * restore the right conversation when the user switches back to it later.
    */
   noteId?: string;
+  /** Floating chat: the item ('<type>:<id>') this conversation belongs to. */
+  itemKey?: string;
   /** Look at the chat's screens together first: the journey, or the marked areas of some screens. */
   screenReview?: { mode: 'journey' | 'focus'; screenIds?: string[] };
   /** False when this view has no Outputs panel (Think, the floating chat, mobile): deliverables go in the reply. */

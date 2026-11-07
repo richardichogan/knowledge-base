@@ -11,7 +11,8 @@ import { ValidationError } from '../types/errors.js';
 import { HTTP_STATUS } from '../config/constants.js';
 import { latestTaskReview } from '../work/taskReview.js';
 import { getDiscoverPicks, refreshDiscoverPicks, discoverPicksRunning } from '../services/discoverPicks.js';
-import { goalsOverview, startGoalGeneration } from '../goals/overview.js';
+import { goalsOverview, startGoalGeneration, startGoalReview } from '../goals/overview.js';
+import { decideAdjustment, linkProject, linkTask, setMeasure } from '../goals/goalReview.js';
 import { recordGoalProgress } from '../goals/goals.js';
 import { acceptGoalMove, dismissGoalMove } from '../goals/brief.js';
 import { applyTidyBatch, decideDateProposal, undoTidyBatch } from '../goals/scorecard.js';
@@ -74,6 +75,28 @@ todayRouter.post('/goals/dates/:id/:decision', (req, res, next) => {
   const decision = req.params['decision'];
   if (decision !== 'accept' && decision !== 'dismiss') { next(new ValidationError('Accept or dismiss the date.')); return; }
   void decideDateProposal(getDb(), req.params['id'], decision === 'accept', 'richard').then((data) => { res.json({ success: true, data }); }).catch(next);
+});
+/** POST /api/today/goals/review — run the monthly goal review now; poll GET /goals while reviewRunning. */
+todayRouter.post('/goals/review', (_req, res, next) => {
+  startGoalReview(getDb(), 'manual');
+  void goalsOverview(getDb()).then((data) => { res.status(HTTP_STATUS.ACCEPTED).json({ success: true, data }); }).catch(next);
+});
+todayRouter.post('/goals/adjustments/:id/:decision', (req, res, next) => {
+  const decision = req.params['decision'];
+  if (decision !== 'accept' && decision !== 'dismiss') { next(new ValidationError('Accept or dismiss the adjustment.')); return; }
+  void decideAdjustment(getDb(), req.params['id'], decision === 'accept').then(() => goalsOverview(getDb()))
+    .then((data) => { res.json({ success: true, data }); }).catch(next);
+});
+/** POST /api/today/goals/links — { projectId, goalId } or { taskId, goalId }; goalId 'none' marks a workstream as outside the goals. */
+todayRouter.post('/goals/links', (req, res, next) => {
+  const body = (req.body ?? {}) as { projectId?: unknown; taskId?: unknown; goalId?: unknown };
+  void (body.taskId !== undefined ? linkTask(getDb(), body.taskId, body.goalId, 'richard') : linkProject(getDb(), body.projectId, body.goalId))
+    .then(() => goalsOverview(getDb())).then((data) => { res.json({ success: true, data }); }).catch(next);
+});
+/** POST /api/today/goals/measures/:id — { value }: a target (count) or deadline (YYYY-MM-DD). */
+todayRouter.post('/goals/measures/:id', (req, res, next) => {
+  void setMeasure(getDb(), req.params['id'], (req.body as { value?: unknown } | undefined)?.value)
+    .then(() => goalsOverview(getDb())).then((data) => { res.json({ success: true, data }); }).catch(next);
 });
 /** POST /api/today/goals/tidy/apply — apply this week's tidy-up batch, minus { excluded: itemId[] }. */
 todayRouter.post('/goals/tidy/apply', (req, res, next) => {

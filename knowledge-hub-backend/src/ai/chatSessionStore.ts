@@ -503,6 +503,25 @@ export async function linkSessionToNote(db: Pool, sessionId: string, noteId: str
   );
 }
 
+/** Items outside Think (tasks, projects, Discover items, emails) each keep one chat, stored as note_id 'item:<type>:<id>'. */
+export const ITEM_KEY_PATTERN = /^[a-z][a-z0-9-]{0,40}:[^\s]{1,200}$/;
+const itemLinkId = (itemKey: string): string => `item:${itemKey}`;
+
+export async function getSessionIdForItem(db: Pool, itemKey: string): Promise<string | null> {
+  return getSessionIdForNote(db, itemLinkId(itemKey));
+}
+
+/** Links a session to an item, replacing any earlier chat for it. Unlike note links it stays a normal (non-Think) chat. */
+export async function linkSessionToItem(db: Pool, sessionId: string, itemKey: string): Promise<void> {
+  const linkId = itemLinkId(itemKey);
+  await db.query(`UPDATE ai_chat_sessions SET note_id = NULL WHERE note_id = $1 AND id != $2`, [linkId, sessionId]);
+  await db.query(
+    `INSERT INTO ai_chat_sessions (id, note_id) VALUES ($1, $2)
+       ON CONFLICT (id) DO UPDATE SET note_id = EXCLUDED.note_id`,
+    [sessionId, linkId],
+  );
+}
+
 /**
  * Builds the conversation history to send to the model: the rolling summary
  * (if one exists) as a leading system-role message, followed by every

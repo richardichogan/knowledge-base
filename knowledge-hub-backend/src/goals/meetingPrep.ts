@@ -32,7 +32,7 @@ export interface PrepCard {
   id: string; time: string; meeting: string; attendees: string[]; lastExchange: string;
   ourPromises: string[]; theirPromises: string[]; talkingPoints: string[]; projectId: string | null; dealNoteId: string | null;
 }
-interface DraftText { channel: 'email' | 'slack' | 'teams'; to: string; subject: string; body: string }
+export interface DraftText { channel: 'email' | 'slack' | 'teams'; to: string; subject: string; body: string }
 export interface PromiseProposal {
   id: string; owner: 'richard' | 'other'; who: string; text: string; due: string | null; projectId: string | null; reportDate: string;
   draft: DraftText | null; status: 'proposed' | 'accepted' | 'dismissed'; taskId: string | null; draftId: string | null; decidedAt: string | null;

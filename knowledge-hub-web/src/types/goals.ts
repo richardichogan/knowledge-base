@@ -37,6 +37,22 @@ export interface Scorecard {
 export interface GoalsOverview {
   goals: GoalStatus[]; brief: GoalBrief | null; scorecard: Scorecard | null;
   briefRunning: boolean; scorecardRunning: boolean; briefError: string | null; scorecardError: string | null;
+  settings: GoalSettings; reviewRunning: boolean; reviewError: string | null;
+}
+export type ProjectGoal = GoalId | 'none';
+export interface GoalAdjustment {
+  id: string; kind: 'target' | 'deadline' | 'link'; measureId?: string; projectId?: string; goalId?: ProjectGoal;
+  from: string; to: string; reason: string; at: string; status: 'proposed' | 'accepted' | 'dismissed'; decidedAt: string | null;
+}
+export interface GoalSettings {
+  adjustments: GoalAdjustment[];
+  measures: Array<{ goalId: GoalId; id: string; label: string; kind: 'count' | 'milestone' | 'auto' }>;
+  overrides: Record<string, { target?: number; deadline?: string }>;
+  lastReview: string | null;
+  links: {
+    projects: Array<{ id: string; name: string; goalId: ProjectGoal | null; openTasks: number }>;
+    unlinkedTasks: Array<{ id: string; title: string; projectId: string | null; projectName: string | null }>;
+  };
 }
 
 /** Mirrors knowledge-hub-backend/src/goals/proactive.ts (GET /api/today/proactive). */
@@ -52,11 +68,13 @@ export interface PrepCard {
   ourPromises: string[]; theirPromises: string[]; talkingPoints: string[]; projectId: string | null; dealNoteId: string | null;
 }
 export interface PromiseProposal {
+  held?: boolean;
   id: string; owner: 'richard' | 'other'; who: string; text: string; due: string | null; projectId: string | null; reportDate: string;
   draft: DraftText | null; status: 'proposed' | 'accepted' | 'dismissed'; taskId: string | null; draftId: string | null; decidedAt: string | null;
 }
-export interface ChaseProposal { id: string; taskId: string; taskTitle: string; waitingOn: string; workingDays: number; draftId: string; at: string; status: 'proposed' | 'dismissed' }
+export interface ChaseProposal { held?: boolean; id: string; taskId: string; taskTitle: string; waitingOn: string; workingDays: number; draftId: string; at: string; status: 'proposed' | 'dismissed' }
 export interface CadenceNudge {
+  held?: boolean;
   id: string; person: string; workingDays: number; lastSeen: string | null; reason: string; draft: DraftText;
   status: 'proposed' | 'accepted' | 'dismissed'; taskId: string | null; draftId: string | null; at: string; decidedAt: string | null;
 }
@@ -66,23 +84,31 @@ export interface MeetingPrepState {
 }
 export interface ContentPackage {
   id: string; topicId: string; noteId: string | null; itemId: string; title: string; url: string;
-  trigger: 'competitor' | 'discover'; why: string; angle: string; createdAt: string; error?: string;
-  status: 'drafting' | 'in-review' | 'ready-to-approve' | 'approved' | 'published' | 'rejected' | 'expired' | 'failed';
+  trigger: 'competitor' | 'discover' | 'podcast' | 'win'; why: string; angle: string; createdAt: string; error?: string;
+  noteOnly?: boolean; decision?: 'accepted' | 'dismissed'; held?: boolean;
+  status: 'drafting' | 'in-review' | 'ready-to-approve' | 'ready' | 'approved' | 'published' | 'rejected' | 'expired' | 'failed';
   blog: { id: string; review: string; approval: string; held: boolean; title: string } | null;
   linkedin: { id: string; review: string; approval: string; held: boolean } | null;
 }
 export interface CfpCard {
   id: string; conference: string; fit: string; score: number; deadline: string; eventStart: string | null;
-  location: string | null; isVirtual: boolean; cfpUrl: string;
+  location: string | null; isVirtual: boolean; cfpUrl: string; held?: boolean;
 }
 export interface CfpSchedule { cfpId: string; conference: string; deadline: string; dueAt: string; confirmedAt: string; noteId: string | null; taskId: string | null; error?: string }
-export type ProposalType = 'goal-move' | 'date-proposal' | 'deal-followup' | 'promise' | 'chase' | 'cadence' | 'content-package' | 'cfp' | 'chat-next-step';
+export type ProposalType = 'goal-move' | 'date-proposal' | 'deal-followup' | 'promise' | 'chase' | 'cadence' | 'content-package' | 'cfp' | 'chat-next-step' | 'goal-adjustment';
 export interface ProposalReport {
   since: string; proposed: number; accepted: number; open: number; ignored: number; dismissed: number;
   byType: Array<{ type: ProposalType; label: string; proposed: number; accepted: number; open: number; ignored: number; dismissed: number }>;
   stopped: Array<{ type: ProposalType; label: string; at: string; reason: string; by: 'athena' | 'richard' }>;
 }
+export interface LoopPause {
+  key: string; kind: 'agent' | 'job'; specialist?: string; specialistName?: string; subjectType?: string; subjectId?: string;
+  jobId?: string; subjectTitle: string; failures: number; lastError: string; question: string; at: string;
+  status: 'open' | 'resumed' | 'stopped'; resolvedAt: string | null;
+}
 export interface ProactiveOverview {
+  paused: LoopPause[];
+  timing: { peak: boolean; held: number; nextWindow: string };
   deals: { rows: DealDeskRow[]; running: boolean };
   meetingPrep: MeetingPrepState;
   packages: ContentPackage[];
@@ -90,5 +116,5 @@ export interface ProactiveOverview {
   ledger: ProposalReport;
 }
 export type ProactiveAction = 'run-deal-desk' | 'update-deal-from-notes' | 'deal-history' | 'undo-deal-update' | 'refresh-meeting-prep'
-  | 'accept-promise' | 'dismiss-promise' | 'accept-cadence' | 'dismiss-cadence' | 'dismiss-chase' | 'run-content-package' | 'dismiss-package'
+  | 'accept-promise' | 'dismiss-promise' | 'accept-cadence' | 'dismiss-cadence' | 'dismiss-chase' | 'run-content-package' | 'run-story-package' | 'use-package' | 'dismiss-package' | 'resume-paused' | 'stop-paused'
   | 'confirm-cfp' | 'dismiss-cfp' | 'enable-proposal-type' | 'disable-proposal-type';

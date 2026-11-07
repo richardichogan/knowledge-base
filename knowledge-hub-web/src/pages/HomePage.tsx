@@ -1,5 +1,5 @@
-import React, { useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, Renew } from '@carbon/icons-react';
 import { api } from '../services/api';
@@ -108,6 +108,13 @@ export const HomePage: React.FC = () => {
   const { model, sectionQueries } = brief;
   const { openAthena } = useAthenaContext();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const linkedItem = searchParams.get('item');
+  useEffect(() => {
+    if (!linkedItem) return;
+    setSelectedId(linkedItem);
+    setSearchParams(params => { params.delete('item'); return params; }, { replace: true });
+  }, [linkedItem, setSearchParams]);
   const [expandedChanges, setExpandedChanges] = useState(false);
   const podcast = usePodcastPrep();
   const discoverPicks = useDiscoverPicks();

@@ -53,6 +53,41 @@ export const GOALS: readonly GoalDefinition[] = [
 
 export const GOAL_PROJECTS: readonly string[] = [...new Set(GOALS.flatMap(g => g.projects))];
 
+/** Richard's approved changes on top of the agreed goals: measure targets/deadlines and which goal each project serves. */
+export const GOAL_CONFIG_KEY = 'goal-config';
+export type ProjectGoal = GoalId | 'none';
+export interface MeasureOverride { target?: number; deadline?: string }
+export interface GoalAdjustment {
+  id: string; kind: 'target' | 'deadline' | 'link'; measureId?: string; projectId?: string; goalId?: ProjectGoal;
+  from: string; to: string; reason: string; at: string; status: 'proposed' | 'accepted' | 'dismissed'; decidedAt: string | null;
+}
+export interface GoalConfig { measures: Record<string, MeasureOverride>; projectGoals: Record<string, ProjectGoal>; adjustments: GoalAdjustment[]; lastReview: string | null }
+export const EMPTY_GOAL_CONFIG: GoalConfig = { measures: {}, projectGoals: {}, adjustments: [], lastReview: null };
+
+export async function goalConfig(db: Pool): Promise<GoalConfig> {
+  const raw = await readState<Partial<GoalConfig>>(db, GOAL_CONFIG_KEY);
+  return { measures: raw?.measures ?? {}, projectGoals: raw?.projectGoals ?? {}, adjustments: raw?.adjustments ?? [], lastReview: raw?.lastReview ?? null };
+}
+
+/** The agreed goals with Richard's approved overrides applied. Use this rather than GOALS wherever targets or projects matter. */
+export function applyGoalConfig(config: GoalConfig): GoalDefinition[] {
+  return GOALS.map(g => {
+    const projects = [
+      ...g.projects.filter(p => !config.projectGoals[p] || config.projectGoals[p] === g.id),
+      ...Object.entries(config.projectGoals).filter(([p, id]) => id === g.id && !g.projects.includes(p)).map(([p]) => p),
+    ];
+    const measures = g.measures.map((m): MeasureDefinition => {
+      const o = config.measures[m.id];
+      if (!o) return m;
+      if (m.kind === 'milestone') return o.deadline ? { ...m, deadline: o.deadline } : m;
+      return typeof o.target === 'number' ? { ...m, target: o.target } : m;
+    });
+    return { ...g, projects, measures };
+  });
+}
+export async function loadGoals(db: Pool): Promise<GoalDefinition[]> { return applyGoalConfig(await goalConfig(db)); }
+export async function goalProjects(db: Pool): Promise<string[]> { return [...new Set((await loadGoals(db)).flatMap(g => g.projects))]; }
+
 export interface ProgressEntry { id: string; measureId: string; at: string; count?: number; done?: boolean; note: string; actor: 'richard' | 'athena' }
 export interface MeasureStatus {
   id: string; label: string; kind: MeasureDefinition['kind']; health: GoalHealth; summary: string;
@@ -182,13 +217,15 @@ export async function progressEntries(db: Pool): Promise<ProgressEntry[]> {
 /** Live status of every goal, its measures and its workstreams' open and overdue tasks. */
 export async function goalsStatus(db: Pool, now = new Date()): Promise<GoalStatus[]> {
   const entries = await progressEntries(db);
-  const metrics = [...new Set(GOALS.flatMap(g => g.measures).flatMap(m => (m.kind === 'auto' ? [m.metric] : [])))];
+  const goals = await loadGoals(db);
+  const projectIds = [...new Set(goals.flatMap(g => g.projects))];
+  const metrics = [...new Set(goals.flatMap(g => g.measures).flatMap(m => (m.kind === 'auto' ? [m.metric] : [])))];
   const autos = new Map(await Promise.all(metrics.map(async metric => [metric, await autoValue(db, metric)] as const)));
   const names = new Map((await db.query<{ id: string; name: string }>('SELECT id, name FROM projects')).rows.map(r => [r.id, r.name]));
   const counts = new Map((await db.query<{ project_id: string; open: number; overdue: number }>(
     `SELECT project_id, COUNT(*)::int AS open, COUNT(*) FILTER (WHERE due_date < CURRENT_DATE)::int AS overdue
-       FROM tasks WHERE NOT archived AND status <> 'completed' AND project_id = ANY($1) GROUP BY project_id`, [GOAL_PROJECTS])).rows.map(r => [r.project_id, r]));
-  return GOALS.map(g => {
+       FROM tasks WHERE NOT archived AND status <> 'completed' AND project_id = ANY($1) GROUP BY project_id`, [projectIds])).rows.map(r => [r.project_id, r]));
+  return goals.map(g => {
     const measures = g.measures.map(m => measureStatus(m, entries, now, m.kind === 'auto' ? autos.get(m.metric) ?? null : null));
     return { id: g.id, name: g.name, why: g.why, health: worstHealth(measures.map(m => m.health)),
       projects: g.projects.map(id => ({ id, name: names.get(id) ?? id })),

@@ -1,6 +1,7 @@
 import React from 'react';
 import { AIChatPage } from '../pages/AIChatPage';
 import type { AthenaPageContext } from '../context/AthenaContext';
+import { AthenaNews } from '../components/athena/AthenaNews';
 
 interface ThinkAthenaPanelProps {
   pageContext?: AthenaPageContext | undefined;
@@ -18,6 +19,7 @@ interface ThinkAthenaPanelProps {
  */
 export const ThinkAthenaPanel = React.memo<ThinkAthenaPanelProps>(({ pageContext, onBusyChange, promptRequest }) => (
   <div className="think-athena-panel think-athena-panel--metadata" aria-label="Athena">
+    <AthenaNews />
     <div className="think-athena-panel__body">
       <AIChatPage compact compactVariant="narrow" pageContext={pageContext} onBusyChange={onBusyChange} promptRequest={promptRequest} />
     </div>

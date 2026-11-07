@@ -12,7 +12,8 @@ import { getLinkedInMember, postToLinkedIn, LinkedInPostUnconfirmedError } from 
 import { runTier1Sync, isSyncInProgress, type OrchestratorResult } from '../sync/syncOrchestrator.js';
 import { isConnectionCheckInProgress } from '../sync/connectionWork.js';
 import { searchKnowledge, createDbSearchBackends } from '../services/knowledge/search.js';
-import { audit, getJob, jobAgent, leaseRun, persistRun, releaseRun, scheduleDueJobs } from './store.js';
+import { audit, getJob, jobAgent, leaseRun, pauseJob, persistRun, releaseRun, scheduleDueJobs } from './store.js';
+import { checkJobLoop } from '../goals/loopBreaker.js';
 import type { JobRun } from './contracts.js';
 import { object, text, JOB_LIMITS } from './contracts.js';
 import { MS_PER_MINUTE } from '../config/constants.js';
@@ -31,7 +32,8 @@ import { refreshGoalBrief } from '../goals/brief.js';
 import { refreshScorecard } from '../goals/scorecard.js';
 import { runDealDesk } from '../goals/dealDesk.js';
 import { refreshMeetingPrep } from '../goals/meetingPrep.js';
-import { runContentPackages } from '../goals/contentPackages.js';
+import { runContentPackages, runStoryPackage } from '../goals/contentPackages.js';
+import { runGoalReview } from '../goals/goalReview.js';
 import { runCfpShortlist } from '../goals/cfpShortlist.js';
 
 export class UnconfirmedDelivery extends Error {}
@@ -214,11 +216,20 @@ export async function executeRun(db: Pool, run: JobRun, lease: string, delivery:
         return { cards: prep.cards.length };
       });
     } else if (run.definition.kind === 'content-packages') {
-      if (run.preview) run.artifacts = { message: 'Preview only: Athena would pick at most one competitor move or strong Imagine-fit article and draft a blog + LinkedIn package for your approval. Nothing is posted.' };
+      if (run.preview) run.artifacts = { message: 'Preview only: Athena would pick at most one competitor move or strong Imagine-fit article and draft a blog + LinkedIn package for your approval, and at most one note-only package from a new podcast episode or anonymised deal win. Nothing is posted.' };
       else await step(db, run, lease, 'content-packages', async () => {
         const pkg = await runContentPackages(db, 'job');
-        run.artifacts.message = pkg ? `Drafted a content package: ${pkg.title}.` : 'No article was worth a package today.';
-        return { package: pkg?.id ?? null };
+        const story = await runStoryPackage(db, 'job');
+        run.artifacts.message = [pkg ? `Drafted a content package: ${pkg.title}.` : 'No article was worth a package today.',
+          story ? `Drafted a ${story.trigger} package: ${story.title}.` : ''].filter(Boolean).join(' ');
+        return { package: pkg?.id ?? null, story: story?.id ?? null };
+      });
+    } else if (run.definition.kind === 'goal-review') {
+      if (run.preview) run.artifacts = { message: 'Preview only: once a month Athena would review each goal against progress and propose target, deadline or workstream-link adjustments for you to accept or dismiss. Nothing changes until you accept.' };
+      else await step(db, run, lease, 'goal-review', async () => {
+        const result = await runGoalReview(db, 'job');
+        run.artifacts.message = result.skipped ? 'Goals already reviewed this month.' : `Proposed ${String(result.proposed)} goal adjustment${result.proposed === 1 ? '' : 's'}.`;
+        return result;
       });
     } else if (run.definition.kind === 'cfp-shortlist') {
       if (run.preview) run.artifacts = { message: 'Preview only: Athena would refresh the CFP shortlist and draft abstracts for confirmed CFPs that are now due. Nothing is submitted.' };
@@ -421,7 +432,15 @@ export async function executeRun(db: Pool, run: JobRun, lease: string, delivery:
   } finally {
     await persistRun(db, run, lease);
     await audit(db, run.jobId, run.id, 'worker', run.status, { revision: run.revision, error: run.artifacts.error });
+    if (run.status === 'failed' && !run.preview) await breakJobLoop(db, run.jobId, run.definition.name);
   }
+}
+
+async function breakJobLoop(db: Pool, jobId: string, name: string): Promise<void> {
+  try {
+    const pause = await checkJobLoop(db, jobId, name);
+    if (pause?.status === 'open') await pauseJob(db, jobId, 'athena-loop-breaker');
+  } catch (error) { console.error(`[Jobs] Loop check failed for ${jobId}:`, error); }
 }
 
 let ticking = false;

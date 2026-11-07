@@ -5,6 +5,7 @@
  * leaves; following reconnects quietly, and the answer is saved to the chat.
  */
 import { api, readChatTurnEvents } from './api';
+import { attachViewer, detachViewer, settleReply, trackReply } from './athenaReplies';
 import type { ApiResponse, ChatRequest, ChatResponse, ChatTurnEvent } from '../types';
 
 export interface LiveTurnHandlers {
@@ -35,6 +36,7 @@ export async function sendChatTurn(
 ): Promise<ApiResponse<ChatResponse>> {
   const start = await api.startChatTurn(request);
   if (!start.success) return start;
+  trackReply(start.data.turnId, start.data.sessionId, request.message);
   handlers.onStarted?.(start.data.turnId, start.data.sessionId);
   return followChatTurn(start.data.turnId, handlers, signal);
 }
@@ -42,11 +44,29 @@ export async function sendChatTurn(
 /**
  * Follows a running turn to its end. Rejects with TurnStoppedError or
  * TurnDetachedError. T is the finished payload (a chat reply by default).
+ * A headless follower (the Athena launcher) watches without counting as a
+ * viewer, so an answer that lands while no chat shows it is marked unread.
  */
 export async function followChatTurn<T = ChatResponse>(
   turnId: string,
   handlers: LiveTurnHandlers,
   signal: AbortSignal,
+  options: { headless?: boolean } = {},
+): Promise<ApiResponse<T>> {
+  if (options.headless) return followTurnEvents<T>(turnId, handlers, signal, true);
+  attachViewer(turnId);
+  try {
+    return await followTurnEvents<T>(turnId, handlers, signal, false);
+  } finally {
+    detachViewer(turnId);
+  }
+}
+
+async function followTurnEvents<T>(
+  turnId: string,
+  handlers: LiveTurnHandlers,
+  signal: AbortSignal,
+  headless: boolean,
 ): Promise<ApiResponse<T>> {
   let text = '';
   for (let attempt = 0; attempt < MAX_RECONNECTS; attempt++) {
@@ -74,6 +94,10 @@ export async function followChatTurn<T = ChatResponse>(
     }
     if (signal.aborted) throw new TurnDetachedError();
     const ended = outcome as ChatTurnEvent | null;
+    if (ended) {
+      // A viewer that saw the end settles it as read; a headless follower settles it as unread if nobody saw it.
+      settleReply(turnId, headless && (ended.type === 'done' || ended.type === 'gone'));
+    }
     if (ended?.type === 'done') return { success: true, data: ended.data as unknown as T };
     if (ended?.type === 'error') {
       if (ended.stopped) throw new TurnStoppedError();
@@ -84,5 +108,6 @@ export async function followChatTurn<T = ChatResponse>(
     }
     await new Promise((r) => setTimeout(r, RECONNECT_DELAY_MS));
   }
+  settleReply(turnId, false);
   return { success: false, error: { code: 'TURN_LOST', message: 'Lost touch with that answer. It will appear in this chat when it is ready — reopen the chat in a minute.' } };
 }

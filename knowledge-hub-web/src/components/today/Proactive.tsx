@@ -1,6 +1,7 @@
 /**
  * components/today/Proactive.tsx — Phase 2/3 proactive Athena: the Imagine deal desk, meeting prep with promises,
- * chases and keep-in-touch nudges, content packages, the CFP shortlist and Athena's self-report.
+ * chases and keep-in-touch nudges, content packages, the CFP shortlist, Athena's self-report and work Athena paused
+ * after repeated failures. Proposals surface in peak hours, at most three at a time; held items stay in Athena's context.
  * Everything reads GET /api/today/proactive and acts through the same actions as Athena's manage_proactive tool.
  */
 import React, { useState } from 'react';
@@ -9,7 +10,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, Renew } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import { describeApiError, requireApiData } from '../../services/apiError';
-import type { CadenceNudge, ChaseProposal, ContentPackage, PrepCard, ProactiveAction, ProactiveOverview, PromiseProposal } from '../../types/goals';
+import type { CadenceNudge, ChaseProposal, ContentPackage, LoopPause, PrepCard, ProactiveAction, ProactiveOverview, PromiseProposal } from '../../types/goals';
 
 export const PROACTIVE_KEY = ['today', 'proactive'] as const;
 const POLL_MS = 4_000;
@@ -20,12 +21,13 @@ const noteLink = (id: string): string => `/think?note=${encodeURIComponent(id)}`
 const draftLink = (id: string): string => `/plan?view=drafts&draft=${encodeURIComponent(id)}`;
 const taskLink = (id: string): string => `/plan?taskId=${encodeURIComponent(id)}`;
 
-export function useProactive() {
+/** idlePollMs keeps the launcher's badge fresh when nothing is running. */
+export function useProactive(idlePollMs: number | false = false) {
   return useQuery({
     queryKey: PROACTIVE_KEY,
     queryFn: async (): Promise<ProactiveOverview> => requireApiData(await api.getProactive()),
     refetchInterval: q => (q.state.data?.deals.running || q.state.data?.meetingPrep.running
-      || q.state.data?.packages.some(p => p.status === 'drafting' || p.status === 'in-review') ? POLL_MS : false),
+      || q.state.data?.packages.some(p => p.status === 'drafting' || p.status === 'in-review') ? POLL_MS : idlePollMs),
   });
 }
 
@@ -46,14 +48,17 @@ export function proactiveContext(data: ProactiveOverview | undefined): string {
   const deals = data.deals.rows.map(d => `- ${d.name} [${d.projectId}]${d.noteId ? ` brief note ${d.noteId}` : ' no brief yet'}${d.latest ? `; latest change ${when(d.latest.createdAt, true)}: ${d.latest.summary}${d.latest.undoneAt ? ' (undone)' : ''} [update ${d.latest.id}]` : ''}`);
   const prep = data.meetingPrep;
   const open = <T extends { status: string }>(xs: T[]): T[] => xs.filter(x => x.status === 'proposed');
+  const held = (x: { held?: boolean }): string => (x.held ? ' (held for the next peak window)' : '');
   const lines = [
     `Deal desk${data.deals.running ? ' (updating now)' : ''}:\n${deals.join('\n')}`,
     `Meeting prep${prep.reportDate ? ` from the ${prep.reportDate} briefing` : ''}: ${prep.cards.map(c => `${c.time} ${c.meeting} [${c.id}]`).join('; ') || 'no cards'}.`,
-    `Promises awaiting a decision: ${open(prep.promises).map(p => `[${p.id}] ${p.owner === 'richard' ? 'Richard' : p.who} — ${p.text}`).join('; ') || 'none'}.`,
-    `Chases: ${open(prep.chases).map(c => `[${c.id}] ${c.taskTitle} (${c.waitingOn ? `waiting on ${c.waitingOn}, ` : ''}${c.workingDays} working days)`).join('; ') || 'none'}.`,
-    `Keep-in-touch: ${open(prep.cadence).map(c => `[${c.id}] ${c.person}, ${c.workingDays} working days`).join('; ') || 'none'}.`,
-    `Content packages: ${data.packages.map(p => `[${p.id}] ${p.title} (${p.status})`).join('; ') || 'none'}.`,
-    `CFP shortlist: ${data.cfps.shortlist.map(c => `[${c.id}] ${c.conference}, deadline ${when(c.deadline)}`).join('; ') || 'none'}. Scheduled: ${data.cfps.scheduled.map(s => `${s.conference} abstract due ${when(s.dueAt)}`).join('; ') || 'none'}.`,
+    `Paused by Athena after repeated failures: ${(data.paused ?? []).filter(p => p.status === 'open').map(p => `[${p.key}] ${p.question}`).join('; ') || 'none'}.`,
+    data.timing ? `Timing: ${data.timing.peak ? 'peak hours now' : `outside peak hours; next window ${when(data.timing.nextWindow, true)}`}; ${data.timing.held} proposal${data.timing.held === 1 ? '' : 's'} held.` : 'Timing: unknown.',
+    `Promises awaiting a decision: ${open(prep.promises).map(p => `[${p.id}] ${p.owner === 'richard' ? 'Richard' : p.who} — ${p.text}${held(p)}`).join('; ') || 'none'}.`,
+    `Chases: ${open(prep.chases).map(c => `[${c.id}] ${c.taskTitle} (${c.waitingOn ? `waiting on ${c.waitingOn}, ` : ''}${c.workingDays} working days)${held(c)}`).join('; ') || 'none'}.`,
+    `Keep-in-touch: ${open(prep.cadence).map(c => `[${c.id}] ${c.person}, ${c.workingDays} working days${held(c)}`).join('; ') || 'none'}.`,
+    `Content packages: ${data.packages.map(p => `[${p.id}] ${p.title} (${p.trigger}, ${p.status})${held(p)}`).join('; ') || 'none'}.`,
+    `CFP shortlist: ${data.cfps.shortlist.map(c => `[${c.id}] ${c.conference}, deadline ${when(c.deadline)}${held(c)}`).join('; ') || 'none'}. Scheduled: ${data.cfps.scheduled.map(s => `${s.conference} abstract due ${when(s.dueAt)}`).join('; ') || 'none'}.`,
     `Athena's proposals since ${when(data.ledger.since)}: ${data.ledger.proposed} proposed, ${data.ledger.accepted} accepted, ${data.ledger.open} awaiting a decision, ${data.ledger.ignored} ignored, ${data.ledger.dismissed} rejected. Stopped: ${data.ledger.stopped.map(s => s.label).join(', ') || 'none'}.`,
   ];
   return `Proactive work (manage_proactive status returns everything):\n${lines.join('\n')}`;
@@ -63,6 +68,12 @@ function ActionError({ m }: { m: ReturnType<typeof useProactiveAction> }): React
   return m.isError ? <p className="today-brief__error" role="alert">{describeApiError(m.error)}</p> : null;
 }
 const busy = (m: ReturnType<typeof useProactiveAction>, key: string): boolean => m.isPending && m.variables?.key === key;
+
+/** Shown where peak-hour gating is holding proposals back. */
+function HeldNote({ count, data }: { count: number; data: ProactiveOverview | undefined }): React.ReactElement | null {
+  if (!count || !data) return null;
+  return <p className="today-brief__meta">{count} more held until {when(data.timing.nextWindow, true)}. Athena shows at most three proposals at a time, in your peak hours.</p>;
+}
 
 /** Imagine goal: one row per opportunity with its latest logged change, Undo and Open brief. */
 export function DealDesk(): React.ReactElement {
@@ -106,14 +117,15 @@ export function CfpShortlist(): React.ReactElement {
   const q = useProactive();
   const act = useProactiveAction();
   const cfps = q.data?.cfps;
+  const shortlist = cfps?.shortlist.filter(c => !c.held) ?? [];
   return (
     <section className="today-goals__section" aria-labelledby="cfp-shortlist">
       <h4 id="cfp-shortlist">CFP shortlist</h4>
       {q.isPending && <p className="today-brief__meta" role="status">Loading CFPs...</p>}
       {q.isError && <p className="today-brief__error" role="alert">{describeApiError(q.error)}</p>}
-      {cfps && (cfps.shortlist.length === 0
-        ? <p className="today-brief__empty">No open CFP is a strong enough fit right now.</p>
-        : <ul className="today-proactive__rows">{cfps.shortlist.map(c => <li key={c.id} className="today-proactive__row">
+      {cfps && (shortlist.length === 0
+        ? <p className="today-brief__empty">{cfps.shortlist.length ? 'Shortlisted CFPs are held for your next peak window.' : 'No open CFP is a strong enough fit right now.'}</p>
+        : <ul className="today-proactive__rows">{shortlist.map(c => <li key={c.id} className="today-proactive__row">
           <div className="today-goals__measure-top"><a className="today-goals__tidy-title" href={c.cfpUrl} target="_blank" rel="noreferrer">{c.conference}</a>
             <span className="today-brief__meta">Deadline {when(c.deadline)}</span></div>
           <p className="today-brief__reason">{c.fit || 'Strong fit for your themes.'}</p>
@@ -124,6 +136,7 @@ export function CfpShortlist(): React.ReactElement {
             <button type="button" className="today-brief__quiet" disabled={act.isPending} onClick={() => { act.mutate({ action: 'dismiss-cfp', args: { id: c.id }, key: `dismiss:${c.id}` }); }}>Not this one</button>
           </div>
         </li>)}</ul>)}
+      <HeldNote count={(cfps?.shortlist.length ?? 0) - shortlist.length} data={q.data} />
       {cfps && cfps.scheduled.length > 0 && <>
         <div className="today-goals__eyebrow">Confirmed</div>
         <ul className="today-proactive__rows">{cfps.scheduled.map(s => <li key={s.cfpId} className="today-proactive__row">
@@ -188,9 +201,13 @@ export function MeetingPrepPanel(): React.ReactElement {
   const act = useProactiveAction();
   const prep = q.data?.meetingPrep;
   const running = Boolean(prep?.running) || busy(act, 'refresh');
-  const promises = prep?.promises.filter(p => p.status === 'proposed' || p.reportDate === prep.reportDate) ?? [];
-  const chases = prep?.chases.filter(c => c.status === 'proposed') ?? [];
-  const cadence = prep?.cadence.filter(c => c.status === 'proposed') ?? [];
+  const allPromises = prep?.promises.filter(p => p.status === 'proposed' || p.reportDate === prep.reportDate) ?? [];
+  const allChases = prep?.chases.filter(c => c.status === 'proposed') ?? [];
+  const allCadence = prep?.cadence.filter(c => c.status === 'proposed') ?? [];
+  const promises = allPromises.filter(p => !p.held);
+  const chases = allChases.filter(c => !c.held);
+  const cadence = allCadence.filter(c => !c.held);
+  const heldCount = allPromises.length + allChases.length + allCadence.length - promises.length - chases.length - cadence.length;
   return (
     <div className="today-proactive">
       {q.isPending && <p className="today-brief__meta" role="status">Loading meeting prep...</p>}
@@ -202,7 +219,7 @@ export function MeetingPrepPanel(): React.ReactElement {
           : <p className="today-brief__empty">No meetings to prepare from the latest briefing.</p>}
         <section className="today-goals__section" aria-labelledby="prep-promises">
           <h4 id="prep-promises">Promises</h4>
-          {promises.length === 0 ? <p className="today-brief__empty">No new promises in the latest briefing.</p>
+          {promises.length === 0 ? <p className="today-brief__empty">{allPromises.length ? 'Promises are held for your next peak window.' : 'No new promises in the latest briefing.'}</p>
             : <ul className="today-goals__dates">{promises.map(p => <Decision key={p.id} p={p} act={act} accept="accept-promise" dismiss="dismiss-promise"
               acceptLabel={p.owner === 'richard' ? 'Create task and draft' : 'Track as Waiting on'}>
               <span className="today-goals__tidy-title">{p.owner === 'richard' ? 'You' : p.who}: {p.text}</span>
@@ -211,7 +228,7 @@ export function MeetingPrepPanel(): React.ReactElement {
         </section>
         <section className="today-goals__section" aria-labelledby="prep-chases">
           <h4 id="prep-chases">Chases</h4>
-          {chases.length === 0 ? <p className="today-brief__empty">Nothing has been waiting five working days.</p>
+          {chases.length === 0 ? <p className="today-brief__empty">{allChases.length ? 'Chases are held for your next peak window.' : 'Nothing has been waiting five working days.'}</p>
             : <ul className="today-goals__dates">{chases.map(c => <Decision key={c.id} p={c} act={act} dismiss="dismiss-chase">
               <Link className="today-goals__tidy-title" to={taskLink(c.taskId)}>{c.taskTitle}</Link>
               <span className="today-brief__meta">{c.waitingOn ? `Waiting on ${c.waitingOn}` : 'Waiting'} for {c.workingDays} working days. A chase draft is ready.</span>
@@ -219,12 +236,13 @@ export function MeetingPrepPanel(): React.ReactElement {
         </section>
         <section className="today-goals__section" aria-labelledby="prep-cadence">
           <h4 id="prep-cadence">Keep in touch</h4>
-          {cadence.length === 0 ? <p className="today-brief__empty">No one is overdue a note worth sending.</p>
+          {cadence.length === 0 ? <p className="today-brief__empty">{allCadence.length ? 'Keep-in-touch nudges are held for your next peak window.' : 'No one is overdue a note worth sending.'}</p>
             : <ul className="today-goals__dates">{cadence.map(c => <Decision key={c.id} p={c} act={act} accept="accept-cadence" dismiss="dismiss-cadence" acceptLabel="Create task and draft">
               <span className="today-goals__tidy-title">{c.person}</span>
               <span className="today-brief__meta">{c.workingDays} working days since {c.lastSeen ? when(c.lastSeen) : 'you last spoke'}. {c.reason}</span>
             </Decision>)}</ul>}
         </section>
+        <HeldNote count={heldCount} data={q.data} />
         <div className="today-brief__actions">
           <button type="button" className="today-brief__quiet" disabled={running} onClick={() => { act.mutate({ action: 'refresh-meeting-prep', key: 'refresh' }); }}>
             <Renew size={16} /> {running ? 'Athena is preparing...' : 'Refresh meeting prep'}</button>
@@ -237,36 +255,59 @@ export function MeetingPrepPanel(): React.ReactElement {
 }
 
 const PACKAGE_STATUS: Record<ContentPackage['status'], string> = {
-  drafting: 'Drafting', 'in-review': 'In editorial review', 'ready-to-approve': 'Ready to approve', approved: 'Approved',
+  drafting: 'Drafting', 'in-review': 'In editorial review', 'ready-to-approve': 'Ready to approve', ready: 'Ready in Think', approved: 'Approved',
   published: 'Published', rejected: 'Rejected', expired: 'Expired', failed: 'Failed',
+};
+const PACKAGE_TRIGGER: Record<ContentPackage['trigger'], string> = {
+  competitor: 'Competitor move', discover: 'Strong Imagine fit', podcast: 'From the podcast', win: 'Anonymised deal win',
 };
 
 /** Plan › Drafts: one card per content package linking the blog, LinkedIn post, Think note and source. */
 export function ContentPackages(): React.ReactElement | null {
   const q = useProactive();
   const act = useProactiveAction();
-  const packages = (q.data?.packages ?? []).filter(p => !['rejected', 'expired'].includes(p.status));
+  const all = (q.data?.packages ?? []).filter(p => !['rejected', 'expired'].includes(p.status));
+  const packages = all.filter(p => !p.held);
   if (q.isError) return <p className="kh-drafts__status" role="alert">Content packages could not be loaded: {describeApiError(q.error)}</p>;
-  if (!packages.length) return null;
+  if (!all.length) return null;
   return (
     <section aria-labelledby="drafts-packages" className="kh-drafts__packages">
       <h2 id="drafts-packages" className="kh-drafts__group">Content packages <span>{packages.length}</span></h2>
       <ul>{packages.map(p => <li key={p.id} className="kh-drafts__package">
         <span className="kh-drafts__title">{p.blog?.title || p.title}</span>
-        <span className="kh-drafts__meta">{PACKAGE_STATUS[p.status]} · {p.trigger === 'competitor' ? 'Competitor move' : 'Strong Imagine fit'} · {when(p.createdAt)}</span>
+        <span className="kh-drafts__meta">{PACKAGE_STATUS[p.status]} · {PACKAGE_TRIGGER[p.trigger]} · {when(p.createdAt)}</span>
         {p.angle && <p className="kh-drafts__angle">{p.angle}</p>}
         {p.error && <p className="kh-drafts__meta today-goals__failed">{p.error}</p>}
         <div className="kh-drafts__package-links">
           {(p.blog || p.linkedin) && <Link to="/discover?publishing=1">Blog and LinkedIn in Publishing</Link>}
-          {p.noteId && <Link to={noteLink(p.noteId)}>Podcast segment and CFP abstract</Link>}
-          <a href={p.url} target="_blank" rel="noreferrer">Source article</a>
+          {p.noteId && <Link to={noteLink(p.noteId)}>{p.noteOnly ? 'LinkedIn post, blog outline, podcast segment and CFP abstract' : 'Podcast segment and CFP abstract'}</Link>}
+          {p.url && <a href={p.url} target="_blank" rel="noreferrer">Source article</a>}
+          {p.status === 'ready' && <button type="button" className="kh-btn-ghost" disabled={act.isPending}
+            onClick={() => { act.mutate({ action: 'use-package', args: { id: p.id }, key: `use:${p.id}` }); }}>{busy(act, `use:${p.id}`) ? 'Saving...' : 'Use it'}</button>}
           {!['approved', 'published'].includes(p.status) && <button type="button" className="kh-btn-ghost" disabled={act.isPending}
             onClick={() => { act.mutate({ action: 'dismiss-package', args: { id: p.id }, key: p.id }); }}>{busy(act, p.id) ? 'Dismissing...' : 'Dismiss'}</button>}
         </div>
       </li>)}</ul>
+      {all.length > packages.length && q.data && <p className="kh-drafts__meta">{all.length - packages.length} more held until {when(q.data.timing.nextWindow, true)}. Athena shows at most three proposals at a time, in your peak hours.</p>}
       <ActionError m={act} />
     </section>
   );
+}
+
+/** Work Athena stopped after five failures in a row, each with one question: try again, or leave it. */
+function PausedWork({ paused, act }: { paused: LoopPause[]; act: ReturnType<typeof useProactiveAction> }): React.ReactElement | null {
+  const open = paused.filter(p => p.status === 'open');
+  if (!open.length) return null;
+  return <>{open.map(p => <div key={p.key} className="today-goals__date today-goals__date--paused">
+    <span className="today-goals__tidy-title">Paused: {p.kind === 'job' ? p.subjectTitle : `${p.specialistName ?? p.specialist ?? 'Specialist'} on “${p.subjectTitle}”`}</span>
+    <span className="today-brief__meta">{p.question}</span>
+    <div className="today-brief__actions">
+      <button type="button" className="today-brief__primary" disabled={act.isPending} onClick={() => { act.mutate({ action: 'resume-paused', args: { id: p.key }, key: `r:${p.key}` }); }}>
+        {busy(act, `r:${p.key}`) ? 'Starting...' : 'Try again'}</button>
+      <button type="button" className="today-brief__quiet" disabled={act.isPending} onClick={() => { act.mutate({ action: 'stop-paused', args: { id: p.key }, key: `s:${p.key}` }); }}>
+        {busy(act, `s:${p.key}`) ? 'Saving...' : 'Leave it'}</button>
+    </div>
+  </div>)}</>;
 }
 
 /** Scorecard footer: Athena's own record, and which kinds of proposal it has stopped making. */
@@ -279,6 +320,7 @@ export function ProposalLedger(): React.ReactElement | null {
   return (
     <section className="today-goals__athena" aria-labelledby="goals-ledger">
       <h4 id="goals-ledger">Athena's record</h4>
+      <PausedWork paused={q.data?.paused ?? []} act={act} />
       <p className="today-brief__reason">{l.proposed} proposed · {l.accepted} accepted · {l.open} open · {l.ignored} ignored · {l.dismissed} rejected <span className="today-brief__meta">since {when(l.since)}</span></p>
       {l.stopped.map(s => <div key={s.type} className="today-goals__date">
         <span className="today-goals__tidy-title">Stopping: {s.label}</span>

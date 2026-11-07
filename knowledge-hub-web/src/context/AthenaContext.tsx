@@ -107,7 +107,15 @@ interface AthenaContextValue {
   hasEmbeddedAthena: boolean;
   launchAthena: () => void;
   registerAthenaLauncher: (launcher: () => void) => () => void;
+  /** The floating chat window is open (pages without an embedded Athena panel). */
+  floatOpen: boolean;
+  setFloatOpen: (open: boolean) => void;
+  /** "What's new" items shown at the top of Athena after opening her from a badged launcher. */
+  news: AthenaNewsItem[] | null;
+  showNews: (items: AthenaNewsItem[] | null) => void;
 }
+
+export interface AthenaNewsItem { id: string; label: string; detail?: string; to: string; tone: 'proposal' | 'paused' | 'reply' }
 
 const AthenaContext = createContext<AthenaContextValue>({
   backgroundWork: null,
@@ -123,6 +131,10 @@ const AthenaContext = createContext<AthenaContextValue>({
   hasEmbeddedAthena: false,
   launchAthena: () => undefined,
   registerAthenaLauncher: () => () => undefined,
+  floatOpen: false,
+  setFloatOpen: () => undefined,
+  news: null,
+  showNews: () => undefined,
 });
 
 export const AthenaContextProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -137,6 +149,8 @@ export const AthenaContextProvider: React.FC<{ children: React.ReactNode }> = ({
   const [launchSequence, setLaunchSequence] = useState(0);
   const [hasEmbeddedAthena, setHasEmbeddedAthena] = useState(false);
   const embeddedLauncher = useRef<(() => void) | null>(null);
+  const [floatOpen, setFloatOpen] = useState(false);
+  const [news, showNews] = useState<AthenaNewsItem[] | null>(null);
   const registerAthenaLauncher = useCallback((launcher: () => void): (() => void) => {
     embeddedLauncher.current = launcher;
     setHasEmbeddedAthena(true);
@@ -159,7 +173,8 @@ export const AthenaContextProvider: React.FC<{ children: React.ReactNode }> = ({
   return (
     <AthenaContext.Provider value={{ backgroundWork, setBackgroundWork, pageContext: effectivePageContext,
       setAthenaContext: setPageContext, setThinkNavigation, setNoteFiling, request, openAthena, clearAthenaRequest,
-      launchSequence, hasEmbeddedAthena, launchAthena, registerAthenaLauncher }}>
+      launchSequence, hasEmbeddedAthena, launchAthena, registerAthenaLauncher,
+      floatOpen, setFloatOpen, news, showNews }}>
       {children}
     </AthenaContext.Provider>
   );

@@ -9,7 +9,7 @@ import type { Pool, PoolClient } from 'pg';
 import { getFoundryClient } from '../ai/foundryClient.js';
 import { recordTaskEdit, type TaskActivityActor } from '../work/taskEditActivity.js';
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
-import { GOALS, GOAL_PROJECTS, goalsStatus, mutateState, readState, weekOf, writeState, type GoalHealth, type GoalId } from './goals.js';
+import { GOALS, goalProjects, goalsStatus, loadGoals, mutateState, readState, weekOf, writeState, type GoalHealth, type GoalId } from './goals.js';
 import { getGoalBrief } from './brief.js';
 import { decideProposal, evaluateAutoOff, proposalReport, recordProposal, type ProposalReport } from './proposals.js';
 
@@ -68,6 +68,7 @@ async function droppedAllowed(db: Pool): Promise<boolean> {
 
 async function tidyCandidates(db: Pool): Promise<{ items: TidyItem[]; files: Array<{ key: string; kind: TidyKind; entityId: string; title: string; type: string }>; note: string | null }> {
   const items: TidyItem[] = [];
+  const GOAL_PROJECTS = await goalProjects(db);
   const tasks = (await db.query<{ id: string; title: string; status: string; days: number }>(
     `SELECT id::text, title, status, floor(extract(epoch FROM NOW() - updated_at) / 86400)::int AS days FROM tasks
       WHERE NOT archived AND status IN ('inbox','backlog') AND updated_at < NOW() - make_interval(days => $1)
@@ -117,7 +118,7 @@ async function generate(db: Pool, trigger: Scorecard['trigger']): Promise<Scorec
   const names = new Map(projects.map(p => [p.id, p.name]));
   const moveTaskIds = (thisWeek?.moves ?? []).flatMap(m => (m.acceptedTaskId ? [m.acceptedTaskId] : []));
   const doneIds = new Set((await db.query<{ id: string }>(`SELECT id::text FROM tasks WHERE id::text = ANY($1) AND status='completed'`, [moveTaskIds])).rows.map(r => r.id));
-  const perGoal = await Promise.all(GOALS.map(async g => {
+  const perGoal = await Promise.all((await loadGoals(db)).map(async g => {
     const completed = g.projects.length ? (await db.query<{ id: string; title: string }>(
       `SELECT id::text, title FROM tasks WHERE status='completed' AND project_id = ANY($1) AND updated_at >= $2 ORDER BY updated_at DESC`, [g.projects, weekStart])).rows : [];
     const overdue = g.projects.length ? (await db.query<{ id: string; title: string; due: string; status: string; priority: string }>(

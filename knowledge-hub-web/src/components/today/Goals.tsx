@@ -9,7 +9,7 @@ import { ArrowRight, Renew } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import { describeApiError, requireApiData } from '../../services/apiError';
 import { CfpShortlist, DealDesk, ProposalLedger } from './Proactive';
-import type { GoalHealth, GoalMove, GoalStatus, GoalsOverview, MeasureStatus, Scorecard, TidyItem, TidyKind } from '../../types/goals';
+import type { GoalAdjustment, GoalHealth, GoalMove, GoalStatus, GoalsOverview, MeasureStatus, ProjectGoal, Scorecard, TidyItem, TidyKind } from '../../types/goals';
 
 export const GOALS_KEY = ['today', 'goals'] as const;
 const POLL_MS = 4_000;
@@ -30,7 +30,7 @@ export function useGoals() {
   const query = useQuery({
     queryKey: GOALS_KEY,
     queryFn: async (): Promise<GoalsOverview> => requireApiData(await api.getGoals()),
-    refetchInterval: q => (q.state.data?.briefRunning || q.state.data?.scorecardRunning ? POLL_MS : false),
+    refetchInterval: q => (q.state.data?.briefRunning || q.state.data?.scorecardRunning || q.state.data?.reviewRunning ? POLL_MS : false),
   });
   const refresh = useMutation({
     mutationFn: async (which: 'brief' | 'scorecard') => requireApiData(await api.refreshGoals(which)),
@@ -60,7 +60,13 @@ export function goalsContext(data: GoalsOverview | null): string {
     return `- ${g.name} [${g.id}] ${HEALTH[g.health]}: ${g.measures.map(m => `${m.label}: ${m.summary}`).join('; ')}. ${g.openTasks} open, ${g.overdueTasks} overdue.${move ? ` This week's move [${move.id}] (${move.status}): ${move.title}.` : ''}`;
   });
   const card = data.scorecard?.current ? `\nFriday scorecard ${data.scorecard.week}: ${data.scorecard.athena.summary} Tidy-up: ${data.scorecard.tidy.items.length} items${data.scorecard.tidy.appliedAt ? ', applied' : ', awaiting approval'}.` : '';
-  return `Your goals (manage_goals status returns full measures, moves, scorecard and tidy items):\n${lines.join('\n')}${card}`;
+  const st = data.settings;
+  const goalName = (id: ProjectGoal | null | undefined): string => (id === 'none' ? 'no goal' : data.goals.find(g => g.id === id)?.name ?? 'undecided');
+  const adjustments = st.adjustments.filter(a => a.status === 'proposed');
+  const review = `\nMonthly goal review (last ${st.lastReview ? date(st.lastReview) : 'never'}${data.reviewRunning ? ', running now' : ''}): ${adjustments.map(a => `[${a.id}] ${a.kind} ${a.from} → ${a.to} (${a.reason})`).join('; ') || 'no adjustments waiting'}.`
+    + `\nWorkstream links: ${st.links.projects.map(p => `${p.name} [${p.id}] → ${goalName(p.goalId)}`).join('; ') || 'none'}.`
+    + `\nOpen tasks not linked to a goal: ${st.links.unlinkedTasks.length ? st.links.unlinkedTasks.slice(0, 20).map(t => `[${t.id}] ${t.title}`).join('; ') : 'none'}${st.links.unlinkedTasks.length > 20 ? ` and ${st.links.unlinkedTasks.length - 20} more` : ''}.`;
+  return `Your goals (manage_goals status returns full measures, moves, scorecard and tidy items):\n${lines.join('\n')}${card}${review}`;
 }
 
 export function goalListMeta(goal: GoalStatus): string {
@@ -213,6 +219,77 @@ function DateRow({ p }: { p: Scorecard['goals'][number]['dateProposals'][number]
   );
 }
 
+function AdjustmentRow({ a }: { a: GoalAdjustment }): React.ReactElement {
+  const decide = useGoalAction((decision: 'accept' | 'dismiss') => api.decideGoalAdjustment(a.id, decision).then(requireApiData));
+  return (
+    <li className="today-goals__date">
+      <span className="today-goals__tidy-title">{a.kind === 'target' ? 'Target' : a.kind === 'deadline' ? 'Deadline' : 'Goal link'}: {a.from} → <strong>{a.to}</strong></span>
+      <span className="today-brief__meta">{a.reason}</span>
+      <div className="today-brief__actions">
+        <button type="button" className="today-brief__primary" disabled={decide.isPending} onClick={() => { decide.mutate('accept'); }}>{decide.isPending && decide.variables === 'accept' ? 'Saving...' : 'Accept'}</button>
+        <button type="button" className="today-brief__quiet" disabled={decide.isPending} onClick={() => { decide.mutate('dismiss'); }}>Keep as is</button>
+      </div>
+      {decide.isError && <p className="today-brief__error" role="alert">{describeApiError(decide.error)}</p>}
+    </li>
+  );
+}
+
+function GoalPicker({ label, value, goals, target }: { label: string; value: ProjectGoal | null; goals: GoalsOverview; target: { projectId: string } | { taskId: string } }): React.ReactElement {
+  const link = useGoalAction((goalId: ProjectGoal) => api.linkToGoal(target, goalId).then(requireApiData));
+  return <>
+    <select aria-label={label} value={value ?? ''} disabled={link.isPending} onChange={e => { if (e.target.value) link.mutate(e.target.value as ProjectGoal); }}>
+      {!value && <option value="">Choose a goal</option>}
+      {goals.goals.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+      {'projectId' in target && <option value="none">No goal</option>}
+    </select>
+    {link.isError && <p className="today-brief__error" role="alert">{describeApiError(link.error)}</p>}
+  </>;
+}
+
+/** Monthly review: target and deadline adjustments, and every workstream and open task tied to a goal. */
+function GoalReview({ goals }: { goals: ReturnType<typeof useGoals> }): React.ReactElement | null {
+  const data = goals.data;
+  const run = useGoalAction(() => api.runGoalReview().then(requireApiData));
+  const [showTasks, setShowTasks] = useState(false);
+  if (!data) return null;
+  const st = data.settings;
+  const adjustments = st.adjustments.filter(a => a.status === 'proposed');
+  const undecided = st.links.projects.filter(p => !p.goalId);
+  const tasks = st.links.unlinkedTasks;
+  const running = data.reviewRunning || run.isPending;
+  return (
+    <section className="today-goals__section" aria-labelledby="goal-review">
+      <h4 id="goal-review">Monthly goal review</h4>
+      <p className="today-brief__meta">{st.lastReview ? `Last reviewed ${date(st.lastReview, true)}` : 'Not reviewed yet'} · Athena reviews targets, deadlines and links on the first Monday of each month.</p>
+      {data.reviewError && <p className="today-brief__error" role="alert">The last review failed: {data.reviewError}</p>}
+      {adjustments.length > 0
+        ? <ul className="today-goals__dates" aria-label="Proposed goal adjustments">{adjustments.map(a => <AdjustmentRow key={a.id} a={a} />)}</ul>
+        : <p className="today-brief__empty">No adjustments waiting.</p>}
+      {undecided.length > 0 && <>
+        <p className="today-brief__reason">{undecided.length} workstream{undecided.length === 1 ? ' has' : 's have'} no goal yet.</p>
+        {undecided.map(p => <div key={p.id} className="today-goals__link">
+          <span><span className="today-goals__tidy-title">{p.name}</span><span className="today-brief__meta">{p.openTasks} open task{p.openTasks === 1 ? '' : 's'}</span></span>
+          <GoalPicker label={`Goal for ${p.name}`} value={null} goals={data} target={{ projectId: p.id }} />
+        </div>)}
+      </>}
+      {tasks.length > 0 && <>
+        <p className="today-brief__reason">{tasks.length} open task{tasks.length === 1 ? ' is' : 's are'} not linked to a goal.{' '}
+          <button type="button" className="today-brief__quiet" aria-expanded={showTasks} onClick={() => { setShowTasks(v => !v); }}>{showTasks ? 'Hide' : 'Link them'}</button></p>
+        {showTasks && tasks.map(t => <div key={t.id} className="today-goals__link">
+          <span><Link to={`/plan?taskId=${encodeURIComponent(t.id)}`} className="today-goals__tidy-title">{t.title}</Link><span className="today-brief__meta">{t.projectName ?? 'No workstream'}</span></span>
+          <GoalPicker label={`Goal for ${t.title}`} value={null} goals={data} target={{ taskId: t.id }} />
+        </div>)}
+      </>}
+      {!undecided.length && !tasks.length && <p className="today-brief__meta">Every workstream and open task is linked to a goal.</p>}
+      <div className="today-brief__actions">
+        <button type="button" className="today-brief__quiet" disabled={running} onClick={() => { run.mutate(undefined); }}>
+          <Renew size={16} aria-hidden="true" />{running ? 'Reviewing...' : 'Review goals now'}</button>
+      </div>
+      {run.isError && <p className="today-brief__error" role="alert">{describeApiError(run.error)}</p>}
+    </section>
+  );
+}
+
 export function ScorecardDetail({ goals, onAsk }: { goals: ReturnType<typeof useGoals>; onAsk: () => void }): React.ReactElement {
   const card = goals.data?.scorecard ?? null;
   return (
@@ -231,6 +308,7 @@ export function ScorecardDetail({ goals, onAsk }: { goals: ReturnType<typeof use
         <section className="today-goals__athena" aria-labelledby="goals-athena"><h4 id="goals-athena">Athena's week</h4><p className="today-brief__reason">{card.athena.summary}</p></section>
         <TidyBatch key={`${card.week}:${card.generatedAt}`} card={card} />
       </>}
+      <GoalReview goals={goals} />
       <ProposalLedger />
       <div className="today-brief__actions">
         <Generate which="scorecard" goals={goals} />

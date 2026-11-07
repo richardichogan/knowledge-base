@@ -24,6 +24,7 @@ import { claimConfiguredAssignment, recoverConfiguredAssignments, runConfiguredA
 import { deliverAssignmentNotices } from './workforce/notices.js';
 import { assignTaskAgent, recordTaskAgentActivity } from '../work/taskAgentActivity.js';
 import { syncTaskToTimeline, type Task } from '../routes/tasks.js';
+import { checkAgentLoop } from '../goals/loopBreaker.js';
 
 export type AgentJobStatus = 'queued' | 'running' | 'done' | 'failed';
 
@@ -178,6 +179,15 @@ export async function handOff(db: Pool, request: HandOffRequest): Promise<HandOf
     })),
     { specialist: specialist.id, specialistName: specialist.name, reason: specialist.description, overwrites },
   ];
+
+  const loop = await checkAgentLoop(db, {
+    specialist: specialist.id, specialistName: specialist.name, subjectType: specialist.subjectType, subjectId: subject.id, subjectTitle: subject.title,
+  });
+  if (loop) {
+    throw new ConflictError(loop.status === 'stopped'
+      ? `${specialist.name} is stopped on ${subject.title || 'this'} after repeated failures. Resume it from Today first.`
+      : `Paused after repeated failures. ${loop.question}`, 'AGENT_LOOP_PAUSED', { pause: loop.key });
+  }
 
   const client = await db.connect();
   const created: JobRow[] = [];

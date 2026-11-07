@@ -394,7 +394,7 @@ dialog.kh-workspace-panel--overlay {
   &__detail {
     flex: 1;
     min-width: 320px;
-    padding: 0 24px 32px;
+    padding: 0 24px 96px;
     overflow-wrap: anywhere;
     container-type: inline-size;
   }
@@ -477,54 +477,6 @@ dialog.kh-workspace-panel--overlay {
   &__list .dc-briefing__headline strong { color: var(--cds-text-primary); }
   &__list .dc-briefing__detail { font-size: var(--kh-text-meta); }
   &__list .dc-parking-intro { font-size: var(--kh-text-body); margin: 0 0 16px; }
-  &__rail {
-    flex: 0 0 40px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 16px;
-    border-left: 1px solid var(--cds-border-subtle-01);
-    padding-top: 8px;
-  }
-  &__rail-label {
-    writing-mode: vertical-rl;
-    font-size: var(--kh-text-meta);
-    color: var(--cds-text-secondary);
-  }
-  &__athena {
-    box-sizing: border-box;
-    flex: 0 0 auto;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-  &__athena[hidden] { display: none; }
-  &__athena-header {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--cds-border-subtle-01);
-    h2 { margin: 0; font-size: var(--kh-panel-title); font-weight: 600; }
-  }
-  &__athena .think-athena-panel { flex: 1; min-height: 0; }
-  &__toggle {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    color: var(--cds-text-secondary);
-    border: 1px solid transparent;
-    border-radius: 4px;
-    background: transparent;
-    cursor: pointer;
-    &:hover { background: var(--cds-layer-02); color: var(--cds-text-primary); }
-    &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: -2px; }
-  }
   &__detail :is(.dc-card--cfp, .today-brief__item) {
     padding: 0;
     background: transparent;

@@ -12,7 +12,7 @@ import { queueTaskAssistanceAssessment } from '../work/taskAssistanceQueue.js';
 import { recordTaskCreated, type TaskActivityActor } from '../work/taskEditActivity.js';
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
 import { decideProposal, recordProposal } from './proposals.js';
-import { GOALS, assistanceOwner, goal, goalsStatus, mutateState, readState, weekOf, writeState, type GoalHealth, type GoalId } from './goals.js';
+import { GOALS, assistanceOwner, loadGoals, goal, goalsStatus, mutateState, readState, weekOf, writeState, type GoalHealth, type GoalId } from './goals.js';
 
 const BRIEF_KEY = 'goals-brief';
 const TASKS_PER_GOAL = 25;
@@ -79,7 +79,7 @@ async function priorDrafts(db: Pool, week: string): Promise<Map<string, string>>
 async function generate(db: Pool, trigger: GoalBrief['trigger']): Promise<GoalBrief> {
   const week = weekOf();
   const status = await goalsStatus(db);
-  const facts = await Promise.all(GOALS.map(async g => {
+  const facts = await Promise.all((await loadGoals(db)).map(async g => {
     const s = status.find(x => x.id === g.id)!;
     return { goalId: g.id, name: g.name, why: g.why, health: s.health, measures: s.measures.map(m => `${m.label}: ${m.summary} (${m.health})`),
       openTasks: g.id === 'attention' ? [] : await openTasks(db, g.projects), ...(g.id === 'attention' ? { attention: await attentionFacts(db) } : {}) };
