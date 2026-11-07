@@ -212,3 +212,20 @@
     input { width: 16px; height: 16px; min-height: 0; margin: 3px 0 0; padding: 0; accent-color: var(--kh-accent); flex: none; }
     > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; } }
 }
+
+// Proactive Athena: deal desk, CFP shortlist and meeting prep inside goal detail and Meeting preparation.
+.today-goals__section { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--cds-border-subtle-01);
+  h4 { font-size: var(--kh-section-title); font-weight: 600; margin: 0 0 8px; } }
+.today-proactive {
+  display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px;
+  &__rows, &__cards { list-style: none; margin: 8px 0 0; padding: 0; }
+  &__row { padding: 12px 0; border-top: 1px solid var(--cds-border-subtle-01);
+    &:first-child { border-top: 0; padding-top: 4px; }
+    .today-brief__actions { margin-top: 4px; } }
+  &__card { padding: 16px; margin-top: 8px; background: var(--cds-layer-01); border: 1px solid var(--cds-border-subtle-01); border-radius: var(--kh-radius-md);
+    display: flex; flex-direction: column; gap: 6px; }
+  &__label { display: block; font-size: 12px; font-weight: 600; color: var(--cds-text-secondary); margin-bottom: 2px; }
+  &__list ul { margin: 0; padding-left: var(--kh-list-indent); list-style: disc; font-size: var(--kh-text-body);
+    li { margin: 2px 0; } }
+}
+.today-goals__section .today-proactive__rows, .today-goals__athena .today-proactive__rows { margin-top: 4px; }

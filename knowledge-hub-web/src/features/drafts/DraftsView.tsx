@@ -12,6 +12,7 @@ import { extractNoteBlockText, fetchNote, type NoteContentBlock } from '../../no
 import { athenaLinkText } from '../../notes/linkLabels';
 import { deferredView } from '../../utils/deferredView';
 import { useAthenaContext } from '../../context/AthenaContext';
+import { ContentPackages, proactiveContext, useProactive } from '../../components/today/Proactive';
 import { DRAFT_CHANNEL_LABELS, type DraftSummary } from '../../types/workContent';
 import './drafts.scss';
 
@@ -70,9 +71,11 @@ export const DraftsView: React.FC<{ selectId: string | null }> = ({ selectId }) 
   });
 
   const { setAthenaContext } = useAthenaContext();
+  const proactive = useProactive();
+  const packagesLine = proactive.data?.packages.length ? `\nContent packages (Athena's blog + LinkedIn pairs in Publishing with a Think note for the podcast segment and CFP abstract; manage_proactive acts on them):\n${JSON.stringify(proactive.data.packages)}\n` : '';
   useEffect(() => {
     const list = `Plan › Drafts (${groups[0]!.items.length} to review, ${groups[1]!.items.length} sent). Athena cannot send email, Slack or Teams; Richard copies and sends drafts himself. Use list_drafts for every draft and read_work_content for a full body.\n`
-      + items.slice(0, 40).map(draft => `- ${draft.noteId}: [${DRAFT_CHANNEL_LABELS[draft.channel]}, ${draft.status}] ${draft.subject || draft.title}${draft.to ? ` → ${draft.to}` : ''}${draft.taskTitle ? ` (task: ${draft.taskTitle})` : ''}`).join('\n');
+      + items.slice(0, 40).map(draft => `- ${draft.noteId}: [${DRAFT_CHANNEL_LABELS[draft.channel]}, ${draft.status}] ${draft.subject || draft.title}${draft.to ? ` → ${draft.to}` : ''}${draft.taskTitle ? ` (task: ${draft.taskTitle})` : ''}`).join('\n') + packagesLine;
     if (!doc.data || !active) {
       setAthenaContext({ type: 'drafts', id: 'plan-drafts', title: 'Drafts', detail: list });
       return;
@@ -86,7 +89,7 @@ export const DraftsView: React.FC<{ selectId: string | null }> = ({ selectId }) 
       detail: `Open draft (${DRAFT_CHANNEL_LABELS[active.channel]}, ${active.status === 'sent' ? 'marked Sent' : 'not sent'}). To: ${active.to || 'not set'}${active.subject ? `. Subject: ${active.subject}` : ''}${active.taskTitle ? `. Linked task: ${active.taskTitle}` : ''}.\nUse update_email_draft with the current revisions to edit it.\n\nDraft body:\n${body}\n\n${list}`,
       ...(doc.data.projectId ? { projectId: doc.data.projectId } : {}) });
   // eslint-disable-next-line react-hooks/exhaustive-deps -- groups derive from items
-  }, [doc.data, active, items, setAthenaContext]);
+  }, [doc.data, active, items, packagesLine, setAthenaContext]);
   useEffect(() => () => { setAthenaContext(null); }, [setAthenaContext]);
 
   const refresh = (): void => { void qc.invalidateQueries({ queryKey: DRAFTS_KEY }); };
@@ -98,6 +101,7 @@ export const DraftsView: React.FC<{ selectId: string | null }> = ({ selectId }) 
         <p>Drafts could not be loaded: {describeApiError(drafts.error)}</p>
         <button type="button" className="kh-btn-ghost" onClick={() => { void drafts.refetch(); }}>Retry</button>
       </div>}
+      <ContentPackages />
       {drafts.isSuccess && items.length === 0 && <div className="kh-drafts__empty">
         <h2>No drafts yet</h2>
         <p>When Athena drafts an email or a Slack or Teams message for a task, it appears here for you to review, copy and send yourself.</p>

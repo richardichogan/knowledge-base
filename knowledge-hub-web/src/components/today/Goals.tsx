@@ -8,6 +8,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, Renew } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import { describeApiError, requireApiData } from '../../services/apiError';
+import { CfpShortlist, DealDesk, ProposalLedger } from './Proactive';
 import type { GoalHealth, GoalMove, GoalStatus, GoalsOverview, MeasureStatus, Scorecard, TidyItem, TidyKind } from '../../types/goals';
 
 export const GOALS_KEY = ['today', 'goals'] as const;
@@ -18,6 +19,7 @@ const TIDY_GROUPS: Array<{ kind: TidyKind; label: string }> = [
   { kind: 'drop-decision', label: 'Drop stale decisions' },
   { kind: 'file-note', label: 'File notes' },
   { kind: 'file-chat', label: 'File chats' },
+  { kind: 'cull-draft', label: 'Cull stale drafts' },
 ];
 
 const date = (iso: string, withTime = false): string => new Date(iso.length === 10 ? `${iso}T12:00:00Z` : iso).toLocaleString('en-GB', {
@@ -145,6 +147,8 @@ export function GoalDetail({ goal, goals, onAsk }: { goal: GoalStatus; goals: Re
       {move ? <MoveBlock move={move} />
         : <section className="today-goals__move"><div className="today-goals__eyebrow">This week's move</div>
           <p className="today-brief__empty">{brief?.current ? 'Athena found no move worth making for this goal this week.' : 'No moves chosen for this week yet. Athena chooses them on Monday at 08:45.'}</p></section>}
+      {goal.id === 'imagine' && <DealDesk />}
+      {goal.id === 'voice' && <CfpShortlist />}
       <div className="today-brief__actions">
         <Generate which="brief" goals={goals} />
         <button type="button" className="today-brief__quiet" onClick={onAsk}>Ask Athena</button>
@@ -227,6 +231,7 @@ export function ScorecardDetail({ goals, onAsk }: { goals: ReturnType<typeof use
         <section className="today-goals__athena" aria-labelledby="goals-athena"><h4 id="goals-athena">Athena's week</h4><p className="today-brief__reason">{card.athena.summary}</p></section>
         <TidyBatch key={`${card.week}:${card.generatedAt}`} card={card} />
       </>}
+      <ProposalLedger />
       <div className="today-brief__actions">
         <Generate which="scorecard" goals={goals} />
         <button type="button" className="today-brief__quiet" onClick={onAsk}>Ask Athena</button>

@@ -12,7 +12,7 @@ import { ScriptVisualPreview } from '../features/autocue/ScriptVisualPreview';
 import { applyNoteEdits } from '../utils/noteEditApplier';
 import { getActiveBlockNoteEditor, getActiveNoteId, runNoteAction } from '../utils/activeBlockNoteEditor';
 import { parseScriptVisualJobResult, scriptVisualJobEdits, SCRIPT_VISUAL_SPECIALIST, type ScriptVisualJobResult } from '../../../knowledge-hub-backend/src/utils/scriptVisualJobs';
-import { visualSpokenText } from '../../../knowledge-hub-backend/src/utils/scriptVisuals';
+import { visualSpokenText, readSectionVisuals } from '../../../knowledge-hub-backend/src/utils/scriptVisuals';
 import type { AgentJob } from '../types/agentJobs';
 
 type Editor = BlockNoteEditor<typeof editorSchema.blockSchema, typeof editorSchema.inlineContentSchema, typeof editorSchema.styleSchema>;
@@ -130,10 +130,24 @@ export function useScriptVisualJobs({ editor, noteId, save, disabled }: {
       {conflict && <p role="alert">{conflict}</p>}
       {error && <p role="alert">{error}</p>}
       {result && !conflict && !editCount && <p role="status">This result already matches the open editor. It will not be applied again.</p>}
-      {result && result.sections.map((draft, index) => <section key={draft.section.id} className="kh-script-visual-review__section">
-        <h3>{visualSpokenText(draft.section.content) || `Section ${index + 1}`}</h3>
-        <ScriptVisualPreview proposed section={{ ...draft.section, props: { ...draft.section.props, scriptVisuals: JSON.stringify(draft.visuals) } }} />
-      </section>)}
+      {result && result.sections.map((draft, index) => {
+        // Presentation-global numbering: the draft's scene counts stand in for the sections it regenerates,
+        // so the closing IBM mark only lands on the true final slide, exactly as it will after Apply.
+        const drafts = new Map(result.sections.map(entry => [entry.section.id, entry.visuals.scenes.length]));
+        const counts = editor.document.filter(item => item.type === 'heading' && item.props.scriptSection).map(item => {
+          if (drafts.has(item.id)) return { id: item.id, count: drafts.get(item.id) ?? 0 };
+          try { return { id: item.id, count: readSectionVisuals(item)?.scenes.length ?? 0 }; }
+          catch { return { id: item.id, count: 0 }; }
+        });
+        const position = counts.findIndex(entry => entry.id === draft.section.id);
+        const pageOffset = position < 0 ? 0 : counts.slice(0, position).reduce((sum, entry) => sum + entry.count, 0);
+        const totalScenes = position < 0 ? 0 : counts.reduce((sum, entry) => sum + entry.count, 0);
+        return <section key={draft.section.id} className="kh-script-visual-review__section">
+          <h3>{visualSpokenText(draft.section.content) || `Section ${index + 1}`}</h3>
+          <ScriptVisualPreview proposed pageOffset={pageOffset} totalScenes={totalScenes}
+            section={{ ...draft.section, props: { ...draft.section.props, scriptVisuals: JSON.stringify(draft.visuals) } }} />
+        </section>;
+      })}
     </div>
   </AppDialog> : null;
   return { generate, review, dialog, active, submitting, error, status, hasResult: completed.length > 0, loading: query.isPending,

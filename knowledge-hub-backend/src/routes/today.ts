@@ -15,6 +15,7 @@ import { goalsOverview, startGoalGeneration } from '../goals/overview.js';
 import { recordGoalProgress } from '../goals/goals.js';
 import { acceptGoalMove, dismissGoalMove } from '../goals/brief.js';
 import { applyTidyBatch, decideDateProposal, undoTidyBatch } from '../goals/scorecard.js';
+import { proactiveAction, proactiveOverview } from '../goals/proactive.js';
 
 export const todayRouter = Router();
 
@@ -80,6 +81,19 @@ todayRouter.post('/goals/tidy/apply', (req, res, next) => {
 });
 todayRouter.post('/goals/tidy/undo', (req, res, next) => {
   void undoTidyBatch(getDb(), (req.body as { batchId?: unknown } | undefined)?.batchId, 'richard').then((data) => { res.json({ success: true, data }); }).catch(next);
+});
+/** GET /api/today/proactive — deal desk, meeting prep, promises/chases/cadence, content packages, CFP shortlist and Athena's self-report. */
+todayRouter.get('/proactive', (_req, res, next) => {
+  void proactiveOverview(getDb()).then((data) => { res.json({ success: true, data }); }).catch(next);
+});
+/** POST /api/today/proactive/:action — the same actions Athena's manage_proactive tool uses; long runs return 202 and run in the background. */
+todayRouter.post('/proactive/:action', (req, res, next) => {
+  const db = getDb();
+  void proactiveAction(db, req.params['action'], (req.body ?? {}) as Record<string, unknown>, 'richard')
+    .then(async (result) => {
+      const started = Boolean(result && typeof result === 'object' && 'started' in result);
+      res.status(started ? HTTP_STATUS.ACCEPTED : 200).json({ success: true, data: { result, overview: await proactiveOverview(db) } });
+    }).catch(next);
 });
 
 /** Raw mapped GitHub activity row returned by the Today activity SQL query. */

@@ -29,6 +29,10 @@ import { reviewActiveTasks } from '../work/taskReview.js';
 import { refreshPublishingPicks } from '../publishing/picks.js';
 import { refreshGoalBrief } from '../goals/brief.js';
 import { refreshScorecard } from '../goals/scorecard.js';
+import { runDealDesk } from '../goals/dealDesk.js';
+import { refreshMeetingPrep } from '../goals/meetingPrep.js';
+import { runContentPackages } from '../goals/contentPackages.js';
+import { runCfpShortlist } from '../goals/cfpShortlist.js';
 
 export class UnconfirmedDelivery extends Error {}
 const WEEKLY_SOCIAL_TOKENS = 2_000;
@@ -194,6 +198,34 @@ export async function executeRun(db: Pool, run: JobRun, lease: string, delivery:
         const card = await refreshScorecard(db, 'job');
         run.artifacts.message = `Scored the week of ${card.week}; ${String(card.tidy.items.length)} tidy-up items await approval.`;
         return { week: card.week, tidy: card.tidy.items.length };
+      });
+    } else if (run.definition.kind === 'deal-desk') {
+      if (run.preview) run.artifacts = { message: 'Preview only: Athena would update the Imagine deal-desk notes from new evidence, logging each change for undo, and prepare follow-up drafts. Nothing is sent.' };
+      else await step(db, run, lease, 'deal-desk', async () => {
+        const result = await runDealDesk(db, 'job');
+        run.artifacts.message = `Updated ${String(result.updated)} deal brief${result.updated === 1 ? '' : 's'}; ${String(result.drafts)} follow-up drafts.`;
+        return result;
+      });
+    } else if (run.definition.kind === 'meeting-prep') {
+      if (run.preview) run.artifacts = { message: 'Preview only: Athena would prepare meeting cards, promises, chases and cadence nudges from the latest Daily Briefing. Nothing is sent and no task is created until you accept.' };
+      else await step(db, run, lease, 'meeting-prep', async () => {
+        const prep = await refreshMeetingPrep(db, 'job');
+        run.artifacts.message = `Prepared ${String(prep.cards.length)} meeting cards, ${String(prep.promises.filter(p => p.status === 'proposed').length)} promises, ${String(prep.chases.length)} chases.`;
+        return { cards: prep.cards.length };
+      });
+    } else if (run.definition.kind === 'content-packages') {
+      if (run.preview) run.artifacts = { message: 'Preview only: Athena would pick at most one competitor move or strong Imagine-fit article and draft a blog + LinkedIn package for your approval. Nothing is posted.' };
+      else await step(db, run, lease, 'content-packages', async () => {
+        const pkg = await runContentPackages(db, 'job');
+        run.artifacts.message = pkg ? `Drafted a content package: ${pkg.title}.` : 'No article was worth a package today.';
+        return { package: pkg?.id ?? null };
+      });
+    } else if (run.definition.kind === 'cfp-shortlist') {
+      if (run.preview) run.artifacts = { message: 'Preview only: Athena would refresh the CFP shortlist and draft abstracts for confirmed CFPs that are now due. Nothing is submitted.' };
+      else await step(db, run, lease, 'cfp-shortlist', async () => {
+        const result = await runCfpShortlist(db);
+        run.artifacts.message = `Shortlisted ${String(result.proposed)} CFPs; drafted ${String(result.created)} abstracts.`;
+        return result;
       });
     } else if (run.definition.kind === 'task-review') {
       if (run.preview) run.artifacts = { message: 'Preview only: Athena would review open tasks that are new or changed, propose how it could help, and start any proposed research.' };

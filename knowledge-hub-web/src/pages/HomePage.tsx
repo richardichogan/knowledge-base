@@ -15,6 +15,7 @@ import { stalledNudge } from '../features/useCases/useCaseView';
 import { UpcomingMeetings } from '../components/today/UpcomingMeetings';
 import { TaskDetail } from '../features/plan/TaskDetail';
 import { DiscoverPickDetail, chosenLabel, picksContext, refreshError, useDiscoverPicks } from '../components/today/DiscoverPicks';
+import { proactiveContext, useProactive } from '../components/today/Proactive';
 import { GoalDetail, ScorecardDetail, goalListMeta, goalMove, goalsContext, useGoals } from '../components/today/Goals';
 
 type SectionQueries = Array<{ name: string; query: {
@@ -111,9 +112,10 @@ export const HomePage: React.FC = () => {
   const podcast = usePodcastPrep();
   const discoverPicks = useDiscoverPicks();
   const goals = useGoals();
+  const proactive = useProactive();
   const taskReview = useQuery({ queryKey: ['today-task-review'], queryFn: async () => requireApiData(await api.getTaskReview()), staleTime: 5 * 60_000 });
   const reviewLine = taskReview.data ? `Athena checked your active tasks at ${new Date(taskReview.data.reviewedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}${new Date(taskReview.data.reviewedAt).toDateString() === new Date().toDateString() ? '' : ` on ${new Date(taskReview.data.reviewedAt).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}`} · ${taskReview.data.queued === 0 ? 'nothing new or changed' : `${taskReview.data.queued} new or changed sent for assessment`}` : null;
-  const context = `${todayContext(model)}${reviewLine ? `\n\nProactive task review: ${reviewLine}. Proposals appear as Athena markers on Plan cards; email and Slack/Teams drafts are in Plan › Drafts.` : ''}\n\n${picksContext(discoverPicks.picks, discoverPicks.saved?.generatedAt ?? null)}\n\n${goalsContext(goals.data)}`;
+  const context = `${todayContext(model)}${reviewLine ? `\n\nProactive task review: ${reviewLine}. Proposals appear as Athena markers on Plan cards; email and Slack/Teams drafts are in Plan › Drafts.` : ''}\n\n${picksContext(discoverPicks.picks, discoverPicks.saved?.generatedAt ?? null)}\n\n${goalsContext(goals.data)}\n\n${proactiveContext(proactive.data)}`;
   function ask(prompt: string, item?: TodayItem): void {
     if (item && item.id !== 'today-all-attention') setSelectedId(item.id);
     openAthena(prompt, item ? {

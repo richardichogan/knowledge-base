@@ -46,3 +46,32 @@ export async function executeGoalsTool(db: Pool, args: Record<string, unknown>):
     default: throw new ValidationError('Unknown goals action.');
   }
 }
+
+export const PROACTIVE_TOOL: LlmToolDefinition = {
+  type: 'function', function: {
+    name: 'manage_proactive',
+    description: 'Athena\'s proactive work towards Richard\'s goals. status returns: deal desk (one Think note per Imagine opportunity — ADNOC turnaround, Royal London complaints, IKEA, Reckitt — with the latest logged change and canUndo), '
+      + 'meeting prep (prep cards from the latest Daily Briefing with attendees, last exchange, promises both ways, talking points and deal-brief link; proposed promises; chases on Waiting-on tasks; cadence nudges for Miha, Chad and Josh), '
+      + 'content packages (blog + LinkedIn drafts in Publishing plus a Think note with angle, podcast segment and CFP abstract), the CFP shortlist and scheduled abstracts, and Athena\'s self-report (proposed/accepted/ignored/rejected per proposal type and which types are switched off). Read status before any change and cite only what it returns. '
+      + 'run-deal-desk, refresh-meeting-prep and run-content-package (optional itemId of a Discover article) start in the background; read status later. update-deal-from-notes (projectId, notes) updates one deal brief from pasted meeting notes now. deal-history (projectId); undo-deal-update (updateId) restores the previous writing if the note has not been edited since. '
+      + 'accept-promise creates a task (Richard\'s promise) or a Waiting-on task (someone else\'s) plus a draft; accept-cadence creates a task and a draft; dismiss-promise/dismiss-cadence/dismiss-chase decline. dismiss-package rejects the unapproved pair and archives its note. confirm-cfp saves the CFP and schedules an abstract note and submission task at deadline minus 21 days; dismiss-cfp archives it. '
+      + 'enable-proposal-type/disable-proposal-type (type) switch a kind of proposal on or off. Use decisions only when Richard asks in this chat. Drafts are never sent and CFPs are never submitted by Athena.',
+    parameters: { type: 'object', properties: {
+      action: { type: 'string', enum: ['status', 'run-deal-desk', 'update-deal-from-notes', 'deal-history', 'undo-deal-update', 'refresh-meeting-prep', 'accept-promise', 'dismiss-promise',
+        'accept-cadence', 'dismiss-cadence', 'dismiss-chase', 'run-content-package', 'dismiss-package', 'confirm-cfp', 'dismiss-cfp', 'enable-proposal-type', 'disable-proposal-type'] },
+      id: { type: 'string', description: 'Promise, cadence, chase, package or CFP id from status.' },
+      projectId: { type: 'string', enum: ['imagine-turnaround', 'imagine-complaints-process', 'ikea', 'reckitt'] },
+      notes: { type: 'string', description: 'Pasted meeting notes for update-deal-from-notes.' },
+      updateId: { type: 'string' }, itemId: { type: 'string', description: 'Discover article id for run-content-package.' },
+      type: { type: 'string', enum: ['goal-move', 'date-proposal', 'deal-followup', 'promise', 'chase', 'cadence', 'content-package', 'cfp', 'chat-next-step'] },
+    }, required: ['action'] },
+  },
+};
+
+export async function executeProactiveTool(db: Pool, args: Record<string, unknown>): Promise<unknown> {
+  const { proactiveOverview, proactiveAction } = await import('../goals/proactive.js');
+  if (args.action === 'status') return proactiveOverview(db);
+  const result = await proactiveAction(db, args.action, args, 'athena');
+  return result && typeof result === 'object' && 'started' in result
+    ? { ...result, note: 'Runs in the background and usually takes a minute or two. Read status again to see the result.' } : result;
+}

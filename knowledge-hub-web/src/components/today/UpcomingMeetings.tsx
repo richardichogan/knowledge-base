@@ -4,6 +4,7 @@ import { api, type Project } from '../../services/api';
 import { requireApiData, describeApiError } from '../../services/apiError';
 import { MeetingPreparation } from '../MeetingPreparation';
 import { useAthenaContext } from '../../context/AthenaContext';
+import { MeetingPrepPanel, proactiveContext, useProactive } from './Proactive';
 
 export const UpcomingMeetings: React.FC<{ projects: readonly Project[] }> = ({ projects }) => {
   const { setAthenaContext } = useAthenaContext();
@@ -18,15 +19,19 @@ export const UpcomingMeetings: React.FC<{ projects: readonly Project[] }> = ({ p
   const selected = items.find(item => item.id === selectedId);
   const selectedMeetingId = selected?.id;
   const selectedTitle = selected?.title;
+  const proactive = useProactive();
+  const prepDetail = proactive.data ? `\n\nMeeting prep from the Daily Briefing (ids usable with manage_proactive):\n${JSON.stringify(proactive.data.meetingPrep)}\n\n${proactiveContext(proactive.data)}` : '';
   const contextDetail = JSON.stringify({ items, selected, total: meetings.data?.total, unavailable: meetings.isError, loading: meetings.isPending });
   useEffect(() => {
     setAthenaContext({ type: selectedMeetingId ? 'calendar event' : 'today meetings', title: selectedTitle ?? 'Upcoming meetings',
       ...(selectedMeetingId ? { id: selectedMeetingId } : {}),
-      detail: `Indexed calendar entries currently in view:\n${contextDetail}\nThese are saved summaries and metadata, not necessarily full invitations. Retrieve meeting preparation before claiming to have read the full invitation.` });
-  }, [contextDetail, selectedMeetingId, selectedTitle, setAthenaContext]);
+      detail: `Indexed calendar entries currently in view:\n${contextDetail}\nThese are saved summaries and metadata, not necessarily full invitations. Retrieve meeting preparation before claiming to have read the full invitation.${prepDetail}` });
+  }, [contextDetail, prepDetail, selectedMeetingId, selectedTitle, setAthenaContext]);
   return <section className="today-brief__meetings kh-work-context" aria-label="Upcoming meetings">
     <h2>Meeting preparation</h2>
-    <p>Upcoming indexed calendar entries in the next seven days. Choose a meeting, then its workstream; no automatic AI calls.</p>
+    <MeetingPrepPanel />
+    <h3>Calendar</h3>
+    <p>Upcoming indexed calendar entries in the next seven days. Choose a meeting, then its workstream to prepare it in more depth.</p>
     {meetings.isPending && <p role="status">Reading calendar entries...</p>}
     {meetings.isError && <p role="alert">{describeApiError(meetings.error)} <button type="button" className="kh-btn-ghost" onClick={() => { void meetings.refetch(); }}>Retry calendar</button></p>}
     {!meetings.isPending && !meetings.isError && !items.length && <p>No upcoming entries found in the indexed calendar. This does not confirm that the calendar connection is current.</p>}

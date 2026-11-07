@@ -24,7 +24,7 @@ import { listAgentJobs } from '../agents/engine.js';
 import { readSectionVisuals, scriptVisualSource, visualSourceBlocks, visualSourceCurrent, SCRIPT_VISUAL_SOURCE_BUDGET, SCRIPT_VISUAL_INSTRUCTION_LIMIT, VISUAL_GRAMMAR, type VisualScriptBlock } from '../utils/scriptVisuals.js';
 import { getDiscoverPicks, refreshDiscoverPicks } from '../services/discoverPicks.js';
 import { PUBLISHING_TOOL, executePublishingTool } from './publishingTools.js';
-import { GOALS_TOOL, executeGoalsTool } from './goalTools.js';
+import { GOALS_TOOL, PROACTIVE_TOOL, executeGoalsTool, executeProactiveTool } from './goalTools.js';
 import { executeDesignTool, type DesignTurnState } from './designTools.js';
 import { executePodcastTool, type PodcastTurnState } from './podcastTools.js';
 import { WORK_CONTENT_TOOLS, WORK_TOOL_NAMES, executeWorkTool, type WorkTurnState } from './workContentTools.js';
@@ -117,6 +117,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
     JOB_TOOL,
     PUBLISHING_TOOL,
     GOALS_TOOL,
+    PROACTIVE_TOOL,
     { type: 'function', function: {
       name: 'read_discover_picks',
       description: 'Read the "Worth posting today" list on Today: the three unposted to-review or saved Discover articles Athena chose for a LinkedIn or Bluesky post, each with id, title, source, URL, state and suggested angle, plus when they were chosen. Articles posted or moved since are already removed. Use search tools with the article id or title for full article text.',
@@ -1002,6 +1003,7 @@ export async function executeToolCall(
   if (name === 'refresh_discover_picks') { await refreshDiscoverPicks(db, 'athena'); return getDiscoverPicks(db); }
   if (name === 'manage_publishing_feeds') return executePublishingTool(db, args, turn.sessionId);
   if (name === 'manage_goals') return executeGoalsTool(db, args);
+  if (name === 'manage_proactive') return executeProactiveTool(db, args);
   if (AGENT_TOOL_NAMES.has(name)) return executeAgentTool(db, name, args, turn);
   if (WORK_TOOL_NAMES.has(name)) {
     if (turn.retrievalScope && Object.keys(turn.retrievalScope.filter).length > 0) return { error: 'Work content tools do not support this enforced collection filter.', code: 'scope_mismatch' };

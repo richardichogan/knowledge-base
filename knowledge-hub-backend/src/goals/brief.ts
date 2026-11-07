@@ -11,6 +11,7 @@ import { createWorkContent } from '../work/workContent.js';
 import { queueTaskAssistanceAssessment } from '../work/taskAssistanceQueue.js';
 import { recordTaskCreated, type TaskActivityActor } from '../work/taskEditActivity.js';
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
+import { decideProposal, recordProposal } from './proposals.js';
 import { GOALS, assistanceOwner, goal, goalsStatus, mutateState, readState, weekOf, writeState, type GoalHealth, type GoalId } from './goals.js';
 
 const BRIEF_KEY = 'goals-brief';
@@ -142,6 +143,7 @@ async function generate(db: Pool, trigger: GoalBrief['trigger']): Promise<GoalBr
   moves.sort((a, b) => order.get(a.goalId)! - order.get(b.goalId)!);
   const brief: GoalBrief = { week, generatedAt: new Date().toISOString(), trigger, health: status.map(s => ({ goalId: s.id, health: s.health })), moves };
   await writeState(db, BRIEF_KEY, brief, moves.length);
+  for (const m of moves) await recordProposal(db, 'goal-move', `move:${m.id}`, `${m.goalName}: ${m.title}`).catch(() => { /* reporting only */ });
   return brief;
 }
 
@@ -159,7 +161,7 @@ export async function getGoalBrief(db: Pool): Promise<(GoalBrief & { current: bo
 
 async function decide(db: Pool, moveId: unknown, apply: (move: GoalMove, brief: GoalBrief) => Promise<void>): Promise<GoalMove> {
   if (typeof moveId !== 'string' || !moveId) throw new ValidationError('Choose a move.');
-  return mutateState<GoalBrief | null, GoalMove>(db, BRIEF_KEY, null, async brief => {
+  const move = await mutateState<GoalBrief | null, GoalMove>(db, BRIEF_KEY, null, async brief => {
     const move = brief?.moves.find(m => m.id === moveId);
     if (!brief || !move) throw new NotFoundError('Weekly move');
     if (move.status !== 'proposed') throw new ConflictError(`This move was already ${move.status}.`, 'GOAL_MOVE_DECIDED');
@@ -167,6 +169,8 @@ async function decide(db: Pool, moveId: unknown, apply: (move: GoalMove, brief: 
     move.decidedAt = new Date().toISOString();
     return move;
   });
+  await decideProposal(db, `move:${move.id}`, move.status === 'accepted' ? 'accepted' : 'dismissed').catch(() => { /* reporting only */ });
+  return move;
 }
 
 /** Accepts a move: an existing inbox/backlog task moves to in progress; otherwise a new in-progress task is created. */

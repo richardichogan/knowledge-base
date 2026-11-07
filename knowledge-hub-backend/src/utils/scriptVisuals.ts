@@ -81,7 +81,9 @@ function object(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 function text(value: unknown, limit: number, label: string, empty = false): string {
-  if (typeof value !== 'string' || value.length > limit || (!empty && !value.trim())) throw new Error(`Invalid visual ${label}.`);
+  if (typeof value !== 'string') throw new Error(`Invalid visual ${label}: it must be a string.`);
+  if (value.length > limit) throw new Error(`Invalid visual ${label}: ${value.length} characters is over the ${limit}-character limit. Shorten it.`);
+  if (!empty && !value.trim()) throw new Error(`Invalid visual ${label}: it must not be empty.`);
   return value;
 }
 export function parseVisualComposition(value: unknown, reveals: number, titleOnly = false, presenter = false): VisualComposition {
@@ -357,8 +359,14 @@ export function parseScriptVisuals(value: unknown, section?: VisualScriptBlock):
     if (scene.brandMark !== undefined && (scene.brandMark !== 'ibm-8bar' || template !== 'close')) throw new Error('Invalid closing brand mark.');
     if (imageUrl && !/^https:\/\//i.test(imageUrl)) throw new Error('Visual images require an HTTPS URL.');
     if (template === 'image' && !imageUrl && !scene.composition) throw new Error('An image scene requires an existing image.');
-    const composition = scene.composition === undefined ? undefined
-      : parseVisualComposition(scene.composition, template === 'close' ? 0 : scene.items.length, template === 'title' || template === 'close', scene.presenterLayout === true);
+    let composition: VisualComposition | undefined;
+    try {
+      composition = scene.composition === undefined ? undefined
+        : parseVisualComposition(scene.composition, template === 'close' ? 0 : scene.items.length, template === 'title' || template === 'close', scene.presenterLayout === true);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'Invalid visual data.';
+      throw new Error(reason.startsWith(`Scene "`) ? reason : `Scene "${id}": ${reason}`);
+    }
     if (composition?.imageTreatment && (!['title', 'image'].includes(template) || (!imageUrl && !composition.imagePrompt) || scene.artwork)) {
       throw new Error('Full-screen or blended imagery belongs to a static title/image scene with a supplied image or image brief.');
     }

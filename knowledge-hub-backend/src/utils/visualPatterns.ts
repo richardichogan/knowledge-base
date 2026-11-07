@@ -232,7 +232,7 @@ function fits(boxes: Box[]): boolean {
     for (let j = i + 1; j < boxes.length; j++) {
       const a = boxes[i]!, b = boxes[j]!;
       const apart = Math.max(a.x - (b.x + b.width), b.x - (a.x + a.width), a.y - (b.y + b.height), b.y - (a.y + a.height));
-      if (apart < 32) return false;
+      if (apart < 24) return false;
     }
   }
   return true;
@@ -290,14 +290,35 @@ export function parseVisualPattern(value: unknown, reveal: (value: unknown) => n
   return { type, kind: kind as VisualPattern['kind'], ...(focus ? { focus } : {}), subjects };
 }
 
+/** Slides the whole arrangement back inside the content area when its extent allows, preserving every relative position. */
+function nudge(boxes: Box[]): void {
+  const top = Math.min(...boxes.map(box => box.y)), bottom = Math.max(...boxes.map(box => box.y + box.height));
+  const left = Math.min(...boxes.map(box => box.x)), right = Math.max(...boxes.map(box => box.x + box.width));
+  if (bottom - top <= AREA.bottom - AREA.top) {
+    const dy = Math.max(0, AREA.top - top) || Math.min(0, AREA.bottom - bottom);
+    if (dy) for (const box of boxes) box.y += dy;
+  }
+  if (right - left <= AREA.right - AREA.left) {
+    const dx = Math.max(0, AREA.left - left) || Math.min(0, AREA.right - right);
+    if (dx) for (const box of boxes) box.x += dx;
+  }
+}
+
 /** Expands a pattern into renderer nodes, and settles link ports/routes to match the geometry. */
 export function layoutVisualPattern(pattern: VisualPattern, links: VisualLink[]): { nodes: VisualNode[]; links: VisualLink[] } {
   let boxes: Box[] = [];
   for (const density of DENSITIES) {
     boxes = layout(pattern, links, density);
+    if (!fits(boxes)) nudge(boxes);
     if (fits(boxes)) break;
   }
-  if (!fits(boxes)) fail(`the ${pattern.type} does not fit the slide even with peers stepped down. Drop subject details or icons, use fewer subjects, or shorten labels and connection labels.`);
+  if (!fits(boxes)) {
+    const width = Math.max(...boxes.map(box => box.x + box.width)) - Math.min(...boxes.map(box => box.x));
+    const height = Math.max(...boxes.map(box => box.y + box.height)) - Math.min(...boxes.map(box => box.y));
+    const over = [width > AREA.right - AREA.left ? `${Math.ceil(width)}px wide (at most ${AREA.right - AREA.left}px fits)` : '',
+      height > AREA.bottom - AREA.top ? `${Math.ceil(height)}px tall (at most ${AREA.bottom - AREA.top}px fits)` : ''].filter(Boolean).join(' and ');
+    fail(`the ${pattern.type} does not fit the slide even with peers stepped down: it is ${over || 'too crowded for the required 24px separation'}. Drop subject details or icons, use fewer subjects, or shorten labels and connection labels.`);
+  }
   const byId = new Map(boxes.map(box => [box.subject.id, box]));
   const ring = pattern.type === 'cycle' ? boxes.filter(box => !box.focus).map(box => box.subject.id) : [];
   const nodes = boxes.map((box): VisualNode => {

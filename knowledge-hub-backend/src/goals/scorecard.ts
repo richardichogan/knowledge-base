@@ -1,7 +1,7 @@
 /**
  * goals/scorecard.ts — the Friday scorecard: what moved and what slipped per goal, honest new dates for overdue goal
  * tasks, Athena's own record for the week, and one tidy-up batch (stale tasks to archive, stale decisions to drop,
- * unfiled notes and chats to file). Nothing in the batch changes until Richard approves it; every applied batch can be
+ * unfiled notes and chats to file, and the cull of unsent drafts over 14 days old that map to no goal). Nothing in the batch changes until Richard approves it; every applied batch can be
  * undone for 30 days.
  */
 import { randomUUID } from 'node:crypto';
@@ -11,12 +11,14 @@ import { recordTaskEdit, type TaskActivityActor } from '../work/taskEditActivity
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
 import { GOALS, GOAL_PROJECTS, goalsStatus, mutateState, readState, weekOf, writeState, type GoalHealth, type GoalId } from './goals.js';
 import { getGoalBrief } from './brief.js';
+import { decideProposal, evaluateAutoOff, proposalReport, recordProposal, type ProposalReport } from './proposals.js';
 
 const SCORECARD_KEY = 'goals-scorecard';
 const UNDO_KEY = 'goals-tidy-undo';
 const UNDO_DAYS = 30;
 const STALE_TASK_DAYS = 30;
 const STALE_DECISION_DAYS = 14;
+const CULL_DRAFT_DAYS = 14;
 const OVERDUE_PER_GOAL = 6;
 const FILE_CANDIDATES = 30;
 const TIDY_LIMIT = 60;
@@ -34,11 +36,13 @@ export interface GoalScore {
   completed: Array<{ taskId: string; title: string }>; completedCount: number; overdueCount: number;
   move: { title: string; status: string; done: boolean } | null; dateProposals: DateProposal[];
 }
-export type TidyKind = 'archive-task' | 'drop-decision' | 'file-note' | 'file-chat';
+export type TidyKind = 'archive-task' | 'drop-decision' | 'file-note' | 'file-chat' | 'cull-draft';
 export interface TidyItem { id: string; kind: TidyKind; entityId: string; title: string; detail: string; projectId: string | null; projectName: string | null }
 export interface Scorecard {
   week: string; generatedAt: string; trigger: 'job' | 'manual' | 'athena'; goals: GoalScore[];
   athena: { proposed: number; accepted: number; done: number; dismissed: number; ignored: number; drafts: number; research: number; summary: string };
+  /** Every proactive proposal type over the last seven days, and the types Athena (or Richard) has switched off. */
+  ledger?: ProposalReport;
   tidy: { items: TidyItem[]; note: string | null; batchId: string | null; appliedAt: string | null; applied: number; excluded: string[]; undoneAt: string | null };
 }
 interface UndoItem { kind: TidyKind; entityId: string; title: string; before: string | null; after: string | null }
@@ -70,6 +74,15 @@ async function tidyCandidates(db: Pool): Promise<{ items: TidyItem[]; files: Arr
         AND (project_id IS NULL OR NOT project_id = ANY($2)) ORDER BY updated_at LIMIT $3`, [STALE_TASK_DAYS, GOAL_PROJECTS, TIDY_LIMIT])).rows;
   for (const t of tasks) items.push({ id: `archive-task:${t.id}`, kind: 'archive-task', entityId: t.id, title: t.title,
     detail: `${t.status === 'inbox' ? 'Inbox' : 'Backlog'}, untouched for ${String(t.days)} days and not linked to a goal.`, projectId: null, projectName: null });
+  // The Friday cull: unsent drafts over two weeks old whose task is not in a goal's workstreams.
+  const drafts = (await db.query<{ id: string; title: string | null; days: number; task: string | null }>(
+    `SELECT n.id::text, coalesce(nullif(e.subject,''), note_list_metadata(n.content)->>'title') AS title,
+            floor(extract(epoch FROM NOW() - n.updated_at) / 86400)::int AS days, t.title AS task
+       FROM email_drafts e JOIN notes n ON n.id=e.note_id LEFT JOIN tasks t ON t.id=e.task_id
+      WHERE n.status='active' AND e.status='draft' AND n.updated_at < NOW() - make_interval(days => $1)
+        AND (t.project_id IS NULL OR NOT t.project_id = ANY($2)) ORDER BY n.updated_at LIMIT $3`, [CULL_DRAFT_DAYS, GOAL_PROJECTS, TIDY_LIMIT])).rows;
+  for (const d of drafts) items.push({ id: `cull-draft:${d.id}`, kind: 'cull-draft', entityId: d.id, title: d.title?.trim() || 'Untitled draft',
+    detail: `Unsent draft, untouched for ${String(d.days)} days${d.task ? ` (task: ${d.task})` : ''}, not linked to a goal.`, projectId: null, projectName: null });
   let note: string | null = null;
   const allowed = await droppedAllowed(db);
   const decisions = (await db.query<{ id: string; text: string; days: number; title: string | null }>(
@@ -173,7 +186,15 @@ async function generate(db: Pool, trigger: Scorecard['trigger']): Promise<Scorec
   athena.summary = moves.length
     ? `I proposed ${String(athena.proposed)} moves: ${String(athena.accepted)} accepted (${String(athena.done)} done), ${String(athena.dismissed)} not this week and ${String(athena.ignored)} left unanswered. I prepared ${String(athena.drafts)} draft${athena.drafts === 1 ? '' : 's'} and queued research on ${String(athena.research)} task${athena.research === 1 ? '' : 's'}.`
     : 'There was no Monday brief this week, so I proposed no moves.';
-  const card: Scorecard = { week, generatedAt: new Date().toISOString(), trigger, goals, athena,
+  for (const g of goals) for (const p of g.dateProposals) await recordProposal(db, 'date-proposal', `date:${p.id}`, `${p.taskTitle}: ${p.currentDue} → ${p.proposedDue}`).catch(() => { /* reporting only */ });
+  const stoppedNow: string[] = await evaluateAutoOff(db).catch(() => []);
+  const ledger = await proposalReport(db).catch(() => undefined);
+  if (ledger) {
+    athena.summary += ` Across everything I proposed this week: ${String(ledger.proposed)} proposed, ${String(ledger.accepted)} accepted, ${String(ledger.ignored)} ignored, ${String(ledger.dismissed)} rejected.`;
+    const stopped = ledger.stopped.filter(s => stoppedNow.includes(s.type));
+    if (stopped.length) athena.summary += ` You ignored ${stopped.map(s => s.label.toLowerCase()).join(' and ')} three weeks running, so I have stopped proposing them; switch them back on below if you want them.`;
+  }
+  const card: Scorecard = { week, generatedAt: new Date().toISOString(), trigger, goals, athena, ...(ledger ? { ledger } : {}),
     tidy: { items: tidy.items, note: tidy.note, batchId: null, appliedAt: null, applied: 0, excluded: [], undoneAt: null } };
   await writeState(db, SCORECARD_KEY, card, tidy.items.length);
   return card;
@@ -189,7 +210,9 @@ export async function getScorecard(db: Pool): Promise<(Scorecard & { current: bo
   const card = await readState<Scorecard>(db, SCORECARD_KEY);
   if (!card) return null;
   const until = card.tidy.appliedAt && !card.tidy.undoneAt ? new Date(new Date(card.tidy.appliedAt).getTime() + UNDO_DAYS * DAY_MS).toISOString() : null;
-  return { ...card, current: card.week === weekOf(), undoUntil: until && until > new Date().toISOString() ? until : null };
+  // The footer is live: switching a type back on, or deciding a proposal, shows straight away.
+  const ledger = await proposalReport(db).catch(() => card.ledger);
+  return { ...card, ...(ledger ? { ledger } : {}), current: card.week === weekOf(), undoUntil: until && until > new Date().toISOString() ? until : null };
 }
 
 /** Accepts or dismisses an honest new date; accepting updates the task's due date and records it in task activity. */
@@ -207,6 +230,9 @@ export function decideDateProposal(db: Pool, proposalId: unknown, accept: boolea
     }
     proposal.status = accept ? 'accepted' : 'dismissed';
     return proposal;
+  }).then(async proposal => {
+    await decideProposal(db, `date:${proposal.id}`, accept ? 'accepted' : 'dismissed').catch(() => { /* reporting only */ });
+    return proposal;
   });
 }
 
@@ -221,6 +247,11 @@ async function applyItem(c: PoolClient, item: TidyItem, actor: TaskActivityActor
   if (item.kind === 'drop-decision') {
     const r = await c.query(`UPDATE chat_decisions SET status='dropped', updated_at=NOW() WHERE id::text=$1 AND status='open'`, [item.entityId]);
     return r.rowCount ? { kind: item.kind, entityId: item.entityId, title: item.title, before: 'open', after: 'dropped' } : null;
+  }
+  if (item.kind === 'cull-draft') {
+    const r = await c.query(`UPDATE notes n SET status='archived', updated_at=NOW() FROM email_drafts e
+      WHERE n.id=e.note_id AND n.id::text=$1 AND n.status='active' AND e.status='draft'`, [item.entityId]);
+    return r.rowCount ? { kind: item.kind, entityId: item.entityId, title: item.title, before: 'active', after: 'archived' } : null;
   }
   const table = item.kind === 'file-note' ? 'notes' : 'ai_chat_sessions';
   const r = await c.query(`UPDATE ${table} SET project_id=$2, updated_at=NOW() WHERE id::text=$1 AND project_id IS NULL`, [item.entityId, item.projectId]);
@@ -281,6 +312,8 @@ export async function undoTidyBatch(db: Pool, batchId: unknown, actor: TaskActiv
         r = await c.query('UPDATE tasks SET archived=FALSE, updated_at=NOW() WHERE id::text=$1 AND archived', [item.entityId]);
         if (r.rowCount) await c.query('INSERT INTO task_notes(task_id,body,activity) VALUES($1,$2,$3)', [item.entityId, 'Restored: the Friday tidy-up was undone.',
           JSON.stringify({ actor, action: 'task-edited', changes: [{ field: 'archived', label: 'Archived', from: 'Yes', to: 'No' }] })]);
+      } else if (item.kind === 'cull-draft') {
+        r = await c.query(`UPDATE notes SET status='active', updated_at=NOW() WHERE id::text=$1 AND status='archived'`, [item.entityId]);
       } else if (item.kind === 'drop-decision') {
         r = await c.query(`UPDATE chat_decisions SET status='open', updated_at=NOW() WHERE id::text=$1 AND status='dropped'`, [item.entityId]);
       } else {

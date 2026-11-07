@@ -50,7 +50,7 @@ import type {
 } from '../types/useCases';
 import type { PodcastPrepStatus } from '../types/podcastPrep';
 import type { DiscoverPicksResponse } from '../types/discoverPicks';
-import type { GoalsOverview, GoalMove, DateProposal, ProgressEntry } from '../types/goals';
+import type { GoalsOverview, GoalMove, DateProposal, ProgressEntry, ProactiveAction, ProactiveOverview } from '../types/goals';
 import { requestCompletionNotifications } from '../chat/completionNotification';
 import type { PodcastEpisode, ScriptCard } from '../types/podcastEpisodes';
 import type { DraftSummary, TaskReviewSummary, WorkContent, WorkContentPatch } from '../types/workContent';
@@ -2511,6 +2511,12 @@ export class KnowledgeHubApi {
 
   // ── Morning briefing ────────────────────────────────────────────────────────
 
+  async getProactive(): Promise<ApiResponse<ProactiveOverview>> {
+    return (await this.client.get<ApiResponse<ProactiveOverview>>('/api/today/proactive')).data;
+  }
+  async proactiveAction(action: ProactiveAction, args: Record<string, unknown> = {}): Promise<ApiResponse<{ result: unknown; overview: ProactiveOverview }>> {
+    return (await this.client.post<ApiResponse<{ result: unknown; overview: ProactiveOverview }>>(`/api/today/proactive/${action}`, args)).data;
+  }
   async getGoals(): Promise<ApiResponse<GoalsOverview>> {
     return (await this.client.get<ApiResponse<GoalsOverview>>('/api/today/goals')).data;
   }

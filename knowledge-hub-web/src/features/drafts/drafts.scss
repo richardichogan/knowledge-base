@@ -149,3 +149,19 @@
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+// Content packages: Athena's blog + LinkedIn pair with the podcast segment and CFP abstract note.
+.kh-drafts__packages {
+  margin-bottom: 8px;
+  ul { list-style: none; margin: 0; padding: 0; }
+}
+.kh-drafts__package {
+  display: flex; flex-direction: column; gap: 4px; padding: 12px 16px; margin: 0 0 8px;
+  background: var(--kh-accent-bg); border: 1px solid var(--kh-accent-border); border-radius: var(--kh-radius-md);
+}
+.kh-drafts__angle { margin: 4px 0 0; font-size: var(--kh-text-body); color: var(--cds-text-primary); }
+.kh-drafts__package-links {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin-top: 6px; font-size: 13px;
+  a { color: var(--kh-accent); text-decoration: none; &:hover { text-decoration: underline; } &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; } }
+  .kh-btn-ghost { margin-left: auto; }
+}

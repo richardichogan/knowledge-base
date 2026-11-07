@@ -86,6 +86,7 @@ export function focusTools(
     const name = tool.function.name;
     if (name === 'manage_scheduled_jobs' && !wantsJobs) return false;
     if (name === 'manage_publishing_feeds' && !wantsJobs && !/\b(?:publish\w*|posting|bluesky|bsky|linkedin|editorial|blog)\b/i.test(text)) return false;
+    if (name === 'manage_proactive' && !/\b(?:deal\s*(?:desk|brief)s?|meetings?|prep\w*|promis\w*|chas\w*|cadence|reconnect|nudg\w*|content\s+packages?|packages?|cfps?|abstracts?|conferences?|proactive|proposals?|self-report|switched\s+off|adnoc|royal\s+london|ikea|reckitt|miha|chad|josh|waiting\s+on)\b/i.test(text)) return false;
     if (name === 'manage_goals' && !/\b(?:goals?|brief|scorecard|moves?|tidy|tidy-up|on track|slipping|at risk|proposals?|cfps?|specialisation|specialization|this week|priorit\w*|focus|overdue|inbox|today)\b/i.test(text)) return false;
     if (name === 'get_demo_specification_template' || name === 'create_demo_specification') return wantsDemoSpecification;
     if (STRUCTURED_TOOL_NAMES.has(name)) return wantsStructured;

@@ -74,7 +74,8 @@ function routes(from, to, fromPort, toPort, shared, siblings) {
       // A fan-out or fan-in keeps every connection on the shared subject's centre, so a straight member never doubles the trunk.
       const guide = shared === 'from' ? a : shared === 'to' ? b : (axis ? a.height <= b.height : a.width <= b.width) ? a : b;
       const along = Math.min(high, Math.max(low, centre(guide)[axis]));
-      result.push([portPoint(from, fromPort, along), portPoint(to, toPort, along)]);
+      // A fan branch may only run straight on that exact centre line; clamping it into the target's band would leave the junction off-centre.
+      if (!shared || Math.abs(along - centre(guide)[axis]) < 0.5) result.push([portPoint(from, fromPort, along), portPoint(to, toPort, along)]);
     }
     const index = horizontal ? 0 : 1;
     let middle = (start[index] + end[index]) / 2;
@@ -100,7 +101,7 @@ function routes(from, to, fromPort, toPort, shared, siblings) {
   return [[start, horizontal ? [end[0], start[1]] : [start[0], end[1]], end]];
 }
 
-function score(points, from, to, fromPort, toPort, nodes, preferred) {
+function score(points, from, to, fromPort, toPort, nodes, preferred, shared) {
   let total = 0;
   const u = directions[fromPort], v = directions[toPort];
   const first = [points[1][0] - points[0][0], points[1][1] - points[0][1]];
@@ -121,8 +122,10 @@ function score(points, from, to, fromPort, toPort, nodes, preferred) {
       }
     }
   }
-  if (preferred && fromPort !== preferred) total += 80;
-  if (preferred && toPort !== opposite[preferred]) total += 80;
+  // Fan members must mirror each other on the preferred ports, so a shorter lone shortcut never breaks the fork's symmetry.
+  const drift = shared ? 2000 : 80;
+  if (preferred && fromPort !== preferred) total += drift;
+  if (preferred && toPort !== opposite[preferred]) total += drift;
   return { total, samples };
 }
 
@@ -205,7 +208,7 @@ export function connectionGeometry(from, to, link, nodes, ring = null, shared = 
       for (const candidate of routes(from, to, fromPort, toPort, shared, siblings)) {
         const points = simplify(candidate);
         if (points.length < 2) continue;
-        const { total, samples } = score(points, from, to, fromPort, toPort, nodes, preferred);
+        const { total, samples } = score(points, from, to, fromPort, toPort, nodes, preferred, shared);
         if (!best || total < best.total) best = { points, total, samples, fromPort, toPort };
       }
     }

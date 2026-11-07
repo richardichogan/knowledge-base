@@ -27,7 +27,7 @@ export interface GoalScore {
   completed: Array<{ taskId: string; title: string }>; completedCount: number; overdueCount: number;
   move: { title: string; status: string; done: boolean } | null; dateProposals: DateProposal[];
 }
-export type TidyKind = 'archive-task' | 'drop-decision' | 'file-note' | 'file-chat';
+export type TidyKind = 'archive-task' | 'drop-decision' | 'file-note' | 'file-chat' | 'cull-draft';
 export interface TidyItem { id: string; kind: TidyKind; entityId: string; title: string; detail: string; projectId: string | null; projectName: string | null }
 export interface Scorecard {
   week: string; generatedAt: string; trigger: 'job' | 'manual' | 'athena'; current: boolean; undoUntil: string | null; goals: GoalScore[];
@@ -38,3 +38,57 @@ export interface GoalsOverview {
   goals: GoalStatus[]; brief: GoalBrief | null; scorecard: Scorecard | null;
   briefRunning: boolean; scorecardRunning: boolean; briefError: string | null; scorecardError: string | null;
 }
+
+/** Mirrors knowledge-hub-backend/src/goals/proactive.ts (GET /api/today/proactive). */
+export interface DealChange { section: string; before: string; after: string }
+export interface DealUpdate {
+  id: string; projectId: string; noteId: string; trigger: string; summary: string; changes: DealChange[];
+  draftId: string | null; createdAt: string; undoneAt: string | null; canUndo: boolean;
+}
+export interface DealDeskRow { projectId: string; name: string; noteId: string | null; latest: DealUpdate | null }
+export interface DraftText { channel: 'email' | 'slack' | 'teams'; to: string; subject: string; body: string }
+export interface PrepCard {
+  id: string; time: string; meeting: string; attendees: string[]; lastExchange: string;
+  ourPromises: string[]; theirPromises: string[]; talkingPoints: string[]; projectId: string | null; dealNoteId: string | null;
+}
+export interface PromiseProposal {
+  id: string; owner: 'richard' | 'other'; who: string; text: string; due: string | null; projectId: string | null; reportDate: string;
+  draft: DraftText | null; status: 'proposed' | 'accepted' | 'dismissed'; taskId: string | null; draftId: string | null; decidedAt: string | null;
+}
+export interface ChaseProposal { id: string; taskId: string; taskTitle: string; waitingOn: string; workingDays: number; draftId: string; at: string; status: 'proposed' | 'dismissed' }
+export interface CadenceNudge {
+  id: string; person: string; workingDays: number; lastSeen: string | null; reason: string; draft: DraftText;
+  status: 'proposed' | 'accepted' | 'dismissed'; taskId: string | null; draftId: string | null; at: string; decidedAt: string | null;
+}
+export interface MeetingPrepState {
+  reportDate: string | null; generatedAt: string | null; trigger: string | null; cards: PrepCard[];
+  promises: PromiseProposal[]; chases: ChaseProposal[]; cadence: CadenceNudge[]; chasedAt: Record<string, string>; running: boolean;
+}
+export interface ContentPackage {
+  id: string; topicId: string; noteId: string | null; itemId: string; title: string; url: string;
+  trigger: 'competitor' | 'discover'; why: string; angle: string; createdAt: string; error?: string;
+  status: 'drafting' | 'in-review' | 'ready-to-approve' | 'approved' | 'published' | 'rejected' | 'expired' | 'failed';
+  blog: { id: string; review: string; approval: string; held: boolean; title: string } | null;
+  linkedin: { id: string; review: string; approval: string; held: boolean } | null;
+}
+export interface CfpCard {
+  id: string; conference: string; fit: string; score: number; deadline: string; eventStart: string | null;
+  location: string | null; isVirtual: boolean; cfpUrl: string;
+}
+export interface CfpSchedule { cfpId: string; conference: string; deadline: string; dueAt: string; confirmedAt: string; noteId: string | null; taskId: string | null; error?: string }
+export type ProposalType = 'goal-move' | 'date-proposal' | 'deal-followup' | 'promise' | 'chase' | 'cadence' | 'content-package' | 'cfp' | 'chat-next-step';
+export interface ProposalReport {
+  since: string; proposed: number; accepted: number; open: number; ignored: number; dismissed: number;
+  byType: Array<{ type: ProposalType; label: string; proposed: number; accepted: number; open: number; ignored: number; dismissed: number }>;
+  stopped: Array<{ type: ProposalType; label: string; at: string; reason: string; by: 'athena' | 'richard' }>;
+}
+export interface ProactiveOverview {
+  deals: { rows: DealDeskRow[]; running: boolean };
+  meetingPrep: MeetingPrepState;
+  packages: ContentPackage[];
+  cfps: { shortlist: CfpCard[]; scheduled: CfpSchedule[] };
+  ledger: ProposalReport;
+}
+export type ProactiveAction = 'run-deal-desk' | 'update-deal-from-notes' | 'deal-history' | 'undo-deal-update' | 'refresh-meeting-prep'
+  | 'accept-promise' | 'dismiss-promise' | 'accept-cadence' | 'dismiss-cadence' | 'dismiss-chase' | 'run-content-package' | 'dismiss-package'
+  | 'confirm-cfp' | 'dismiss-cfp' | 'enable-proposal-type' | 'disable-proposal-type';

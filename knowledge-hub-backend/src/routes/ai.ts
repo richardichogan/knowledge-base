@@ -16,6 +16,7 @@ import { getOutputsForThink } from '../ai/thinkOutputExport.js';
 import { outputsChangedSince, moveDeliverableToOutputs, removeSavedCopiesFromReply } from '../ai/chatOutputs.js';
 import { emptyContextUsed, getExcludedSources, type ContextUsed } from '../ai/contextUsage.js';
 import { suggestNextSteps } from '../ai/nextSteps.js';
+import { noteChatNextStepChoice, proposalEnabled, recordChatNextSteps } from '../goals/proposals.js';
 import { recordTurnAudit, type TurnAuditRow } from '../ai/knowledge/turnAudit.js';
 import { findModelChoice, PERSONA_MODELS } from '../ai/modelChoices.js';
 import { deleteSessionScreenBlobs, reviewScreens, screensToShow } from '../ai/chatScreens.js';
@@ -283,7 +284,10 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
     });
   // Suggested next steps, made while the reply is saved (a few seconds at most).
   hooks.onActivity?.('Finishing up');
-  const nextStepsPromise = suggestNextSteps(persona, message, modelReply, hooks.signal);
+  void noteChatNextStepChoice(db, effectiveSessionId, message).catch(() => { /* the ledger is reporting only */ });
+  // Richard can switch next-step offers off (or Athena does after three ignored weeks); the ledger is the switch.
+  const nextStepsPromise = proposalEnabled(db, 'chat-next-step').catch(() => true)
+    .then(enabled => (enabled ? suggestNextSteps(persona, message, modelReply, hooks.signal) : []));
   const sources = [...toolsUsed];
 
   // Store only a compact marker for the viewed document in history — not its
@@ -336,6 +340,7 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   const nextSteps = await nextStepsPromise;
   if (nextSteps.length > 0 && assistantMessageId !== '') {
     await setNextSteps(db, assistantMessageId, nextSteps).catch(() => { /* buttons are a convenience */ });
+    void recordChatNextSteps(db, assistantMessageId, nextSteps).catch(() => { /* the ledger is reporting only */ });
   }
   const pending = getPendingProposals(effectiveSessionId);
   // Instructions saved via the remember tool this turn — the UI confirms them with Undo.

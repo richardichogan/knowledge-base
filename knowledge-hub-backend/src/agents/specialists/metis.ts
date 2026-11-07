@@ -27,6 +27,9 @@ registerSpecialist({
           dailyInsightsStageStore(context.db, staged.id)));
     context.signal.throwIfAborted();
     await deleteStagedDailyInsightsImport(context.db, staged.id);
+    // A fresh briefing refreshes Today's meeting preparation, promises and cadence nudges in the background.
+    void import('../../goals/meetingPrep.js').then(m => m.refreshMeetingPrep(context.db, 'briefing'))
+      .catch((error: unknown) => console.error('[MeetingPrep] Briefing refresh failed:', error instanceof Error ? error.message : error));
     const taskCount = result.tasksCreated + result.tasksUpdated;
     return {
       data: { ...result, sourcePath: staged.sourcePath, url: '/library' },
