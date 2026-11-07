@@ -56,7 +56,11 @@ test('isolated task routes round-trip types and dates, create one successor, and
       PRIMARY KEY (task_id, tag_id));
     CREATE TABLE tag_rejections (content_kind TEXT, content_id TEXT, tag_id UUID,
       PRIMARY KEY(content_kind,content_id,tag_id));
+    CREATE TABLE agent_jobs (input JSONB, subject_type TEXT, subject_id TEXT, status TEXT);
+    CREATE TABLE task_assistance (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), task_id TEXT, owner_id TEXT,
+      approved_at TIMESTAMPTZ, result_note_id UUID, created_at TIMESTAMPTZ DEFAULT now());
     INSERT INTO tags VALUES ('11111111-1111-4111-8111-111111111111');`);
+  await db.exec('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS checklist JSONB');
   const migration = await readFile(new URL('../src/db/migrations/063_task_recurrence_identity.sql', import.meta.url), 'utf8');
   await db.exec(migration);
   await db.exec(migration);
@@ -118,12 +122,12 @@ test('isolated task routes round-trip types and dates, create one successor, and
     assert.equal(successors.rows[0]?.task_type, 'cert_review');
     assert.equal(rowToTask(successors.rows[0]!).startDate, '2026-10-25');
     assert.equal(rowToTask(successors.rows[0]!).dueDate, '2026-10-26');
-    assert.equal((await db.query('SELECT id FROM task_notes WHERE task_id=$1', [task.id])).rows.length, 1);
+    assert.equal((await db.query("SELECT id FROM task_notes WHERE task_id=$1 AND activity->>'action' IS DISTINCT FROM 'task-created'", [task.id])).rows.length, 1);
     assert.equal((await write(url, 'PATCH', { status: 'backlog', expectedStatus: 'completed', statusChangeNote: 'Reopened for another review.' })).status, 200);
     assert.equal((await write(url, 'PATCH', { status: 'completed', expectedStatus: 'backlog', statusChangeNote: 'Session review completed.', task_type: 'cert_session' })).status, 200);
     assert.equal((await db.query('SELECT id FROM tasks WHERE recurring_parent_id = $1', [task.id])).rows.length, 1);
     assert.equal((await db.query('SELECT task_type FROM tasks WHERE id = $1', [task.id])).rows[0]?.task_type, 'cert_session');
-    assert.ok(queries.some((sql) => /SELECT status.*FOR UPDATE/.test(sql)));
+    assert.ok(queries.some((sql) => /FROM tasks WHERE id = \$1 FOR UPDATE/.test(sql)));
     await write(url, 'PATCH', { dueDate: '2026-10-28' });
     await write(url, 'PATCH', { dueDate: '2026-10-27' });
     await write(url, 'PATCH', { dueDate: '2026-10-30' });
@@ -147,7 +151,7 @@ test('isolated task routes round-trip types and dates, create one successor, and
     assert.equal((await write(`${base}/${nextTask.id}`, 'PATCH', { status: 'completed', expectedStatus: 'backlog', statusChangeNote: 'Completed review.' })).status, 500);
     assert.equal((await db.query('SELECT status FROM tasks WHERE id = $1', [nextTask.id])).rows[0]?.status, 'backlog');
     assert.equal((await db.query('SELECT id FROM tasks WHERE recurring_parent_id = $1', [nextTask.id])).rows.length, 0);
-    assert.equal((await db.query('SELECT id FROM task_notes WHERE task_id=$1', [nextTask.id])).rows.length, 0);
+    assert.equal((await db.query("SELECT id FROM task_notes WHERE task_id=$1 AND activity->>'action' IS DISTINCT FROM 'task-created'", [nextTask.id])).rows.length, 0);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((err) => err ? reject(err) : resolve()));
     connect.mock.restore();

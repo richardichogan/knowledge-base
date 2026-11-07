@@ -260,9 +260,9 @@ test('note summaries exhaust stable pages and filter saved writing, types and ex
     await db.query("INSERT INTO task_assistance VALUES($1,'{\"kind\":\"email\"}'),($2,'{\"kind\":\"research\"}')", [id(130), id(134)]);
     await db.query("INSERT INTO email_drafts(note_id,task_id,task_generated) VALUES($1,'task-1',true),($2,'task-1',false)", [id(131), id(132)]);
     const emailList = await read('structure=designs&excludeTaskEmails=true&q=Shared%20email-list');
-    assert.equal(emailList.total, 3, 'Think filters generated drafts before pagination and counts');
-    assert.deepEqual(new Set(emailList.items.map(item => item.id)), new Set([id(132), id(133), id(134)]),
-      'Preserve user-created emails even when task-linked, ordinary notes and research');
+    assert.equal(emailList.total, 2, 'Think filters drafts before pagination and counts');
+    assert.deepEqual(new Set(emailList.items.map(item => item.id)), new Set([id(133), id(134)]),
+      'Drafts live in Plan > Drafts; ordinary notes and research stay in Think');
     assert.equal((await read('q=Shared%20email-list')).total, 5, 'Unfiltered retrieval remains available to Athena');
     assert.equal((await read('excludeTaskEmails=false&q=Shared%20email-list')).total, 5);
     const filteredPages = [await read('structure=designs&excludeTaskEmails=true'), await read('structure=designs&excludeTaskEmails=true&page=2')];

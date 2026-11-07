@@ -121,6 +121,7 @@ async function fixture(): Promise<{ db: PGlite; pool: Pool; failKnowledge: (valu
     CREATE TABLE content_items(id UUID DEFAULT gen_random_uuid(),source TEXT,source_id TEXT,title TEXT,
       summary TEXT,body TEXT,published_at TIMESTAMPTZ,project_context TEXT,metadata JSONB,tags TEXT[],
       foundry_indexed_at TIMESTAMPTZ,updated_at TIMESTAMPTZ DEFAULT now(),UNIQUE(source,source_id));
+    CREATE TABLE task_notes(id UUID PRIMARY KEY DEFAULT gen_random_uuid(),task_id TEXT,body TEXT,activity JSONB,created_at TIMESTAMPTZ DEFAULT now());
   `);
   await db.exec(readFileSync(new URL('../src/db/migrations/088_daily_insights.sql', import.meta.url), 'utf8'));
   let fail = false;
