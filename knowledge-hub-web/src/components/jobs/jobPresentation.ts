@@ -5,6 +5,7 @@ export const jobKinds: Record<JobDefinition['kind'], string> = {
   'm365-import': 'M365 report import', 'weekly-microsoft': 'Microsoft updates',
   'discover-picks': 'Worth posting today',
   'task-review': 'Athena task review',
+  'publishing-picks': 'Today\'s publishing picks',
 };
 
 export const outputNames: Record<JobDefinition['outputs'][number], string> = {

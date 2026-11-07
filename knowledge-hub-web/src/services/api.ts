@@ -50,6 +50,7 @@ import type {
 } from '../types/useCases';
 import type { PodcastPrepStatus } from '../types/podcastPrep';
 import type { DiscoverPicksResponse } from '../types/discoverPicks';
+import type { GoalsOverview, GoalMove, DateProposal, ProgressEntry } from '../types/goals';
 import { requestCompletionNotifications } from '../chat/completionNotification';
 import type { PodcastEpisode, ScriptCard } from '../types/podcastEpisodes';
 import type { DraftSummary, TaskReviewSummary, WorkContent, WorkContentPatch } from '../types/workContent';
@@ -2509,6 +2510,28 @@ export class KnowledgeHubApi {
   }
 
   // ── Morning briefing ────────────────────────────────────────────────────────
+
+  async getGoals(): Promise<ApiResponse<GoalsOverview>> {
+    return (await this.client.get<ApiResponse<GoalsOverview>>('/api/today/goals')).data;
+  }
+  async recordGoalProgress(input: { measureId: string; count?: number; done?: boolean; note?: string; date?: string }): Promise<ApiResponse<ProgressEntry>> {
+    return (await this.client.post<ApiResponse<ProgressEntry>>('/api/today/goals/progress', input)).data;
+  }
+  async refreshGoals(which: 'brief' | 'scorecard'): Promise<ApiResponse<GoalsOverview>> {
+    return (await this.client.post<ApiResponse<GoalsOverview>>(`/api/today/goals/${which}/refresh`, {})).data;
+  }
+  async decideGoalMove(id: string, decision: 'accept' | 'dismiss'): Promise<ApiResponse<GoalMove>> {
+    return (await this.client.post<ApiResponse<GoalMove>>(`/api/today/goals/moves/${encodeURIComponent(id)}/${decision}`, {})).data;
+  }
+  async decideGoalDate(id: string, decision: 'accept' | 'dismiss'): Promise<ApiResponse<DateProposal>> {
+    return (await this.client.post<ApiResponse<DateProposal>>(`/api/today/goals/dates/${encodeURIComponent(id)}/${decision}`, {})).data;
+  }
+  async applyGoalTidy(excluded: string[]): Promise<ApiResponse<{ applied: number; skipped: number; batchId: string }>> {
+    return (await this.client.post<ApiResponse<{ applied: number; skipped: number; batchId: string }>>('/api/today/goals/tidy/apply', { excluded })).data;
+  }
+  async undoGoalTidy(batchId: string): Promise<ApiResponse<{ restored: number; skipped: number }>> {
+    return (await this.client.post<ApiResponse<{ restored: number; skipped: number }>>('/api/today/goals/tidy/undo', { batchId })).data;
+  }
 
   async getDiscoverPicks(): Promise<ApiResponse<DiscoverPicksResponse>> {
     return (await this.client.get<ApiResponse<DiscoverPicksResponse>>('/api/today/discover-picks')).data;

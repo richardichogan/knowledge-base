@@ -22,6 +22,11 @@ export interface PublishingJobPost extends Omit<ScheduledPost, 'topicId'> {
   jobId: string; runId: string; copy: string; blog: Record<string, unknown> | null;
 }
 export type PublishingScheduleEntry = ScheduledPost | ScheduledPodcastPost | PublishingJobPost;
+export interface PublishingPick { draftId: string; title: string; destinations: string[]; origin: string; reason: string }
+export interface PublishingPicks {
+  generatedAt: string; trigger: 'job' | 'manual' | 'athena'; picks: PublishingPick[]; considered: number; note: string | null;
+  removed: number; cold: number; coldDays: number;
+}
 export interface PublishingDraft {
   id: string; topicId: string; destination: 'bluesky' | 'blog' | 'linkedin'; variant: 'source' | 'blog';
   version: number; content: Record<string, unknown>; review: string; approval: string; held: boolean;

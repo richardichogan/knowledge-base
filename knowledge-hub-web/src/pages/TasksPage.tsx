@@ -489,10 +489,13 @@ function isTaskNote(value: unknown): value is TaskNote {
 const ACTIVITY_ACTIONS: Record<string, string> = {
   'task-created': 'Created', 'task-edited': 'Edited',
   'status-changed': 'Status changed', 'note-added': 'Note added', 'research-refreshed': 'Research refreshed',
-  'research-prepared': 'Research prepared', 'email-drafted': 'Email draft prepared',
+  'research-prepared': 'Research prepared', 'email-drafted': 'Email draft prepared', 'message-drafted': 'Message draft prepared',
   'task-prepared': 'Task preparation ready', 'email-sent-confirmed': 'Email sending confirmed', 'file-linked': 'File linked',
   'agent-assigned': 'Assigned to agent', 'agent-progress': 'Agent progress',
   'agent-waiting': 'Agent work pending', 'agent-blocked': 'Agent work blocked', 'agent-finished': 'Agent result ready',
+};
+const DRAFTER_ACTORS: Record<string, string> = {
+  'task-email-drafter': 'Hermes · Email draft assistant', 'task-message-drafter': 'Hermes · Message draft assistant',
 };
 const STATUS_LABELS: Record<string, string> = {
   inbox: 'Inbox', backlog: 'Backlog', 'in-progress': 'In progress', blocked: 'Blocked', waiting: 'Waiting', completed: 'Completed',
@@ -589,49 +592,51 @@ export const TaskActivitySection: React.FC<{ taskId: string }> = ({ taskId }) =>
           {notesQuery.error && <DataNotice title="Activity could not load" error={notesQuery.error} onRetry={() => { void notesQuery.refetch(); }} />}
           {notesQuery.isSuccess && notes.length === 0 && <p className="kb-task-activity__message">No activity yet. Add a note to record progress.</p>}
           {notes.length > 0 && (
-            <div className="kb-task-activity__log">
+            <ol className="kb-task-activity__log">
               {notes.map((n) => {
                 const transition = /^Status: ([^\n]+)\n\n/.exec(n.body);
                 const text = transition ? n.body.slice(transition[0].length) : n.body;
                 const legacyStatuses = transition?.[1]?.split(' -> ');
                 const from = n.activity?.from ?? legacyStatuses?.[0];
                 const to = n.activity?.to ?? legacyStatuses?.[1];
+                const action = n.activity?.action;
                 const actor = n.activity?.proposedBy === 'athena' && n.activity.actor === 'richard'
                   ? 'Athena proposed · Richard confirmed'
                   : n.activity?.actor === 'richard' ? 'Richard'
                     : n.activity?.actor === 'athena'
-                      ? n.activity.specialistId === 'task-email-drafter' ? 'Hermes · Email draft assistant' : 'Athena'
-                      : n.activity?.actor === 'system' ? 'System' : 'Earlier activity';
+                      ? DRAFTER_ACTORS[n.activity.specialistId ?? ''] ?? 'Athena'
+                      : n.activity?.actor === 'system' ? 'System' : null;
+                const title = (action && ACTIVITY_ACTIONS[action]) ?? (from && to ? 'Status changed' : 'Note');
                 return (
-                <div key={n.id} className="kb-task-activity__entry">
+                <li key={n.id} className="kb-task-activity__entry">
                   <div className="kb-task-activity__entry-header">
-                    <span className="kb-task-activity__actor">{actor}</span>
-                  <time className="kb-task-activity__time" dateTime={new Date(n.createdAt).toISOString()}>
-                    {new Date(n.createdAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                  </time>
+                    <span className="kb-task-activity__action">{title}</span>
+                    <span className="kb-task-activity__meta">
+                      {actor && <><span className="kb-task-activity__actor">{actor}</span><span aria-hidden="true"> · </span></>}
+                      <time className="kb-task-activity__time" dateTime={new Date(n.createdAt).toISOString()}>
+                        {new Date(n.createdAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      </time>
+                    </span>
                   </div>
-                  {(n.activity?.action || from && to) && <div className="kb-task-activity__action">
-                    <span>{ACTIVITY_ACTIONS[n.activity?.action ?? ''] ?? 'Status changed'}</span>
-                    {from && to && <span className="kb-task-activity__transition" aria-label={`${STATUS_LABELS[from] ?? from} to ${STATUS_LABELS[to] ?? to}`}>
-                      <span className="kb-task-activity__status">{STATUS_LABELS[from] ?? from}</span>
-                      <ArrowRight size={16} aria-hidden="true" />
-                      <span className={`kb-task-activity__status kb-task-activity__status--${Object.hasOwn(STATUS_LABELS, to) ? to : 'backlog'}`}>{STATUS_LABELS[to] ?? to}</span>
-                    </span>}
-                  </div>}
-                  {n.activity?.action === 'task-edited' && n.activity.changes
+                  {from && to && <span className="kb-task-activity__transition" aria-label={`${STATUS_LABELS[from] ?? from} to ${STATUS_LABELS[to] ?? to}`}>
+                    <span className="kb-task-activity__status">{STATUS_LABELS[from] ?? from}</span>
+                    <ArrowRight size={14} aria-hidden="true" />
+                    <span className={`kb-task-activity__status kb-task-activity__status--${Object.hasOwn(STATUS_LABELS, to) ? to : 'backlog'}`}>{STATUS_LABELS[to] ?? to}</span>
+                  </span>}
+                  {action === 'task-edited' && n.activity?.changes
                     ? <TaskChangeList changes={n.activity.changes} />
-                    : n.activity?.action !== 'task-created' && <p className="kb-task-activity__body"><TaskNoteText text={text} noteLabel={n.activity?.action === 'email-drafted' ? 'Open email draft in Think' : 'Open note in Think'} /></p>}
-                </div>
+                    : action !== 'task-created' && text.trim() && <p className="kb-task-activity__body"><TaskNoteText text={text} noteLabel={action === 'email-drafted' ? 'Open email draft in Think' : action === 'message-drafted' ? 'Open message draft in Think' : 'Open note in Think'} /></p>}
+                </li>
                 );
               })}
-            </div>
+            </ol>
           )}
           <div className="kb-task-activity__add">
-            <label className="kb-task-activity__field" htmlFor={`task-note-${taskId}`}>New note
+            <label className="kb-task-activity__field" htmlFor={`task-note-${taskId}`}>Add a note
             <textarea
               id={`task-note-${taskId}`}
               className="kb-task-activity__input"
-              placeholder="Add a note…"
+              placeholder="Record progress, a decision or a blocker"
               rows={2}
               value={draft}
               maxLength={3000}

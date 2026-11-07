@@ -129,9 +129,9 @@ export async function getProjectCockpit(db: Pool, projectId: string, now = new D
     }),
     section(async () => {
       const list = await db.query(`SELECT d.id, d.text, d.status, d.updated_at, s.id AS session_id FROM chat_decisions d
-        JOIN ai_chat_sessions s ON s.id = d.session_id WHERE s.project_id = $1 ORDER BY d.updated_at DESC LIMIT ${SECTION_LIMIT}`, [projectId]);
+        JOIN ai_chat_sessions s ON s.id = d.session_id WHERE s.project_id = $1 AND d.status <> 'dropped' ORDER BY d.updated_at DESC LIMIT ${SECTION_LIMIT}`, [projectId]);
       return {
-        total: await count(`SELECT COUNT(*)::int AS n FROM chat_decisions d JOIN ai_chat_sessions s ON s.id = d.session_id WHERE s.project_id = $1`),
+        total: await count(`SELECT COUNT(*)::int AS n FROM chat_decisions d JOIN ai_chat_sessions s ON s.id = d.session_id WHERE s.project_id = $1 AND d.status <> 'dropped'`),
         data: list.rows.map((r: Record<string, unknown>) => ({
           label: snippet(r['text']), href: `/chat?session=${encodeURIComponent(String(r['session_id']))}`, at: iso(r['updated_at']),
           meta: String(r['status']), sourceId: String(r['id']),

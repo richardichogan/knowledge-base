@@ -221,6 +221,8 @@ export interface DecisionRecord {
   targetId: string;
   /** Defaults to the agent that last wrote the target, else 'athena'. */
   agent?: string | undefined;
+  /** Used when the target has no recorded author, so the lesson reaches the agent responsible for that work. */
+  fallbackAgent?: string | undefined;
   actor?: 'user' | 'system';
   note?: string | null | undefined;
   aiContent?: string | null | undefined;
@@ -234,7 +236,7 @@ export interface DecisionRecord {
 export function recordAiDecision(db: Pool, d: DecisionRecord): void {
   void (async (): Promise<void> => {
     const authored = d.agent === undefined || d.aiContent === undefined ? await latestAuthored(db, d.targetType, d.targetId) : undefined;
-    const agent = d.agent !== undefined ? resolveAgent(d.agent) : authored ? resolveAgent(authored.agent) : currentAgent() ?? 'athena';
+    const agent = d.agent !== undefined ? resolveAgent(d.agent) : authored ? resolveAgent(authored.agent) : d.fallbackAgent !== undefined ? resolveAgent(d.fallbackAgent) : currentAgent() ?? 'athena';
     await db.query(
       `INSERT INTO ai_decisions (environment, agent, kind, actor, target_type, target_id, workflow_run_id, session_id,
          note, ai_content, final_content, diff, details, authored_id)

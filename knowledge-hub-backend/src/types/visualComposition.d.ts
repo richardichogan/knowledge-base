@@ -55,12 +55,29 @@ export interface VisualLink {
   fromPort?: VisualPort;
   toPort?: VisualPort;
 }
+export interface VisualPatternSubject {
+  id: string; label: string; detail: string; tone: VisualTone; reveal: number;
+  /** A drawn graphic for this subject; otherwise the pattern's kind is used. */
+  asset?: VisualAsset;
+  icon?: VisualIcon;
+  kicker?: string;
+  emphasis?: 'highlight' | 'underline' | 'strike';
+}
+/** A designer-chosen structure; the layout engine derives every node box from it. */
+export interface VisualPattern {
+  type: 'flow' | 'converge' | 'branch' | 'stack' | 'compare' | 'hub' | 'cycle' | 'statement';
+  kind: 'icon' | 'panel' | 'text';
+  focus?: string;
+  subjects: VisualPatternSubject[];
+}
 export interface VisualComposition {
   label: string;
   imagePrompt: string;
   imageTreatment?: 'full' | 'blend';
   /** Lays the composition out around the presenter video at full size instead of shrinking it. */
   frame?: 'around-presenter';
+  /** When present, nodes are generated from it and must not be hand-edited. */
+  pattern?: VisualPattern;
   nodes: VisualNode[];
   links: VisualLink[];
 }

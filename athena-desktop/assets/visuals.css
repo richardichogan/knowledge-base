@@ -69,7 +69,7 @@ body, .visual-root { margin: 0; height: 100vh; overflow: hidden; background: #16
 .slide-close__statement { margin-top: 24px; max-width: 18ch; font-size: 96px; font-weight: 300; line-height: 1.08; letter-spacing: -0.025em; text-wrap: balance; }
 .slide-close__statement:first-child { margin-top: 0; }
 .slide-close__thanks { margin-top: 80px; font: 400 16px/1.2 var(--visual-mono); letter-spacing: 0.12em; text-transform: uppercase; color: #8d8d8d; }
-.slide-close__brand { position: absolute; z-index: 1; right: 80px; bottom: 112px; width: 176px; height: auto; }
+.slide-brand { position: absolute; z-index: 1; right: 80px; bottom: 112px; width: 176px; height: auto; }
 .slide-close__mark.visual-emphasis--underline { padding-bottom: 4px; }
 .slide-close__mark.visual-emphasis--highlight:not(.slide-close__mark--on) { background-size: 0% 100%; }
 .slide-close__mark.visual-emphasis--underline:not(.slide-close__mark--on) { background-size: 0% 5px; }

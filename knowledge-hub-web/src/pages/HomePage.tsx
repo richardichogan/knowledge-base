@@ -15,6 +15,7 @@ import { stalledNudge } from '../features/useCases/useCaseView';
 import { UpcomingMeetings } from '../components/today/UpcomingMeetings';
 import { TaskDetail } from '../features/plan/TaskDetail';
 import { DiscoverPickDetail, chosenLabel, picksContext, refreshError, useDiscoverPicks } from '../components/today/DiscoverPicks';
+import { GoalDetail, ScorecardDetail, goalListMeta, goalMove, goalsContext, useGoals } from '../components/today/Goals';
 
 type SectionQueries = Array<{ name: string; query: {
   isPending: boolean; isError: boolean; error: unknown; refetch: () => Promise<unknown>;
@@ -109,9 +110,10 @@ export const HomePage: React.FC = () => {
   const [expandedChanges, setExpandedChanges] = useState(false);
   const podcast = usePodcastPrep();
   const discoverPicks = useDiscoverPicks();
+  const goals = useGoals();
   const taskReview = useQuery({ queryKey: ['today-task-review'], queryFn: async () => requireApiData(await api.getTaskReview()), staleTime: 5 * 60_000 });
   const reviewLine = taskReview.data ? `Athena checked your active tasks at ${new Date(taskReview.data.reviewedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}${new Date(taskReview.data.reviewedAt).toDateString() === new Date().toDateString() ? '' : ` on ${new Date(taskReview.data.reviewedAt).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}`} · ${taskReview.data.queued === 0 ? 'nothing new or changed' : `${taskReview.data.queued} new or changed sent for assessment`}` : null;
-  const context = `${todayContext(model)}${reviewLine ? `\n\nProactive task review: ${reviewLine}. Proposals appear as Athena markers on Plan cards; email and Slack/Teams drafts are in Plan › Drafts.` : ''}\n\n${picksContext(discoverPicks.picks, discoverPicks.saved?.generatedAt ?? null)}`;
+  const context = `${todayContext(model)}${reviewLine ? `\n\nProactive task review: ${reviewLine}. Proposals appear as Athena markers on Plan cards; email and Slack/Teams drafts are in Plan › Drafts.` : ''}\n\n${picksContext(discoverPicks.picks, discoverPicks.saved?.generatedAt ?? null)}\n\n${goalsContext(goals.data)}`;
   function ask(prompt: string, item?: TodayItem): void {
     if (item && item.id !== 'today-all-attention') setSelectedId(item.id);
     openAthena(prompt, item ? {
@@ -123,15 +125,24 @@ export const HomePage: React.FC = () => {
   const visibleAttention = model.attention.slice(0, TODAY_LIMITS.attention);
   const visibleChanges = expandedChanges ? model.changes : model.changes.slice(0, TODAY_LIMITS.changes);
   const workItems = [...visibleAttention, ...visibleChanges, ...model.continuing, ...model.exploration];
-  const selection = selectedId === 'today-meetings' || selectedId === 'today-podcast'
+  const goalList = goals.data?.goals ?? [];
+  const selection = selectedId === 'today-meetings' || selectedId === 'today-podcast' || selectedId === 'goal-scorecard'
+    || goalList.some(g => `goal:${g.id}` === selectedId)
     || discoverPicks.picks.some(pick => `pick:${pick.id}` === selectedId) ? selectedId
     : workItems.find(item => item.id === selectedId)?.id
-      ?? (discoverPicks.picks[0] ? `pick:${discoverPicks.picks[0].id}` : workItems[0]?.id ?? 'today-podcast');
+      ?? (goalList[0] ? `goal:${goalList[0].id}` : discoverPicks.picks[0] ? `pick:${discoverPicks.picks[0].id}` : workItems[0]?.id ?? 'today-podcast');
+  const selectedGoal = goalList.find(g => `goal:${g.id}` === selection);
   const selectedPick = discoverPicks.picks.find(pick => `pick:${pick.id}` === selection);
   const selected = workItems.find(item => item.id === selection);
   const selectedSection = selected && (visibleAttention.includes(selected) ? 'Needs your attention'
     : visibleChanges.includes(selected) ? 'What changed' : model.continuing.includes(selected) ? 'Continue working' : 'Worth exploring');
-  const selectedContext = selectedPick ? {
+  const selectedContext = selectedGoal ? {
+    type: 'goal', title: selectedGoal.name, id: selectedGoal.id,
+    detail: `Today section: Your goals. Selected goal with live measures and this week's move (manage_goals status returns everything, including the scorecard):\n${JSON.stringify({ goal: selectedGoal, move: goalMove(goals.data, selectedGoal.id) })}\n\nDaily brief:\n${context}`,
+  } : selection === 'goal-scorecard' ? {
+    type: 'goal scorecard', title: 'Friday scorecard',
+    detail: `Today section: Your goals. Friday scorecard with date proposals and the tidy-up batch (ids are usable with manage_goals):\n${JSON.stringify(goals.data?.scorecard ?? null)}\n\nDaily brief:\n${context}`,
+  } : selectedPick ? {
     type: 'discover article', title: selectedPick.title, id: selectedPick.id,
     detail: `Today section: Worth posting today. Selected pick (Discover article id ${selectedPick.id}; retrieve the article for its full content):\n${JSON.stringify(selectedPick)}\n\nDaily brief:\n${context}`,
   } : selected ? {
@@ -163,7 +174,11 @@ export const HomePage: React.FC = () => {
       {brief.storageError && <p className="today-brief__error" role="status">Your browser cannot save the Today visit time. Changes use the last 24 hours.</p>}
       {brief.projects.isError && <p className="today-brief__error" role="alert">Workstream names are unavailable. <button type="button" onClick={() => { void brief.projects.refetch(); }}>Retry workstreams</button></p>}
       <ReviewWorkspace storageKey="today" label="Today" context={selectedContext}
-        detail={selectedPick ? <><h2 className="kh-review-detail-heading">Worth posting today</h2>
+        detail={selectedGoal ? <><h2 className="kh-review-detail-heading">Your goals</h2>
+          <GoalDetail key={selectedGoal.id} goal={selectedGoal} goals={goals} onAsk={() => { openAthena(`What should I do next on "${selectedGoal.name}"?`, selectedContext); }} /></>
+          : selection === 'goal-scorecard' ? <><h2 className="kh-review-detail-heading">Your goals</h2>
+          <ScorecardDetail goals={goals} onAsk={() => { openAthena('Talk me through this week\'s scorecard.', selectedContext); }} /></>
+          : selectedPick ? <><h2 className="kh-review-detail-heading">Worth posting today</h2>
           <DiscoverPickDetail key={selectedPick.id} pick={selectedPick} onAsk={() => { openAthena('Help me shape a social post from this article using the suggested angle.', selectedContext); }} /></>
           : selected ? <><h2 className="kh-review-detail-heading">{selectedSection}</h2>
           {selected.taskId ? <TaskDetail key={selected.taskId} taskId={selected.taskId} presentation="today" />
@@ -171,6 +186,21 @@ export const HomePage: React.FC = () => {
           : selection === 'today-meetings' ? <UpcomingMeetings projects={brief.projects.data ?? []} />
             : <PodcastPrepCard />}
         list={<>
+        <section className="today-brief__goals" aria-labelledby="today-goals">
+          <div className="today-brief__section-heading"><h2 id="today-goals">Your goals</h2>
+            {goals.data?.brief?.current && <span className="today-brief__meta">Week of {new Date(`${goals.data.brief.week}T12:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>}</div>
+          <SectionState queries={[{ name: 'Goals', query: goals.query }]} hasItems={goalList.length > 0} empty="Goals are unavailable." />
+          {goalList.map(g => {
+            const move = goalMove(goals.data, g.id);
+            return <ReviewItem key={g.id} title={g.name} selected={selection === `goal:${g.id}`} meta={goalListMeta(g)}
+              description={move ? `${move.status === 'accepted' ? 'Accepted: ' : move.status === 'dismissed' ? 'Not this week: ' : 'Move: '}${move.title}` : 'No move chosen this week yet.'}
+              onSelect={() => { setSelectedId(`goal:${g.id}`); }} />;
+          })}
+          {goalList.length > 0 && <ReviewItem title="Friday scorecard" selected={selection === 'goal-scorecard'}
+            meta={goals.data?.scorecard ? `Week of ${new Date(`${goals.data.scorecard.week}T12:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : 'Fridays at 16:00'}
+            description={goals.data?.scorecard ? (goals.data.scorecard.tidy.appliedAt ? 'Tidy-up applied.' : `${goals.data.scorecard.tidy.items.length} tidy-up item${goals.data.scorecard.tidy.items.length === 1 ? '' : 's'} awaiting approval.`) : 'Not scored yet.'}
+            onSelect={() => { setSelectedId('goal-scorecard'); }} />}
+        </section>
         <section className="today-brief__picks" aria-labelledby="today-picks">
           <div className="today-brief__section-heading"><h2 id="today-picks">Worth posting today</h2>
             <button type="button" className="today-brief__quiet" disabled={discoverPicks.refresh.isPending} onClick={() => { discoverPicks.refresh.mutate(); }}>

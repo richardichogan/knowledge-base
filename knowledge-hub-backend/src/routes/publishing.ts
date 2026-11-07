@@ -19,6 +19,7 @@ import { createPodcastCampaignRouter } from './podcastCampaigns.js';
 import { listPodcastSchedule, podcastDeliveryPost } from '../publishing/podcastCampaignStore.js';
 import { publishingRefreshStatus, startPublishingDraftRefresh } from '../publishing/refresh.js';
 import { listPublishingContent } from '../publishing/content.js';
+import { getPublishingPicks, holdColdDrafts, refreshPublishingPicks } from '../publishing/picks.js';
 
 export function publishingProduction(): void {
   if (env.NODE_ENV !== 'production' && !env.isDevelopment) throw new ValidationError('Publishing changes require an application server or an isolated production-mode test.');
@@ -94,14 +95,14 @@ export function createPublishingRouter(getDb: () => Pool = defaultGetDb): Router
   router.post('/drafts/:id/discard', route(async req => {
     publishingProduction();
     await discardDraft(getDb(), uuid(req.params.id), object(object(req.body).versions), actor(req));
-    recordAiDecision(getDb(), { kind: 'discard', targetType: 'publishing-draft', targetId: uuid(req.params.id) });
+    recordAiDecision(getDb(), { kind: 'discard', fallbackAgent: 'publishing', targetType: 'publishing-draft', targetId: uuid(req.params.id) });
     return { discarded: true };
   }));
   router.post('/topics/:id/reject-draft', route(async req => {
     publishingProduction();
     const id = uuid(req.params.id);
     await rejectDraftTopic(getDb(), id, object(object(req.body).versions), actor(req));
-    recordAiDecision(getDb(), { kind: 'discard', targetType: 'publishing-topic', targetId: id });
+    recordAiDecision(getDb(), { kind: 'discard', fallbackAgent: 'discovery-editorial-assessment', targetType: 'publishing-topic', targetId: id });
     return { rejected: true };
   }));
   const schedule = async (): Promise<(ScheduledPost | ScheduledPodcastPost)[]> => {
@@ -110,6 +111,15 @@ export function createPublishingRouter(getDb: () => Pool = defaultGetDb): Router
   };
   router.get('/schedule', route(schedule));
   router.get('/content', route(() => listPublishingContent(getDb())));
+  router.get('/picks', route(() => getPublishingPicks(getDb())));
+  router.post('/picks/refresh', route(async () => {
+    await refreshPublishingPicks(getDb(), 'manual'); return getPublishingPicks(getDb());
+  }));
+  router.post('/drafts/hold-cold', route(async req => {
+    publishingProduction();
+    const result = await holdColdDrafts(getDb(), actor(req));
+    await refreshSchedule(getDb()); return result;
+  }));
   router.post('/schedule/refresh', route(async () => {
     publishingProduction(); await refreshSchedule(getDb()); return schedule();
   }));
@@ -158,7 +168,7 @@ export function createPublishingRouter(getDb: () => Pool = defaultGetDb): Router
     const action = b.action as 'approve' | 'reject' | 'hold' | 'resume';
     const reason = text(b.reason ?? '', 'reason', PUBLISH_LIMITS.maxGuidance);
     await decideDraft(getDb(), id, b.version, action, actor(req), reason);
-    recordAiDecision(getDb(), { kind: action, targetType: 'publishing-draft', targetId: id, note: reason, details: { version: b.version } });
+    recordAiDecision(getDb(), { kind: action, fallbackAgent: 'publishing', targetType: 'publishing-draft', targetId: id, note: reason, details: { version: b.version } });
     if (action === 'resume') {
       await getDb().query("UPDATE publishing_topics SET state='ready',error=NULL WHERE id=(SELECT topic_id FROM publishing_drafts WHERE id=$1) AND state='held'", [id]);
     }

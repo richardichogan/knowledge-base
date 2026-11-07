@@ -212,6 +212,58 @@ export function alignVisualNodes(nodes, links = []) {
   return layout;
 }
 
+/**
+ * Boxes align before render, but connectors attach to the measured lead (anchor), which drifts off the box centre
+ * when a kicker or detail line makes a node asymmetric. Once real geometry is known, linked subjects snap onto
+ * shared anchor centre lines so straight connectors land on the middle of what the viewer actually reads.
+ */
+function alignMeasuredAnchors(placed, measured, links, move) {
+  const info = new Map(placed.map(node => [node.id, node]));
+  const byId = new Map(measured.map(node => [node.id, node]));
+  const centre = (node, axis) => axis === 'y' ? node.anchor.y + node.anchor.height / 2 : node.anchor.x + node.anchor.width / 2;
+  const movable = node => { const source = info.get(node.id); return source && source.kind !== 'image' && !movesNode(source); };
+  for (const axis of ['y', 'x']) {
+    const parent = new Map(measured.map(node => [node.id, node.id]));
+    const find = id => { while (parent.get(id) !== id) { parent.set(id, parent.get(parent.get(id))); id = parent.get(id); } return id; };
+    for (const link of links) {
+      if (link.route === 'arc') continue;
+      const a = byId.get(link.from), b = byId.get(link.to);
+      if (!a || !b || !movable(a) || !movable(b)) continue;
+      const horizontal = Math.abs(centre(b, 'x') - centre(a, 'x')) >= Math.abs(centre(b, 'y') - centre(a, 'y'));
+      if (horizontal !== (axis === 'y')) continue;
+      if (Math.abs(centre(a, axis) - centre(b, axis)) <= 64) parent.set(find(a.id), find(b.id));
+    }
+    const clusters = new Map();
+    for (const node of measured) {
+      const root = find(node.id);
+      clusters.set(root, [...(clusters.get(root) ?? []), node]);
+    }
+    for (const set of clusters.values()) {
+      if (set.length < 2) continue;
+      const hero = set.find(node => info.get(node.id)?.role === 'hero');
+      const target = hero ? centre(hero, axis) : set.reduce((sum, node) => sum + centre(node, axis), 0) / set.length;
+      const deltas = new Map(set.map(node => [node.id, target - centre(node, axis)]));
+      const shifted = measured.map(node => ({ ...node.bounds,
+        [axis]: node.bounds[axis] + (deltas.get(node.id) ?? 0) }));
+      let safe = true;
+      for (let i = 0; i < measured.length && safe; i++) {
+        for (let j = i + 1; j < measured.length && safe; j++) {
+          const before = separation(measured[i].bounds, measured[j].bounds);
+          if (before > 0 && separation(shifted[i], shifted[j]) < Math.min(before, 16)) safe = false;
+        }
+      }
+      if (!safe) continue;
+      for (const node of set) {
+        const delta = deltas.get(node.id);
+        if (!delta) continue;
+        const dx = axis === 'x' ? delta : 0, dy = axis === 'y' ? delta : 0;
+        for (const rect of new Set([node.bounds, node.anchor, ...node.obstacles])) { rect.x += dx; rect.y += dy; }
+        move(node.id, dx, dy);
+      }
+    }
+  }
+}
+
 /** A still grid and a fixed pool of light: the drawn graphics are the only thing on the slide that moves. */
 function createBackdrop(document) {
   const element = document.createElement('div');
@@ -554,6 +606,7 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
     const connected = new Set(composition.links.flatMap(link => [link.from, link.to]));
     const centred = new Set(placed.filter(node => connected.has(node.id) || hubText(node, placed, connected)).map(node => node.id));
     const subjects = new Map();
+    const holders = new Map();
     placed.forEach((node, index) => {
       const holder = svgElement('foreignObject', { x: node.x, y: node.y, width: node.width, height: node.height, 'data-reveal': node.reveal });
       holder.classList.add('composition-reveal', 'composition-subject');
@@ -563,6 +616,7 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
       holder.append(element);
       reveals.set(holder, { node, ripple });
       subjects.set(node.id, element);
+      holders.set(node.id, holder);
       if (node.states?.length) {
         const mover = movesNode(node) || fadesNode(node) ? svgElement('g') : null;
         mover?.classList.add('composition-mover');
@@ -597,6 +651,12 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
         : node.kind === 'text' ? element.querySelector('h2')
           : node.kind === 'asset' ? element.querySelector('.visual-asset') : null;
       return { id: node.id, bounds, anchor: lead ? measureDrawn(lead) ?? bounds : bounds, obstacles: solid ? [bounds] : parts };
+    });
+    alignMeasuredAnchors(placed, nodes, composition.links, (id, dx, dy) => {
+      const holder = holders.get(id);
+      if (!holder) return;
+      holder.setAttribute('x', Number(holder.getAttribute('x')) + dx);
+      holder.setAttribute('y', Number(holder.getAttribute('y')) + dy);
     });
     const geometryRing = connectionRing(composition.links, nodes);
     ring = null;
@@ -708,13 +768,13 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
     if (scene.subtitle) content.append(emphasised('p', 'slide-close__setup', scene.subtitle, phrases, 'underline', used));
     content.append(statement, html('p', 'slide-close__thanks', 'Thank you'));
     layer.append(content);
-    if (scene.brandMark === 'ibm-8bar') {
-      const logo = html('img', 'slide-close__brand');
-      logo.alt = 'IBM eight-bar logo';
-      logo.src = `data:image/svg+xml,${encodeURIComponent(IBM_8BAR)}`;
-      layer.append(logo);
-    }
     setCloseMarks(revealed, true);
+  }
+  function brandLogo() {
+    const logo = html('img', 'slide-brand');
+    logo.alt = 'IBM eight-bar logo';
+    logo.src = `data:image/svg+xml,${encodeURIComponent(IBM_8BAR)}`;
+    return logo;
   }
   function illustration(artwork) {
     const svg = svgElement('svg', { viewBox: '0 0 1600 900', preserveAspectRatio: 'xMidYMid slice', role: 'img', 'aria-label': artwork.description });
@@ -796,7 +856,7 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
     const scene = packet.scene;
     const page = packet.page > 0 ? packet.page : 0;
     const total = packet.total > 0 ? packet.total : 0;
-    const key = JSON.stringify({ scene, page });
+    const key = JSON.stringify({ scene, page, last: total > 0 && page === total });
     if (signature !== key) { sceneRevision++; imageError = ''; }
     packetError = packet.error || '';
     showStatus();
@@ -837,17 +897,13 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
     if (!scene) return;
     if (scene.template === 'close') {
       closeScene(scene, packet.revealed);
-      return;
-    }
-    if (scene.composition?.imageTreatment || scene.template === 'title' && scene.composition?.nodes.length === 0) {
+    } else if (scene.composition?.imageTreatment || scene.template === 'title' && scene.composition?.nodes.length === 0) {
       titleScene(scene, page);
-      return;
-    }
-    if (scene.composition) {
+    } else if (scene.composition) {
       composed(scene, page, packet.revealed, wantsMotion);
-      return;
-    }
-    legacy(scene, packet.revealed);
+    } else legacy(scene, packet.revealed);
+    // The final slide of every presentation carries the white IBM eight-bar, whatever its template.
+    if (scene.template === 'close' || total > 0 && page === total) layer.append(brandLogo());
   }
   render.disconnectVideo = message => presenterVideo.disconnect(message);
   render.dispose = () => {

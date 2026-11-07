@@ -560,9 +560,11 @@ dialog.kh-workspace-panel--overlay {
   color: var(--cds-text-secondary);
 }
 
-.kh-dialog--settings:has(.kh-publishing .kh-review-workspace) {
+.kh-dialog--settings:has(.kh-publishing) {
   width: min(1440px, calc(100vw - 48px));
   max-width: calc(100vw - 48px);
+}
+.kh-dialog--settings:has(.kh-publishing .kh-review-workspace) {
   .kh-dialog__body { overflow: hidden; }
   .kh-publishing > :not(.kh-review-workspace) { flex-shrink: 0; }
   .kh-publishing .kh-review-workspace { min-height: 240px; }
@@ -983,7 +985,6 @@ dialog.kh-workspace-panel--overlay {
   .conn-item__type { font-family: inherit; }
   .conn-group__label { margin-top: 16px; }
   .kb-task-activity__log { scrollbar-gutter: stable; }
-  .kb-task-activity__time { font-family: inherit; }
 }
 .kh-task-detail__meta {
   margin-bottom: 12px; color: var(--cds-text-secondary); font-size: 0.875rem; line-height: 1.5;

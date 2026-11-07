@@ -43,6 +43,9 @@ export const VISUAL_GRAMMAR = {
   frame: 'composition.frame "around-presenter" (only with presenterLayout true) keeps the scene at full size around the presenter video instead of shrinking it; every node box, including each state, must then avoid the presenter area.',
   presenterArea: PRESENTER_VIDEO_AREA,
   contentArea: { left: CONTENT_AREA.left, right: CONTENT_AREA.right, top: CONTENT_AREA.top, bottom: CONTENT_AREA.bottom },
+  pattern: 'composition.pattern {type, kind, focus, subjects:[{id,label,detail,tone,reveal,icon?,asset?,kicker?,emphasis?}]} lets the layout engine place every subject; nodes are then generated from it, so edit the pattern (or remove it to hand-place nodes). composition.links still name subject ids; ports and lifecycle arcs are set by the engine.',
+  patternTypes: VISUAL_PATTERN_GUIDE,
+  patternKinds: VISUAL_PATTERN_KINDS,
 };
 export type VisualTemplate = typeof VISUAL_TEMPLATES[number];
 export interface VisualCue { blockId: string; quote: string }
@@ -82,7 +85,20 @@ function text(value: unknown, limit: number, label: string, empty = false): stri
   return value;
 }
 export function parseVisualComposition(value: unknown, reveals: number, titleOnly = false, presenter = false): VisualComposition {
-  const data = object(value);
+  let data = object(value);
+  let pattern: VisualPattern | undefined;
+  if (data.pattern !== undefined) {
+    if (data.imageTreatment !== undefined || data.frame !== undefined) throw new Error('A pattern composition cannot also set imageTreatment or frame.');
+    if (!Array.isArray(data.links)) throw new Error('A pattern composition needs a links array (it may be empty).');
+    const step = (raw: unknown): number => {
+      if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 0 || raw > reveals) throw new Error(`Invalid visual pattern: subject reveals must be whole numbers 0–${reveals}.`);
+      return raw;
+    };
+    pattern = parseVisualPattern(data.pattern, step, text, VISUAL_ICON_IDS, VISUAL_ASSET_IDS);
+    const rawLinks = data.links.map(raw => ({ ...object(raw), label: typeof object(raw).label === 'string' ? object(raw).label : '' })) as unknown as VisualLink[];
+    const generated = layoutVisualPattern(pattern, rawLinks);
+    data = { ...data, nodes: generated.nodes, links: generated.links };
+  }
   if (data.imageTreatment !== undefined && data.imageTreatment !== 'full' && data.imageTreatment !== 'blend') throw new Error('Invalid header image treatment.');
   if (data.frame !== undefined && data.frame !== 'around-presenter') throw new Error('Invalid composition frame. Use "around-presenter" or omit it.');
   if (!Array.isArray(data.nodes) || (!data.nodes.length && !data.imageTreatment && !titleOnly) || data.nodes.length > LIMITS.subjects
@@ -200,7 +216,8 @@ export function parseVisualComposition(value: unknown, reveals: number, titleOnl
   }
   return { label: text(data.label, LIMITS.sceneLabel, 'scene label', true), imagePrompt: text(data.imagePrompt, LIMITS.imagePrompt, 'image brief', true), nodes, links,
     ...(data.imageTreatment === undefined ? {} : { imageTreatment: data.imageTreatment as NonNullable<VisualComposition['imageTreatment']> }),
-    ...(data.frame === undefined ? {} : { frame: 'around-presenter' as const }) };
+    ...(data.frame === undefined ? {} : { frame: 'around-presenter' as const }),
+    ...(pattern ? { pattern } : {}) };
 }
 export function parseVisualArtwork(value: unknown): VisualArtwork {
   const input = object(value);
@@ -391,6 +408,7 @@ export function readSectionVisuals(section: VisualScriptBlock): ScriptVisuals | 
   const raw = section.props?.scriptVisuals;
   return typeof raw === 'string' && raw ? parseScriptVisuals(raw) : null;
 }
-import type { VisualComposition, VisualNode, VisualNodeState, VisualLink } from '../types/visualComposition.js';
+import type { VisualComposition, VisualNode, VisualNodeState, VisualLink, VisualPattern } from '../types/visualComposition.js';
+import { layoutVisualPattern, parseVisualPattern, VISUAL_PATTERN_GUIDE, VISUAL_PATTERN_KINDS } from './visualPatterns.js';
 
 export type { VisualComposition } from '../types/visualComposition.js';

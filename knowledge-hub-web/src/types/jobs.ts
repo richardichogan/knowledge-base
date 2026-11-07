@@ -1,5 +1,5 @@
 export interface JobDefinition {
-  name: string; kind: 'content-sync' | 'm365-import' | 'weekly-microsoft' | 'prompt' | 'discover-picks' | 'task-review'; prompt: string;
+  name: string; kind: 'content-sync' | 'm365-import' | 'weekly-microsoft' | 'prompt' | 'discover-picks' | 'task-review' | 'publishing-picks'; prompt: string;
   schedule: { timezone: string; days: number[]; times: string[] };
   approval: 'required' | 'automatic'; deviceId: string; inputFolder: string; outputFolder: string;
   outputs: Array<'think' | 'slack' | 'blog' | 'bluesky' | 'linkedin' | 'file'>;

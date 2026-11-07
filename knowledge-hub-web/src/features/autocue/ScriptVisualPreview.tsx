@@ -74,7 +74,9 @@ export function ScriptVisualPreview({ section, ask, proposed = false, presentati
     {error ? <p role="alert">{error}</p> : plan
       ? <><div ref={frame} className="kh-script-visuals__stage" role="img" aria-label={[
           current?.scene.title, current?.scene.subtitle, current?.scene.artwork?.description, current?.scene.imageAlt,
-          current?.scene.brandMark === 'ibm-8bar' ? 'White IBM eight-bar logo, transparent background, lower-right.' : '',
+          current?.scene.brandMark === 'ibm-8bar' || current?.scene.template === 'close'
+            || (totalScenes ?? plan.scenes.length) > 0 && current && pageOffset + plan.scenes.findIndex(scene => scene.id === current.scene.id) + 1 === (totalScenes ?? plan.scenes.length)
+            ? 'White IBM eight-bar logo, transparent background, lower-right.' : '',
           current?.scene.presenterLayout && current.scene.template !== 'close' ? `Presenter layout: lower-right video mode ${video.mode}; camera status ${video.status}. Preview never captures camera video.` : '',
           current?.scene.template === 'close' ? 'Thank you' : '',
           ...(current?.scene.composition

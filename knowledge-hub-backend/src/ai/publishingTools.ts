@@ -7,6 +7,8 @@ import { proposeJob } from '../jobs/store.js';
 import { feedId, parsePolicy, uuid, PUBLISH_LIMITS } from '../publishing/contracts.js';
 import { feeds, holdTopic, listTopics, rejectDraftTopic, topicDetail } from '../publishing/store.js';
 import { listPublishingContent } from '../publishing/content.js';
+import { getPublishingPicks, holdColdDrafts, refreshPublishingPicks } from '../publishing/picks.js';
+import { refreshSchedule } from '../publishing/schedule.js';
 
 const CONTENT_PAGE_SIZE = 5;
 const CONTENT_PAGE_CHARS = 128_000;
@@ -14,9 +16,9 @@ const CONTENT_PAGE_CHARS = 128_000;
 export const PUBLISHING_TOOL: LlmToolDefinition = {
   type: 'function', function: {
     name: 'manage_publishing_feeds',
-    description: 'Inspect and configure Athena Discover publishing from any chat. Two feeds: bluesky and blog-linkedin. Work with the user on editorial guidance and saved settings. Read first; save produces an exact confirmation card, never silently enables posting. Can hold/reject topics with reasons. To reject and remove an entire unapproved draft, use reject_draft only on explicit request after reading the topic and providing every current draft version. Approved, scheduled or attempted posts are protected; the source is retained. One human package approval in the publishing UI approves the exact Blog and LinkedIn versions together; you CANNOT grant approval, reconcile deliveries or send a post. Drafts do not expire automatically. Queues, source evidence, accuracy/voice findings and audit are shared with the UI. There are no daily posting limits; audio/podcast preparation is independent.',
+    description: 'Inspect and configure Athena Discover publishing from any chat. Two feeds: bluesky and blog-linkedin. Work with the user on editorial guidance and saved settings. Read first; save produces an exact confirmation card, never silently enables posting. Can hold/reject topics with reasons. To reject and remove an entire unapproved draft, use reject_draft only on explicit request after reading the topic and providing every current draft version. Approved, scheduled or attempted posts are protected; the source is retained. One human package approval in the publishing UI approves the exact Blog and LinkedIn versions together; you CANNOT grant approval, reconcile deliveries or send a post. Drafts do not expire automatically. Queues, source evidence, accuracy/voice findings and audit are shared with the UI. There are no daily posting limits; audio/podcast preparation is independent. Today\'s picks: picks returns the three unapproved drafts Athena chose as most worth approving today (chosen each morning at 08:30 UK), each with a one-line reason, plus how many Discover drafts have waited over 7 days; repick chooses again now. Picking never approves anything. hold_cold holds every Discover draft pending over 7 days except today\'s picks; held drafts stay recoverable in Drafts. Use hold_cold only when the user explicitly asks in this chat.',
     parameters: { type: 'object', properties: {
-      action: { type: 'string', enum: ['list', 'content', 'read', 'save', 'hold', 'reject', 'reject_draft'] },
+      action: { type: 'string', enum: ['list', 'content', 'read', 'save', 'hold', 'reject', 'reject_draft', 'picks', 'repick', 'hold_cold'] },
       offset: { type: 'integer', description: 'For content: zero-based offset in the combined saved publishing list. Returns full paged entries, including source, copy, campaign and job identifiers.' },
       id: { type: 'string', description: 'Feed ID bluesky|blog-linkedin for save; topic UUID for read/hold/reject.' },
       revision: { type: 'integer' }, enabled: { type: 'boolean' },
@@ -47,6 +49,8 @@ export async function executePublishingTool(db: Pool, args: Record<string, unkno
     selectionPolicy: `Finished, reviewed drafts only. Microsoft-first, newest relevant evidence first. At most ${PUBLISH_LIMITS.draftShortlist} draft entries total; blog/social packages count as one entry. Scheduled or published topics do not appear in Drafts. Every content sync refreshes and reviews the shortlist without changing scheduled copy. Scheduled entries are separate from the draft limit. Non-Microsoft stories need an exceptional, explicit audience-relevance rationale. Human approval sends each exact version for scheduling, never immediate publication.`,
   };
   if (args.action === 'read') return topicDetail(db, uuid(args.id));
+  if (args.action === 'picks') return (await getPublishingPicks(db)) ?? { picks: [], note: 'No picks have been chosen yet; use repick.' };
+  if (args.action === 'repick') { await refreshPublishingPicks(db, 'athena'); return getPublishingPicks(db); }
   if (env.NODE_ENV !== 'production' && !env.isDevelopment) throw new ValidationError('Publishing changes require an application server.');
   if (args.action === 'save') {
     if (!sessionId) throw new ValidationError('Save this chat before proposing feed settings.');
@@ -54,6 +58,11 @@ export async function executePublishingTool(db: Pool, args: Record<string, unkno
     const current = (await feeds(db)).find(f => f.id === id)!;
     if (args.revision !== current.revision || typeof args.enabled !== 'boolean') throw new ValidationError('Read the current feed revision and provide an explicit automation setting.');
     return proposeJob(db, sessionId, { operation: 'feed-settings', id, revision: current.revision, enabled: args.enabled, policy: parsePolicy(args.policy) });
+  }
+  if (args.action === 'hold_cold') {
+    const result = await holdColdDrafts(db, `chat:${sessionId ?? 'unsaved'}`);
+    await refreshSchedule(db);
+    return { ...result, recoverable: 'Held drafts remain in Publishing > Drafts and can be resumed.' };
   }
   if (args.action === 'reject_draft') {
     await rejectDraftTopic(db, uuid(args.id), object(args.versions), `chat:${sessionId ?? 'unsaved'}`);

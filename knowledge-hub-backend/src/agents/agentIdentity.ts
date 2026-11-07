@@ -12,7 +12,7 @@ const OWNERS: Record<RoleId, readonly string[]> = {
     'chat', 'chat-title', 'chat-summary', 'chat-rollup', 'chat-to-think', 'output-title', 'note-summary', 'next-steps',
     'decisions', 'passage-followup', 'task-assistance-assessment', 'task-assistance-assessor', 'memory-suggestions',
     'memory-review', 'agent-lesson-review', 'scheduled-prompt', 'knowledge-nightly-review', 'tagging-sweep',
-    'archive-tasks', 'connections', 'foundry-backfill', 'task-review', 'task-message-drafter',
+    'archive-tasks', 'connections', 'foundry-backfill', 'task-review', 'task-message-drafter', 'goals-brief', 'goals-scorecard',
   ],
   iris: ['task-researcher', 'chat-researcher', 'document-reading', 'document-review', 'deep-dive', 'blog-research', 'manual-blog-research'],
   calliope: [
@@ -21,7 +21,7 @@ const OWNERS: Record<RoleId, readonly string[]> = {
     'podcast-copy-fitting', 'podcast-blog-formatting', 'publishing',
   ],
   momus: [
-    'discover-editorial', 'discovery-editorial-assessment', 'discovery-editorial-review', 'weekly-job-editorial',
+    'discover-editorial', 'discovery-editorial-assessment', 'publishing-picks', 'discovery-editorial-review', 'weekly-job-editorial',
     'weekly-microsoft', 'podcast-independent-review', 'podcast-publication-reviewer', 'blog-verification',
     'manual-blog-critique', 'manual-blog-recheck',
   ],

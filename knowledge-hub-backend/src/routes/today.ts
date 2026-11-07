@@ -11,6 +11,10 @@ import { ValidationError } from '../types/errors.js';
 import { HTTP_STATUS } from '../config/constants.js';
 import { latestTaskReview } from '../work/taskReview.js';
 import { getDiscoverPicks, refreshDiscoverPicks, discoverPicksRunning } from '../services/discoverPicks.js';
+import { goalsOverview, startGoalGeneration } from '../goals/overview.js';
+import { recordGoalProgress } from '../goals/goals.js';
+import { acceptGoalMove, dismissGoalMove } from '../goals/brief.js';
+import { applyTidyBatch, decideDateProposal, undoTidyBatch } from '../goals/scorecard.js';
 
 export const todayRouter = Router();
 
@@ -41,6 +45,41 @@ todayRouter.get('/task-review', (_req, res, next) => {
 todayRouter.post('/discover-picks/refresh', (_req, res, next) => {
   void refreshDiscoverPicks(getDb(), 'manual').then(() => getDiscoverPicks(getDb()))
     .then((picks) => { res.json({ success: true, data: { picks, running: false } }); }).catch(next);
+});
+
+/** GET /api/today/goals — goal health, measures, this week's brief and the latest scorecard. */
+todayRouter.get('/goals', (_req, res, next) => {
+  void goalsOverview(getDb()).then((data) => { res.json({ success: true, data }); }).catch(next);
+});
+/** POST /api/today/goals/progress — record a proposal, CFP or milestone by hand. */
+todayRouter.post('/goals/progress', (req, res, next) => {
+  void recordGoalProgress(getDb(), (req.body ?? {}) as Record<string, unknown>, 'richard').then((data) => { res.json({ success: true, data }); }).catch(next);
+});
+/** POST /api/today/goals/(brief|scorecard)/refresh — start a generation now; poll GET /goals while running. */
+todayRouter.post('/goals/:which/refresh', (req, res, next) => {
+  const which = req.params['which'];
+  if (which !== 'brief' && which !== 'scorecard') { next(new ValidationError('Refresh the brief or the scorecard.')); return; }
+  startGoalGeneration(getDb(), which, 'manual');
+  void goalsOverview(getDb()).then((data) => { res.status(HTTP_STATUS.ACCEPTED).json({ success: true, data }); }).catch(next);
+});
+todayRouter.post('/goals/moves/:id/:decision', (req, res, next) => {
+  const decision = req.params['decision'];
+  if (decision !== 'accept' && decision !== 'dismiss') { next(new ValidationError('Accept or dismiss the move.')); return; }
+  const id = req.params['id'];
+  void (decision === 'accept' ? acceptGoalMove(getDb(), id, 'richard') : dismissGoalMove(getDb(), id))
+    .then((data) => { res.json({ success: true, data }); }).catch(next);
+});
+todayRouter.post('/goals/dates/:id/:decision', (req, res, next) => {
+  const decision = req.params['decision'];
+  if (decision !== 'accept' && decision !== 'dismiss') { next(new ValidationError('Accept or dismiss the date.')); return; }
+  void decideDateProposal(getDb(), req.params['id'], decision === 'accept', 'richard').then((data) => { res.json({ success: true, data }); }).catch(next);
+});
+/** POST /api/today/goals/tidy/apply — apply this week's tidy-up batch, minus { excluded: itemId[] }. */
+todayRouter.post('/goals/tidy/apply', (req, res, next) => {
+  void applyTidyBatch(getDb(), (req.body as { excluded?: unknown } | undefined)?.excluded ?? [], 'richard').then((data) => { res.json({ success: true, data }); }).catch(next);
+});
+todayRouter.post('/goals/tidy/undo', (req, res, next) => {
+  void undoTidyBatch(getDb(), (req.body as { batchId?: unknown } | undefined)?.batchId, 'richard').then((data) => { res.json({ success: true, data }); }).catch(next);
 });
 
 /** Raw mapped GitHub activity row returned by the Today activity SQL query. */

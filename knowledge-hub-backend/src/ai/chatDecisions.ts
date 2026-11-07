@@ -29,7 +29,7 @@ function toDecision(r: { id: string; status: DecisionStatus; text: string; sourc
 
 export async function listDecisions(db: Pool, sessionId: string): Promise<ChatDecision[]> {
   const { rows } = await db.query<{ id: string; status: DecisionStatus; text: string; source: 'auto' | 'user'; created_at: Date; updated_at: Date }>(
-    `SELECT id::text, status, text, source, created_at, updated_at FROM chat_decisions WHERE session_id = $1 ORDER BY created_at`,
+    `SELECT id::text, status, text, source, created_at, updated_at FROM chat_decisions WHERE session_id = $1 AND status <> 'dropped' ORDER BY created_at`,
     [sessionId],
   );
   return rows.map(toDecision);

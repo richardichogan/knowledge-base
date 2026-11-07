@@ -26,6 +26,9 @@ import { PUBLISH_LIMITS } from '../publishing/contracts.js';
 import { ValidationError } from '../types/errors.js';
 import { refreshDiscoverPicks } from '../services/discoverPicks.js';
 import { reviewActiveTasks } from '../work/taskReview.js';
+import { refreshPublishingPicks } from '../publishing/picks.js';
+import { refreshGoalBrief } from '../goals/brief.js';
+import { refreshScorecard } from '../goals/scorecard.js';
 
 export class UnconfirmedDelivery extends Error {}
 const WEEKLY_SOCIAL_TOKENS = 2_000;
@@ -169,6 +172,28 @@ export async function executeRun(db: Pool, run: JobRun, lease: string, delivery:
         run.artifacts.picks = result.picks.map(p => ({ id: p.id, title: p.title, angle: p.angle }));
         run.artifacts.message = result.note ?? `Chose ${result.picks.length} Discover articles worth posting today.`;
         return run.artifacts.picks;
+      });
+    } else if (run.definition.kind === 'publishing-picks') {
+      if (run.preview) run.artifacts = { message: 'Preview only: Athena would choose the three unapproved drafts most worth approving today. Nothing is approved.' };
+      else await step(db, run, lease, 'publishing-picks', async () => {
+        const result = await refreshPublishingPicks(db, 'job');
+        run.artifacts.picks = result;
+        run.artifacts.message = result.note ?? `Chose ${result.picks.length} of ${result.considered} drafts worth approving today.`;
+        return result;
+      });
+    } else if (run.definition.kind === 'goals-brief') {
+      if (run.preview) run.artifacts = { message: 'Preview only: Athena would choose one move per goal for this week and prepare drafts or research. Nothing is sent and no task is created until you accept.' };
+      else await step(db, run, lease, 'goals-brief', async () => {
+        const brief = await refreshGoalBrief(db, 'job');
+        run.artifacts.message = `Proposed ${String(brief.moves.length)} moves for the week of ${brief.week}.`;
+        return { week: brief.week, moves: brief.moves.length };
+      });
+    } else if (run.definition.kind === 'goals-scorecard') {
+      if (run.preview) run.artifacts = { message: 'Preview only: Athena would score the week per goal, propose honest dates for overdue tasks and prepare a tidy-up batch for approval. Nothing changes until you approve.' };
+      else await step(db, run, lease, 'goals-scorecard', async () => {
+        const card = await refreshScorecard(db, 'job');
+        run.artifacts.message = `Scored the week of ${card.week}; ${String(card.tidy.items.length)} tidy-up items await approval.`;
+        return { week: card.week, tidy: card.tidy.items.length };
       });
     } else if (run.definition.kind === 'task-review') {
       if (run.preview) run.artifacts = { message: 'Preview only: Athena would review open tasks that are new or changed, propose how it could help, and start any proposed research.' };

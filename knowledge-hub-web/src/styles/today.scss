@@ -178,3 +178,37 @@
     &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
   }
 }
+
+// Your goals: health, measures, the weekly move and the Friday scorecard.
+.today-brief__goals .kh-review-item__description { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.today-goals {
+  h4 { font-size: 0.875rem; font-weight: 600; line-height: 1.5; margin: 0 0 4px; }
+  &__health {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; color: var(--cds-text-secondary);
+    > span { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    &--on-track { color: var(--cds-support-success); }
+    &--at-risk { color: var(--cds-support-warning); }
+    &--slipping { color: var(--cds-support-error); }
+  }
+  &__measures, &__scores, &__dates { list-style: none; margin: 16px 0 0; padding: 0; }
+  &__measure, &__scores > li { padding: 12px 0; border-top: 1px solid var(--cds-border-subtle-01); }
+  &__measure-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+  &__measure-label { font-size: 0.875rem; font-weight: 500; }
+  &__trend { display: inline-flex; align-items: center; gap: 6px; }
+  &__record { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; input { flex: 1 1 200px; } }
+  &__move, &__athena, &__tidy { margin-top: 16px; padding: 16px 0 0; border-top: 1px solid var(--cds-border-subtle-01); }
+  &__move { padding: 16px; background: var(--kh-accent-bg); border: 1px solid var(--kh-accent-border); border-radius: var(--kh-radius-md); }
+  &__eyebrow { color: var(--kh-accent); font-size: 12px; font-weight: 500; letter-spacing: 0.02em; margin-bottom: 4px; }
+  &__decided { color: var(--cds-text-secondary); font-size: 12px; }
+  &__failed { color: var(--cds-support-error); }
+  &__dates { margin-top: 8px; }
+  &__date { display: flex; flex-direction: column; gap: 4px; padding: 8px 0 8px 12px; border-left: 2px solid var(--cds-support-warning); margin-top: 8px;
+    .today-brief__actions { margin-top: 4px; } }
+  &__tidy-title { font-size: 0.875rem; color: var(--cds-text-primary); overflow-wrap: anywhere; }
+  a.today-goals__tidy-title { text-decoration: none; &:hover { color: var(--kh-accent); } }
+  &__tidy-group { border: 0; margin: 12px 0 0; padding: 0; min-width: 0;
+    legend { font-size: 12px; font-weight: 600; color: var(--cds-text-primary); padding: 0; margin-bottom: 4px; } }
+  &__tidy-item { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--cds-border-subtle-01); cursor: pointer;
+    input { width: 16px; height: 16px; min-height: 0; margin: 3px 0 0; padding: 0; accent-color: var(--kh-accent); flex: none; }
+    > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; } }
+}
