@@ -317,7 +317,7 @@ export function visualCueResolver(section: VisualScriptBlock): (cue: VisualCue) 
     if (!cue.quote) return { blockId: spoken[next]!.id, quote: '', index: next, offset: 0 };
     const words = cue.quote.trim().split(/\s+/).filter(Boolean);
     if (!words.length) return null;
-    const pattern = new RegExp(words.map(word => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+'), 'g');
+    const pattern = new RegExp(words.map(word => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+'), 'gi');
     pattern.lastIndex = starts[next]!;
     const match = pattern.exec(joined);
     if (!match) return null;

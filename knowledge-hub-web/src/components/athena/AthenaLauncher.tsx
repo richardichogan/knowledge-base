@@ -1,5 +1,6 @@
 /**
- * components/athena/AthenaLauncher.tsx — the floating bottom-right Athena button, on every page.
+ * components/athena/AthenaLauncher.tsx — the floating bottom-right Athena button, outside Think.
+ * Stays mounted on Think to track background replies without covering the embedded chat controls.
  * A badge counts things Athena has for Richard that he hasn't seen: proposals visible in peak hours,
  * work Athena paused after repeated failures, and answers that finished while no chat showed them.
  * The badge pulses once when the count rises. Opening Athena from a badged launcher shows "What's new".
@@ -73,7 +74,7 @@ function useHeadlessReplies(): ReturnType<typeof useAthenaReplies> {
   return replies;
 }
 
-export const AthenaLauncher: React.FC<{ unavailable?: string | undefined }> = ({ unavailable }) => {
+export const AthenaLauncher: React.FC<{ hidden?: boolean }> = ({ hidden = false }) => {
   const { launchAthena, floatOpen, showNews } = useAthenaContext();
   const proactive = useProactive(IDLE_POLL_MS);
   const { unread } = useHeadlessReplies();
@@ -107,11 +108,11 @@ export const AthenaLauncher: React.FC<{ unavailable?: string | undefined }> = ({
     launchAthena();
   };
 
-  if (floatOpen) return null;
-  const label = unavailable ?? (count > 0 ? `Open Athena — ${count} new item${count === 1 ? '' : 's'}` : 'Open Athena');
+  if (hidden || floatOpen) return null;
+  const label = count > 0 ? `Open Athena — ${count} new item${count === 1 ? '' : 's'}` : 'Open Athena';
   return (
     <button type="button" className={`kh-athena-launcher${count > 0 ? ' kh-athena-launcher--news' : ''}`}
-      aria-label={label} title={unavailable ?? `${label} (⌘J / Ctrl+J)`} disabled={unavailable !== undefined} onClick={open}>
+      aria-label={label} title={`${label} (⌘J / Ctrl+J)`} onClick={open}>
       <AthenaMark state="resting" size={30} />
       {count > 0 && <span key={pulse} className={`kh-athena-launcher__badge${pulse > 0 ? ' kh-athena-launcher__badge--pulse' : ''}`} aria-hidden="true">
         {count > 9 ? '9+' : count}

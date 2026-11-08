@@ -306,13 +306,38 @@ function nudge(boxes: Box[]): void {
 
 /** Expands a pattern into renderer nodes, and settles link ports/routes to match the geometry. */
 export function layoutVisualPattern(pattern: VisualPattern, links: VisualLink[]): { nodes: VisualNode[]; links: VisualLink[] } {
-  let boxes: Box[] = [];
-  for (const density of DENSITIES) {
-    boxes = layout(pattern, links, density);
-    if (!fits(boxes)) nudge(boxes);
-    if (fits(boxes)) break;
+  // Deterministic degradation when the full pattern cannot fit: drop connection labels (the narration
+  // carries them), then subject details, then panel icons, before rejecting — the same remedy the
+  // failure message prescribes.
+  const stages: { pattern: VisualPattern; links: VisualLink[] }[] = [{ pattern, links }];
+  const unlabelled = links.map(link => ({ ...link, label: '' }));
+  const labelled = links.some(link => link.label);
+  const strip = (base: VisualPattern, icons: boolean): VisualPattern =>
+    ({ ...base, subjects: base.subjects.map(subject => {
+      const { icon, ...rest } = subject;
+      return { ...rest, detail: '', ...(icons || icon === undefined ? {} : { icon }) };
+    }) });
+  if (labelled) stages.push({ pattern, links: unlabelled });
+  if (pattern.subjects.some(subject => subject.detail)) {
+    const lean = strip(pattern, false);
+    stages.push({ pattern: lean, links });
+    if (labelled) stages.push({ pattern: lean, links: unlabelled });
   }
-  if (!fits(boxes)) {
+  if (pattern.kind === 'panel' && pattern.subjects.some(subject => subject.icon)) {
+    stages.push({ pattern: strip(pattern, true), links: labelled ? unlabelled : links });
+  }
+  let boxes: Box[] = [];
+  let settledLinks = links;
+  let fitted = false;
+  for (const stage of stages) {
+    for (const density of DENSITIES) {
+      boxes = layout(stage.pattern, stage.links, density);
+      if (!fits(boxes)) nudge(boxes);
+      if (fits(boxes)) { settledLinks = stage.links; fitted = true; break; }
+    }
+    if (fitted) break;
+  }
+  if (!fitted) {
     const width = Math.max(...boxes.map(box => box.x + box.width)) - Math.min(...boxes.map(box => box.x));
     const height = Math.max(...boxes.map(box => box.y + box.height)) - Math.min(...boxes.map(box => box.y));
     const over = [width > AREA.right - AREA.left ? `${Math.ceil(width)}px wide (at most ${AREA.right - AREA.left}px fits)` : '',
@@ -332,7 +357,7 @@ export function layoutVisualPattern(pattern: VisualPattern, links: VisualLink[])
       ...(subject.kicker ? { kicker: subject.kicker } : {}),
       ...(subject.emphasis ? { emphasis: subject.emphasis } : {}) };
   });
-  const settled = links.map((link): VisualLink => {
+  const settled = settledLinks.map((link): VisualLink => {
     const from = byId.get(link.from), to = byId.get(link.to);
     if (!from || !to) return link;
     const { fromPort: _f, toPort: _t, route: _r, ...rest } = link;
