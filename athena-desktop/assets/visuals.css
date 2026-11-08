@@ -132,6 +132,28 @@ body, .visual-root { margin: 0; height: 100vh; overflow: hidden; background: #16
 .visual-node--image { overflow: hidden; }
 .visual-node--image img { width: 100%; height: 100%; object-fit: cover; }
 
+/* Stat callouts: one oversized figure carries the scene and counts up as it enters; the claim reads beneath it. */
+.visual-node--stat { gap: 20px; }
+.visual-node--stat h2 { font-size: calc(232px * var(--role-scale, 1)); font-weight: 300; line-height: 0.92; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; }
+.visual-node--stat:not(.visual-tone--neutral) h2 { color: var(--node-tone); }
+.visual-node--stat .visual-node__detail { font-size: calc(30px * var(--role-scale, 1)); line-height: 1.3; max-width: 26ch; color: #f4f4f4; }
+
+/* Colour blocks: a tone-filled field with ink type, for splits, tensions and before/after pairs. */
+.visual-node--block { padding: 48px 52px; background: var(--node-tone); color: #161616; justify-content: flex-end; gap: 10px; }
+.visual-node--block h2 { font-size: calc(54px * var(--role-scale, 1)); font-weight: 400; line-height: 1.1; letter-spacing: -0.015em; color: #161616; }
+.visual-node--block .visual-node__kicker { color: rgba(22, 22, 22, 0.72); }
+.visual-node--block .visual-node__detail { font-size: calc(24px * var(--role-scale, 1)); color: rgba(22, 22, 22, 0.78); max-width: 34ch; }
+.visual-node--block.visual-tone--neutral { background: #393939; color: #f4f4f4; }
+.visual-node--block.visual-tone--neutral h2 { color: #f4f4f4; }
+.visual-node--block.visual-tone--neutral .visual-node__kicker { color: #a8a8a8; }
+.visual-node--block.visual-tone--neutral .visual-node__detail { color: #c6c6c6; }
+
+/* Quotes: an oversized mark in the tone colour, a generous measure, attribution set like a kicker. */
+.visual-node--quote { gap: 6px; }
+.visual-node__quotemark { display: block; height: 0.56em; font-size: 170px; line-height: 0.9; font-weight: 300; color: var(--node-tone); }
+.visual-node--quote h2 { font-size: calc(56px * var(--role-scale, 1)); font-weight: 300; line-height: 1.2; letter-spacing: -0.015em; max-width: 26ch; }
+.visual-node--quote .visual-node__detail { margin-top: 18px; font: 400 17px/1.2 var(--visual-mono); letter-spacing: 0.12em; text-transform: uppercase; color: #a8a8a8; }
+
 /* Roles: one hero reads first and secondary nodes step back; sizes follow --role-scale (the renderer sizes icon discs the same way). */
 .visual-node--hero { --role-scale: 1.45; }
 .visual-node--secondary { --role-scale: 0.8; }

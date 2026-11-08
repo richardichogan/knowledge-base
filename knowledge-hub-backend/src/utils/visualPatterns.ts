@@ -5,8 +5,8 @@ import type { VisualAsset, VisualIcon, VisualLink, VisualNode, VisualPattern, Vi
  * coordinate, so peers share exact centre lines, gaps are equal and the focal subject is always the largest.
  * Pure and browser-safe: the backend parser, Athena edits and the web preview all expand patterns identically.
  */
-export const VISUAL_PATTERN_TYPES = ['flow', 'converge', 'branch', 'stack', 'compare', 'hub', 'cycle', 'statement'] as const;
-export const VISUAL_PATTERN_KINDS = ['icon', 'panel', 'text'] as const;
+export const VISUAL_PATTERN_TYPES = ['flow', 'converge', 'branch', 'stack', 'compare', 'hub', 'cycle', 'statement', 'tree', 'tiers'] as const;
+export const VISUAL_PATTERN_KINDS = ['icon', 'panel', 'text', 'block'] as const;
 export const VISUAL_PATTERN_GUIDE = {
   flow: '2–5 subjects in one row, left to right, on a single centre line with equal gaps. A process, handoff or progression. Focus (optional) is normally the last subject.',
   converge: '2–4 sources stacked in a column on the left, equally spaced, all feeding the focus on the right. Several contributions combining into one outcome. Focus required.',
@@ -16,6 +16,8 @@ export const VISUAL_PATTERN_GUIDE = {
   hub: 'The focus in the centre with 2–6 subjects in two equally spaced columns either side of it. A central idea and its connected parts. Focus required.',
   cycle: '3–6 stages evenly spaced clockwise around an ellipse from the top, optionally around a focus hub. A lifecycle or loop. Links between consecutive stages become one continuous orbiting ring.',
   statement: 'One dominant statement (the focus) with 0–3 supporting subjects in a row beneath it. A takeaway or single big idea. Focus required.',
+  tree: 'The focus as the root centred above 2–4 children in an equally spaced row beneath — an org chart. Ownership, accountability or one thing decomposing into parts. Focus required; connect root to each child with style "line" (ports are set by the engine).',
+  tiers: 'A pyramid of 2–4 filled blocks listed base first, each tier narrower than the one beneath it. A foundation building to a peak, maturity levels or diminishing scale. Kind is always "block"; no focus, no connections.',
 } as const satisfies Record<typeof VISUAL_PATTERN_TYPES[number], string>;
 
 const AREA = { left: 80, right: 1520, top: 240, bottom: 800 };
@@ -23,7 +25,7 @@ const INNER = { left: 112, right: 1488, top: 256, bottom: 784 };
 const MID_X = (INNER.left + INNER.right) / 2;
 const MID_Y = (INNER.top + INNER.bottom) / 2;
 const COUNTS: Record<VisualPattern['type'], [number, number]> = {
-  flow: [2, 5], converge: [3, 5], branch: [3, 5], stack: [2, 4], compare: [2, 2], hub: [3, 7], cycle: [3, 7], statement: [1, 4],
+  flow: [2, 5], converge: [3, 5], branch: [3, 5], stack: [2, 4], compare: [2, 2], hub: [3, 7], cycle: [3, 7], statement: [1, 4], tree: [3, 5], tiers: [2, 4],
 };
 const ASPECT: Partial<Record<VisualAsset, number>> = { 'workforce-pair': 1.5, process: 1.82 };
 const TONES = ['teal', 'blue', 'purple', 'neutral', 'warning', 'success'];
@@ -69,10 +71,10 @@ function measure(subject: VisualPatternSubject, focus: boolean, kind: typeof VIS
     const height = graphic + caption.reduce((sum, part) => sum + part, 0) + gap * caption.length;
     return { ...base, kind: asset ? 'asset' : 'icon', width, height, anchor: graphic / 2 };
   }
-  if (kind === 'panel') {
+  if (kind === 'panel' || kind === 'block') {
     const width = (focus ? Math.max(400, panelWidth) : panelWidth * peerScale);
     const inner = width - 56;
-    const parts = [subject.icon ? 40 * r : 0, kicker, block(subject.label, 32 * r, 1.2, inner), block(subject.detail, 22 * r, 1.35, inner)].filter(Boolean);
+    const parts = [kind === 'panel' && subject.icon ? 40 * r : 0, kicker, block(subject.label, 32 * r, 1.2, inner), block(subject.detail, 22 * r, 1.35, inner)].filter(Boolean);
     const height = 48 + parts.reduce((sum, part) => sum + part, 0) + 12 * (parts.length - 1);
     return { ...base, kind, width, height, anchor: height / 2 };
   }
@@ -175,7 +177,7 @@ function layout(pattern: VisualPattern, links: VisualLink[], density: typeof DEN
     : subject.id === focusId ? (small ? 'm' : 'l') : small ? 's' : 'm';
   const panelWidth = pattern.type === 'stack' ? 720 : pattern.type === 'compare' ? 440 : pattern.type === 'converge' || pattern.type === 'branch' ? 420 : 320;
   const boxes = pattern.subjects.map(subject => measure(subject, subject.id === focusId, pattern.kind, textSize(subject), density.peer, panelWidth));
-  if (pattern.type !== 'statement') equalise(boxes);
+  if (pattern.type !== 'statement' && pattern.type !== 'tiers') equalise(boxes);
   const focus = boxes.find(box => box.focus);
   const others = boxes.filter(box => !box.focus);
   const longest = (vertical: boolean, fan: boolean) => Math.max(0, ...links.map(link => labelRun(link.label, vertical, fan)));
@@ -231,6 +233,29 @@ function layout(pattern: VisualPattern, links: VisualLink[], density: typeof DEN
       placeRow(others, top + lead.height + 72 + Math.max(...others.map(box => box.anchor)), 96, INNER.left + 120, INNER.right - 120);
       break;
     }
+    case 'tree': {
+      const lead = focus!;
+      const gap = Math.max(120 * density.gap, longest(true, false));
+      const rowHeight = Math.max(...others.map(box => box.height));
+      const top = MID_Y - (lead.height + gap + rowHeight) / 2;
+      lead.x = MID_X - lead.width / 2; lead.y = top;
+      placeRow(others, top + lead.height + gap + Math.max(...others.map(box => box.anchor)), 48 * density.gap);
+      break;
+    }
+    case 'tiers': {
+      // The box IS the data: widths step down evenly from a full-width base, so size carries the meaning.
+      const gap = 24, n = boxes.length;
+      const avail = AREA.bottom - AREA.top;
+      const height = Math.max(Math.max(...boxes.map(box => box.height)), Math.min(160, (avail - gap * (n - 1)) / n));
+      const base = MID_Y + (n * height + gap * (n - 1)) / 2;
+      boxes.forEach((box, index) => {
+        box.width = (AREA.right - AREA.left) * (n + 1 - index) / (n + 1);
+        resize(box, height);
+        box.x = MID_X - box.width / 2;
+        box.y = base - (index + 1) * height - index * gap;
+      });
+      break;
+    }
   }
   return boxes;
 }
@@ -274,6 +299,7 @@ function ports(type: VisualPattern['type'], from: Box, to: Box): { fromPort?: Vi
     return dx > 0 ? { fromPort: 'right', toPort: 'left' } : { fromPort: 'left', toPort: 'right' };
   }
   if (type === 'stack' && Math.abs(dy) > 1) return dy > 0 ? { fromPort: 'bottom', toPort: 'top' } : { fromPort: 'top', toPort: 'bottom' };
+  if (type === 'tree' && Math.abs(dy) > 1) return dy > 0 ? { fromPort: 'bottom', toPort: 'top' } : { fromPort: 'top', toPort: 'bottom' };
   return {};
 }
 
@@ -283,8 +309,9 @@ export function parseVisualPattern(value: unknown, reveal: (value: unknown) => n
   const data = value as Record<string, unknown>;
   if (!(VISUAL_PATTERN_TYPES as readonly string[]).includes(String(data.type))) fail(`type must be one of ${VISUAL_PATTERN_TYPES.join(', ')}.`);
   const type = data.type as VisualPattern['type'];
-  const kind = data.kind ?? 'icon';
+  const kind = data.kind ?? (type === 'tiers' ? 'block' : 'icon');
   if (!(VISUAL_PATTERN_KINDS as readonly string[]).includes(String(kind))) fail(`kind must be one of ${VISUAL_PATTERN_KINDS.join(', ')} (drawn graphics are chosen per subject with "asset").`);
+  if ((kind === 'block') !== (type === 'tiers')) fail('kind "block" belongs to the tiers pattern only — a tiers always draws blocks, so omit its kind or set "block".');
   if (!Array.isArray(data.subjects)) fail('subjects must be an array.');
   const [min, max] = COUNTS[type];
   if (data.subjects.length < min || data.subjects.length > max) fail(`a ${type} needs ${min}–${max} subjects including any focus.`);
@@ -301,6 +328,7 @@ export function parseVisualPattern(value: unknown, reveal: (value: unknown) => n
     if (subject.asset !== undefined && subject.asset !== '' && !assets.includes(String(subject.asset))) fail(`subject "${id}" has unknown asset "${String(subject.asset)}".`);
     if (subject.emphasis !== undefined && !['highlight', 'underline', 'strike'].includes(String(subject.emphasis))) fail(`subject "${id}" has invalid emphasis.`);
     const asset = subject.asset ? subject.asset as VisualAsset : undefined;
+    if (asset && kind === 'block') fail(`subject "${id}": blocks are filled colour fields and draw no graphics, so they cannot take an asset.`);
     if (!asset && kind === 'icon' && !icon) fail(`subject "${id}" needs an icon (or an asset) in an icon pattern.`);
     return { id, label: text(subject.label, 120, 'pattern subject label', true), detail: text(subject.detail ?? '', 240, 'pattern subject detail', true),
       tone: subject.tone as VisualTone, reveal: reveal(subject.reveal),
@@ -310,9 +338,10 @@ export function parseVisualPattern(value: unknown, reveal: (value: unknown) => n
   });
   const focus = data.focus === undefined || data.focus === '' ? '' : String(data.focus);
   if (focus && !ids.has(focus)) fail(`focus "${focus}" is not one of the subjects.`);
-  const needsFocus = ['converge', 'branch', 'hub', 'statement'].includes(type);
+  const needsFocus = ['converge', 'branch', 'hub', 'statement', 'tree'].includes(type);
   if (needsFocus && !focus) fail(`a ${type} needs a focus subject.`);
   if (type === 'compare' && focus) fail('a compare has no focus.');
+  if (type === 'tiers' && focus) fail('a tiers has no focus — order the subjects base first.');
   if (type === 'flow' && subjects.length < 2) fail('a flow needs at least 2 subjects.');
   if (type === 'cycle' && subjects.filter(subject => subject.id !== focus).length < 3) fail('a cycle needs at least 3 stages.');
   return { type, kind: kind as VisualPattern['kind'], ...(focus ? { focus } : {}), subjects };
@@ -338,6 +367,7 @@ export function layoutVisualPattern(pattern: VisualPattern, links: VisualLink[])
   // renderer scales it down to fit, keeping every icon, detail and label. Degradation stages — dropping
   // connection labels, then details, then panel icons, then demoting to text — only apply beyond that bound.
   const stages: { pattern: VisualPattern; links: VisualLink[]; small?: boolean }[] = [{ pattern, links }];
+  if (pattern.type === 'tiers' && links.length) fail('a tiers has no connections — the stacking itself carries the relationship.');
   const unlabelled = links.map(link => ({ ...link, label: '' }));
   const labelled = links.some(link => link.label);
   const strip = (base: VisualPattern, icons: boolean): VisualPattern =>

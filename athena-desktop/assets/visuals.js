@@ -190,6 +190,8 @@ export function alignVisualNodes(nodes, links = []) {
   attempt(next => {
     const sets = [];
     for (const node of peersOf(next)) {
+      // Block fields carry meaning in their size (tiers, splits), so they keep their authored dimensions.
+      if (node.kind === 'block') continue;
       const set = sets.find(group => group[0].kind === node.kind && group[0].role === node.role
         && Math.abs(group[0].width - node.width) <= group[0].width * 0.25
         && Math.abs(group[0].height - node.height) <= group[0].height * 0.25);
@@ -437,6 +439,31 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
     });
     return current.dot.animate(frames, { duration: 8000, delay, iterations: Infinity, easing: 'linear' });
   }
+  /** Counts a stat figure up from zero as it enters; the loop registry restores the final value if motion stops mid-count. */
+  function startCount(owner, delay) {
+    const value = owner.querySelector('h2');
+    const final = value?.textContent ?? '';
+    const match = final.match(/-?[\d,]*\d(?:\.\d+)?/);
+    if (!value || !match || typeof view?.requestAnimationFrame !== 'function') return;
+    const target = Number(match[0].replace(/,/g, ''));
+    if (!Number.isFinite(target)) return;
+    const decimals = (match[0].split('.')[1] ?? '').length;
+    const grouped = match[0].includes(',');
+    stopLoop(value);
+    const start = (view.performance?.now?.() ?? Date.now()) + delay;
+    let frame = 0;
+    const tick = now => {
+      const progress = Math.min(1, Math.max(0, (now - start) / 1400));
+      const eased = 1 - (1 - progress) ** 3;
+      const current = target * eased;
+      const text = decimals ? current.toFixed(decimals) : grouped ? Math.round(current).toLocaleString() : String(Math.round(current));
+      value.textContent = final.replace(match[0], text);
+      if (progress < 1) frame = view.requestAnimationFrame(tick);
+      else { value.textContent = final; loops.delete(value); }
+    };
+    frame = view.requestAnimationFrame(tick);
+    loops.set(value, { cancel() { view.cancelAnimationFrame(frame); value.textContent = final; } });
+  }
   function syncLoops(delays = new Map()) {
     for (const [element, parts] of reveals) {
       if (!parts.token) continue;
@@ -500,6 +527,7 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
           { opacity: 1, transform: 'none', clipPath: 'inset(0)' },
         ], { duration: ENTRANCE_MS, delay, easing: EASE });
         element.style.setProperty('--emphasis-delay', `${delay + 420}ms`);
+        if (parts.node.kind === 'stat') startCount(element, delay + 240);
         if (parts.ripple) animate(element, parts.ripple, [{ transform: 'scale(1)', opacity: 0.6 }, { transform: 'scale(1.8)', opacity: 0 }],
           { duration: 1100, delay: delay + 360, easing: 'cubic-bezier(0, 0, 0.38, 0.9)', fill: 'none' });
       } else if (parts?.draw) {
@@ -563,6 +591,8 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
     } else if (node.kind === 'asset') {
       const drawing = buildVisualAsset(document, node.asset);
       if (drawing) element.append(drawing);
+    } else if (node.kind === 'quote') {
+      element.append(html('span', 'visual-node__quotemark', '\u201C'));
     }
     if (node.kicker) element.append(html('p', 'visual-node__kicker', node.kicker));
     if (node.label) {
@@ -661,6 +691,20 @@ function arrowHead(end, tip) {
       } else content.append(holder);
     });
     layer.append(svg);
+    // A panel or block whose text wraps beyond its authored height grows around its centre, so padding never collapses.
+    for (const node of placed) {
+      if (node.kind !== 'panel' && node.kind !== 'block') continue;
+      const element = subjects.get(node.id);
+      element.style.height = 'auto';
+      const needed = element.offsetHeight;
+      element.style.height = '';
+      if (!(needed > node.height + 1)) continue;
+      node.y = Math.min(Math.max(AREA.top, node.y - (needed - node.height) / 2), AREA.bottom - needed);
+      node.height = needed;
+      const holder = holders.get(node.id);
+      holder.setAttribute('y', node.y);
+      holder.setAttribute('height', needed);
+    }
     const frame = reference.getBoundingClientRect();
     const unit = frame.width / SLIDE_WIDTH;
     const measure = element => {
@@ -733,7 +777,7 @@ function arrowHead(end, tip) {
       group.classList.add('composition-reveal', `visual-tone--${link.tone}`, `composition-link--${link.style}`);
       const path = svgElement('path', { d: geometry.path, class: 'composition-link', mask: `url(#${maskId})` });
       group.append(path);
-      const arrow = arrowHead(geometry.end, geometry.tip);
+      const arrow = link.style === 'line' ? null : arrowHead(geometry.end, geometry.tip);
       if (arrow) group.append(arrow);
       let token = null;
       if (link.motion === 'flow') {
@@ -938,8 +982,8 @@ function arrowHead(end, tip) {
     } else if (scene.composition) {
       composed(scene, page, packet.revealed, wantsMotion);
     } else legacy(scene, packet.revealed);
-    // The final slide of every presentation carries the white IBM eight-bar, whatever its template.
-    if (scene.template === 'close' || total > 0 && page === total) layer.append(brandLogo());
+    // The dedicated closing slide carries the white IBM eight-bar; content slides stay clear of it.
+    if (scene.template === 'close') layer.append(brandLogo());
   }
   render.disconnectVideo = message => presenterVideo.disconnect(message);
   render.dispose = () => {

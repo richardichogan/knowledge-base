@@ -91,9 +91,9 @@ export function parsePresentationVisuals(value: unknown, length: number): Presen
       if (!id.trim() || ids.has(id)) throw new Error('Invalid presentation composition node id.');
       ids.add(id);
       const kind = String(node.kind);
-      if (!['panel', 'text', 'icon', 'image', 'asset'].includes(kind) || !PRESENTATION_ICONS.includes(String(node.icon))) throw new Error('Invalid presentation composition node type.');
+      if (!['panel', 'text', 'icon', 'image', 'asset', 'stat', 'block', 'quote'].includes(kind) || !PRESENTATION_ICONS.includes(String(node.icon))) throw new Error('Invalid presentation composition node type.');
       if (kind === 'asset' ? !PRESENTATION_ASSET_IDS.includes(String(node.asset)) : node.asset !== undefined) throw new Error('Invalid presentation composition asset.');
-      if (node.role !== undefined && (!['hero', 'primary', 'secondary'].includes(String(node.role)) || !['panel', 'icon', 'asset'].includes(kind))) throw new Error('Invalid presentation composition role.');
+      if (node.role !== undefined && (!['hero', 'primary', 'secondary'].includes(String(node.role)) || !['panel', 'icon', 'asset', 'stat', 'block'].includes(kind))) throw new Error('Invalid presentation composition role.');
       const x = number(node.x, 80, 1520), y = number(node.y, 240, 790);
       const width = number(node.width, 40, 1440), height = number(node.height, 40, 550);
       if (x + width > 1520 || y + height > 800) throw new Error('Presentation composition is outside the stage.');
@@ -141,7 +141,7 @@ export function parsePresentationVisuals(value: unknown, length: number): Presen
       if (!raw || typeof raw !== 'object') throw new Error('Invalid presentation composition connection.');
       const link = raw as Record<string, unknown>;
       const from = string(link.from, 80), to = string(link.to, 80), at = reveal(link.reveal);
-      if (!ids.has(from) || !ids.has(to) || from === to || !['solid', 'dashed'].includes(String(link.style))
+      if (!ids.has(from) || !ids.has(to) || from === to || !['solid', 'dashed', 'line'].includes(String(link.style))
         || nodes.some(node => (node.id === from || node.id === to) && node.reveal > at)) throw new Error('Invalid presentation composition connection.');
       if (nodes.some(node => (node.id === from || node.id === to)
         && node.states?.some(state => state.x !== undefined || state.y !== undefined || state.scale !== undefined || state.opacity !== undefined))) {

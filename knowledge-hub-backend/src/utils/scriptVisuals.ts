@@ -14,7 +14,7 @@ const ART_AREA = { minX: -1600, maxX: 3200, minY: -900, maxY: 1800, maxRadius: 1
 export const VISUAL_ASSET_IDS = ['foundation', 'workforce-pair', 'copilot', 'agent', 'automation', 'system', 'owner',
   'outcome', 'boundary', 'layers', 'process', 'plan'] as const;
 export const VISUAL_ICON_IDS = ['', 'person', 'worker', 'document', 'check', 'system', 'arrow', 'boundary', 'clock', 'quality', 'coin', 'gauge'] as const;
-const NODE_KINDS = ['panel', 'text', 'icon', 'image', 'asset'];
+const NODE_KINDS = ['panel', 'text', 'icon', 'image', 'asset', 'stat', 'block', 'quote'];
 const NODE_STATES = { perNode: 4, minScale: 0.5, maxScale: 1.4 };
 /** The presenter video (x1088–1520, y557–800) plus a 24px margin: framed graphics must stay clear of it. */
 export const PRESENTER_VIDEO_AREA = { left: 1064, top: 533, right: 1520, bottom: 800 };
@@ -34,7 +34,11 @@ const ASSET_GUIDE: Record<typeof VISUAL_ASSET_IDS[number], string> = {
 };
 /** Read by Athena and the visual designer so edits use exactly the vocabulary the renderer and both parsers accept. */
 export const VISUAL_GRAMMAR = {
-  nodeKinds: ['panel', 'text', 'icon', 'image', 'asset'],
+  nodeKinds: ['panel', 'text', 'icon', 'image', 'asset', 'stat', 'block', 'quote'],
+  stat: 'kind "stat" makes one figure the scene: `label` is the number itself (e.g. "63%", "4×") drawn huge and counted up on reveal, `kicker` names the measure above it and `detail` gives one grounding line below. Use one stat as the whole scene, or up to three side by side; never bury a stat among panels.',
+  block: 'kind "block" is a filled colour field whose size is its meaning: the box itself is the data, so blocks are never size-equalised with peers. Give each block a `kicker`/`label` (and optionally one short `detail`) and set deliberate relative widths or heights. Best through the "tiers" pattern.',
+  quote: 'kind "quote" sets `label` as a large quotation under a drawn quote-mark with `detail` as the attribution. Use it alone as a full-scene statement.',
+  links: 'Each connection needs a tone and a style: "solid" and "dashed" draw an arrowhead at the target (use when direction matters — flow, cause, delivery); "line" is a plain connector with no arrowhead (use for structure without direction — hierarchy, membership, pairing). fromPort/toPort ("top","bottom","left","right") pin where a connection leaves and enters; an org-chart uses fromPort "bottom" into toPort "top".',
   asset: 'kind "asset" draws a trusted vector graphic named by `asset` above its label/detail caption. The drawing fills the box above the caption, centred and true to its proportions, so give the box the graphic\'s proportions plus about 72px for a one-line caption (96px for a hero) and make a hero graphic\'s box the largest on the scene. Assets draw themselves in with their cue and idle gently while presenting; leave `icon` empty on them.',
   assets: ASSET_GUIDE,
   icons: VISUAL_ICON_IDS.filter(Boolean),
@@ -128,7 +132,7 @@ export function parseVisualComposition(value: unknown, reveals: number, titleOnl
     if (ids.has(id)) throw new Error('Composition node ids must be unique.');
     ids.add(id);
     const kind = String(node.kind);
-    if (!NODE_KINDS.includes(kind)) throw new Error(`Invalid composition node kind "${kind}" on node "${id}". Use panel, text, icon, image or asset.`);
+    if (!NODE_KINDS.includes(kind)) throw new Error(`Invalid composition node kind "${kind}" on node "${id}". Use panel, text, icon, image, asset, stat, block or quote.`);
     const icon = node.icon ?? '';
     if (!(VISUAL_ICON_IDS as readonly string[]).includes(String(icon))) {
       throw new Error(`Invalid composition icon "${String(icon)}" on node "${id}". Use "", ${VISUAL_ICON_IDS.filter(Boolean).join(', ')}.`);
@@ -136,8 +140,8 @@ export function parseVisualComposition(value: unknown, reveals: number, titleOnl
     if (kind === 'asset') {
       if (!(VISUAL_ASSET_IDS as readonly string[]).includes(String(node.asset))) throw new Error(`Invalid composition asset "${String(node.asset)}" on node "${id}". Use ${VISUAL_ASSET_IDS.join(', ')}.`);
     } else if (node.asset !== undefined) throw new Error(`Composition node "${id}" can only name an asset when its kind is "asset".`);
-    if (node.role !== undefined && (!['hero', 'primary', 'secondary'].includes(String(node.role)) || !['panel', 'icon', 'asset'].includes(kind))) {
-      throw new Error(`Invalid composition role on node "${id}". Use hero, primary or secondary on a panel, icon or asset node; text nodes use size.`);
+    if (node.role !== undefined && (!['hero', 'primary', 'secondary'].includes(String(node.role)) || !['panel', 'icon', 'asset', 'stat', 'block'].includes(kind))) {
+      throw new Error(`Invalid composition role on node "${id}". Use hero, primary or secondary on a panel, icon, asset, stat or block node; text nodes use size.`);
     }
     const x = pattern ? number(node.x, -1200, 3200) : number(node.x, CONTENT_AREA.left, CONTENT_AREA.right);
     const y = pattern ? number(node.y, -1200, 2400) : number(node.y, CONTENT_AREA.top, CONTENT_AREA.lastTop);
@@ -193,7 +197,7 @@ export function parseVisualComposition(value: unknown, reveals: number, titleOnl
   const links = data.links.map((raw): VisualLink => {
     const link = object(raw);
     const from = text(link.from, LIMITS.nodeId, 'connection source'), to = text(link.to, LIMITS.nodeId, 'connection target');
-    if (!ids.has(from) || !ids.has(to) || from === to || !['solid', 'dashed'].includes(String(link.style))) throw new Error('Invalid composition connection.');
+    if (!ids.has(from) || !ids.has(to) || from === to || !['solid', 'dashed', 'line'].includes(String(link.style))) throw new Error('Invalid composition connection.');
     const at = reveal(link.reveal);
     if (nodes.some(node => (node.id === from || node.id === to) && node.reveal > at)) throw new Error('Connections cannot appear before their endpoints.');
     for (const end of [from, to]) {

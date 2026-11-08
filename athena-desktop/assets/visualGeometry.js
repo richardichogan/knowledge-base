@@ -216,7 +216,7 @@ export function connectionGeometry(from, to, link, nodes, ring = null, shared = 
   if (!best) throw new Error('The visual connection has no valid endpoints.');
   const tip = best.points.at(-1), before = best.points.at(-2);
   const span = Math.hypot(tip[0] - before[0], tip[1] - before[1]);
-  const pullback = Math.min(ARROW, Math.max(0, span - 12));
+  const pullback = link.style === 'line' ? 0 : Math.min(ARROW, Math.max(0, span - 12));
   best.points[best.points.length - 1] = [tip[0] - (tip[0] - before[0]) / span * pullback, tip[1] - (tip[1] - before[1]) / span * pullback];
   return {
     path: best.points.length === 2 ? `M${point(best.points[0])}L${point(best.points[1])}` : roundedPath(best.points),

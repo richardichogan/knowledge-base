@@ -28,7 +28,7 @@ export interface VisualNodeState {
 }
 export interface VisualNode {
   id: string;
-  kind: 'panel' | 'text' | 'icon' | 'image' | 'asset';
+  kind: 'panel' | 'text' | 'icon' | 'image' | 'asset' | 'stat' | 'block' | 'quote';
   /** Required for, and only valid on, asset nodes. */
   asset?: VisualAsset;
   role?: VisualRole;
@@ -49,7 +49,7 @@ export interface VisualLink {
   from: string; to: string; label: string;
   tone: VisualTone;
   reveal: number;
-  style: 'solid' | 'dashed';
+  style: 'solid' | 'dashed' | 'line';
   motion?: 'draw' | 'flow';
   route?: 'direct' | 'arc';
   fromPort?: VisualPort;
@@ -65,8 +65,8 @@ export interface VisualPatternSubject {
 }
 /** A designer-chosen structure; the layout engine derives every node box from it. */
 export interface VisualPattern {
-  type: 'flow' | 'converge' | 'branch' | 'stack' | 'compare' | 'hub' | 'cycle' | 'statement';
-  kind: 'icon' | 'panel' | 'text';
+  type: 'flow' | 'converge' | 'branch' | 'stack' | 'compare' | 'hub' | 'cycle' | 'statement' | 'tree' | 'tiers';
+  kind: 'icon' | 'panel' | 'text' | 'block';
   focus?: string;
   subjects: VisualPatternSubject[];
 }
