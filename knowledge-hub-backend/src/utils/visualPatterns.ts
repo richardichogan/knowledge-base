@@ -155,12 +155,25 @@ function placeRing(boxes: Box[], centreX: number, centreY: number, rx: number, r
   });
 }
 
+/** Splits peers into two columns flanking a central focus — the hub arrangement, also used when a
+ *  converge or branch has too many subjects for a single column of full content. */
+function placeFlanked(lead: Box, others: Box[], gap: number, columnGap: number): void {
+  const left = others.slice(0, Math.ceil(others.length / 2)), right = others.slice(Math.ceil(others.length / 2));
+  const column = Math.max(...others.map(box => box.width));
+  lead.x = MID_X - lead.width / 2;
+  placeColumn(left, lead.x - gap - column / 2, MID_Y, columnGap);
+  if (right.length) placeColumn(right, lead.x + lead.width + gap + column / 2, MID_Y, columnGap);
+  const first = left[0]!, last = left[left.length - 1]!;
+  lead.y = (first.y + first.anchor + last.y + last.anchor) / 2 - lead.anchor;
+  if (right.length !== left.length) for (const box of right) box.y += lead.y + lead.anchor - (right[0]!.y + right[0]!.anchor + right[right.length - 1]!.y + right[right.length - 1]!.anchor) / 2;
+}
+
 function layout(pattern: VisualPattern, links: VisualLink[], density: typeof DENSITIES[number], small = false): Box[] {
   const focusId = pattern.focus;
   const textSize = (subject: VisualPatternSubject): VisualNode['size'] => pattern.type === 'statement'
     ? subject.id === focusId ? (small ? 'l' : 'xl') : 's'
     : subject.id === focusId ? (small ? 'm' : 'l') : small ? 's' : 'm';
-  const panelWidth = pattern.type === 'stack' ? 600 : pattern.type === 'compare' ? 440 : 320;
+  const panelWidth = pattern.type === 'stack' ? 720 : pattern.type === 'compare' ? 440 : pattern.type === 'converge' || pattern.type === 'branch' ? 420 : 320;
   const boxes = pattern.subjects.map(subject => measure(subject, subject.id === focusId, pattern.kind, textSize(subject), density.peer, panelWidth));
   if (pattern.type !== 'statement') equalise(boxes);
   const focus = boxes.find(box => box.focus);
@@ -178,6 +191,12 @@ function layout(pattern: VisualPattern, links: VisualLink[], density: typeof DEN
       break;
     case 'converge':
     case 'branch': {
+      if (others.length >= 4) {
+        // A single column of four-plus full subjects cannot fit the frame's height; flank the focus
+        // hub-style instead — sources (or branches) on both sides still read as many-to-one.
+        placeFlanked(focus!, others, Math.max(160 * density.gap, longest(false, true)), 48 * density.gap);
+        break;
+      }
       const gap = Math.max(200 * density.gap, longest(false, true));
       const column = Math.max(...others.map(box => box.width));
       const span = column + gap + focus!.width;
@@ -190,16 +209,7 @@ function layout(pattern: VisualPattern, links: VisualLink[], density: typeof DEN
       break;
     }
     case 'hub': {
-      const lead = focus!;
-      const left = others.slice(0, Math.ceil(others.length / 2)), right = others.slice(Math.ceil(others.length / 2));
-      const gap = Math.max(160 * density.gap, longest(false, true));
-      const column = Math.max(...others.map(box => box.width));
-      lead.x = MID_X - lead.width / 2;
-      placeColumn(left, lead.x - gap - column / 2, MID_Y, 48 * density.gap);
-      if (right.length) placeColumn(right, lead.x + lead.width + gap + column / 2, MID_Y, 48 * density.gap);
-      const first = left[0]!, last = left[left.length - 1]!;
-      lead.y = (first.y + first.anchor + last.y + last.anchor) / 2 - lead.anchor;
-      if (right.length !== left.length) for (const box of right) box.y += lead.y + lead.anchor - (right[0]!.y + right[0]!.anchor + right[right.length - 1]!.y + right[right.length - 1]!.anchor) / 2;
+      placeFlanked(focus!, others, Math.max(160 * density.gap, longest(false, true)), 48 * density.gap);
       break;
     }
     case 'cycle': {
@@ -225,10 +235,8 @@ function layout(pattern: VisualPattern, links: VisualLink[], density: typeof DEN
   return boxes;
 }
 
-function fits(boxes: Box[]): boolean {
-  for (const box of boxes) {
-    if (box.x < AREA.left || box.y < AREA.top || box.x + box.width > AREA.right || box.y + box.height > AREA.bottom) return false;
-  }
+/** Every pair of boxes keeps the 24px separation that stops captions and discs colliding. */
+function separated(boxes: Box[]): boolean {
   for (let i = 0; i < boxes.length; i++) {
     for (let j = i + 1; j < boxes.length; j++) {
       const a = boxes[i]!, b = boxes[j]!;
@@ -238,6 +246,25 @@ function fits(boxes: Box[]): boolean {
   }
   return true;
 }
+
+function fits(boxes: Box[]): boolean {
+  for (const box of boxes) {
+    if (box.x < AREA.left || box.y < AREA.top || box.x + box.width > AREA.right || box.y + box.height > AREA.bottom) return false;
+  }
+  return separated(boxes);
+}
+
+/** How far the arrangement overruns the content area on its worst axis (1 = fits exactly). */
+function overflowRatio(boxes: Box[]): number {
+  const width = Math.max(...boxes.map(box => box.x + box.width)) - Math.min(...boxes.map(box => box.x));
+  const height = Math.max(...boxes.map(box => box.y + box.height)) - Math.min(...boxes.map(box => box.y));
+  return Math.max(width / (AREA.right - AREA.left), height / (AREA.bottom - AREA.top), 1);
+}
+
+/** The renderer scales a whole composition down to fit the slide, so an arrangement may overrun the content
+ * area by this linear ratio before any content is sacrificed (a 1.5 overrun renders at ~0.67 scale, which
+ * keeps even the smallest caption text legible). */
+const MAX_OVERFLOW = 1.5;
 
 function ports(type: VisualPattern['type'], from: Box, to: Box): { fromPort?: VisualPort; toPort?: VisualPort } {
   const dx = (to.x + to.width / 2) - (from.x + from.width / 2);
@@ -307,9 +334,9 @@ function nudge(boxes: Box[]): void {
 
 /** Expands a pattern into renderer nodes, and settles link ports/routes to match the geometry. */
 export function layoutVisualPattern(pattern: VisualPattern, links: VisualLink[]): { nodes: VisualNode[]; links: VisualLink[] } {
-  // Deterministic degradation when the full pattern cannot fit: drop connection labels (the narration
-  // carries them), then subject details, then panel icons, before rejecting — the same remedy the
-  // failure message prescribes.
+  // Content is sacred: an arrangement that overruns the area is accepted whole (up to MAX_OVERFLOW) and the
+  // renderer scales it down to fit, keeping every icon, detail and label. Degradation stages — dropping
+  // connection labels, then details, then panel icons, then demoting to text — only apply beyond that bound.
   const stages: { pattern: VisualPattern; links: VisualLink[]; small?: boolean }[] = [{ pattern, links }];
   const unlabelled = links.map(link => ({ ...link, label: '' }));
   const labelled = links.some(link => link.label);
@@ -319,6 +346,13 @@ export function layoutVisualPattern(pattern: VisualPattern, links: VisualLink[])
       return { ...rest, detail: '', ...(icons || icon === undefined ? {} : { icon }) };
     }) });
   if (labelled) stages.push({ pattern, links: unlabelled });
+  // A column of disc-and-caption icons is tall; panels carry the same icon, label, detail and kicker in a
+  // denser card. Re-kind before any content is stripped — form degrades before meaning does.
+  if (pattern.kind === 'icon') {
+    const panelled: VisualPattern = { ...pattern, kind: 'panel' };
+    stages.push({ pattern: panelled, links });
+    if (labelled) stages.push({ pattern: panelled, links: unlabelled });
+  }
   if (pattern.subjects.some(subject => subject.detail)) {
     const lean = strip(pattern, false);
     stages.push({ pattern: lean, links });
@@ -341,20 +375,23 @@ export function layoutVisualPattern(pattern: VisualPattern, links: VisualLink[])
   let boxes: Box[] = [];
   let settledLinks = links;
   let fitted = false;
+  let best: { boxes: Box[]; links: VisualLink[]; ratio: number } | null = null;
   for (const stage of stages) {
     for (const density of DENSITIES) {
-      boxes = layout(stage.pattern, stage.links, density, stage.small ?? false);
-      if (!fits(boxes)) nudge(boxes);
-      if (fits(boxes)) { settledLinks = stage.links; fitted = true; break; }
+      const candidate = layout(stage.pattern, stage.links, density, stage.small ?? false);
+      if (!fits(candidate)) nudge(candidate);
+      if (fits(candidate)) { boxes = candidate; settledLinks = stage.links; fitted = true; break; }
+      if (!separated(candidate)) continue;
+      const ratio = overflowRatio(candidate);
+      if (!best || ratio < best.ratio) best = { boxes: candidate, links: stage.links, ratio };
     }
     if (fitted) break;
+    // Prefer the complete arrangement rendered smaller over a stripped one rendered at full size.
+    if (best && best.ratio <= MAX_OVERFLOW) break;
   }
+  if (!fitted && best) { boxes = best.boxes; settledLinks = best.links; fitted = true; }
   if (!fitted) {
-    const width = Math.max(...boxes.map(box => box.x + box.width)) - Math.min(...boxes.map(box => box.x));
-    const height = Math.max(...boxes.map(box => box.y + box.height)) - Math.min(...boxes.map(box => box.y));
-    const over = [width > AREA.right - AREA.left ? `${Math.ceil(width)}px wide (at most ${AREA.right - AREA.left}px fits)` : '',
-      height > AREA.bottom - AREA.top ? `${Math.ceil(height)}px tall (at most ${AREA.bottom - AREA.top}px fits)` : ''].filter(Boolean).join(' and ');
-    fail(`the ${pattern.type} does not fit the slide even with peers stepped down: it is ${over || 'too crowded for the required 24px separation'}. Drop subject details or icons, use fewer subjects, or shorten labels and connection labels.`);
+    fail(`the ${pattern.type} is too crowded for the required 24px separation between subjects even with peers stepped down. Use fewer subjects, or shorten labels and connection labels.`);
   }
   const byId = new Map(boxes.map(box => [box.subject.id, box]));
   const ring = pattern.type === 'cycle' ? boxes.filter(box => !box.focus).map(box => box.subject.id) : [];

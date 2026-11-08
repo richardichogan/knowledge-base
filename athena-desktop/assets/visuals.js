@@ -574,7 +574,40 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
     if (node.detail) element.append(html('p', 'visual-node__detail', node.detail));
     return { element, ripple };
   }
-  function arrowHead(end, tip) {
+/**
+ * Fits the whole arrangement to the content area: an oversized composition shrinks so every icon, detail and
+ * label stays, and a sparse one grows (bounded) so a few subjects still command the frame. The transform wraps
+ * the group, so fonts, discs, connectors and build animations scale together. Framed presenter scenes and
+ * legacy inset-image scenes keep their authored geometry.
+ */
+function contentAutofit(composition, placed) {
+  if (composition.frame === 'around-presenter') return '';
+  const boxes = [];
+  for (const node of placed) {
+    if (node.kind === 'image') return '';
+    boxes.push({ x: node.x, y: node.y, width: node.width, height: node.height });
+    let sx = node.x, sy = node.y, sscale = 1;
+    for (const change of node.states ?? []) {
+      if (change.x === undefined && change.y === undefined && change.scale === undefined) continue;
+      if (change.x !== undefined) sx = change.x;
+      if (change.y !== undefined) sy = change.y;
+      if (change.scale !== undefined) sscale = change.scale;
+      boxes.push({ x: sx + node.width * (1 - sscale) / 2, y: sy + node.height * (1 - sscale) / 2,
+        width: node.width * sscale, height: node.height * sscale });
+    }
+  }
+  if (!boxes.length) return '';
+  const left = Math.min(...boxes.map(box => box.x)), top = Math.min(...boxes.map(box => box.y));
+  const right = Math.max(...boxes.map(box => box.x + box.width)), bottom = Math.max(...boxes.map(box => box.y + box.height));
+  const fit = Math.min((AREA.right - AREA.left) / Math.max(1, right - left), (AREA.bottom - AREA.top) / Math.max(1, bottom - top));
+  const scale = Math.max(0.55, Math.min(fit, 1.4));
+  if (Math.abs(scale - 1) < 0.02) return '';
+  const x = (AREA.left + AREA.right) / 2 - scale * (left + right) / 2;
+  const y = (AREA.top + AREA.bottom) / 2 - scale * (top + bottom) / 2;
+  return ` translate(${x.toFixed(1)} ${y.toFixed(1)}) scale(${scale.toFixed(4)})`;
+}
+
+function arrowHead(end, tip) {
     if (!end || !tip) return null;
     const dx = tip[0] - end[0], dy = tip[1] - end[1];
     const length = Math.hypot(dx, dy);
@@ -603,6 +636,8 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
     content.append(reference, ringLayer, connections);
     svg.append(defs, content);
     const placed = alignVisualNodes(composition.nodes, composition.links);
+    content.setAttribute('transform',
+      `translate(${AREA.left - AREA.left * scale} ${offsetY}) scale(${scale})${contentAutofit(composition, placed)}`);
     const connected = new Set(composition.links.flatMap(link => [link.from, link.to]));
     const centred = new Set(placed.filter(node => connected.has(node.id) || hubText(node, placed, connected)).map(node => node.id));
     const subjects = new Map();
@@ -664,8 +699,9 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
       const arcs = composition.links.filter(link => link.route === 'arc');
       const members = new Set(arcs.flatMap(link => [link.from, link.to]));
       const maskId = `${rendererId}-${sceneRevision}-ring`;
-      const mask = svgElement('mask', { id: maskId, maskUnits: 'userSpaceOnUse', x: 0, y: 0, width: SLIDE_WIDTH, height: SLIDE_HEIGHT });
-      mask.append(svgElement('rect', { width: SLIDE_WIDTH, height: SLIDE_HEIGHT, fill: '#fff' }));
+      // Mask regions cover three slide-widths: overflowing arrangements live outside 0–1600 in local space before the autofit transform shrinks them.
+      const mask = svgElement('mask', { id: maskId, maskUnits: 'userSpaceOnUse', x: -SLIDE_WIDTH, y: -SLIDE_HEIGHT, width: SLIDE_WIDTH * 3, height: SLIDE_HEIGHT * 3 });
+      mask.append(svgElement('rect', { x: -SLIDE_WIDTH, y: -SLIDE_HEIGHT, width: SLIDE_WIDTH * 3, height: SLIDE_HEIGHT * 3, fill: '#fff' }));
       for (const node of nodes.filter(node => members.has(node.id))) {
         for (const rect of node.obstacles) mask.append(svgElement('rect', { x: rect.x - 20, y: rect.y - 20, width: rect.width + 40, height: rect.height + 40, fill: '#000' }));
       }
@@ -689,7 +725,7 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
       const siblings = fan.map(other => nodes.find(node => node.id === (fanOut ? other.to : other.from))).filter(Boolean);
       const geometry = connectionGeometry(from, to, link, nodes, geometryRing, fanOut ? 'from' : fanIn ? 'to' : null, siblings);
       const maskId = `${rendererId}-${sceneRevision}-draw-${index}`;
-      const mask = svgElement('mask', { id: maskId, maskUnits: 'userSpaceOnUse', x: 0, y: 0, width: SLIDE_WIDTH, height: SLIDE_HEIGHT });
+      const mask = svgElement('mask', { id: maskId, maskUnits: 'userSpaceOnUse', x: -SLIDE_WIDTH, y: -SLIDE_HEIGHT, width: SLIDE_WIDTH * 3, height: SLIDE_HEIGHT * 3 });
       const draw = svgElement('path', { d: geometry.path, class: 'composition-draw', pathLength: 1 });
       mask.append(draw);
       defs.append(mask);

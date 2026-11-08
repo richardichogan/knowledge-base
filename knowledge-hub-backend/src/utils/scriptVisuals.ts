@@ -139,9 +139,12 @@ export function parseVisualComposition(value: unknown, reveals: number, titleOnl
     if (node.role !== undefined && (!['hero', 'primary', 'secondary'].includes(String(node.role)) || !['panel', 'icon', 'asset'].includes(kind))) {
       throw new Error(`Invalid composition role on node "${id}". Use hero, primary or secondary on a panel, icon or asset node; text nodes use size.`);
     }
-    const x = number(node.x, CONTENT_AREA.left, CONTENT_AREA.right), y = number(node.y, CONTENT_AREA.top, CONTENT_AREA.lastTop);
-    const width = number(node.width, CONTENT_AREA.minSize, CONTENT_AREA.maxWidth), height = number(node.height, CONTENT_AREA.minSize, CONTENT_AREA.maxHeight);
-    if (x + width > CONTENT_AREA.right || y + height > CONTENT_AREA.bottom) throw new Error('Composition nodes must stay inside the presentation content area.');
+    const x = pattern ? number(node.x, -1200, 3200) : number(node.x, CONTENT_AREA.left, CONTENT_AREA.right);
+    const y = pattern ? number(node.y, -1200, 2400) : number(node.y, CONTENT_AREA.top, CONTENT_AREA.lastTop);
+    const width = pattern ? number(node.width, 1, 2400) : number(node.width, CONTENT_AREA.minSize, CONTENT_AREA.maxWidth);
+    const height = pattern ? number(node.height, 1, 2400) : number(node.height, CONTENT_AREA.minSize, CONTENT_AREA.maxHeight);
+    // Pattern-generated geometry is trusted: the engine may overrun the content area and the renderer scales the whole scene to fit.
+    if (!pattern && (x + width > CONTENT_AREA.right || y + height > CONTENT_AREA.bottom)) throw new Error('Composition nodes must stay inside the presentation content area.');
     if (node.entrance !== undefined && !['fade', 'rise', 'left', 'right', 'scale', 'wipe'].includes(String(node.entrance))) throw new Error('Invalid composition entrance.');
     if (node.emphasis !== undefined && !['highlight', 'underline', 'strike'].includes(String(node.emphasis))) throw new Error('Invalid composition emphasis.');
     if (node.size !== undefined && !['xl', 'l', 'm', 's'].includes(String(node.size))) throw new Error('Invalid composition text size.');
