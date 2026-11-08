@@ -155,10 +155,11 @@ function placeRing(boxes: Box[], centreX: number, centreY: number, rx: number, r
   });
 }
 
-function layout(pattern: VisualPattern, links: VisualLink[], density: typeof DENSITIES[number]): Box[] {
+function layout(pattern: VisualPattern, links: VisualLink[], density: typeof DENSITIES[number], small = false): Box[] {
   const focusId = pattern.focus;
   const textSize = (subject: VisualPatternSubject): VisualNode['size'] => pattern.type === 'statement'
-    ? subject.id === focusId ? 'xl' : 's' : subject.id === focusId ? 'l' : 'm';
+    ? subject.id === focusId ? (small ? 'l' : 'xl') : 's'
+    : subject.id === focusId ? (small ? 'm' : 'l') : small ? 's' : 'm';
   const panelWidth = pattern.type === 'stack' ? 600 : pattern.type === 'compare' ? 440 : 320;
   const boxes = pattern.subjects.map(subject => measure(subject, subject.id === focusId, pattern.kind, textSize(subject), density.peer, panelWidth));
   if (pattern.type !== 'statement') equalise(boxes);
@@ -309,7 +310,7 @@ export function layoutVisualPattern(pattern: VisualPattern, links: VisualLink[])
   // Deterministic degradation when the full pattern cannot fit: drop connection labels (the narration
   // carries them), then subject details, then panel icons, before rejecting — the same remedy the
   // failure message prescribes.
-  const stages: { pattern: VisualPattern; links: VisualLink[] }[] = [{ pattern, links }];
+  const stages: { pattern: VisualPattern; links: VisualLink[]; small?: boolean }[] = [{ pattern, links }];
   const unlabelled = links.map(link => ({ ...link, label: '' }));
   const labelled = links.some(link => link.label);
   const strip = (base: VisualPattern, icons: boolean): VisualPattern =>
@@ -326,12 +327,23 @@ export function layoutVisualPattern(pattern: VisualPattern, links: VisualLink[])
   if (pattern.kind === 'panel' && pattern.subjects.some(subject => subject.icon)) {
     stages.push({ pattern: strip(pattern, true), links: labelled ? unlabelled : links });
   }
+  // Last resort: demote the whole pattern to plain text subjects (no icons, panels or
+  // assets) rather than failing the job — the narration carries the detail, and a plain
+  // arrangement that fits beats a visual that never renders.
+  {
+    const textual: VisualPattern = { ...pattern, kind: 'text', subjects: pattern.subjects.map(subject => {
+      const { icon: _icon, asset: _asset, kicker: _kicker, ...rest } = subject;
+      return { ...rest, detail: '' };
+    }) };
+    stages.push({ pattern: textual, links: labelled ? unlabelled : links });
+    stages.push({ pattern: textual, links: labelled ? unlabelled : links, small: true });
+  }
   let boxes: Box[] = [];
   let settledLinks = links;
   let fitted = false;
   for (const stage of stages) {
     for (const density of DENSITIES) {
-      boxes = layout(stage.pattern, stage.links, density);
+      boxes = layout(stage.pattern, stage.links, density, stage.small ?? false);
       if (!fits(boxes)) nudge(boxes);
       if (fits(boxes)) { settledLinks = stage.links; fitted = true; break; }
     }
