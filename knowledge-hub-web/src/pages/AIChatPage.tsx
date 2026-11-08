@@ -620,6 +620,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     setMessages([]);
     setSessionId(null);
     setPendingActions([]);
+    // Reset to the default persona; a linked chat's own persona is restored
+    // below. Without this, a fresh chat kept the previous note's persona
+    // (e.g. Blog post) instead of starting as General.
+    setPersona(initialPersona ?? 'general');
     setNoteSummary(null);
     setNoteSummaryError(null);
     setIsNoteSummaryLoading(false);
@@ -671,6 +675,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     setMessages([]);
     setSessionId(null);
     setPendingActions([]);
+    // Same reset as the note-linked panel: don't leak the previous item's persona into a fresh chat.
+    setPersona(initialPersona ?? 'general');
     setIsRestoringHistory(true);
     setHistoryError(null);
     void api.getSessionIdForItem(linkedItemKey).then(async (result) => {
