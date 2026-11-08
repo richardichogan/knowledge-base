@@ -143,3 +143,7 @@ To upgrade, close Athena and run the newer installer; existing settings are reta
 ## Release (auto-update)
 
 Bump `version` in `package.json`, then `$env:GH_TOKEN = gh auth token; npm run release`. Installed copies pick up the GitHub release on next start.
+
+Version 0.1.18 packages the updated presentation renderer: connectors align with
+their visible subjects, branching connections stay symmetrical, and the final
+slide carries the white IBM eight-bar logo regardless of its template.
