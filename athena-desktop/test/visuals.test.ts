@@ -44,7 +44,7 @@ test('presentation logo uses the official reversed white artwork with no backgro
   assert.match(svg, /M304.2,473.9v28h227c29.1,0,55.8-10.6,76.2-28H304.2z/);
 });
 
-test('closing and final slides carry one logo across templates and total changes', async () => {
+test('only the dedicated close scene carries the logo, regardless of slide position', async () => {
   const source = await readFile(join(__dirname, '../../assets/visuals.js'), 'utf8');
   const logo = {};
   const children: object[] = [];
@@ -73,9 +73,9 @@ test('closing and final slides carry one logo across templates and total changes
     context.render(packet);
     assert.equal(children.length, scene.template === 'close' ? 1 : 0);
     context.render({ ...packet, total: 1 });
-    assert.deepEqual(children, [logo]);
+    assert.deepEqual(children, scene.template === 'close' ? [logo] : []);
     context.render({ ...packet, total: 1, revealed: 1 });
-    assert.deepEqual(children, [logo]);
+    assert.deepEqual(children, scene.template === 'close' ? [logo] : []);
     context.render(packet);
     assert.equal(children.length, scene.template === 'close' ? 1 : 0);
   }
