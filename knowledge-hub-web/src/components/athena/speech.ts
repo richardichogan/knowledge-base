@@ -1,64 +1,7 @@
 /**
- * components/athena/speech.ts — voice input/output helpers for Athena:
- * WAV encoding for speech-to-text uploads and turning markdown replies into
- * natural text for text-to-speech.
+ * components/athena/speech.ts — turns markdown replies into natural text for
+ * Athena's spoken replies (Voice Live).
  */
-
-export async function resampleVoiceAudio(samples: Float32Array, sourceRate: number, targetRate: number): Promise<Float32Array> {
-  if (!samples.length || !Number.isFinite(sourceRate) || sourceRate <= 0 || !Number.isFinite(targetRate) || targetRate <= 0) {
-    throw new Error('No valid microphone audio was captured.');
-  }
-  if (sourceRate === targetRate) return samples;
-  // The browser's audio resampler filters before reducing the sample rate.
-  const context = new OfflineAudioContext(1, Math.max(1, Math.round(samples.length * targetRate / sourceRate)), targetRate);
-  const buffer = context.createBuffer(1, samples.length, sourceRate);
-  buffer.getChannelData(0).set(samples);
-  const source = context.createBufferSource();
-  source.buffer = buffer;
-  source.connect(context.destination);
-  source.start();
-  const rendered = await context.startRendering();
-  return rendered.getChannelData(0);
-}
-
-export function encodeWav(samples: Float32Array, sampleRate: number): Blob {
-  const pcm = new Int16Array(samples.length);
-  for (let i = 0; i < samples.length; i++) {
-    pcm[i] = Math.max(-32768, Math.min(32767, (samples[i] ?? 0) * 32768));
-  }
-  const dataLen = pcm.byteLength;
-  const buf = new ArrayBuffer(44 + dataLen);
-  const v = new DataView(buf);
-  const le = true;
-  v.setUint32(0, 0x52494646, false); // 'RIFF'
-  v.setUint32(4, 36 + dataLen, le);
-  v.setUint32(8, 0x57415645, false); // 'WAVE'
-  v.setUint32(12, 0x666d7420, false); // 'fmt '
-  v.setUint32(16, 16, le);
-  v.setUint16(20, 1, le);
-  v.setUint16(22, 1, le);
-  v.setUint32(24, sampleRate, le);
-  v.setUint32(28, sampleRate * 2, le);
-  v.setUint16(32, 2, le);
-  v.setUint16(34, 16, le);
-  v.setUint32(36, 0x64617461, false); // 'data'
-  v.setUint32(40, dataLen, le);
-  new Int16Array(buf, 44).set(pcm);
-  return new Blob([buf], { type: 'audio/wav' });
-}
-
-export function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const result = String(reader.result || '');
-      const comma = result.indexOf(',');
-      resolve(comma >= 0 ? result.slice(comma + 1) : result);
-    };
-    reader.onerror = () => reject(reader.error as Error);
-    reader.readAsDataURL(blob);
-  });
-}
 
 // Converts an ISO YYYY-MM-DD date to a natural spoken form, e.g. "29 April
 // 2026" instead of reading out each digit group. Falls back to the raw
@@ -103,27 +46,4 @@ export function stripMarkdownForSpeech(md: string): string {
     .replace(/\.\s*\.\s*/g, '. ')
     .replace(/\s{2,}/g, ' ')
     .trim();
-}
-
-// First spoken chunk is kept short so audio starts quickly; the rest is
-// synthesised in larger chunks while the first one plays.
-const FIRST_SPEECH_CHUNK_CHARS = 160;
-const SPEECH_CHUNK_CHARS = 600;
-
-/** Splits text into sentence-aligned chunks for progressive speech. */
-export function splitForSpeech(text: string): string[] {
-  const sentences = text.match(/[^.!?\n]+(?:[.!?]+["')\]]*|\n+|$)/g)?.map((s) => s.trim()).filter((s) => s !== '') ?? [text];
-  const chunks: string[] = [];
-  let current = '';
-  for (const sentence of sentences) {
-    const limit = chunks.length === 0 ? FIRST_SPEECH_CHUNK_CHARS : SPEECH_CHUNK_CHARS;
-    if (current !== '' && current.length + sentence.length + 1 > limit) {
-      chunks.push(current);
-      current = sentence;
-    } else {
-      current = current === '' ? sentence : `${current} ${sentence}`;
-    }
-  }
-  if (current !== '') chunks.push(current);
-  return chunks;
 }

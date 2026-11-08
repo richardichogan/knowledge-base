@@ -17,6 +17,7 @@ import { recordGoalProgress } from '../goals/goals.js';
 import { acceptGoalMove, dismissGoalMove } from '../goals/brief.js';
 import { applyTidyBatch, decideDateProposal, undoTidyBatch } from '../goals/scorecard.js';
 import { proactiveAction, proactiveOverview } from '../goals/proactive.js';
+import { decideAction, decideQueue, suggestWaitingOn } from '../goals/decide.js';
 
 export const todayRouter = Router();
 
@@ -100,7 +101,8 @@ todayRouter.post('/goals/measures/:id', (req, res, next) => {
 });
 /** POST /api/today/goals/tidy/apply — apply this week's tidy-up batch, minus { excluded: itemId[] }. */
 todayRouter.post('/goals/tidy/apply', (req, res, next) => {
-  void applyTidyBatch(getDb(), (req.body as { excluded?: unknown } | undefined)?.excluded ?? [], 'richard').then((data) => { res.json({ success: true, data }); }).catch(next);
+  const body = req.body as { excluded?: unknown; decisionActions?: unknown } | undefined;
+  void applyTidyBatch(getDb(), body?.excluded ?? [], 'richard', body?.decisionActions ?? {}).then((data) => { res.json({ success: true, data }); }).catch(next);
 });
 todayRouter.post('/goals/tidy/undo', (req, res, next) => {
   void undoTidyBatch(getDb(), (req.body as { batchId?: unknown } | undefined)?.batchId, 'richard').then((data) => { res.json({ success: true, data }); }).catch(next);
@@ -117,6 +119,20 @@ todayRouter.post('/proactive/:action', (req, res, next) => {
       const started = Boolean(result && typeof result === 'object' && 'started' in result);
       res.status(started ? HTTP_STATUS.ACCEPTED : 200).json({ success: true, data: { result, overview: await proactiveOverview(db) } });
     }).catch(next);
+});
+
+/** GET /api/today/decide — the Decide queue, oldest first. */
+todayRouter.get('/decide', (_req, res, next) => {
+  void decideQueue(getDb()).then((data) => { res.json({ success: true, data }); }).catch(next);
+});
+/** GET /api/today/decide/waiting-suggestion/:taskId — Athena's guess at who a task is waiting on. */
+todayRouter.get('/decide/waiting-suggestion/:taskId', (req, res, next) => {
+  void suggestWaitingOn(getDb(), req.params['taskId']).then((suggestion) => { res.json({ success: true, data: { suggestion } }); }).catch(next);
+});
+/** POST /api/today/decide/:action — chat-decision and waiting-on actions; the same ones Athena's manage_decide_queue tool uses. */
+todayRouter.post('/decide/:action', (req, res, next) => {
+  void decideAction(getDb(), req.params['action'], (req.body ?? {}) as Record<string, unknown>, 'richard')
+    .then((data) => { res.json({ success: true, data }); }).catch(next);
 });
 
 /** Raw mapped GitHub activity row returned by the Today activity SQL query. */

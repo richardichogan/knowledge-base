@@ -1069,6 +1069,36 @@ export const TaskEditor: React.FC<TaskEditorProps & { inline?: boolean; actionsT
 
 export const TaskModal: React.FC<TaskEditorProps> = props => <TaskEditor {...props} />;
 
+/** Shown when a task moves to Waiting with nobody named; prefilled with Athena's guess and skippable. */
+const WaitingOnPrompt: React.FC<{ task: Task; onClose: () => void; onSaved: (task: Task) => void }> = ({ task, onClose, onSaved }) => {
+  const queryClient = useQueryClient();
+  const [who, setWho] = useState('');
+  const [touched, setTouched] = useState(false);
+  const suggestion = useQuery({ queryKey: ['waiting-suggestion', task.id, task.updatedAt],
+    queryFn: async () => requireApiData(await api.suggestWaitingOn(task.id)).suggestion, staleTime: Infinity, retry: false });
+  useEffect(() => { if (!touched && suggestion.data) setWho(suggestion.data); }, [suggestion.data, touched]);
+  const save = useMutation({
+    mutationFn: async () => requireApiData(await api.updateTask(task.id, { waitingOn: who.trim() })),
+    onSuccess: (saved) => { onSaved(saved); void queryClient.invalidateQueries({ queryKey: ['today', 'decide'] }); onClose(); },
+  });
+  const skip = useMutation({
+    mutationFn: async () => requireApiData(await api.decideAction('waiting-skip', { id: task.id })),
+    onSettled: () => { void queryClient.invalidateQueries({ queryKey: ['today', 'decide'] }); onClose(); },
+  });
+  const busy = save.isPending || skip.isPending;
+  return (
+    <Modal open size="sm" modalHeading="Waiting on whom?" primaryButtonText={save.isPending ? 'Saving…' : 'Save'} secondaryButtonText={skip.isPending ? 'Skipping…' : 'Skip'}
+      primaryButtonDisabled={busy || !who.trim()} onRequestSubmit={() => { save.mutate(); }}
+      onSecondarySubmit={() => { if (!busy) skip.mutate(); }} onRequestClose={() => { if (!busy) skip.mutate(); }}>
+      <p className="kb-waiting-prompt__copy">"{task.title}" is now waiting. Name who you are waiting on so Athena can chase it at the right time.</p>
+      <TextInput id={`waiting-on-${task.id}`} labelText="Waiting on" placeholder="Person, team or organisation" value={who} maxLength={200}
+        helperText={suggestion.isPending ? 'Athena is suggesting someone from the task and its notes…' : suggestion.data ? 'Suggested by Athena. Change it if it is wrong.' : 'Athena found no name in the task.'}
+        invalid={save.isError} invalidText={save.isError ? describeApiError(save.error) : undefined}
+        onChange={(e) => { setTouched(true); setWho(e.target.value); }} />
+    </Modal>
+  );
+};
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export const TasksPage: React.FC<{
@@ -1082,6 +1112,7 @@ export const TasksPage: React.FC<{
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [modalOpen,      setModalOpen]      = useState(false);
+  const [waitingPrompt,  setWaitingPrompt]  = useState<Task | null>(null);
   const [editTask,      setEditTask]      = useState<Task | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   useEffect(() => {
@@ -1194,7 +1225,8 @@ export const TasksPage: React.FC<{
       const previous = queryClient.getQueryData<ApiSuccess<PaginatedList<Task>>>(queryKey)?.data.items.find((task) => task.id === id);
       return { previous, queryKey };
     },
-    onSuccess: (saved) => {
+    onSuccess: (saved, { status }) => {
+      if (status === 'waiting' && !saved.waitingOn) setWaitingPrompt(saved);
       if (saved.assistanceStatus === 'failed') setSaveError('Task saved, but Athena could not queue its help proposal. Open the task and choose Help me to retry.');
       void queryClient.invalidateQueries({ queryKey: ['task-assistance', saved.id] });
       queryClient.setQueriesData<ApiSuccess<PaginatedList<Task>>>({ queryKey: ['tasks'] }, (current) => {
@@ -1500,6 +1532,10 @@ export const TasksPage: React.FC<{
         onClose={onImportClose}
         onTasksCreated={() => void queryClient.invalidateQueries({ queryKey: ['tasks'] })}
       />
+
+      {waitingPrompt && <WaitingOnPrompt key={waitingPrompt.id} task={waitingPrompt} onClose={() => { setWaitingPrompt(null); }}
+        onSaved={(saved) => { queryClient.setQueriesData<ApiSuccess<PaginatedList<Task>>>({ queryKey: ['tasks'] }, (current) => current === undefined || !current.success ? current
+          : { ...current, data: { ...current.data, items: current.data.items.map((t) => t.id === saved.id ? { ...saved, origin: t.origin ?? saved.origin ?? null } : t) } }); }} />}
 
       {modalOpen && <TaskModal
         open={modalOpen}

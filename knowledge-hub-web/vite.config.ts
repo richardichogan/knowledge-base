@@ -30,6 +30,8 @@ export default defineConfig({
       '/api': {
         target: `http://localhost:${process.env['KH_API_PORT'] ?? '3000'}`,
         changeOrigin: true,
+        // Voice Live relay (/api/voice/live) is a WebSocket.
+        ws: true,
         // Matches the longest client timeout (Athena spec drafting) so slow AI calls are not cut off in dev.
         proxyTimeout: 300_000,
         timeout: 300_000,

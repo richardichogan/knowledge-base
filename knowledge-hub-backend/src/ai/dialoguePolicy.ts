@@ -104,7 +104,57 @@ export function requestsOpenNoteEdit(history: ConversationMessage[], userMessage
     return previous?.role === 'assistant'
       && /\b(?:I can|shall I|would you like me to)\s+(?:amend|update|edit|fix|rewrite)\b/i.test(previous.content);
   }
-  return false;
+  // Richard's rule: with a note open, any request to produce or change content goes into that note
+  // unless he asks for it in chat.
+  return requestsWrittenContent(request);
+}
+
+const IN_CHAT_ONLY = /\b(?:in (?:the |this )?chat|here in (?:the )?chat|in your reply|just (?:tell|show) me|(?:don['’]?t|do not|without) (?:edit(?:ing)?|chang(?:e|ing)|updat(?:e|ing)|touch(?:ing)?|sav(?:e|ing)|overwrit(?:e|ing)|add(?:ing)? (?:it )?to) (?:the |my |this )?(?:note|document|article|post))\b/i;
+const OTHER_DESTINATION = /\b(?:sparks?|tasks?|plan\s+board|to-?do|calendar|remember|from\s+now\s+on)\b/i;
+const CONTENT_VERB = /\b(?:draft|write|rewrite|re-write|redraft|regenerate|redo|create|produce|generate|compose|add|include|incorporate|integrate|insert|append|put|weave|expand|extend|shorten|condense|tighten|trim|polish|improve|rework|restructure|reorder|rephrase|reword|amend|update|edit|change|fix|correct|replace|remove|delete|apply|merge|make)\b/i;
+const CONTENT_NEED = /\b(?:needs? to (?:be|go|include|mention|say|cover)|should (?:be (?:included|added|mentioned)|include|mention|say|cover)|i need (?:a|an|the)\b)/i;
+const POLITE_REQUEST = /^(?:please\s+)?(?:can|could|would|will) you\b/i;
+
+/** A request to produce or change written content, rather than a question, opinion or chat-only answer. */
+export function requestsWrittenContent(message: string): boolean {
+  const request = dialogueRequestText(message).replace(/\n*\(Requested action[^)]*\)\s*$/i, '').trim();
+  if (request === '' || IN_CHAT_ONLY.test(request) || OTHER_DESTINATION.test(request)
+    || /\bnot\s+(?:(?:the|my|your|this|that|open|actual)\s+)?(?:note|document|article)\b/i.test(request)) return false;
+  if (SMALL_TALK.test(request) || ACKNOWLEDGEMENT.test(request) || OPINION.test(request)) return false;
+  const polite = POLITE_REQUEST.test(request);
+  if (!polite && (/\?\s*$/.test(request) || FACTUAL_QUESTION.test(request))) return false;
+  return CONTENT_VERB.test(request) || CONTENT_NEED.test(request);
+}
+
+const LONG_FORM = /\b(?:blog(?:\s+post)?|article|post|linkedin|newsletter|op-?ed|essay|script|thought[- ]leadership|white\s?paper|press release|show notes|long[- ]form)\b/i;
+const DRAFT_VERB = /\b(?:draft|write|rewrite|redraft|regenerate|redo|create|produce|generate|compose)\b|\bi need (?:a|an)\b/i;
+const WORKING_DRAFT_LINK = /Link:\s*\S*\/think\?noteId=([0-9a-f-]{36})/gi;
+const WORKING_DRAFT_RECENT_MESSAGES = 8;
+
+/** The note this conversation is drafting into: the latest note Athena created or updated recently (reported as a Link line). */
+export function workingDraftNoteId(history: ConversationMessage[]): string | null {
+  for (let i = history.length - 1; i >= Math.max(0, history.length - WORKING_DRAFT_RECENT_MESSAGES); i--) {
+    const message = history[i];
+    if (message?.role !== 'assistant') continue;
+    const matches = [...message.content.matchAll(WORKING_DRAFT_LINK)];
+    const last = matches.at(-1)?.[1];
+    if (last) return last;
+  }
+  return null;
+}
+
+/**
+ * With no note open, long-form writing lives in a Think note: the first full draft creates one and
+ * later revisions in the conversation update it, instead of returning standalone fragments in chat.
+ */
+export function chatDraftNoteAction(history: ConversationMessage[], userMessage: string):
+  { tool: 'create_note_draft' } | { tool: 'update_note'; noteId: string } | null {
+  if (!requestsWrittenContent(userMessage)) return null;
+  const request = dialogueRequestText(userMessage);
+  const freshPiece = LONG_FORM.test(request) && DRAFT_VERB.test(request);
+  const working = /\b(?:new|another|separate|second)\b/i.test(request) && freshPiece ? null : workingDraftNoteId(history);
+  if (working) return { tool: 'update_note', noteId: working };
+  return freshPiece ? { tool: 'create_note_draft' } : null;
 }
 
 export function unconfirmedNoteEditClaim(reply: string): boolean {
@@ -116,8 +166,9 @@ export function unconfirmedNoteEditClaim(reply: string): boolean {
 /** A bounded runtime backstop for replies that promise work instead of executing it. */
 export function executionFollowThroughRepair(
   history: ConversationMessage[], userMessage: string, reply: string, calledTools: ReadonlySet<string>,
-  expectedNoteEdit = false, noteEditsQueued = false,
+  expectedNoteEdit: boolean | string = false, noteEditsQueued = false,
 ): string | null {
+  const expectedTool = expectedNoteEdit === true ? 'propose_note_edit' : expectedNoteEdit || null;
   if (noteEditsQueued) return null;
   const previous = history.at(-1);
   const acceptedRead = /^(?:yes|yep|yeah|ok|okay|go ahead|do it)(?:,?\s+please)?[.!\s]*$/i.test(dialogueRequestText(userMessage))
@@ -126,14 +177,15 @@ export function executionFollowThroughRepair(
   const hasRead = [...calledTools].some(name => /^(?:read_|get_|search_|list_|inspect_)/.test(name));
   const promise = /\bI(?:['’]m\s+going\s+to|\s+am\s+going\s+to|['’]ll|\s+will)\s+(?:now\s+)?(?:re[- ]?)?(?:read|check|verify|inspect|save|update|apply|write|edit|fix|create|add|remove)\b/i
     .test(reply.replace(/[*_`]/g, ''));
-  const missingNoteEdit = expectedNoteEdit && !calledTools.has('propose_note_edit');
+  const missingNoteEdit = expectedTool !== null && !calledTools.has(expectedTool);
   if ((!acceptedRead || hasRead) && !promise && !missingNoteEdit) return null;
   return 'Execution check: the proposed final reply has not completed an agreed action. Interpret the latest request in its conversation context. ' +
     'For an accepted offer to check, retrieve the current saved target now; do not speculate about overwritten changes. ' +
     'For an explicitly authorised edit, use the appropriate permitted tool now, preserving the agreed scope and all approval boundaries. ' +
     'An accepted read is not permission to write. Do not repeat a mutation with an existing success receipt, an accepted live-editor note batch or work already queued. ' +
     'If truly blocked or the intended action is materially ambiguous, state the concrete blocker or ask one necessary question. ' +
-    'Do not finish with a promise, a second offer to do the same work, or an unsupported completion claim.';
+    'Do not finish with a promise, a second offer to do the same work, or an unsupported completion claim.' +
+    (missingNoteEdit ? ` The requested writing belongs in the note: call ${expectedTool} now with the content integrated into the full piece, not a standalone fragment in chat. Only "in chat" or "don't change the note" keeps writing out of the note.` : '');
 }
 
 export function referencesOtherMaterial(message: string): boolean {

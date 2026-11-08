@@ -147,16 +147,15 @@ test('diagram continuation describes diagram objects without claiming they are c
   assert.equal(model.continuing[0]?.href, '/think?mapId=architecture');
 });
 
-test('open decisions suppress the same chat in continuation; saved outputs remain an intentional change summary', () => {
+test('open decisions live in the Decide queue, not attention; saved outputs remain an intentional change summary', () => {
   const chat = {
     session: { id: 's', title: 'Podcast package', startedAt: since, updatedAt: now.toISOString(), preview: '', projectId: 'personal' },
     outputs: [{ id: 'o', sessionId: 's', title: 'Show notes', kind: 'notes', format: 'markdown' as const, version: 1, updatedAt: now.toISOString() }],
     decisions: [{ id: 'd', text: 'Choose a title', status: 'open' as const, source: 'user' as const, createdAt: since, updatedAt: now.toISOString() }],
   };
   const model = buildTodayModel(inputs({ chats: [chat] }), now, since);
-  assert.equal(model.attention[0]?.href, '/chat?session=s');
-  assert.equal(model.attention[0]?.projectId, 'personal');
-  assert.equal(model.continuing.length, 0);
+  assert.equal(model.attention.some(item => item.id === 'decision:d'), false);
+  assert.equal(model.continuing[0]?.href, '/chat?session=s');
   assert.match(model.changes[0]!.title, /1 Athena output saved/);
 });
 

@@ -283,14 +283,7 @@ export function buildTodayModel(data: TodayInputs, now: Date, since: string): To
     });
   }
   for (const chat of data.chats) {
-    for (const decision of chat.decisions.filter((d) => d.status === 'open')) {
-      attention.push({
-        id: `decision:${decision.id}`, title: decision.text, type: 'Decision', ...project(chat.session.projectId),
-        reason: `An open question in "${chat.session.title}". Review the discussion and record the decision.`,
-        status: 'Decision required', tone: 'normal', date: decision.updatedAt,
-        href: `/chat?session=${encodeURIComponent(chat.session.id)}`, action: 'Make decision', score: 72, source: 'Athena',
-      });
-    }
+    // Open chat decisions are in Today's Decide queue (GET /api/today/decide), not here.
     if (chat.outputs.length > 0 && recentScore(chat.session.updatedAt) > 0) {
       continuing.push({
         id: `chat:${chat.session.id}`, title: chat.session.title, type: 'Athena outputs', ...project(chat.session.projectId),
@@ -324,11 +317,10 @@ export function buildTodayModel(data: TodayInputs, now: Date, since: string): To
     score: Math.min(cluster.sparkCount, 10) + (cluster.surfaced ? 0 : 5), source: 'Sparks', clusterId: cluster.id,
   });
   const attentionIds = new Set(attention.map((i) => i.id));
-  const decisionChats = new Set(attention.filter((i) => i.type === 'Decision').map((i) => i.href));
   const sort = (items: TodayItem[]): TodayItem[] => items.sort((a, b) => b.score - a.score || (b.date ?? '').localeCompare(a.date ?? '') || a.id.localeCompare(b.id));
   return {
     attention: sort(attention),
-    continuing: sort(continuing.filter((i) => !attentionIds.has(i.id) && !decisionChats.has(i.href))).slice(0, TODAY_LIMITS.continue),
+    continuing: sort(continuing.filter((i) => !attentionIds.has(i.id))).slice(0, TODAY_LIMITS.continue),
     changes: sort(changes),
     exploration: sort(exploration).slice(0, TODAY_LIMITS.explore),
   };

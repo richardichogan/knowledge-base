@@ -113,17 +113,23 @@ export function authenticate(req: Request, _res: Response, next: NextFunction): 
 
   void (async (): Promise<void> => {
     try {
-      const entraUser = await verifyEntraToken(token);
-      if (entraUser !== null) {
-        (req as AuthenticatedRequest).userId = entraUser;
-        next();
-        return;
-      }
-      const payload = jwt.verify(token, env.JWT_SECRET) as { sub: string };
-      (req as AuthenticatedRequest).userId = payload.sub;
+      (req as AuthenticatedRequest).userId = await verifyBearerToken(token);
       next();
     } catch (err) {
-      next(err instanceof UnauthorisedError ? err : new UnauthorisedError('Invalid or expired token'));
+      next(err);
     }
   })();
+}
+
+/** Same checks as `authenticate`, for connections that cannot pass through Express (the voice WebSocket). */
+export async function verifyBearerToken(token: string | undefined): Promise<string> {
+  if (env.NODE_ENV === 'development' || process.env.SKIP_AUTH === 'true') return 'dev-user';
+  if (token === undefined || token === '') throw new UnauthorisedError('Missing access token');
+  try {
+    const entraUser = await verifyEntraToken(token);
+    if (entraUser !== null) return entraUser;
+    return (jwt.verify(token, env.JWT_SECRET) as { sub: string }).sub;
+  } catch (err) {
+    throw err instanceof UnauthorisedError ? err : new UnauthorisedError('Invalid or expired token');
+  }
 }

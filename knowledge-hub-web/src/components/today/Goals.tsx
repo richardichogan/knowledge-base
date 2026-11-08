@@ -9,7 +9,7 @@ import { ArrowRight, Renew } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import { describeApiError, requireApiData } from '../../services/apiError';
 import { CfpShortlist, DealDesk, ProposalLedger } from './Proactive';
-import type { GoalAdjustment, GoalHealth, GoalMove, GoalStatus, GoalsOverview, MeasureStatus, ProjectGoal, Scorecard, TidyItem, TidyKind } from '../../types/goals';
+import type { GoalAdjustment, GoalHealth, GoalMove, GoalStatus, GoalsOverview, MeasureStatus, ProjectGoal, Scorecard, TidyItem, TidyKind, DecisionAction } from '../../types/goals';
 
 export const GOALS_KEY = ['today', 'goals'] as const;
 const POLL_MS = 4_000;
@@ -164,12 +164,46 @@ export function GoalDetail({ goal, goals, onAsk }: { goal: GoalStatus; goals: Re
   );
 }
 
+type DecisionChoice = DecisionAction | 'leave';
+const DECISION_CHOICES: Array<{ value: DecisionChoice; label: string; hint: string }> = [
+  { value: 'drop', label: 'Drop', hint: 'Remove it from the chat\'s Decisions panel' },
+  { value: 'task', label: 'Task', hint: 'Create a Plan Inbox task in the chat\'s project' },
+  { value: 'note', label: 'Note', hint: 'Create a Think note in the chat\'s project' },
+  { value: 'spark', label: 'Spark', hint: 'Save it as a Spark linked to the chat' },
+  { value: 'leave', label: 'Leave', hint: 'Leave it open in the chat' },
+];
+
+function DecisionRow({ item, choice, onChoose }: { item: TidyItem; choice: DecisionChoice; onChoose: (c: DecisionChoice) => void }): React.ReactElement {
+  const where = item.projectName ? ` Task or note goes to ${item.projectName}.` : '';
+  return (
+    <div className="today-goals__tidy-item today-goals__tidy-item--decision">
+      <span>
+        {item.sessionId
+          ? <Link to={`/chat?session=${encodeURIComponent(item.sessionId)}`} className="today-goals__tidy-title">{item.title}</Link>
+          : <span className="today-goals__tidy-title">{item.title}</span>}
+        <span className="today-brief__meta">{item.detail}{where}</span>
+      </span>
+      <div className="today-goals__choice" role="radiogroup" aria-label={`What to do with: ${item.title}`}>
+        {DECISION_CHOICES.map(c => <label key={c.value} className="today-goals__choice-option" title={c.hint}>
+          <input type="radio" name={`decision-${item.id}`} value={c.value} checked={choice === c.value} onChange={() => { onChoose(c.value); }} />
+          <span>{c.label}</span>
+        </label>)}
+      </div>
+    </div>
+  );
+}
+
 function TidyBatch({ card }: { card: Scorecard }): React.ReactElement {
   const [excluded, setExcluded] = useState<Set<string>>(() => new Set(card.tidy.excluded));
-  const apply = useGoalAction(() => api.applyGoalTidy([...excluded]).then(requireApiData));
+  const [actions, setActions] = useState<Record<string, DecisionAction>>(() => card.tidy.actions ?? {});
+  const apply = useGoalAction(() => api.applyGoalTidy([...excluded], actions).then(requireApiData));
   const undo = useGoalAction(() => api.undoGoalTidy(card.tidy.batchId ?? '').then(requireApiData));
   const { items, appliedAt, undoneAt } = card.tidy;
   const chosen = items.filter(i => !excluded.has(i.id)).length;
+  const choose = (item: TidyItem, choice: DecisionChoice): void => {
+    setExcluded(prev => { const next = new Set(prev); if (choice === 'leave') next.add(item.id); else next.delete(item.id); return next; });
+    if (choice !== 'leave') setActions(prev => ({ ...prev, [item.id]: choice }));
+  };
   const toggle = (item: TidyItem): void => { setExcluded(prev => { const next = new Set(prev); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next; }); };
   return (
     <section className="today-goals__tidy" aria-labelledby="goals-tidy">
@@ -183,7 +217,9 @@ function TidyBatch({ card }: { card: Scorecard }): React.ReactElement {
           const group = items.filter(i => i.kind === kind);
           return group.length ? <fieldset key={kind} className="today-goals__tidy-group" disabled={Boolean(appliedAt) || apply.isPending}>
             <legend>{label} <span className="today-brief__meta">({group.length})</span></legend>
-            {group.map(item => <label key={item.id} className="today-goals__tidy-item">
+            {kind === 'drop-decision' ? group.map(item => <DecisionRow key={item.id} item={item}
+              choice={excluded.has(item.id) ? 'leave' : actions[item.id] ?? 'drop'} onChoose={c => { choose(item, c); }} />)
+            : group.map(item => <label key={item.id} className="today-goals__tidy-item">
               <input type="checkbox" checked={!excluded.has(item.id)} onChange={() => { toggle(item); }} />
               <span><span className="today-goals__tidy-title">{item.title}</span><span className="today-brief__meta">{item.detail}</span></span>
             </label>)}

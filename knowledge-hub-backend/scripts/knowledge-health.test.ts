@@ -23,7 +23,8 @@ async function fixtureDb(): Promise<PGlite> {
   for (const file of ['140_ai_learning_ledger.sql', '145_ai_workflow_failure_diagnostics.sql']) {
     await db.exec(await readFile(new URL(`../src/db/migrations/${file}`, import.meta.url), 'utf8'));
   }
-  await db.exec('CREATE TABLE ai_chat_sessions(id UUID PRIMARY KEY); CREATE TABLE ai_chat_messages(id BIGSERIAL PRIMARY KEY)');
+  await db.exec('CREATE TABLE ai_chat_sessions(id UUID PRIMARY KEY); CREATE TABLE ai_chat_messages(id BIGSERIAL PRIMARY KEY, content TEXT)');
+  await db.exec('CREATE TABLE athena_feedback(id UUID PRIMARY KEY DEFAULT gen_random_uuid(), session_id UUID, rating TEXT NOT NULL, reply_excerpt TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())');
   for (const file of ['134_ai_turn_traces.sql', '135_health_measurements.sql']) {
     await db.exec(await readFile(new URL(`../src/db/migrations/${file}`, import.meta.url), 'utf8'));
   }

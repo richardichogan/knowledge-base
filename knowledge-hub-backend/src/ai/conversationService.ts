@@ -30,7 +30,7 @@ import { buildDecisionsBlock } from './chatDecisions.js';
 import { buildScreensBlock } from './chatScreens.js';
 import type { LlmMessage, LlmToolChoice } from './foundryClient.js';
 import type { ToolImages } from './chatTools.js';
-import { buildAiContext, assembleMessages } from './contextBuilder.js';
+import { buildAiContext, assembleMessages, assembleSmallTalkMessages } from './contextBuilder.js';
 import { getToolDefinitions, executeToolCall } from './chatTools.js';
 import { scrubExcludedHistory } from '../services/knowledge/historyScrub.js';
 import { AI_MAX_TOOL_ITERATIONS, AI_WRAP_UP_ROUND_MIN_MS, SHOW_NOTES_MAX_TOOL_ITERATIONS, AI_CHAT_MAX_TOKENS, AI_REASONING_MODEL_MAX_TOKENS, AI_CONVERSATION_TURN_BUDGET_MS, AI_MIN_TOOL_ROUND_BUDGET_MS } from '../config/constants.js';
@@ -55,7 +55,7 @@ import { LOCAL_FILE_TOOLS, localFilesPrompt, type LocalFileWriteProposal, type L
 import { ukClock } from '../sync/ukClock.js';
 import { recordTurnTrace, setTraceProject, withTurnTrace, withTurnSpan } from './turnTrace.js';
 import { startRoutingShadow } from './routingShadow.js';
-import { executionFollowThroughRepair, requestsOpenNoteEdit, unconfirmedNoteEditClaim } from './dialoguePolicy.js';
+import { chatDraftNoteAction, executionFollowThroughRepair, isConversationalTurn, requestsOpenNoteEdit, unconfirmedNoteEditClaim } from './dialoguePolicy.js';
 
 const RAG_USED_LIMIT = 10;
 const TOOL_ERROR_LOG_CHARS = 400;
@@ -151,7 +151,7 @@ const NO_OUTPUTS_PANEL_NOTE = [
 const NOTE_EDIT_MAX_TOKENS = 14_000;
 
 /** Tools that change something; left out when a turn must only read. */
-const WRITE_TOOLS = new Set([...WORK_WRITE_TOOLS, ...BUILD_WRITE_TOOLS, ...USE_CASE_WRITE_TOOLS, ...DESIGN_READINESS_WRITE_TOOLS, 'apply_diagram_candidate', 'generate_project_progress_review', 'update_podcast_script', 'replace_podcast_youtube_link', 'save_design_documents', 'set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'propose_local_file_write', 'remember', 'forget_memory', 'save_output', 'manage_scheduled_jobs', 'manage_publishing_feeds', 'manage_goals', 'manage_proactive', 'refresh_discover_picks', 'hand_off_to_specialist', 'import_meeting_list', DEMO_SPECIFICATION_WRITE_TOOL, ...ASSET_WRITE_TOOLS]);
+const WRITE_TOOLS = new Set([...WORK_WRITE_TOOLS, ...BUILD_WRITE_TOOLS, ...USE_CASE_WRITE_TOOLS, ...DESIGN_READINESS_WRITE_TOOLS, 'apply_diagram_candidate', 'generate_project_progress_review', 'update_podcast_script', 'replace_podcast_youtube_link', 'save_design_documents', 'set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'propose_local_file_write', 'remember', 'forget_memory', 'save_output', 'manage_scheduled_jobs', 'manage_publishing_feeds', 'manage_goals', 'manage_proactive', 'manage_decide_queue', 'refresh_discover_picks', 'hand_off_to_specialist', 'import_meeting_list', DEMO_SPECIFICATION_WRITE_TOOL, ...ASSET_WRITE_TOOLS]);
 WRITE_TOOLS.add('design_script_visuals');
 WRITE_TOOLS.add('apply_script_visuals');
 
@@ -175,6 +175,39 @@ export async function handleConversationTurn(...args: Parameters<typeof conversa
   return withTurnTrace(db, sessionId, { message: userMessage, model, persona, pageContext,
     target: { noteId: toolContext?.noteId, designOwner: toolContext?.designOwner, podcastOwner: toolContext?.podcastOwner },
     readOnly: hooks?.readOnlyTools === true }, hooks?.signal, () => conversationTurn(...args));
+}
+
+function isLightSmallTalk(userMessage: string, hooks: TurnHooks): boolean {
+  return isConversationalTurn(userMessage)
+    && hooks.beforeReply === undefined && hooks.allowedTools === undefined && hooks.allowedWriteTools === undefined
+    && !hooks.screenImages?.length && !hooks.codeFiles?.ids.length;
+}
+
+/** Social turns get persona, standing instructions and recent history only: no tools, retrieval or page context. */
+async function smallTalkTurn(
+  db: Pool, history: ConversationMessage[], userMessage: string, model: AiModel,
+  persona: string | undefined, sessionId: string | undefined, hooks: TurnHooks,
+): Promise<string> {
+  await recordTurnTrace('route.small_talk', { tools: 0, retrieval: false });
+  const activeProjectId = sessionId !== undefined ? await getSessionProjectId(db, sessionId).catch(() => null) : null;
+  const excluded = new Set(sessionId !== undefined
+    ? (await getExcludedSources(db, sessionId).catch(() => [])).map((s) => s.id)
+    : []);
+  const [standingBlock, safeHistory] = await Promise.all([
+    buildStandingInstructionsBlock(db, { persona, projectId: activeProjectId, includeExamples: false })
+      .catch((err: unknown) => { console.error('[memory] could not load standing instructions:', err); return ''; }),
+    scrubExcludedHistory(db, history, excluded).catch(() => history.filter((m) => m.role !== 'assistant')),
+  ]);
+  hooks.signal?.throwIfAborted();
+  const messages: LlmMessage[] = assembleSmallTalkMessages(safeHistory, userMessage, persona, standingBlock, `Current UK date: ${ukClock().day}.`)
+    .map((m) => ({ role: m.role, content: m.content }) as LlmMessage);
+  const client = getFoundryClient('chat').scoped({ persona, sessionId });
+  const maxTokens = model === 'reasoning' ? AI_REASONING_MODEL_MAX_TOKENS : AI_CHAT_MAX_TOKENS;
+  const timeoutMs = Math.max(hooks.budgetMs ?? AI_CONVERSATION_TURN_BUDGET_MS, AI_MIN_TOOL_ROUND_BUDGET_MS);
+  const response = hooks.onDelta !== undefined || hooks.modelRoute !== undefined
+    ? await client.chatWithToolsStream(model, messages, [], maxTokens, 'auto', timeoutMs, hooks.onDelta ?? NOT_FOLLOWED_LIVE, hooks.signal, hooks.modelRoute)
+    : await client.chatWithTools(model, messages, [], maxTokens, 'auto', timeoutMs, hooks.signal);
+  return response.content ?? '';
 }
 
 async function conversationTurn(
@@ -205,6 +238,8 @@ async function conversationTurn(
   await recordTurnTrace('context.resolved', { pageContext,
     target: { noteId: toolContext.noteId, designOwner: toolContext.designOwner, podcastOwner: toolContext.podcastOwner },
     model, persona, readOnly: hooks.readOnlyTools === true });
+  hooks.signal?.throwIfAborted();
+  if (isLightSmallTalk(userMessage, hooks)) return smallTalkTurn(db, history, userMessage, model, persona, sessionId, hooks);
   startRoutingShadow({ userMessage, history, pageContext, persona });
   const workforceRequestId = randomUUID();
   hooks.signal?.throwIfAborted();
@@ -396,6 +431,11 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
     ...(toolContext.buildSpecId ? [...BUILD_READ_TOOLS, ...BUILD_WRITE_TOOLS] : []),
     ...(toolContext.useCaseId ? ['read_use_case', ...USE_CASE_WRITE_TOOLS] : []),
   ]);
+  // No note open: long-form writing goes into a Think note (create first, then update that note).
+  const chatDraftCandidate = !noteOpen && !toolContext.noteId && mapId === undefined && !design && !toolContext.podcastOwner
+    ? chatDraftNoteAction(safeHistory, userMessage) : null;
+  const chatDraft = chatDraftCandidate && permittedTools.some(tool => tool.function.name === chatDraftCandidate.tool) ? chatDraftCandidate : null;
+  if (chatDraft) catalog.load([chatDraft.tool]);
   await recordTurnTrace('capability.catalog', {
     capabilities: permittedTools.map(tool => ({ name: tool.function.name, state: catalog.state(tool.function.name), write: WRITE_TOOLS.has(tool.function.name) })),
     contextCapabilities, readOnly: hooks.readOnlyTools === true,
@@ -406,6 +446,11 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
     `Persona: ${persona ?? 'general'}. ${hooks.readOnlyTools === true ? 'Read-only turn: mutation tools are withheld.' : 'Only the supplied tools can perform actions.'}`,
     `Protected live-note editing: ${permittedTools.some(tool => tool.function.name === 'propose_note_edit') ? 'available; explicitly requested edits apply and save automatically through the live editor. delivery=preview only for an explicitly requested preview. The tool acceptance is not a save receipt: the editor reports save success or failure. Do not tell Richard to click Apply for ordinary edits.' : 'unavailable in this turn'}.`,
     `Canvas change preview: ${permittedTools.some(tool => tool.function.name === 'propose_map_changes') ? 'available; requires user application' : 'unavailable in this turn'}.`,
+    noteOpen && permittedTools.some(tool => tool.function.name === 'propose_note_edit')
+      ? 'Writing destination: the open note. Any request to draft, write, add, include, incorporate or change content goes into that note with propose_note_edit, integrated into the full piece — never a standalone fragment in chat. Only an explicit "in chat" or "don\'t change the note" keeps writing out of the note. Questions and opinions are answered in chat.'
+      : chatDraft?.tool === 'update_note'
+        ? `Writing destination: this conversation is drafting into Think note ${chatDraft.noteId}. Apply requested additions or changes with update_note (noteId ${chatDraft.noteId}, mode "replace") carrying the complete revised piece, then give the Link line. Do not reply with a standalone fragment.`
+        : 'Writing destination: with no note open, a requested blog post, article, LinkedIn post, script or similar long-form piece goes into a new Think note with create_note_draft (the complete piece; not save_output), then give the Link line. Later revisions in this conversation update that note with update_note (mode "replace", complete revised piece).',
     `Diagram design: ${permittedTools.some(tool => tool.function.name === 'hand_off_to_specialist') ? 'Ariadne is available through hand_off_to_specialist (load the schema if needed). For creating/redrawing diagrams, matching reference images or substantial layout work, hand off to Ariadne (specialist id "daedalus") with the full instruction, source revision and selected screen/reference IDs. It creates a separate editable candidate and reports back here. A queued handoff is not a completed drawing. Only apply_diagram_candidate after explicit user approval of that candidate. Minor shape edits may use update_diagram.' : 'specialist handoff unavailable in this turn'}`,
     'A permitted capability may need load_tools; not being loaded is not being unavailable. Never claim editing is unavailable just because the schema has not been loaded. Report diagram changes only from successful save results, not proposed specifications or earlier conversation claims.',
     `Outputs panel: ${design ? 'Design documents belong in their Design tabs, using save_design_documents' : hooks.noOutputsPanel === true ? 'not visible here; deliver content in the reply' : 'use supplied output tools if available'}.`,
@@ -505,7 +550,7 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
     }
 
     const tools = catalog.schemas().filter(tool => supportsScope(tool.function.name));
-    const longForm = design || toolContext.podcastOwner || tools.some(tool => ['propose_note_edit', DEMO_SPECIFICATION_WRITE_TOOL, 'save_output', 'save_design_documents'].includes(tool.function.name));
+    const longForm = design || toolContext.podcastOwner || chatDraft !== null || tools.some(tool => ['propose_note_edit', DEMO_SPECIFICATION_WRITE_TOOL, 'save_output', 'save_design_documents'].includes(tool.function.name));
     const maxTokens = longForm ? NOTE_EDIT_MAX_TOKENS : model === 'reasoning' ? AI_REASONING_MODEL_MAX_TOKENS : AI_CHAT_MAX_TOKENS;
     const roundToolChoice: LlmToolChoice = wrapUp ? 'none' : nextRoundTool ?? (i === 0 && requiredFirstTool !== undefined ? requiredFirstTool : 'auto');
     nextRoundTool = undefined;
@@ -549,16 +594,25 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
         && !toolContext.noteId?.startsWith('doc:') && !toolContext.noteId?.startsWith('map:')
         && permittedTools.some(tool => tool.function.name === 'propose_note_edit')
         && requestsOpenNoteEdit(safeHistory, userMessage);
-      const executionRepair = executionFollowThroughRepair(safeHistory, userMessage, reply, calledTools, expectedNoteEdit, queuedNoteEdits > 0);
+      const expectedWriteTool = expectedNoteEdit ? 'propose_note_edit' : chatDraft?.tool ?? null;
+      const writeMissing = expectedWriteTool !== null && !calledTools.has(expectedWriteTool)
+        && (expectedWriteTool === 'propose_note_edit' || !(calledTools.has('create_note_draft') || calledTools.has('update_note')));
+      const executionRepair = executionFollowThroughRepair(safeHistory, userMessage, reply, calledTools, writeMissing ? expectedWriteTool : false, queuedNoteEdits > 0);
       if (executionRepair) {
         if (executionRepaired || wrapUp || i >= maxRounds - 1) {
           hooks.onReset?.();
-          return incomplete('I could not complete the agreed action in this turn. A promise is not a result; check the recorded tool results and saved content before repeating any edit.');
+          return incomplete(writeMissing
+            ? 'I did not put this into the note, so nothing was saved. Ask again and I will write it into the note.'
+            : 'I could not complete the agreed action in this turn. A promise is not a result; check the recorded tool results and saved content before repeating any edit.');
         }
         executionRepaired = true;
-        await recordTurnTrace('action.follow_through_repair', { calledTools: [...calledTools] });
+        await recordTurnTrace('action.follow_through_repair', { calledTools: [...calledTools], expectedWriteTool });
         hooks.onReset?.();
         messages.push({ role: 'user', content: `[Runtime execution check: ${executionRepair}]` });
+        if (writeMissing && expectedWriteTool) {
+          catalog.load([expectedWriteTool]);
+          nextRoundTool = { type: 'function', function: { name: expectedWriteTool } };
+        }
         continue;
       }
       const confirmedSave = diagramEvidence.receipts?.at(-1) ?? priorDiagramSave;

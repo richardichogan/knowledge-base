@@ -7,10 +7,13 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { getFoundryClient } from '../ai/foundryClient.js';
-import { recordTaskEdit, type TaskActivityActor } from '../work/taskEditActivity.js';
+import { recordTaskCreated, recordTaskEdit, type TaskActivityActor } from '../work/taskEditActivity.js';
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
 import { GOALS, goalProjects, goalsStatus, loadGoals, mutateState, readState, weekOf, writeState, type GoalHealth, type GoalId } from './goals.js';
 import { getGoalBrief } from './brief.js';
+import { textToBlocks } from '../ai/markdownToNoteBlocks.js';
+import { createNoteRecord } from '../routes/notes.js';
+import { createSpark, deleteSpark } from '../services/sparkService.js';
 import { decideProposal, evaluateAutoOff, proposalReport, recordProposal, type ProposalReport } from './proposals.js';
 
 const SCORECARD_KEY = 'goals-scorecard';
@@ -22,6 +25,8 @@ const CULL_DRAFT_DAYS = 14;
 const OVERDUE_PER_GOAL = 6;
 const FILE_CANDIDATES = 30;
 const TIDY_LIMIT = 60;
+const TASK_TITLE_LIMIT = 200;
+const NOTE_TITLE_LIMIT = 90;
 const TEXT_LIMIT = 400;
 const MAX_TOKENS = 4_000;
 const TIMEOUT_MS = 120_000;
@@ -37,15 +42,18 @@ export interface GoalScore {
   move: { title: string; status: string; done: boolean } | null; dateProposals: DateProposal[];
 }
 export type TidyKind = 'archive-task' | 'drop-decision' | 'file-note' | 'file-chat' | 'cull-draft';
-export interface TidyItem { id: string; kind: TidyKind; entityId: string; title: string; detail: string; projectId: string | null; projectName: string | null }
+export interface TidyItem { id: string; kind: TidyKind; entityId: string; title: string; detail: string; projectId: string | null; projectName: string | null; sessionId?: string | null; sessionTitle?: string | null }
+/** What happens to a stale decision on approval: dropped, or turned into a Plan task, Think note or Spark (and then dropped). */
+export type DecisionAction = 'drop' | 'task' | 'note' | 'spark';
+const DECISION_ACTIONS: readonly DecisionAction[] = ['drop', 'task', 'note', 'spark'];
 export interface Scorecard {
   week: string; generatedAt: string; trigger: 'job' | 'manual' | 'athena'; goals: GoalScore[];
   athena: { proposed: number; accepted: number; done: number; dismissed: number; ignored: number; drafts: number; research: number; summary: string };
   /** Every proactive proposal type over the last seven days, and the types Athena (or Richard) has switched off. */
   ledger?: ProposalReport;
-  tidy: { items: TidyItem[]; note: string | null; batchId: string | null; appliedAt: string | null; applied: number; excluded: string[]; undoneAt: string | null };
+  tidy: { items: TidyItem[]; note: string | null; batchId: string | null; appliedAt: string | null; applied: number; excluded: string[]; undoneAt: string | null; actions?: Record<string, DecisionAction> };
 }
-interface UndoItem { kind: TidyKind; entityId: string; title: string; before: string | null; after: string | null }
+interface UndoItem { kind: TidyKind; entityId: string; title: string; before: string | null; after: string | null; created?: { type: 'task' | 'note' | 'spark'; id: string } }
 interface UndoBatch { id: string; week: string; appliedAt: string; actor: TaskActivityActor; items: UndoItem[]; undoneAt: string | null }
 
 const PROMPT = [
@@ -86,13 +94,15 @@ async function tidyCandidates(db: Pool): Promise<{ items: TidyItem[]; files: Arr
     detail: `Unsent draft, untouched for ${String(d.days)} days${d.task ? ` (task: ${d.task})` : ''}, not linked to a goal.`, projectId: null, projectName: null });
   let note: string | null = null;
   const allowed = await droppedAllowed(db);
-  const decisions = (await db.query<{ id: string; text: string; days: number; title: string | null }>(
-    `SELECT d.id::text, d.text, floor(extract(epoch FROM NOW() - d.created_at) / 86400)::int AS days, s.title FROM chat_decisions d
-       LEFT JOIN ai_chat_sessions s ON s.id = d.session_id
+  const decisions = (await db.query<{ id: string; text: string; days: number; title: string | null; session_id: string; project_id: string | null; project_name: string | null }>(
+    `SELECT d.id::text, d.text, floor(extract(epoch FROM NOW() - d.created_at) / 86400)::int AS days, s.title, d.session_id::text,
+            s.project_id, p.name AS project_name FROM chat_decisions d
+       LEFT JOIN ai_chat_sessions s ON s.id = d.session_id LEFT JOIN projects p ON p.id = s.project_id
       WHERE d.status='open' AND d.created_at < NOW() - make_interval(days => $1) ORDER BY d.created_at LIMIT $2`, [STALE_DECISION_DAYS, TIDY_LIMIT])).rows;
   if (allowed) {
     for (const d of decisions) items.push({ id: `drop-decision:${d.id}`, kind: 'drop-decision', entityId: d.id, title: d.text.slice(0, 200),
-      detail: `Open for ${String(d.days)} days${d.title ? ` in "${d.title}"` : ''}. Dropping marks it no longer pending.`, projectId: null, projectName: null });
+      detail: `Open for ${String(d.days)} days${d.title ? ` in "${d.title}"` : ''}. Dropping marks it no longer pending.`,
+      projectId: d.project_id, projectName: d.project_name, sessionId: d.session_id, sessionTitle: d.title });
   } else if (decisions.length) {
     note = `${String(decisions.length)} stale open decisions can be dropped once the next release adds the dropped status.`;
   }
@@ -272,9 +282,63 @@ async function inTransaction<T>(db: Pool, work: (c: PoolClient) => Promise<T>): 
   } finally { c.release(); }
 }
 
+const chatHref = (sessionId: string): string => `/chat?session=${encodeURIComponent(sessionId)}`;
+
+/** Turns an open decision into a Plan Inbox task, Think note or Spark in the chat's project, then drops it from the chat. */
+async function convertDecision(db: Pool, item: TidyItem, action: Exclude<DecisionAction, 'drop'>, actor: TaskActivityActor): Promise<UndoItem | null> {
+  const open = (await db.query<{ text: string; session_id: string; title: string | null; project_id: string | null }>(
+    `SELECT d.text, d.session_id::text, s.title, s.project_id FROM chat_decisions d LEFT JOIN ai_chat_sessions s ON s.id = d.session_id
+      WHERE d.id::text=$1 AND d.status='open'`, [item.entityId])).rows[0];
+  if (!open) return null;
+  const text = open.text.trim();
+  const sessionId = open.session_id;
+  const projectId = open.project_id;
+  const chat = open.title?.trim() ? `"${open.title.trim()}"` : 'an Athena chat';
+  let created: NonNullable<UndoItem['created']>;
+  if (action === 'task') {
+    const id = (await db.query<{ id: string }>(
+      `INSERT INTO tasks (title, body, status, project_id, tags, priority) VALUES ($1,$2,'inbox',$3,'{}','normal') RETURNING id::text`,
+      [text.slice(0, TASK_TITLE_LIMIT), `Open question from ${chat}: ${chatHref(sessionId)}`, projectId])).rows[0]!.id;
+    await recordTaskCreated(db, id, actor);
+    created = { type: 'task', id };
+  } else if (action === 'note') {
+    const title = text.length > NOTE_TITLE_LIMIT ? `${text.slice(0, NOTE_TITLE_LIMIT - 1).trimEnd()}…` : text;
+    const note = await createNoteRecord(db, { projectId: projectId ?? '', tags: ['decision'],
+      content: JSON.stringify({ title, contentType: 'note', contentJson: JSON.stringify(textToBlocks(`${text}\n\nOpen question from ${chat}: [open the chat](${chatHref(sessionId)})`)) }) });
+    created = { type: 'note', id: note.id };
+  } else {
+    const spark = await createSpark(db, { sourceId: sessionId, sourceType: 'chat', body: text, tags: ['decision'] });
+    created = { type: 'spark', id: spark.id };
+  }
+  await db.query(`UPDATE chat_decisions SET status='dropped', updated_at=NOW() WHERE id::text=$1 AND status='open'`, [item.entityId]);
+  return { kind: item.kind, entityId: item.entityId, title: item.title, before: 'open', after: 'dropped', created };
+}
+
+/** Today's Decide queue: converts one open chat decision outside the Friday tidy-up. Null when it is no longer open. */
+export async function convertOpenDecision(db: Pool, decisionId: string, action: Exclude<DecisionAction, 'drop'>, actor: TaskActivityActor): Promise<UndoItem['created'] | null> {
+  const undo = await convertDecision(db, { id: `decision:${decisionId}`, kind: 'drop-decision', entityId: decisionId, title: '', detail: '', projectId: null, projectName: null }, action, actor);
+  return undo?.created ?? null;
+}
+
+/** Removes what a converted decision created: the task and note are archived, the Spark deleted. */
+async function removeCreated(db: Pool, created: NonNullable<UndoItem['created']>, actor: TaskActivityActor): Promise<void> {
+  if (created.type === 'task') {
+    const r = await db.query(`UPDATE tasks SET archived=TRUE, updated_at=NOW() WHERE id::text=$1 AND NOT archived`, [created.id]);
+    if (r.rowCount) await db.query('INSERT INTO task_notes(task_id,body,activity) VALUES($1,$2,$3)', [created.id, 'Archived: the Friday tidy-up was undone.',
+      JSON.stringify({ actor, action: 'task-edited', changes: [{ field: 'archived', label: 'Archived', from: 'No', to: 'Yes' }] })]);
+  } else if (created.type === 'note') {
+    await db.query(`UPDATE notes SET status='archived', updated_at=NOW() WHERE id::text=$1 AND status='active'`, [created.id]);
+  } else {
+    await deleteSpark(db, created.id).catch((error: unknown) => { if (!(error instanceof NotFoundError)) throw error; });
+  }
+}
+
 /** Applies this week's tidy batch except the excluded item ids. Only on Richard's explicit approval. */
-export async function applyTidyBatch(db: Pool, excludedIds: unknown, actor: TaskActivityActor): Promise<{ applied: number; skipped: number; batchId: string }> {
+export async function applyTidyBatch(db: Pool, excludedIds: unknown, actor: TaskActivityActor, decisionActions: unknown = {}): Promise<{ applied: number; skipped: number; batchId: string }> {
   if (!Array.isArray(excludedIds) || excludedIds.some(id => typeof id !== 'string')) throw new ValidationError('Excluded items must be a list of item ids.');
+  if (typeof decisionActions !== 'object' || decisionActions === null || Array.isArray(decisionActions)
+    || Object.values(decisionActions).some(a => !DECISION_ACTIONS.includes(a as DecisionAction))) throw new ValidationError('Each decision must be dropped or turned into a task, note or Spark.');
+  const actions = decisionActions as Record<string, DecisionAction>;
   const excluded = new Set(excludedIds as string[]);
   const card = await readState<Scorecard>(db, SCORECARD_KEY);
   if (!card || card.week !== weekOf()) throw new ConflictError('There is no tidy-up batch for this week. Generate the scorecard first.', 'GOAL_TIDY_MISSING');
@@ -282,18 +346,27 @@ export async function applyTidyBatch(db: Pool, excludedIds: unknown, actor: Task
   const chosen = card.tidy.items.filter(i => !excluded.has(i.id));
   if (chosen.length === 0) throw new ValidationError('Nothing is selected to tidy.');
   const batchId = randomUUID();
+  const convert = (i: TidyItem): Exclude<DecisionAction, 'drop'> | null => { const a = i.kind === 'drop-decision' ? actions[i.id] : undefined; return a && a !== 'drop' ? a : null; };
   const done = await inTransaction(db, async c => {
     const items: UndoItem[] = [];
-    for (const item of chosen) { const u = await applyItem(c, item, actor); if (u) items.push(u); }
+    for (const item of chosen) { if (convert(item)) continue; const u = await applyItem(c, item, actor); if (u) items.push(u); }
     return items;
   });
+  for (const item of chosen) {
+    const action = convert(item);
+    if (!action) continue;
+    try { const u = await convertDecision(db, item, action, actor); if (u) done.push(u); } catch (error) {
+      console.error(`[goals] Could not turn decision ${item.entityId} into a ${action}:`, error);
+    }
+  }
+  const usedActions = Object.fromEntries(chosen.filter(i => convert(i)).map(i => [i.id, convert(i)!]));
   const appliedAt = new Date().toISOString();
   await mutateState<{ batches: UndoBatch[] }, void>(db, UNDO_KEY, { batches: [] }, v => {
     const cutoff = new Date(Date.now() - UNDO_DAYS * DAY_MS).toISOString();
     v.batches = [{ id: batchId, week: card.week, appliedAt, actor, items: done, undoneAt: null }, ...(v.batches ?? []).filter(b => b.appliedAt > cutoff)];
   });
   await mutateState<Scorecard | null, void>(db, SCORECARD_KEY, null, v => {
-    if (v) v.tidy = { ...v.tidy, batchId, appliedAt, applied: done.length, excluded: [...excluded] };
+    if (v) v.tidy = { ...v.tidy, batchId, appliedAt, applied: done.length, excluded: [...excluded], actions: usedActions };
   });
   return { applied: done.length, skipped: chosen.length - done.length, batchId };
 }
@@ -308,6 +381,7 @@ export async function undoTidyBatch(db: Pool, batchId: unknown, actor: TaskActiv
   const restored = await inTransaction(db, async c => {
     let n = 0;
     for (const item of batch.items) {
+      if (item.created) continue;
       let r;
       if (item.kind === 'archive-task') {
         r = await c.query('UPDATE tasks SET archived=FALSE, updated_at=NOW() WHERE id::text=$1 AND archived', [item.entityId]);
@@ -324,10 +398,17 @@ export async function undoTidyBatch(db: Pool, batchId: unknown, actor: TaskActiv
     }
     return n;
   });
+  let reverted = restored;
+  for (const item of batch.items) {
+    if (!item.created) continue;
+    await removeCreated(db, item.created, actor);
+    const r = await db.query(`UPDATE chat_decisions SET status='open', updated_at=NOW() WHERE id::text=$1 AND status='dropped'`, [item.entityId]);
+    reverted += r.rowCount ?? 0;
+  }
   const undoneAt = new Date().toISOString();
   await mutateState<{ batches: UndoBatch[] }, void>(db, UNDO_KEY, { batches: [] }, v => {
     const b = v.batches?.find(x => x.id === batchId); if (b) b.undoneAt = undoneAt;
   });
   await mutateState<Scorecard | null, void>(db, SCORECARD_KEY, null, v => { if (v?.tidy.batchId === batchId) v.tidy.undoneAt = undoneAt; });
-  return { restored, skipped: batch.items.length - restored };
+  return { restored: reverted, skipped: batch.items.length - reverted };
 }

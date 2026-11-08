@@ -50,7 +50,7 @@ import type {
 } from '../types/useCases';
 import type { PodcastPrepStatus } from '../types/podcastPrep';
 import type { DiscoverPicksResponse } from '../types/discoverPicks';
-import type { GoalsOverview, GoalMove, DateProposal, ProgressEntry, ProactiveAction, ProactiveOverview } from '../types/goals';
+import type { GoalsOverview, GoalMove, DateProposal, ProgressEntry, ProactiveAction, ProactiveOverview, DecisionAction, DecideItem, DecideAction } from '../types/goals';
 import { requestCompletionNotifications } from '../chat/completionNotification';
 import type { PodcastEpisode, ScriptCard } from '../types/podcastEpisodes';
 import type { DraftSummary, TaskReviewSummary, WorkContent, WorkContentPatch } from '../types/workContent';
@@ -161,6 +161,15 @@ function makeClient(baseURL: string, token: string): AxiosInstance {
   return client;
 }
 
+/** Voice Live relay: the WebSocket URL and the token sent as its first message. */
+export async function voiceLiveConnection(mode: 'conversation' | 'dictation' | 'speak'): Promise<{ url: string; token: string }> {
+  const origin = BASE_URL !== '' ? BASE_URL : window.location.origin;
+  const url = new URL(`/api/voice/live?mode=${mode}`, origin);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  const signedIn = await getApiToken();
+  return { url: url.toString(), token: signedIn !== '' ? signedIn : TOKEN };
+}
+
 /**
  * Reads a chat turn's live events (server-sent events over fetch, so the
  * sign-in header can be sent). Resolves when the stream ends; the caller
@@ -247,7 +256,7 @@ export interface HealthTurnMeasurements {
   transportRetries: number; modelErrors: number; toolErrors: number; correctness: 'unreviewed';
   actionReliability?: { measuredTurns: number; capabilityLoads: number; capabilityDenials: number; blockedCapabilities: number;
     receipts: number; warnings: number; contradictions: number; unconfirmedClaims: number };
-  evaluated: { deterministic: number; model: number; unreviewed: number };
+  evaluated: { deterministic: number; model: number; human: { up: number; down: number }; unreviewed: number };
   daily: Array<{ day: string; accepted: number; complete: number; failed: number }>; note: string;
 }
 export interface HealthTrace {
@@ -1436,37 +1445,6 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  // ─── Voice (Azure Speech, ported from client-demo's voiceRoutes.ts) ────────
-
-  /** Transcribes base64-encoded audio (16kHz mono WAV) via /api/voice/transcribe. */
-  async transcribeVoice(
-    audioBase64: string,
-    mimeType: string,
-    language?: string,
-    durationMilliseconds?: number,
-  ): Promise<ApiResponse<{ text: string; provider: string; durationMilliseconds?: number }>> {
-    const r = await this.client.post<ApiResponse<{ text: string; provider: string; durationMilliseconds?: number }>>(
-      '/api/voice/transcribe',
-      { audioBase64, mimeType, language: language ?? 'en-GB', durationMilliseconds },
-      { timeout: CHAT_TIMEOUT_MS },
-    );
-    return r.data;
-  }
-
-  /** Synthesises speech for the given text via /api/voice/synthesize. Returns base64 audio. */
-  async synthesizeVoice(
-    text: string,
-    voice?: string,
-    signal?: AbortSignal,
-  ): Promise<ApiResponse<{ audioBase64: string; mimeType: string; provider: string }>> {
-    const r = await this.client.post<ApiResponse<{ audioBase64: string; mimeType: string; provider: string }>>(
-      '/api/voice/synthesize',
-      { text, voice },
-      { timeout: CHAT_TIMEOUT_MS, ...(signal !== undefined && { signal }) },
-    );
-    return r.data;
-  }
-
   /** Fetches (and lazily creates) a session's persisted message history, so a reload/reopen can restore it. */
   async getSessionHistory(
     sessionId: string,
@@ -2525,6 +2503,15 @@ export class KnowledgeHubApi {
   async proactiveAction(action: ProactiveAction, args: Record<string, unknown> = {}): Promise<ApiResponse<{ result: unknown; overview: ProactiveOverview }>> {
     return (await this.client.post<ApiResponse<{ result: unknown; overview: ProactiveOverview }>>(`/api/today/proactive/${action}`, args)).data;
   }
+  async getDecideQueue(): Promise<ApiResponse<DecideItem[]>> {
+    return (await this.client.get<ApiResponse<DecideItem[]>>('/api/today/decide')).data;
+  }
+  async decideAction(action: DecideAction, args: { id: string; waitingOn?: string }): Promise<ApiResponse<unknown>> {
+    return (await this.client.post<ApiResponse<unknown>>(`/api/today/decide/${action}`, args)).data;
+  }
+  async suggestWaitingOn(taskId: string): Promise<ApiResponse<{ suggestion: string | null }>> {
+    return (await this.client.get<ApiResponse<{ suggestion: string | null }>>(`/api/today/decide/waiting-suggestion/${encodeURIComponent(taskId)}`)).data;
+  }
   async getGoals(): Promise<ApiResponse<GoalsOverview>> {
     return (await this.client.get<ApiResponse<GoalsOverview>>('/api/today/goals')).data;
   }
@@ -2552,8 +2539,8 @@ export class KnowledgeHubApi {
   async decideGoalDate(id: string, decision: 'accept' | 'dismiss'): Promise<ApiResponse<DateProposal>> {
     return (await this.client.post<ApiResponse<DateProposal>>(`/api/today/goals/dates/${encodeURIComponent(id)}/${decision}`, {})).data;
   }
-  async applyGoalTidy(excluded: string[]): Promise<ApiResponse<{ applied: number; skipped: number; batchId: string }>> {
-    return (await this.client.post<ApiResponse<{ applied: number; skipped: number; batchId: string }>>('/api/today/goals/tidy/apply', { excluded })).data;
+  async applyGoalTidy(excluded: string[], decisionActions: Record<string, DecisionAction> = {}): Promise<ApiResponse<{ applied: number; skipped: number; batchId: string }>> {
+    return (await this.client.post<ApiResponse<{ applied: number; skipped: number; batchId: string }>>('/api/today/goals/tidy/apply', { excluded, decisionActions })).data;
   }
   async undoGoalTidy(batchId: string): Promise<ApiResponse<{ restored: number; skipped: number }>> {
     return (await this.client.post<ApiResponse<{ restored: number; skipped: number }>>('/api/today/goals/tidy/undo', { batchId })).data;

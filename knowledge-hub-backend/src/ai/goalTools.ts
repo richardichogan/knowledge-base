@@ -21,7 +21,7 @@ export const GOALS_TOOL: LlmToolDefinition = {
       + 'accept_move moves the task to in progress (or creates it in the goal\'s workstream); dismiss_move marks it "not this week". accept_date/dismiss_date decide a date proposal; accepting changes the task\'s due date. '
       + 'status also returns settings: pending monthly adjustments (proposed target/deadline/link changes), effective measures, overrides, lastReview and links (every workstream with its goal — a goal id, "none" for outside the goals, or null for undecided — plus open tasks in undecided workstreams). '
       + 'run_review starts the monthly review now in the background. accept_adjustment/dismiss_adjustment (id) decide a pending adjustment. set_measure (measureId, value: a whole-number target or a YYYY-MM-DD deadline) changes a goal measure; link_project (projectId, goalId or "none") links a workstream; link_task (taskId, goalId) moves a task into that goal\'s home workstream. Change settings only when Richard asks in this chat. '
-      + 'apply_tidy archives stale tasks, drops stale decisions and files unfiled notes and chats in one batch, minus excluded item ids; use it ONLY when Richard explicitly asks in this chat, after listing the items. undo_tidy reverses a batch within 30 days. Nothing is ever sent.',
+      + 'apply_tidy archives stale tasks, drops stale decisions (or turns chosen ones into a Plan Inbox task, Think note or Spark in the chat\'s project via decisionActions) and files unfiled notes and chats in one batch, minus excluded item ids; use it ONLY when Richard explicitly asks in this chat, after listing the items. undo_tidy reverses a batch within 30 days. Nothing is ever sent.',
     parameters: { type: 'object', properties: {
       action: { type: 'string', enum: ['status', 'record_progress', 'refresh_brief', 'refresh_scorecard', 'accept_move', 'dismiss_move', 'accept_date', 'dismiss_date', 'apply_tidy', 'undo_tidy', 'run_review', 'accept_adjustment', 'dismiss_adjustment', 'set_measure', 'link_project', 'link_task'] },
       id: { type: 'string', description: 'Move id for accept_move/dismiss_move; date proposal id for accept_date/dismiss_date; batch id for undo_tidy; adjustment id for accept_adjustment/dismiss_adjustment.' },
@@ -31,6 +31,7 @@ export const GOALS_TOOL: LlmToolDefinition = {
       goalId: { type: 'string', description: 'imagine, practice, voice, attention, or "none" (link_project only).' },
       count: { type: 'integer' }, done: { type: 'boolean' }, note: { type: 'string' }, date: { type: 'string', description: 'YYYY-MM-DD, not in the future.' },
       excluded: { type: 'array', items: { type: 'string' }, description: 'For apply_tidy: tidy item ids Richard wants left alone.' },
+      decisionActions: { type: 'object', additionalProperties: { type: 'string', enum: ['drop', 'task', 'note', 'spark'] }, description: 'For apply_tidy: drop-decision item id -> drop (default), task, note or spark, as Richard chose.' },
     }, required: ['action'] },
   },
 };
@@ -47,7 +48,7 @@ export async function executeGoalsTool(db: Pool, args: Record<string, unknown>):
     case 'accept_move': return acceptGoalMove(db, args.id, 'athena');
     case 'dismiss_move': return dismissGoalMove(db, args.id);
     case 'accept_date': case 'dismiss_date': return decideDateProposal(db, args.id, args.action === 'accept_date', 'athena');
-    case 'apply_tidy': return applyTidyBatch(db, args.excluded ?? [], 'athena');
+    case 'apply_tidy': return applyTidyBatch(db, args.excluded ?? [], 'athena', args.decisionActions ?? {});
     case 'undo_tidy': return undoTidyBatch(db, args.id, 'athena');
     case 'run_review': startGoalReview(db, 'athena'); return { started: 'review', note: 'The review runs in the background and usually takes a minute. Read status again to see proposed adjustments.' };
     case 'accept_adjustment': case 'dismiss_adjustment': return decideAdjustment(db, args.id, args.action === 'accept_adjustment');
@@ -78,6 +79,27 @@ export const PROACTIVE_TOOL: LlmToolDefinition = {
     }, required: ['action'] },
   },
 };
+
+export const DECIDE_TOOL: LlmToolDefinition = {
+  type: 'function', function: {
+    name: 'manage_decide_queue',
+    description: 'Today\'s Decide queue: everything waiting on Richard\'s decision, oldest first — publishing picks, open chat decisions from every chat, proactive proposals (held ones included), unsent email drafts and waiting tasks with nobody named (with Athena\'s guess). '
+      + 'list returns every item with kind, refId, title, source, date and meta. Act on publishing picks with manage_publishing_feeds and on promise/chase/cadence/package/cfp/paused items with manage_proactive (id = refId). '
+      + 'This tool decides chat decisions (decision-decided marks it decided, decision-drop drops it, decision-task/decision-note/decision-spark turn it into a Plan Inbox task, Think note or Spark and drop it) '
+      + 'and waiting tasks (waiting-on sets waitingOn on the task; waiting-skip hides the suggestion until the task changes). Act only when Richard asks in this chat.',
+    parameters: { type: 'object', properties: {
+      action: { type: 'string', enum: ['list', 'decision-decided', 'decision-drop', 'decision-task', 'decision-note', 'decision-spark', 'waiting-on', 'waiting-skip'] },
+      id: { type: 'string', description: 'The item refId from list (decision id or task id).' },
+      waitingOn: { type: 'string', description: 'Who the task is waiting on, for waiting-on.' },
+    }, required: ['action'] },
+  },
+};
+
+export async function executeDecideTool(db: Pool, args: Record<string, unknown>): Promise<unknown> {
+  const { decideQueue, decideAction } = await import('../goals/decide.js');
+  if (args.action === 'list') return decideQueue(db);
+  return decideAction(db, String(args.action), args, 'athena');
+}
 
 export async function executeProactiveTool(db: Pool, args: Record<string, unknown>): Promise<unknown> {
   const { proactiveOverview, proactiveAction } = await import('../goals/proactive.js');

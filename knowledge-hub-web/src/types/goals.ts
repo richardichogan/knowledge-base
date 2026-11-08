@@ -28,11 +28,13 @@ export interface GoalScore {
   move: { title: string; status: string; done: boolean } | null; dateProposals: DateProposal[];
 }
 export type TidyKind = 'archive-task' | 'drop-decision' | 'file-note' | 'file-chat' | 'cull-draft';
-export interface TidyItem { id: string; kind: TidyKind; entityId: string; title: string; detail: string; projectId: string | null; projectName: string | null }
+export interface TidyItem { id: string; kind: TidyKind; entityId: string; title: string; detail: string; projectId: string | null; projectName: string | null; sessionId?: string | null; sessionTitle?: string | null }
+/** A stale decision is dropped, or turned into a Plan task, Think note or Spark in its chat's project. */
+export type DecisionAction = 'drop' | 'task' | 'note' | 'spark';
 export interface Scorecard {
   week: string; generatedAt: string; trigger: 'job' | 'manual' | 'athena'; current: boolean; undoUntil: string | null; goals: GoalScore[];
   athena: { proposed: number; accepted: number; done: number; dismissed: number; ignored: number; drafts: number; research: number; summary: string };
-  tidy: { items: TidyItem[]; note: string | null; batchId: string | null; appliedAt: string | null; applied: number; excluded: string[]; undoneAt: string | null };
+  tidy: { items: TidyItem[]; note: string | null; batchId: string | null; appliedAt: string | null; applied: number; excluded: string[]; undoneAt: string | null; actions?: Record<string, DecisionAction> };
 }
 export interface GoalsOverview {
   goals: GoalStatus[]; brief: GoalBrief | null; scorecard: Scorecard | null;
@@ -118,3 +120,11 @@ export interface ProactiveOverview {
 export type ProactiveAction = 'run-deal-desk' | 'update-deal-from-notes' | 'deal-history' | 'undo-deal-update' | 'refresh-meeting-prep'
   | 'accept-promise' | 'dismiss-promise' | 'accept-cadence' | 'dismiss-cadence' | 'dismiss-chase' | 'run-content-package' | 'run-story-package' | 'use-package' | 'dismiss-package' | 'resume-paused' | 'stop-paused'
   | 'confirm-cfp' | 'dismiss-cfp' | 'enable-proposal-type' | 'disable-proposal-type';
+
+/** Today's Decide queue (GET /api/today/decide), oldest first. */
+export type DecideKind = 'publishing' | 'decision' | 'promise' | 'chase' | 'cadence' | 'package' | 'cfp' | 'paused' | 'email' | 'waiting';
+export interface DecideItem {
+  id: string; kind: DecideKind; refId: string; title: string; detail: string; source: string; createdAt: string; held: boolean;
+  meta: Record<string, string | number | boolean | null>;
+}
+export type DecideAction = 'decision-decided' | 'decision-drop' | 'decision-task' | 'decision-note' | 'decision-spark' | 'waiting-on' | 'waiting-skip';

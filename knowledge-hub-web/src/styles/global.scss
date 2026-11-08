@@ -2172,7 +2172,8 @@ p, h1, h2, h3, h4, h5, h6, dl, dt, dd, blockquote {
 }
 
 .ai-attach-button--inline.cds--btn.cds--btn--icon-only,
-.ai-mic-button--inline.cds--btn.cds--btn--icon-only {
+.ai-mic-button--inline.cds--btn.cds--btn--icon-only,
+.ai-voice-chat-button.cds--btn.cds--btn--icon-only {
   flex-shrink: 0;
   width: 2rem;
   height: 2rem;
@@ -2182,6 +2183,38 @@ p, h1, h2, h3, h4, h5, h6, dl, dt, dd, blockquote {
   &.cds--btn--danger {
     animation: ai-mic-pulse 1.4s ease-in-out infinite;
   }
+}
+
+// Hands-free Voice Live conversation: teal while open, a soft ring while Athena speaks.
+.ai-voice-chat-button.cds--btn.cds--btn--icon-only {
+  &.ai-voice-chat-button--active,
+  &.ai-voice-chat-button--active:hover {
+    background: var(--kh-accent);
+    color: var(--cds-background);
+  }
+
+  &.ai-voice-chat-button--active:focus {
+    box-shadow: inset 0 0 0 1px var(--cds-focus), inset 0 0 0 2px var(--cds-background);
+  }
+
+  &.ai-voice-chat-button--speaking {
+    animation: ai-voice-speaking 1.6s ease-in-out infinite;
+  }
+
+  &:disabled,
+  &.cds--btn--disabled {
+    background: transparent;
+    color: var(--cds-icon-disabled);
+  }
+}
+
+@keyframes ai-voice-speaking {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--kh-accent) 45%, transparent); }
+  50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--kh-accent) 0%, transparent); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-voice-chat-button.cds--btn.cds--btn--icon-only.ai-voice-chat-button--speaking { animation: none; }
 }
 
 .ai-send-button.cds--btn.cds--btn--icon-only {
@@ -17161,7 +17194,7 @@ fieldset.proj-modal-body {
   border-color: var(--kh-accent);
   transition: border-color 150ms ease-in-out;
 }
-.ai-composer--listening .ai-mic-button {
+.ai-composer--listening:not(.ai-composer--conversation) .ai-mic-button {
   background: var(--kh-accent);
   color: var(--cds-background);
 }
@@ -19650,3 +19683,4 @@ select optgroup {
   p { margin: 0; color: var(--cds-text-secondary); }
   p.kh-task-status-note__error { color: var(--cds-support-error); }
 }
+.kb-waiting-prompt__copy { margin-bottom: var(--cds-spacing-05, 16px); color: var(--cds-text-secondary); line-height: 1.6; overflow-wrap: anywhere; }

@@ -5,8 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import { build } from 'esbuild';
 import { presentationScript, requiresVisualAssets, requiresVisualCraft, requiresVisualMotion } from '../src/features/autocue/presentationScript';
-import { appendVoiceTranscript, finishVoiceTranscript, submitVoiceTranscript } from '../src/services/voiceTranscript';
-import { encodeWav, resampleVoiceAudio } from '../src/components/athena/speech';
+import { submitVoiceTranscript, spokenReply } from '../src/services/voiceTranscript';
 import { parseScriptBullets, scriptSentenceLines } from '../src/features/podcasts/scriptFormatting';
 import { episodeScriptText } from '../src/types/podcastEpisodes';
 import { scriptRichDocument, scriptRichText } from '../src/features/podcasts/scriptRichText';
@@ -704,50 +703,6 @@ test('desktop speech selects the available panel, restores earlier handlers and 
   } finally { for (const cleanup of cleanups) cleanup(); }
 });
 
-test('voice resampling delegates rate conversion to Web Audio without dropping input samples', async () => {
-  const original = Object.getOwnPropertyDescriptor(globalThis, 'OfflineAudioContext');
-  const samples = new Float32Array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6]);
-  const copied = new Float32Array(samples.length);
-  const rendered = new Float32Array([0.2, 0.5]);
-  let started = false;
-  class OfflineFixture {
-    destination = {};
-    constructor(channels: number, length: number, rate: number) {
-      assert.deepEqual([channels, length, rate], [1, 2, 16000]);
-    }
-    createBuffer(channels: number, length: number, rate: number) {
-      assert.deepEqual([channels, length, rate], [1, 6, 48000]);
-      return { getChannelData: () => copied };
-    }
-    createBufferSource() { return { buffer: null, connect: () => undefined, start: () => { started = true; } }; }
-    async startRendering() { assert.ok(started); return { getChannelData: () => rendered }; }
-  }
-  Object.defineProperty(globalThis, 'OfflineAudioContext', { configurable: true, value: OfflineFixture });
-  try {
-    assert.equal(await resampleVoiceAudio(samples, 48000, 16000), rendered);
-    assert.deepEqual(copied, samples);
-    assert.equal(await resampleVoiceAudio(samples, 16000, 16000), samples);
-    await assert.rejects(resampleVoiceAudio(new Float32Array(), 48000, 16000), /No valid microphone audio/);
-    const wav = new DataView(await encodeWav(rendered, 16000).arrayBuffer());
-    assert.equal(wav.getUint32(24, true), 16000);
-    assert.equal(wav.getUint32(40, true), rendered.length * 2);
-  } finally {
-    if (original) Object.defineProperty(globalThis, 'OfflineAudioContext', original);
-    else Reflect.deleteProperty(globalThis, 'OfflineAudioContext');
-  }
-});
-
-test('explicit voice review mode preserves the draft; on-screen mode remains send', async () => {
-  let draft = 'Existing unsent work';
-  let sent = '';
-  await finishVoiceTranscript('  dictated text  ', true, text => { draft = appendVoiceTranscript(draft, text); }, async text => { sent = text; });
-  assert.equal(draft, 'Existing unsent work\ndictated text');
-  assert.equal(sent, '');
-  await finishVoiceTranscript('on-screen', false, () => assert.fail('Should not change the draft'), async text => { sent = text; });
-  assert.equal(sent, 'on-screen');
-  await assert.rejects(finishVoiceTranscript(' ', true, () => assert.fail(), async () => assert.fail()), /No speech/);
-});
-
 test('voice submission sends through the composer exactly once, preserving the combined draft if blocked', async () => {
   let draft = 'Current draft';
   const sent: string[] = [];
@@ -761,15 +716,10 @@ test('voice submission sends through the composer exactly once, preserving the c
   assert.equal(draft, 'retained speech');
 });
 
-test('on-screen dictation awaits the shared composer submission and preserves its errors', async () => {
-  let draft = 'Existing context';
-  const sent: string[] = [];
-  const submit = (text: string): Promise<void> => submitVoiceTranscript(text, draft, true,
-    value => { draft = value; }, async value => { sent.push(value); });
-  await finishVoiceTranscript(' spoken instruction ', false, () => assert.fail('Not review mode'), submit);
-  assert.deepEqual(sent, ['Existing context\nspoken instruction']);
-  await assert.rejects(finishVoiceTranscript('more speech', false, () => assert.fail(),
-    async () => { throw new Error('Composer submission failed'); }), /Composer submission failed/);
+test('spoken replies mention approvals waiting on screen', () => {
+  assert.equal(spokenReply(' Done. ', 0), 'Done.');
+  assert.equal(spokenReply('Drafted it.', 1), 'Drafted it. There is an approval waiting for you on screen.');
+  assert.equal(spokenReply('', 2), 'There are 2 approvals waiting for you on screen.');
 });
 
 test('presentation scripts preserve nested order, inline links, lists and table text', () => {

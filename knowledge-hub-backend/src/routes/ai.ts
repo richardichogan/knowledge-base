@@ -16,6 +16,7 @@ import { getOutputsForThink } from '../ai/thinkOutputExport.js';
 import { outputsChangedSince, moveDeliverableToOutputs, removeSavedCopiesFromReply } from '../ai/chatOutputs.js';
 import { emptyContextUsed, getExcludedSources, type ContextUsed } from '../ai/contextUsage.js';
 import { suggestNextSteps } from '../ai/nextSteps.js';
+import { isConversationalTurn } from '../ai/dialoguePolicy.js';
 import { noteChatNextStepChoice, proposalEnabled, recordChatNextSteps } from '../goals/proposals.js';
 import { recordTurnAudit, type TurnAuditRow } from '../ai/knowledge/turnAudit.js';
 import { findModelChoice, PERSONA_MODELS } from '../ai/modelChoices.js';
@@ -290,8 +291,11 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   hooks.onActivity?.('Finishing up');
   void noteChatNextStepChoice(db, effectiveSessionId, message).catch(() => { /* the ledger is reporting only */ });
   // Richard can switch next-step offers off (or Athena does after three ignored weeks); the ledger is the switch.
-  const nextStepsPromise = proposalEnabled(db, 'chat-next-step').catch(() => true)
-    .then(enabled => (enabled ? suggestNextSteps(persona, message, modelReply, hooks.signal) : []));
+  // Small talk ("hello") has no next steps; skipping the call saves about a second.
+  const nextStepsPromise = isConversationalTurn(message)
+    ? Promise.resolve<string[]>([])
+    : proposalEnabled(db, 'chat-next-step').catch(() => true)
+      .then(enabled => (enabled ? suggestNextSteps(persona, message, modelReply, hooks.signal) : []));
   const sources = [...toolsUsed];
 
   // Store only a compact marker for the viewed document in history — not its

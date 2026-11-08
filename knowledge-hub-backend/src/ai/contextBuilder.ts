@@ -1435,6 +1435,41 @@ export async function assembleMessages(
   ];
 }
 
+const SMALL_TALK_HISTORY_MESSAGES = 6;
+const SMALL_TALK_NOTE = 'This turn is brief social conversation, answered without tools, retrieval or page context. ' +
+  'Reply naturally and briefly in your own voice. Do not claim to have looked anything up, read anything or changed anything. ' +
+  'If he asks for something that needs his material or an action, say you can do that if he asks again with the request.';
+
+/** Small talk ("hello", "are you there") skips tools and retrieval so the first words arrive sooner. */
+export function assembleSmallTalkMessages(
+  history: ConversationMessage[],
+  userMessage: string,
+  persona?: string,
+  standingInstructions = '',
+  dateLine = '',
+): ConversationMessage[] {
+  const systemPrompt = [
+    ASSISTANT_IDENTITY_BLURB,
+    '---',
+    TONE_AND_INTENT_BLURB,
+    '---',
+    FORMATTING_BLURB,
+    '---',
+    resolvePersonaPrompt(persona),
+    '---',
+    CONVERSATIONAL_ENGAGEMENT_BLURB,
+    ...(standingInstructions !== '' ? ['---', standingInstructions] : []),
+    ...(dateLine !== '' ? ['---', dateLine] : []),
+    '---',
+    SMALL_TALK_NOTE,
+  ].join('\n\n');
+  return [
+    { role: 'system', content: systemPrompt },
+    ...shortenOldLongReplies(history.slice(-SMALL_TALK_HISTORY_MESSAGES)),
+    { role: 'user', content: userMessage },
+  ];
+}
+
 /** The latest messages are always sent in full. */
 const KEEP_RECENT_IN_FULL = 6;
 /** An older reply longer than this is shortened in what is sent to the model … */

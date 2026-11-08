@@ -14,7 +14,7 @@ import {
   Button,
   Tile,
 } from '@carbon/react';
-import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VolumeUp, VolumeMute, Attachment, Menu, Idea, Notebook, Copy, View, Document as DocumentIcon, Compare } from '@carbon/icons-react';
+import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VoiceActivate, VolumeUp, VolumeMute, Attachment, Menu, Idea, Notebook, Copy, View, Document as DocumentIcon, Compare } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { getActiveNoteId, runNoteAction, prepareBuildChat, prepareDesignChat, prepareDiagramChat, preparePodcastChat, prepareTaskChat, prepareUseCaseChat, prepareWorkChat } from '../utils/activeBlockNoteEditor';
 import { deliverNoteEdits } from '../utils/noteEditDelivery';
@@ -47,9 +47,9 @@ import type { PaneWidthOptions } from '../hooks/usePersistedState';
 import { useChatDraft } from '../hooks/useChatDraft';
 import { sendChatTurn, followChatTurn, TurnDetachedError, type LiveTurnHandlers } from '../services/chatTurns';
 import { readSession } from '../services/athenaReplies';
-import { encodeWav, resampleVoiceAudio, blobToBase64, stripMarkdownForSpeech, splitForSpeech } from '../components/athena/speech';
-import { playSpeechChunks, type SpeechPlaybackAudio } from '../components/athena/speechPlayback';
-import { getVoiceVolume, MAX_VOICE_VOLUME, useVoiceVolume } from '../components/athena/voiceVolume';
+import { StreamedSpeech, speechText } from '../components/athena/streamedSpeech';
+import { VoiceLiveSession, type VoiceLiveMode } from '../components/athena/voiceLive';
+import { MAX_VOICE_VOLUME, useVoiceVolume } from '../components/athena/voiceVolume';
 import { VoiceVolumeControl } from '../components/athena/VoiceVolumeControl';
 import { CHAT_IMAGE_TYPES, isChatImage, clipboardImageName } from '../components/athena/attachments';
 import { createNote } from '../notes/noteStorage';
@@ -75,7 +75,7 @@ import { MapChangeCard } from '../components/athena/MapChangeCard';
 import { LocalFileWriteCard } from '../components/athena/LocalFileWriteCard';
 import { desktopErrorMessage, getDesktop } from '../types/desktop';
 import { useDesktopCommand } from '../services/desktopCommands';
-import { appendVoiceTranscript, finishVoiceTranscript, submitVoiceTranscript } from '../services/voiceTranscript';
+import { appendVoiceTranscript, submitVoiceTranscript, spokenReply } from '../services/voiceTranscript';
 import { briefingSeenToday, markBriefingSeen } from '../utils/morningBriefing';
 import { PERSONAS, getPersona } from '../components/athena/personas';
 import { ChatMentionSuggestions } from '../chat/ChatMentionSuggestions';
@@ -130,7 +130,6 @@ interface AIChatPageProps {
 }
 
 // Send filtered 16kHz mono WAV to full-recording transcription.
-const STT_SAMPLE_RATE = 16000;
 // Cap on how much of an attached file's text we send as pageContext.detail.
 // Was 12,000 chars — far too small for meeting transcripts (a ~52KB transcript
 // got cut off before the Q&A section, so Athena answered as if no questions had
@@ -395,8 +394,11 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const pendingSessionIdRef = useRef<string | null>(null);
   const [nowTick, setNowTick] = useState(Date.now());
   const [uploadProjectId, setUploadProjectId] = useState('personal');
-  const [isRecording, setIsRecording] = useState(false);
-  const [isTranscribing, setIsTranscribing] = useState(false);
+  /** Live Voice Live session: a hands-free conversation or dictation into the composer. */
+  const [voiceMode, setVoiceMode] = useState<'off' | 'connecting' | 'conversation' | 'dictation'>('off');
+  const [athenaSpeaking, setAthenaSpeaking] = useState(false);
+  const isRecording = voiceMode === 'conversation' || voiceMode === 'dictation';
+  const isTranscribing = voiceMode === 'connecting';
   const [voiceOutputOn, setVoiceOutputOn] = useState(false);
   const [voiceVolume, setVoiceVolume] = useVoiceVolume();
   const [voiceError, setVoiceError] = useState<string | null>(null);
@@ -433,16 +435,21 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   /** After he sends, room below the thread so his prompt can sit at the top while the reply comes in. */
   const [holdPromptTop, setHoldPromptTop] = useState(false);
   const promptRoomRef = useRef<HTMLDivElement>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const processorRef = useRef<ScriptProcessorNode | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const pcmChunksRef = useRef<Float32Array[]>([]);
-  const ttsAudioRef = useRef<SpeechPlaybackAudio | null>(null);
-  const ttsControllerRef = useRef<AbortController | null>(null);
+  const voiceSessionRef = useRef<VoiceLiveSession | null>(null);
+  /** Read-aloud session for typed messages while voice replies are on and no conversation is running. */
+  const speakSessionRef = useRef<VoiceLiveSession | null>(null);
+  /** The reply being spoken sentence by sentence while it streams. */
+  const streamedSpeechRef = useRef<StreamedSpeech | null>(null);
+  const speakStartRef = useRef<Promise<VoiceLiveSession> | null>(null);
+  const voiceTranscriptRef = useRef<(mode: VoiceLiveMode, text: string) => void>(() => undefined);
   useEffect(() => {
-    if (ttsAudioRef.current) ttsAudioRef.current.volume = voiceVolume / MAX_VOICE_VOLUME;
+    voiceSessionRef.current?.setVolume(voiceVolume / MAX_VOICE_VOLUME);
+    speakSessionRef.current?.setVolume(voiceVolume / MAX_VOICE_VOLUME);
   }, [voiceVolume]);
-  useEffect(() => () => { ttsControllerRef.current?.abort(); }, []);
+  useEffect(() => () => {
+    voiceSessionRef.current?.close();
+    speakSessionRef.current?.close();
+  }, []);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const appliedPromptRef = useRef<number | null>(null);
@@ -852,35 +859,97 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   }
 
   function stopTts(): void {
-    ttsControllerRef.current?.abort();
-    ttsControllerRef.current = null;
-    ttsAudioRef.current?.pause();
-    ttsAudioRef.current = null;
+    streamedSpeechRef.current?.silence();
+    voiceSessionRef.current?.stopSpeaking();
+    speakSessionRef.current?.stopSpeaking();
     setVoiceError(null);
   }
 
-  function playReply(text: string): void {
-    if (!voiceOutputOn) return;
-    const clean = stripMarkdownForSpeech(text);
-    if (clean === '') return;
-    stopTts();
-    const controller = new AbortController();
-    ttsControllerRef.current = controller;
-    void playSpeechChunks(splitForSpeech(clean),
-      async (chunk, signal) => requireApiData(await api.synthesizeVoice(chunk, undefined, signal)),
-      controller.signal,
-      audio => {
-        if (ttsControllerRef.current !== controller) return;
-        if (audio) audio.volume = getVoiceVolume() / MAX_VOICE_VOLUME;
-        ttsAudioRef.current = audio;
+  function closeSpeakSession(): void {
+    speakStartRef.current = null;
+    const session = speakSessionRef.current;
+    speakSessionRef.current = null;
+    session?.close();
+  }
+
+  function speakSession(): Promise<VoiceLiveSession> {
+    const open = speakSessionRef.current;
+    if (open?.isOpen) return Promise.resolve(open);
+    if (speakStartRef.current) return speakStartRef.current;
+    const session = new VoiceLiveSession('speak', {
+      onSpeakingChange: setAthenaSpeaking,
+      onError: message => { setVoiceError(`Spoken reply stopped. The full reply is still available as text. ${message}`); },
+      onClosed: () => {
+        if (speakSessionRef.current === session) speakSessionRef.current = null;
+        setAthenaSpeaking(false);
       },
-    ).catch((error: unknown) => {
-      if (!controller.signal.aborted) {
-        setVoiceError(`Spoken reply stopped. The full reply is still available as text. ${describeApiError(error)}`);
-      }
-    }).finally(() => {
-      controller.abort();
-      if (ttsControllerRef.current === controller) ttsControllerRef.current = null;
+    }, getVoiceVolumeFraction());
+    const starting = session.start().then(() => {
+      if (speakStartRef.current !== starting) { session.close(); throw new Error('Voice replies were turned off.'); }
+      speakSessionRef.current = session;
+      speakStartRef.current = null;
+      return session;
+    }, (error: unknown) => {
+      if (speakStartRef.current === starting) speakStartRef.current = null;
+      throw error;
+    });
+    speakStartRef.current = starting;
+    return starting;
+  }
+
+  function getVoiceVolumeFraction(): number {
+    return voiceVolume / MAX_VOICE_VOLUME;
+  }
+
+  /** Where Athena's spoken replies go: the open conversation, or the read-aloud session when voice replies are on. */
+  function speechTarget(): Promise<VoiceLiveSession> | null {
+    const conversation = voiceSessionRef.current;
+    if (conversation?.mode === 'conversation' && conversation.isOpen) return Promise.resolve(conversation);
+    if (!voiceOutputOn) return null;
+    return speakSession();
+  }
+
+  function speaksReplies(): boolean {
+    const conversation = voiceSessionRef.current;
+    return (conversation?.mode === 'conversation' && conversation.isOpen) || voiceOutputOn;
+  }
+
+  /** Speaks the reply sentence by sentence as it streams, ready for `playReply` to finish. */
+  function startStreamedSpeech(): StreamedSpeech {
+    streamedSpeechRef.current?.cancel();
+    const speech = new StreamedSpeech({
+      speak: (text, id) => {
+        void speechTarget()?.then(session => { session.speak(text, id); }).catch((error: unknown) => {
+          setVoiceError(`Spoken reply stopped. The full reply is still available as text. ${describeApiError(error)}`);
+        });
+      },
+      cancelFrom: (id) => {
+        voiceSessionRef.current?.cancelFrom(id);
+        speakSessionRef.current?.cancelFrom(id);
+      },
+    });
+    streamedSpeechRef.current = speech;
+    return speech;
+  }
+
+  /** Stops the reply being spoken while it streams (the turn failed or was stopped). */
+  function cancelStreamedSpeech(): void {
+    streamedSpeechRef.current?.cancel();
+    streamedSpeechRef.current = null;
+  }
+
+  /** Speaks Athena's finished reply in a conversation, or when voice replies are on; finishes any streamed speech. */
+  function playReply(text: string, approvalsWaiting = 0): void {
+    const spoken = spokenReply(speechText(text), approvalsWaiting);
+    const streamed = streamedSpeechRef.current;
+    streamedSpeechRef.current = null;
+    if (streamed) {
+      streamed.finish(spoken);
+      return;
+    }
+    if (spoken === '') return;
+    void speechTarget()?.then(session => { session.speak(spoken); }).catch((error: unknown) => {
+      setVoiceError(`Spoken reply stopped. The full reply is still available as text. ${describeApiError(error)}`);
     });
   }
 
@@ -907,6 +976,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       if (resumeTurnId === undefined && sessionId === null) persistSessionId(requestSessionId, true);
       setLiveTurn({ activity: 'Sending', startedAt });
       liveTurnIdRef.current = resumeTurnId ?? null;
+      const streamedSpeech = resumeTurnId === undefined && speaksReplies() ? startStreamedSpeech() : null;
+      // Connect the read-aloud voice while Athena thinks; errors surface when she speaks.
+      if (streamedSpeech) void speechTarget()?.catch(() => undefined);
       const handlers: LiveTurnHandlers = {
         onStarted: (turnId, newSessionId) => {
           notificationTurnId = turnId;
@@ -917,8 +989,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         },
         onActivity: (activity) => { if (turnRunRef.current === run) setLiveTurn((t) => (t === null ? t : { ...t, activity })); },
         // Deltas are provisional: tool rounds and evidence repairs can reset them.
-        // Only the successful turn result is an accepted answer to reveal.
-        onText: () => {},
+        // Only the successful turn result is an accepted answer to reveal; speech
+        // starts early and corrects itself if the final reply differs.
+        onText: (text) => { if (turnRunRef.current === run) streamedSpeech?.update(text); },
       };
       let finishDesign: ((changed: boolean) => Promise<void>) | undefined;
       let designChanged = true;
@@ -999,6 +1072,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     },
     onSuccess: (result, { text }) => {
       setLiveTurn(null);
+      if (!result.success || !result.data.reply.trim()) cancelStreamedSpeech();
       if (!result.success) setReplyArrival(null);
       if (!result.success && result.error.code === 'TURN_GONE' && sessionId !== null) {
         // Finished while we were reconnecting (it's in the saved history), or
@@ -1047,7 +1121,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       // The Decisions list is updated just after the reply — pick that up.
       window.setTimeout(() => { setPanelRefresh((n) => n + 1); }, 5_000);
       window.setTimeout(() => { setPanelRefresh((n) => n + 1); }, 12_000);
-      playReply(result.data.reply);
+      playReply(result.data.reply, result.data.pendingActions.length);
       refreshSessionList();
       if (result.data.pendingActions.length > 0) {
         setPendingActions((prev) => [...prev, ...result.data.pendingActions]);
@@ -1083,6 +1157,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       // No scroll here: his prompt stays at the top of the view with the reply beneath it.
     },
     onError: (err: unknown) => {
+      cancelStreamedSpeech();
       // This view let go of the turn (switched chats) — it finishes in its own chat.
       if (err instanceof TurnDetachedError) return;
       setLiveTurn(null);
@@ -1123,6 +1198,25 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       appendMessage('assistant', 'Could not stop Athena on the server. Reopen this chat to check its status.');
     });
   }
+
+  /** Stop (button or Esc): ends the reply in progress and silences her; voice replies stay on for the next one. */
+  const athenaStoppable = chatMutation.isPending || athenaSpeaking;
+  function handleStopAthena(): void {
+    if (chatMutation.isPending) handleStopGenerating();
+    stopTts();
+  }
+  const stopAthenaRef = useRef(handleStopAthena);
+  stopAthenaRef.current = handleStopAthena;
+  useEffect(() => {
+    if (!athenaStoppable) return undefined;
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      event.preventDefault();
+      stopAthenaRef.current();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('keydown', onKey); };
+  }, [athenaStoppable]);
 
   /** The chat id to store screenshots under — chosen now for a chat that hasn't started yet. */
   function chatIdForUploads(): string {
@@ -1864,23 +1958,27 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     await persistResponseToThink(save, contentType);
   }
 
-  const reviewRecordingRef = useRef(false);
   const sendVoiceTranscript = useRef<(transcript: string) => Promise<void>>(async () => {});
   sendVoiceTranscript.current = transcript => submitVoiceTranscript(transcript, input,
     !chatMutation.isPending && !isRestoringHistory && historyError === null && uploadProgress === null,
     setInput, submitMessage);
+  voiceTranscriptRef.current = (mode, text) => {
+    if (mode === 'dictation') {
+      hasUserWorkRef.current = true;
+      setInput(current => appendVoiceTranscript(current, text));
+      return;
+    }
+    setVoiceError(null);
+    void sendVoiceTranscript.current(text).catch((error: unknown) => {
+      setVoiceError(describeApiError(error));
+    });
+  };
   const desktopVoiceBusyRef = useRef(false);
   const desktopVoiceId = useRef(Symbol('desktop-voice'));
   const chatRootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const owner = desktopVoiceId.current;
     return () => {
-      streamRef.current?.getTracks().forEach(track => track.stop());
-      processorRef.current?.disconnect();
-      const context = audioCtxRef.current;
-      if (context && context.state !== 'closed') void context.close().catch(error => {
-        console.error('[Voice input] Could not close audio context:', error);
-      });
       if (desktopVoiceOwner === owner) {
         desktopVoiceOwner = null;
         void getDesktop()?.voiceState?.({ recording: false, transcribing: false }).catch(error => {
@@ -1889,131 +1987,74 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       }
     };
   }, []);
+  const desktopThinking = isTranscribing || (voiceMode === 'conversation' && chatMutation.isPending);
   useEffect(() => {
     if (desktopVoiceOwner !== desktopVoiceId.current) return;
-    void getDesktop()?.voiceState?.({ recording: isRecording, transcribing: isTranscribing }).catch(error => {
+    void getDesktop()?.voiceState?.({ recording: isRecording, transcribing: desktopThinking }).catch(error => {
       console.error('[Stream Deck] Could not publish voice state:', error);
     });
-  }, [isRecording, isTranscribing]);
+  }, [isRecording, desktopThinking]);
+  // The desktop/Stream Deck "speak" button starts and ends a hands-free conversation.
   useDesktopCommand('speak', async () => {
-    if (desktopVoiceBusyRef.current || isTranscribing || (!streamRef.current && (chatMutation.isPending || isRestoringHistory))) {
-      throw new Error('Chat is busy. Wait for it to finish before recording.');
-    }
+    if (desktopVoiceBusyRef.current || isTranscribing) throw new Error('Voice is still connecting. Try again in a moment.');
     desktopVoiceOwner = desktopVoiceId.current;
     desktopVoiceBusyRef.current = true;
     try {
-      if (streamRef.current) await stopRecording(true, true);
-      else {
-        reviewRecordingRef.current = true;
-        await startRecording();
-        if (!streamRef.current) throw new Error('Microphone access failed. Allow access in the main Athena window and try again.');
-      }
+      if (voiceMode === 'conversation') stopVoice();
+      else if (!(await startVoice('conversation'))) throw new Error('Voice conversation did not start. Check the Athena window for details.');
     } finally { desktopVoiceBusyRef.current = false; }
   }, () => !standalone && chatRootRef.current?.isConnected === true && chatRootRef.current.getClientRects().length > 0);
 
-  async function startRecording(): Promise<void> {
-    let stream: MediaStream | undefined;
-    let ctx: AudioContext | undefined;
+  /** Starts a Voice Live conversation or dictation, ending any other voice session first. */
+  async function startVoice(mode: 'conversation' | 'dictation'): Promise<boolean> {
+    voiceSessionRef.current?.close();
+    closeSpeakSession();
+    setVoiceError(null);
+    const session = new VoiceLiveSession(mode, {
+      onTranscript: text => { voiceTranscriptRef.current(mode, text); },
+      onSpeechStarted: () => { streamedSpeechRef.current?.silence(); },
+      onSpeakingChange: speaking => { if (voiceSessionRef.current === session) setAthenaSpeaking(speaking); },
+      onLevel: level => { voiceLevelRef.current = level; },
+      onError: message => { setVoiceError(message); },
+      onClosed: () => {
+        if (voiceSessionRef.current !== session) return;
+        voiceSessionRef.current = null;
+        voiceLevelRef.current = 0;
+        setAthenaSpeaking(false);
+        setVoiceMode('off');
+      },
+    }, getVoiceVolumeFraction());
+    voiceSessionRef.current = session;
+    setVoiceMode('connecting');
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const AudioContextCtor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      ctx = new AudioContextCtor();
-      await ctx.resume();
-      const source = ctx.createMediaStreamSource(stream);
-      // ScriptProcessorNode is deprecated but remains the most broadly supported
-      // way to get raw PCM samples synchronously — same choice as client-demo.
-      const processor = ctx.createScriptProcessor(4096, 1, 1);
-      pcmChunksRef.current = [];
-      processor.onaudioprocess = (e) => {
-        const samples = new Float32Array(e.inputBuffer.getChannelData(0));
-        pcmChunksRef.current.push(samples);
-        voiceLevelRef.current = microphoneLevel(samples);
-      };
-      source.connect(processor);
-      processor.connect(ctx.destination);
-      audioCtxRef.current = ctx;
-      processorRef.current = processor;
-      streamRef.current = stream;
-      setIsRecording(true);
+      await session.start();
+      if (voiceSessionRef.current !== session) return false;
+      setVoiceMode(mode);
+      if (mode === 'dictation') textareaRef.current?.focus();
+      return true;
     } catch (error) {
-      stream?.getTracks().forEach(track => track.stop());
-      if (ctx && ctx.state !== 'closed') await ctx.close().catch(closeError => {
-        console.error('[Voice input] Could not close failed capture:', closeError);
-      });
-      console.error('[Voice input] Microphone capture failed:', error);
-      appendMessage('assistant', '⚠️ Could not access the microphone. Check your browser permissions and try again.');
+      if (voiceSessionRef.current === session) {
+        voiceSessionRef.current = null;
+        setVoiceMode('off');
+      }
+      session.close();
+      setVoiceError(describeApiError(error));
+      return false;
     }
   }
 
-  async function stopRecording(reviewOnly = reviewRecordingRef.current, sendOnFinish = false): Promise<void> {
-    const ctx = audioCtxRef.current;
-    const processor = processorRef.current;
-    const stream = streamRef.current;
-    if (!ctx || !processor) {
-      setIsRecording(false);
-      return;
-    }
-    processor.disconnect();
-    voiceLevelRef.current = 0;
-    stream?.getTracks().forEach((t) => t.stop());
-    const nativeSampleRate = ctx.sampleRate;
-    audioCtxRef.current = null;
-    processorRef.current = null;
-    streamRef.current = null;
-    setIsRecording(false);
-
-    setIsTranscribing(true);
-    try {
-      await ctx.close();
-      const chunks = pcmChunksRef.current;
-      pcmChunksRef.current = [];
-      const totalLen = chunks.reduce((sum, c) => sum + c.length, 0);
-      if (totalLen === 0) throw new Error('No audio was captured. Your draft is unchanged.');
-      const merged = new Float32Array(totalLen);
-      let offset = 0;
-      for (const c of chunks) {
-        merged.set(c, offset);
-        offset += c.length;
-      }
-      const resampled = await resampleVoiceAudio(merged, nativeSampleRate, STT_SAMPLE_RATE);
-      const wavBlob = encodeWav(resampled, STT_SAMPLE_RATE);
-      const audioBase64 = await blobToBase64(wavBlob);
-      const result = await api.transcribeVoice(audioBase64, 'audio/wav', 'en-GB', resampled.length / STT_SAMPLE_RATE * 1000);
-      if (!result.success) throw new Error(result.error.message);
-      const text = result.success ? result.data.text.trim() : '';
-      if (text !== '') {
-        if (sendOnFinish) {
-          await sendVoiceTranscript.current(text);
-          return;
-        }
-        await finishVoiceTranscript(text, reviewOnly, transcript => {
-          setInput(current => appendVoiceTranscript(current, transcript));
-          textareaRef.current?.focus();
-        }, async transcript => {
-          // On-screen voice input retains its existing spoken-reply behavior.
-          setVoiceOutputOn(true);
-          await sendVoiceTranscript.current(transcript);
-        });
-        return;
-      }
-      throw new Error('No speech was recognised. Your existing draft is unchanged.');
-    } catch (error) {
-      console.error('[Voice input] Transcription failed:', error);
-      appendMessage('assistant', `⚠️ ${describeApiError(error)}`);
-      if (reviewOnly) throw error;
-    } finally {
-      reviewRecordingRef.current = false;
-      setIsTranscribing(false);
-    }
+  function stopVoice(): void {
+    voiceSessionRef.current?.close();
   }
 
   function handleMicClick(): void {
-    if (isRecording) {
-      void stopRecording().catch(error => { console.error('[Voice input] Recording failed:', error); });
-    } else {
-      reviewRecordingRef.current = false;
-      void startRecording();
-    }
+    if (voiceMode === 'dictation') stopVoice();
+    else void startVoice('dictation');
+  }
+
+  function handleConversationClick(): void {
+    if (voiceMode === 'conversation') stopVoice();
+    else void startVoice('conversation');
   }
 
   const projectNameById = new Map(uploadProjectOptions.map((project) => [project.id, project.name]));
@@ -2228,7 +2269,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         iconDescription={voiceOutputOn ? 'Voice replies on — click to mute' : 'Voice replies off — click to enable'}
         tooltipPosition="bottom"
         className="ai-voice-toggle"
-        onClick={() => { stopTts(); setVoiceOutputOn((v) => !v); }}
+        onClick={() => { stopTts(); if (voiceOutputOn) closeSpeakSession(); setVoiceOutputOn((v) => !v); }}
       />
       <VoiceVolumeControl value={voiceVolume} onChange={setVoiceVolume} />
     </>
@@ -2251,11 +2292,15 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     messages.length ? ['Summarise our conversation', 'What should we do next?', 'Explain the key points in more detail'] : STARTER_PROMPTS,
   );
 
+  const voiceStatus = isTranscribing ? 'Connecting voice…'
+    : voiceMode === 'dictation' ? 'Dictating — speak and your words appear below'
+      : voiceMode === 'conversation' ? (athenaSpeaking ? 'Speaking — talk to interrupt' : chatMutation.isPending ? 'Thinking…' : 'Listening — just talk')
+        : athenaSpeaking ? 'Speaking…' : '';
   const responsePresence = (
     <div className="ai-presence-dock ai-presence-dock--response">
       <span ref={setPresenceDock} className="ai-presence-anchor" aria-hidden="true" />
       {motionPhase === 'typing' && <span className="ai-presence-typing" role="status">Reading your message…</span>}
-      <span className="ai-presence-dock__status" role="status">{isRecording ? 'Listening…' : isTranscribing ? 'Transcribing…' : ''}</span>
+      <span className="ai-presence-dock__status" role="status">{voiceStatus}</span>
       {motionPhase === 'idle' && input.trim() === '' && !isRestoringHistory
         && composerNextSteps.length > 0 && (
         <ComposerSuggestion key={`${currentNoteId ?? sessionId ?? 'new'}:${messages.length}`} steps={composerNextSteps}
@@ -2583,7 +2628,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           </div>
         )}
 
-        <div className={`ai-composer${motionPhase === 'listening' || motionPhase === 'typing' ? ' ai-composer--asking' : ''}${isRecording ? ' ai-composer--listening' : ''}`}>
+        <div className={`ai-composer${motionPhase === 'listening' || motionPhase === 'typing' ? ' ai-composer--asking' : ''}${isRecording ? ' ai-composer--listening' : ''}${voiceMode === 'conversation' ? ' ai-composer--conversation' : ''}`}>
         {compareOpen && <CompareWithPanel onSend={handleCompare} onClose={() => { setCompareOpen(false); }} />}
         {interruptedTurn !== null && interruptedTurn.sessionId === sessionId && !chatMutation.isPending && (
           <div className="ai-interrupted" role="status">
@@ -2691,7 +2736,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               id="ai-chat-input"
               className="ai-input-textarea"
               rows={1}
-              placeholder={isRecording ? 'Listening…' : isTranscribing ? 'Transcribing…' : pendingFile !== null ? 'Ask a question about the attached file…' : 'Ask Athena…'}
+              placeholder={voiceMode === 'dictation' ? 'Dictating…' : voiceMode === 'conversation' ? 'In voice conversation — or type here' : isTranscribing ? 'Connecting voice…' : pendingFile !== null ? 'Ask a question about the attached file…' : 'Ask Athena…'}
               value={input}
               onChange={(e) => { hasUserWorkRef.current = true; setInput(e.target.value); noteTyping(); }}
               onFocus={() => { setInputFocused(true); }}
@@ -2703,27 +2748,41 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
             />
             <Button
               type="button"
-              kind={isRecording ? 'danger' : 'ghost'}
+              kind={voiceMode === 'dictation' ? 'danger' : 'ghost'}
               hasIconOnly
               size="sm"
-              renderIcon={isRecording ? StopFilled : Microphone}
-              iconDescription={isRecording ? 'Stop recording' : 'Voice input'}
+              renderIcon={voiceMode === 'dictation' ? StopFilled : Microphone}
+              iconDescription={voiceMode === 'dictation' ? 'Stop dictating' : 'Dictate into the message'}
               tooltipPosition="top"
               className="ai-mic-button ai-mic-button--inline"
+              aria-pressed={voiceMode === 'dictation'}
               onClick={handleMicClick}
-              disabled={chatMutation.isPending || isTranscribing}
+              disabled={isTranscribing || voiceMode === 'conversation'}
+            />
+            <Button
+              type="button"
+              kind="ghost"
+              hasIconOnly
+              size="sm"
+              renderIcon={voiceMode === 'conversation' ? StopFilled : VoiceActivate}
+              iconDescription={voiceMode === 'conversation' ? 'End voice conversation' : 'Talk with Athena hands-free'}
+              tooltipPosition="top"
+              className={`ai-voice-chat-button${voiceMode === 'conversation' ? ' ai-voice-chat-button--active' : ''}${athenaSpeaking && voiceMode === 'conversation' ? ' ai-voice-chat-button--speaking' : ''}`}
+              aria-pressed={voiceMode === 'conversation'}
+              onClick={handleConversationClick}
+              disabled={isTranscribing || voiceMode === 'dictation'}
             />
           </div>
-          {chatMutation.isPending ? (
+          {athenaStoppable ? (
             <Button
               type="button"
               hasIconOnly
               kind="danger"
               renderIcon={StopFilled}
-              iconDescription="Stop"
+              iconDescription={chatMutation.isPending ? 'Stop (Esc)' : 'Stop speaking (Esc)'}
               tooltipPosition="top"
               className="ai-send-button ai-send-button--stop"
-              onClick={handleStopGenerating}
+              onClick={handleStopAthena}
             />
           ) : (
             <Button

@@ -95,26 +95,20 @@ export const env = {
   SCREENSHOT_SERVICE_URL: optional('SCREENSHOT_SERVICE_URL'),
   get SCREENSHOT_SERVICE_KEY() { return credentialValue('SCREENSHOT_SERVICE_KEY', optional('SCREENSHOT_SERVICE_KEY')); },
 
-  // Azure Speech (voice chat) — same pattern as client-demo's voiceProvider.ts.
-  // The Azure AI Services multi-service key also covers the Speech REST API, so
-  // AZURE_SPEECH_KEY falls back to AZURE_OPENAI_API_KEY when not set separately.
+  // Azure Voice Live (spoken conversation, dictation and read-aloud), relayed by
+  // services/voice/voiceLiveRelay.ts. Athena's replies still come from the normal
+  // chat pipeline; Voice Live only listens, transcribes and speaks. The key falls
+  // back to AZURE_OPENAI_API_KEY (the same AI Services resource).
   get AZURE_SPEECH_KEY() { return credentialValue('AZURE_SPEECH_KEY', optional('AZURE_SPEECH_KEY')); },
-  AZURE_SPEECH_REGION: optionalWithDefault('AZURE_SPEECH_REGION', 'uksouth'),
-  AZURE_SPEECH_VOICE: optionalWithDefault('AZURE_SPEECH_VOICE', 'en-US-Harper:MAI-Voice-2'),
-  // Used when the preferred voice above (MAI-Voice-2) isn't enabled on the resource.
-  AZURE_SPEECH_FALLBACK_VOICE: optionalWithDefault('AZURE_SPEECH_FALLBACK_VOICE', 'en-US-SaraNeural'),
-  // Set to 'mock' to force the deterministic mock voice provider (no network).
-  VOICE_PROVIDER: optional('VOICE_PROVIDER'),
-  // Athena's spoken replies via gpt-4o-mini-tts (Azure OpenAI). When the
-  // endpoint + key are set it's the primary voice; Azure Speech is the fallback.
-  /** Full audio/speech URL, e.g. https://<res>.openai.azure.com/openai/deployments/gpt-4o-mini-tts/audio/speech?api-version=2025-03-01-preview */
-  AZURE_TTS_ENDPOINT: optional('AZURE_TTS_ENDPOINT'),
-  get AZURE_TTS_API_KEY() { return credentialValue('AZURE_TTS_API_KEY', optional('AZURE_TTS_API_KEY')); },
-  AZURE_TTS_VOICE: optionalWithDefault('AZURE_TTS_VOICE', 'nova'),
-  AZURE_TTS_INSTRUCTIONS: optionalWithDefault(
-    'AZURE_TTS_INSTRUCTIONS',
-    'Relaxed and gentle, like a trusted colleague over coffee. Unhurried, friendly, soft smile in the voice.',
-  ),
+  /** AI Services endpoint hosting Voice Live; defaults to AZURE_OPENAI_ENDPOINT. */
+  VOICE_LIVE_ENDPOINT: optional('VOICE_LIVE_ENDPOINT'),
+  VOICE_LIVE_API_VERSION: optionalWithDefault('VOICE_LIVE_API_VERSION', '2026-04-10'),
+  VOICE_LIVE_PROFILE: optionalWithDefault('VOICE_LIVE_PROFILE', 'byom-foundry-openai-responses'),
+  VOICE_LIVE_MODEL: optionalWithDefault('VOICE_LIVE_MODEL', 'gpt-5.4'),
+  VOICE_LIVE_VOICE: optionalWithDefault('VOICE_LIVE_VOICE', 'en-GB-Ada:DragonHDLatestNeural'),
+  VOICE_LIVE_RATE: optionalWithDefault('VOICE_LIVE_RATE', '1.0'),
+  VOICE_LIVE_TEMPERATURE: optionalWithDefault('VOICE_LIVE_TEMPERATURE', '0.5'),
+  VOICE_LIVE_LANGUAGE: optionalWithDefault('VOICE_LIVE_LANGUAGE', 'en-GB'),
 
   // Microsoft Graph (personal M365)
   GRAPH_CLIENT_ID: integrationCredential('GRAPH_CLIENT_ID'),

@@ -14,6 +14,7 @@ import { createManualBlogExecutor } from './agents/workforce/blogDomain.js';
 import { manualBlogSourceCapabilities } from './agents/workforce/blogSources.js';
 import { assertWorkforceSchemaReady } from './agents/workforce/readiness.js';
 import { startTraceRetention } from './ai/turnTrace.js';
+import { attachVoiceLiveRelay } from './services/voice/voiceLiveRelay.js';
 
 assertSafeDatabase(env.DATABASE_MODE, env.DATABASE_URL, env.NODE_ENV);
 const sharedProductionDatabase = env.NODE_ENV === 'development' && env.DATABASE_MODE === 'production';
@@ -26,6 +27,7 @@ const server = app.listen(env.PORT, () => {
   console.warn(`[Server] Listening on port ${env.PORT} (${env.NODE_ENV}); initializing.`);
   void runtime.start().catch(() => { void runtime.stop(1); });
 });
+attachVoiceLiveRelay(server);
 const runtime = createRuntime({
   initialize: async () => {
     if (sharedProductionDatabase) {

@@ -53,7 +53,6 @@ import { agentJobsRouter } from './routes/agentJobs.js';
 import { DIAGRAM_LIMITS } from './services/diagramValidation.js';
 import { HTTP_STATUS } from './config/constants.js';
 import { KnowledgeHubError, PayloadTooLargeError } from './types/errors.js';
-import { voiceRouter } from './routes/voiceRoutes.js';
 import { todayRouter } from './routes/today.js';
 import { repoProjectMappingsRouter } from './routes/repoProjectMappings.js';
 import { knowledgeHealthRouter } from './routes/knowledgeHealth.js';
@@ -96,9 +95,6 @@ export function createApp(readiness: () => RuntimePhase = () => 'starting'): exp
   app.use('/api/integrations/mural/export', mapBodyErrors(express.raw({ type: 'image/png', limit: '20mb' })));
   app.use('/api/integrations/mural/export-diagram', mapBodyErrors(express.json({ limit: '30mb' })));
   app.use('/api/integrations/share-email/send', mapBodyErrors(express.json({ limit: '9mb' })));
-  // Voice audio travels as base64 JSON (see voiceRoutes.ts) — a ~30s WAV clip
-  // base64-encodes to several MB, well past the default 1mb JSON limit.
-  app.use('/api/voice', express.json({ limit: '20mb' }));
   // Document uploads — multipart/form-data for PDF/DOCX/PPTX/XLSX
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
   app.use('/api/documents/upload', upload.single('file'));
@@ -155,7 +151,6 @@ export function createApp(readiness: () => RuntimePhase = () => 'starting'): exp
   app.use('/api/integrations/share-email', shareEmailRouter);
   app.use('/api/ai', aiRouter);
   app.use('/api/ai', chatPanelRouter);
-  app.use('/api/voice', voiceRouter);
   app.use('/api/tasks', tasksRouter);
   app.use('/api/task-assistance', taskAssistanceRouter);
   app.use('/api/nav', navAttentionRouter);
