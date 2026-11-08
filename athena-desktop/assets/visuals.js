@@ -522,7 +522,9 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
         const entrance = parts.node.entrance || 'rise';
         const transform = { fade: 'none', rise: 'translateY(24px)', left: 'translateX(-32px)',
           right: 'translateX(32px)', scale: 'scale(0.94)', wipe: 'none' }[entrance] ?? 'translateY(24px)';
-        animate(element, element, [
+        // Chromium composites animated transforms on a foreignObject at the wrong scale and offset mid-flight,
+        // so the entrance rides the HTML node inside the holder, where the CSS box model is reliable.
+        animate(element, element.firstElementChild ?? element, [
           { opacity: 0, transform, clipPath: entrance === 'wipe' ? 'inset(0 100% 0 0)' : 'inset(0)' },
           { opacity: 1, transform: 'none', clipPath: 'inset(0)' },
         ], { duration: ENTRANCE_MS, delay, easing: EASE });
