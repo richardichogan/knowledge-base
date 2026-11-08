@@ -177,6 +177,8 @@ export function buildVisualAsset(document, id) {
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('class', 'visual-asset');
   svg.setAttribute('viewBox', `0 0 ${asset.width} ${asset.height}`);
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('height', '100%');
   svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
   svg.setAttribute('aria-hidden', 'true');
   svg.setAttribute('focusable', 'false');

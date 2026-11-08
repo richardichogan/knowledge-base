@@ -33,8 +33,21 @@ export function noteMarkdown(content: string, noteId: string): Promise<string> {
             : absoluteLinks(child),
       ]));
     }
-    // The exporter validates block types and props against the default schema.
-    const markdown = await exporter.blocksToMarkdownLossy(absoluteLinks(blocks) as Parameters<typeof exporter.blocksToMarkdownLossy>[0]);
+    // The exporter crashes on props outside the default schema (e.g. script heading metadata), so drop them.
+    const blockSchema = exporter.editor.schema.blockSchema as Record<string, { propSchema?: Record<string, unknown> }>;
+    function knownProps(value: unknown): unknown {
+      if (!Array.isArray(value)) return value;
+      return value.map(block => {
+        if (block === null || typeof block !== 'object') return block;
+        const record = block as Record<string, unknown>;
+        const propSchema = typeof record.type === 'string' ? blockSchema[record.type]?.propSchema : undefined;
+        const props = propSchema && record.props && typeof record.props === 'object'
+          ? Object.fromEntries(Object.entries(record.props).filter(([prop]) => prop in propSchema))
+          : record.props;
+        return { ...record, props, children: knownProps(record.children) };
+      });
+    }
+    const markdown = await exporter.blocksToMarkdownLossy(knownProps(absoluteLinks(blocks)) as Parameters<typeof exporter.blocksToMarkdownLossy>[0]);
     return `---\nathena_note_id: ${noteId}\ntitle: ${JSON.stringify(writing.title)}\n---\n\n${markdown.trimEnd()}\n`;
   });
 }

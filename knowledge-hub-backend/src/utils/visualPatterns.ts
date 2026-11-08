@@ -73,9 +73,14 @@ function measure(subject: VisualPatternSubject, focus: boolean, kind: typeof VIS
   }
   if (kind === 'panel' || kind === 'block') {
     const width = (focus ? Math.max(400, panelWidth) : panelWidth * peerScale);
-    const inner = width - 56;
-    const parts = [kind === 'panel' && subject.icon ? 40 * r : 0, kicker, block(subject.label, 32 * r, 1.2, inner), block(subject.detail, 22 * r, 1.35, inner)].filter(Boolean);
-    const height = 48 + parts.reduce((sum, part) => sum + part, 0) + 12 * (parts.length - 1);
+    const padX = kind === 'block' ? 72 : 56;
+    const padY = kind === 'block' ? 56 : 48;
+    const labelFont = (kind === 'block' ? 40 : 32) * r;
+    const detailFont = (kind === 'block' ? 20 : 22) * r;
+    const gap = kind === 'block' ? 8 : 12;
+    const inner = Math.max(120, width - padX);
+    const parts = [kind === 'panel' && subject.icon ? 40 * r : 0, kicker, block(subject.label, labelFont, 1.2, inner), block(subject.detail, detailFont, 1.35, inner)].filter(Boolean);
+    const height = padY + parts.reduce((sum, part) => sum + part, 0) + gap * (parts.length - 1);
     return { ...base, kind, width, height, anchor: height / 2 };
   }
   const size = textSize ?? 'm';
@@ -87,10 +92,9 @@ function measure(subject: VisualPatternSubject, focus: boolean, kind: typeof VIS
   return { ...base, kind: 'text', size, width, height, anchor: height / 2 };
 }
 
-/** Where the connector attaches once a box is resized: icons keep their top disc; drawings and centred content re-centre. */
+/** Where the connector attaches once a box is resized: icons and drawn assets keep their top graphic; other content re-centres. */
 function resize(box: Box, height: number): void {
-  if (box.kind === 'asset') box.anchor = (height - (box.height - box.anchor * 2)) / 2;
-  else if (box.kind !== 'icon') box.anchor = height / 2;
+  if (box.kind !== 'icon' && box.kind !== 'asset') box.anchor = height / 2;
   box.height = height;
 }
 
@@ -133,17 +137,15 @@ function placeRow(boxes: Box[], line: number, minGap: number, left = INNER.left,
   for (const box of boxes) { box.x = x; box.y = line - box.anchor; x += box.width + gap; }
 }
 
-/** Stacks boxes with equally spaced anchor lines, centring the group's full extent on `middle`. */
+/** Stacks boxes with equal edge-to-edge vertical gaps, centring the group's full extent on `middle`. */
 function placeColumn(boxes: Box[], centreX: number, middle: number, minGap: number): void {
-  let pitch = 0;
-  for (let i = 1; i < boxes.length; i++) {
-    const above = boxes[i - 1]!, below = boxes[i]!;
-    pitch = Math.max(pitch, (above.height - above.anchor) + minGap + below.anchor);
+  const total = boxes.reduce((sum, box) => sum + box.height, 0) + minGap * Math.max(0, boxes.length - 1);
+  let y = middle - total / 2;
+  for (const box of boxes) {
+    box.x = centreX - box.width / 2;
+    box.y = y;
+    y += box.height + minGap;
   }
-  const first = boxes[0]!, last = boxes[boxes.length - 1]!;
-  const extent = first.anchor + pitch * (boxes.length - 1) + (last.height - last.anchor);
-  const start = middle - extent / 2 + first.anchor;
-  boxes.forEach((box, index) => { box.x = centreX - box.width / 2; box.y = start + pitch * index - box.anchor; });
 }
 
 /** Even angular spacing; a ring around a focus starts half a step round so no subject sits directly above the centre. */
@@ -186,7 +188,7 @@ function layout(pattern: VisualPattern, links: VisualLink[], density: typeof DEN
       placeRow(boxes, centredLine(boxes, MID_Y), Math.max(96 * density.gap, longest(false, false)));
       break;
     case 'stack':
-      placeColumn(boxes, MID_X, MID_Y, Math.max(56 * density.gap, longest(true, false)));
+      placeColumn(boxes, MID_X, MID_Y, Math.max((links.length ? 64 : 36) * density.gap, longest(true, false)));
       break;
     case 'compare':
       placeRow(boxes, centredLine(boxes, MID_Y), 240 * density.gap, INNER.left + 80, INNER.right - 80);
@@ -217,11 +219,13 @@ function layout(pattern: VisualPattern, links: VisualLink[], density: typeof DEN
     case 'cycle': {
       const maxWidth = Math.max(...others.map(box => box.width)), height = Math.max(...others.map(box => box.height));
       const anchor = Math.max(...others.map(box => box.anchor));
+      const offset = others.length === 4 && !!focus;
       const rx = Math.min(560, (INNER.right - INNER.left - maxWidth) / 2);
-      const ry = Math.max(0, (INNER.bottom - INNER.top - height) / 2);
-      const cy = INNER.top + anchor + ry;
+      const stageReachY = Math.max(0, (INNER.bottom - INNER.top - height) / 2);
+      const ry = offset ? Math.min(228, stageReachY * Math.SQRT2) : stageReachY;
+      const cy = offset ? MID_Y : INNER.top + anchor + ry;
       placeRing(others, MID_X, cy, rx, ry, !!focus);
-      if (focus) { focus.x = MID_X - focus.width / 2; focus.y = cy - focus.anchor; }
+      if (focus) { focus.x = MID_X - focus.width / 2; focus.y = cy - focus.height / 2; }
       break;
     }
     case 'statement': {
@@ -246,10 +250,15 @@ function layout(pattern: VisualPattern, links: VisualLink[], density: typeof DEN
       // The box IS the data: widths step down evenly from a full-width base, so size carries the meaning.
       const gap = 24, n = boxes.length;
       const avail = AREA.bottom - AREA.top;
+      boxes.forEach((box, index) => {
+        const width = (AREA.right - AREA.left) * (n + 1 - index) / (n + 1);
+        const remeasured = measure(box.subject, false, 'block', undefined, density.peer, width / density.peer);
+        box.width = width;
+        box.height = remeasured.height;
+      });
       const height = Math.max(Math.max(...boxes.map(box => box.height)), Math.min(160, (avail - gap * (n - 1)) / n));
       const base = MID_Y + (n * height + gap * (n - 1)) / 2;
       boxes.forEach((box, index) => {
-        box.width = (AREA.right - AREA.left) * (n + 1 - index) / (n + 1);
         resize(box, height);
         box.x = MID_X - box.width / 2;
         box.y = base - (index + 1) * height - index * gap;
@@ -390,17 +399,6 @@ export function layoutVisualPattern(pattern: VisualPattern, links: VisualLink[])
   }
   if (pattern.kind === 'panel' && pattern.subjects.some(subject => subject.icon)) {
     stages.push({ pattern: strip(pattern, true), links: labelled ? unlabelled : links });
-  }
-  // Last resort: demote the whole pattern to plain text subjects (no icons, panels or
-  // assets) rather than failing the job — the narration carries the detail, and a plain
-  // arrangement that fits beats a visual that never renders.
-  {
-    const textual: VisualPattern = { ...pattern, kind: 'text', subjects: pattern.subjects.map(subject => {
-      const { icon: _icon, asset: _asset, kicker: _kicker, ...rest } = subject;
-      return { ...rest, detail: '' };
-    }) };
-    stages.push({ pattern: textual, links: labelled ? unlabelled : links });
-    stages.push({ pattern: textual, links: labelled ? unlabelled : links, small: true });
   }
   let boxes: Box[] = [];
   let settledLinks = links;

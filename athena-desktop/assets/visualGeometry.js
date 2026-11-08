@@ -153,8 +153,8 @@ export function connectionRing(links, nodes) {
   const centres = members.map(node => centre(node.anchor ?? node.bounds));
   const cx = centres.reduce((sum, value) => sum + value[0], 0) / centres.length;
   const cy = centres.reduce((sum, value) => sum + value[1], 0) / centres.length;
-  const rx = Math.max(...centres.map(value => Math.abs(value[0] - cx)));
-  const ry = Math.max(...centres.map(value => Math.abs(value[1] - cy)));
+  const rx = Math.sqrt(2 * centres.reduce((sum, value) => sum + (value[0] - cx) ** 2, 0) / centres.length);
+  const ry = Math.sqrt(2 * centres.reduce((sum, value) => sum + (value[1] - cy) ** 2, 0) / centres.length);
   if (rx < 80 || ry < 80) return null;
   const angles = new Map(members.map((node, index) => [node.id, Math.atan2((centres[index][1] - cy) / ry, (centres[index][0] - cx) / rx)]));
   const first = arcs.find(link => angles.has(link.from) && angles.has(link.to));

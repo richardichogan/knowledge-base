@@ -9,9 +9,12 @@ const SLIDE_HEIGHT = 900;
 const AREA = { left: 80, top: 240, right: 1520, bottom: 800 };
 const PRESENTER_SCALE = 2 / 3;
 const ICON_DISC = 112;
+const ASSET_BOX = 200;
 const ROLE_SCALE = { hero: 1.45, secondary: 0.8 };
 const roleScale = node => Object.hasOwn(ROLE_SCALE, node.role) ? ROLE_SCALE[node.role] : 1;
 const iconDisc = node => ICON_DISC * roleScale(node);
+const assetBox = node => Math.min(node.height, node.role === 'hero' ? 300 : ASSET_BOX * roleScale(node));
+const leadOffset = node => node.kind === 'icon' ? iconDisc(node) / 2 : node.kind === 'asset' ? assetBox(node) / 2 : node.height / 2;
 const movesNode = node => !!node.states?.some(state => state.x !== undefined || state.y !== undefined || state.scale !== undefined);
 const fadesNode = node => !!node.states?.some(state => state.opacity !== undefined);
 
@@ -133,9 +136,9 @@ export function alignVisualNodes(nodes, links = []) {
   const connected = new Set(links.flatMap(link => [link.from, link.to]));
   const hubs = new Set(nodes.filter(node => hubText(node, nodes, connected)).map(node => node.id));
   const edge = node => node.kind === 'text' && !connected.has(node.id) && !hubs.has(node.id);
-  const lineY = node => node.kind === 'icon' ? node.y + iconDisc(node) / 2 : node.y + node.height / 2;
+  const lineY = node => node.y + leadOffset(node);
   const lineX = node => edge(node) ? node.x : node.x + node.width / 2;
-  const placeY = (node, value) => { node.y = node.kind === 'icon' ? value - iconDisc(node) / 2 : value - node.height / 2; };
+  const placeY = (node, value) => { node.y = value - leadOffset(node); };
   const placeX = (node, value) => { node.x = edge(node) ? value : value - node.width / 2; };
   // Nodes whose states move or scale them keep their authored position: the build sequence depends on it.
   const peersOf = list => list.filter(node => node.kind !== 'image' && !movesNode(node));
@@ -613,10 +616,10 @@ export function createVisualRenderer(stage, status, _footerHost, options = {}) {
  * legacy inset-image scenes keep their authored geometry.
  */
 function contentAutofit(composition, placed) {
-  if (composition.frame === 'around-presenter') return '';
+  if (composition.frame === 'around-presenter') return { svg: '', css: '' };
   const boxes = [];
   for (const node of placed) {
-    if (node.kind === 'image') return '';
+    if (node.kind === 'image') return { svg: '', css: '' };
     boxes.push({ x: node.x, y: node.y, width: node.width, height: node.height });
     let sx = node.x, sy = node.y, sscale = 1;
     for (const change of node.states ?? []) {
@@ -628,15 +631,18 @@ function contentAutofit(composition, placed) {
         width: node.width * sscale, height: node.height * sscale });
     }
   }
-  if (!boxes.length) return '';
+  if (!boxes.length) return { svg: '', css: '' };
   const left = Math.min(...boxes.map(box => box.x)), top = Math.min(...boxes.map(box => box.y));
   const right = Math.max(...boxes.map(box => box.x + box.width)), bottom = Math.max(...boxes.map(box => box.y + box.height));
   const fit = Math.min((AREA.right - AREA.left) / Math.max(1, right - left), (AREA.bottom - AREA.top) / Math.max(1, bottom - top));
   const scale = Math.max(0.55, Math.min(fit, 1.4));
-  if (Math.abs(scale - 1) < 0.02) return '';
+  if (Math.abs(scale - 1) < 0.02) return { svg: '', css: '' };
   const x = (AREA.left + AREA.right) / 2 - scale * (left + right) / 2;
   const y = (AREA.top + AREA.bottom) / 2 - scale * (top + bottom) / 2;
-  return ` translate(${x.toFixed(1)} ${y.toFixed(1)}) scale(${scale.toFixed(4)})`;
+  return {
+    svg: ` translate(${x.toFixed(1)} ${y.toFixed(1)}) scale(${scale.toFixed(4)})`,
+    css: ` translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) scale(${scale.toFixed(4)})`,
+  };
 }
 
 function arrowHead(end, tip) {
@@ -667,16 +673,24 @@ function arrowHead(end, tip) {
     const connections = svgElement('g');
     content.append(reference, ringLayer, connections);
     svg.append(defs, content);
-    const placed = alignVisualNodes(composition.nodes, composition.links);
+    const placed = composition.pattern ? composition.nodes.map(node => ({ ...node })) : alignVisualNodes(composition.nodes, composition.links);
+    const autofit = contentAutofit(composition, placed);
+    const baseTx = AREA.left - AREA.left * scale;
     content.setAttribute('transform',
-      `translate(${AREA.left - AREA.left * scale} ${offsetY}) scale(${scale})${contentAutofit(composition, placed)}`);
+      `translate(${baseTx} ${offsetY}) scale(${scale})${autofit.svg}`);
+    const nodesLayer = html('div', 'composition-nodes');
+    nodesLayer.style.transform = `translate(${baseTx}px, ${offsetY}px) scale(${scale})${autofit.css}`;
     const connected = new Set(composition.links.flatMap(link => [link.from, link.to]));
     const centred = new Set(placed.filter(node => connected.has(node.id) || hubText(node, placed, connected)).map(node => node.id));
     const subjects = new Map();
     const holders = new Map();
     placed.forEach((node, index) => {
-      const holder = svgElement('foreignObject', { x: node.x, y: node.y, width: node.width, height: node.height, 'data-reveal': node.reveal });
-      holder.classList.add('composition-reveal', 'composition-subject');
+      const holder = html('div', 'composition-reveal composition-subject');
+      holder.setAttribute('data-reveal', node.reveal);
+      holder.style.left = `${node.x}px`;
+      holder.style.top = `${node.y}px`;
+      holder.style.width = `${node.width}px`;
+      holder.style.height = `${node.height}px`;
       if (connected.has(node.id)) holder.classList.add('composition-linked');
       holder.style.setProperty('--float-delay', `${-((index * 1.7) % 6)}s`);
       const { element, ripple } = nodeElement(scene, node, centred.has(node.id));
@@ -685,14 +699,13 @@ function arrowHead(end, tip) {
       subjects.set(node.id, element);
       holders.set(node.id, holder);
       if (node.states?.length) {
-        const mover = movesNode(node) || fadesNode(node) ? svgElement('g') : null;
-        mover?.classList.add('composition-mover');
+        const mover = movesNode(node) || fadesNode(node) ? html('div', 'composition-mover') : null;
         mover?.append(holder);
         stated.push({ node, element, mover });
-        content.append(mover ?? holder);
-      } else content.append(holder);
+        nodesLayer.append(mover ?? holder);
+      } else nodesLayer.append(holder);
     });
-    layer.append(svg);
+    layer.append(svg, nodesLayer);
     // A panel or block whose text wraps beyond its authored height grows around its centre, so padding never collapses.
     for (const node of placed) {
       if (node.kind !== 'panel' && node.kind !== 'block') continue;
@@ -704,24 +717,29 @@ function arrowHead(end, tip) {
       node.y = Math.min(Math.max(AREA.top, node.y - (needed - node.height) / 2), AREA.bottom - needed);
       node.height = needed;
       const holder = holders.get(node.id);
-      holder.setAttribute('y', node.y);
-      holder.setAttribute('height', needed);
+      holder.style.top = `${node.y}px`;
+      holder.style.height = `${needed}px`;
     }
-    const frame = reference.getBoundingClientRect();
-    const unit = frame.width / SLIDE_WIDTH;
-    const measure = element => {
-      if (!unit) return null;
-      const rect = element.getBoundingClientRect();
-      return rect.width && rect.height ? { x: (rect.left - frame.left) / unit, y: (rect.top - frame.top) / unit,
-        width: rect.width / unit, height: rect.height / unit } : null;
-    };
-    const measureDrawn = element => {
-      const rect = measure(element);
-      return rect && element.classList.contains('visual-asset') ? tightDrawing(element, rect) : rect;
-    };
     const nodes = placed.map(node => {
       const element = subjects.get(node.id);
       const box = { x: node.x, y: node.y, width: node.width, height: node.height };
+      const hostRect = element.getBoundingClientRect();
+      const unitX = hostRect.width && node.width ? hostRect.width / node.width : 0;
+      const unitY = hostRect.height && node.height ? hostRect.height / node.height : 0;
+      const measure = child => {
+        if (!unitX || !unitY) return null;
+        const rect = child.getBoundingClientRect();
+        return rect.width && rect.height ? {
+          x: box.x + (rect.left - hostRect.left) / unitX,
+          y: box.y + (rect.top - hostRect.top) / unitY,
+          width: rect.width / unitX,
+          height: rect.height / unitY,
+        } : null;
+      };
+      const measureDrawn = child => {
+        const rect = measure(child);
+        return rect && child.classList.contains('visual-asset') ? tightDrawing(child, rect) : rect;
+      };
       const parts = [...element.children].map(measureDrawn).filter(Boolean);
       const left = Math.min(...parts.map(rect => rect.x)), top = Math.min(...parts.map(rect => rect.y));
       const union = parts.length ? { x: left, y: top, width: Math.max(...parts.map(rect => rect.x + rect.width)) - left,
@@ -735,9 +753,12 @@ function arrowHead(end, tip) {
     });
     alignMeasuredAnchors(placed, nodes, composition.links, (id, dx, dy) => {
       const holder = holders.get(id);
-      if (!holder) return;
-      holder.setAttribute('x', Number(holder.getAttribute('x')) + dx);
-      holder.setAttribute('y', Number(holder.getAttribute('y')) + dy);
+      const node = placed.find(item => item.id === id);
+      if (!holder || !node) return;
+      node.x += dx;
+      node.y += dy;
+      holder.style.left = `${node.x}px`;
+      holder.style.top = `${node.y}px`;
     });
     const geometryRing = connectionRing(composition.links, nodes);
     ring = null;
@@ -748,7 +769,7 @@ function arrowHead(end, tip) {
       // Mask regions cover three slide-widths: overflowing arrangements live outside 0–1600 in local space before the autofit transform shrinks them.
       const mask = svgElement('mask', { id: maskId, maskUnits: 'userSpaceOnUse', x: -SLIDE_WIDTH, y: -SLIDE_HEIGHT, width: SLIDE_WIDTH * 3, height: SLIDE_HEIGHT * 3 });
       mask.append(svgElement('rect', { x: -SLIDE_WIDTH, y: -SLIDE_HEIGHT, width: SLIDE_WIDTH * 3, height: SLIDE_HEIGHT * 3, fill: '#fff' }));
-      for (const node of nodes.filter(node => members.has(node.id))) {
+      for (const node of nodes) {
         for (const rect of node.obstacles) mask.append(svgElement('rect', { x: rect.x - 20, y: rect.y - 20, width: rect.width + 40, height: rect.height + 40, fill: '#000' }));
       }
       defs.append(mask);
@@ -979,7 +1000,7 @@ function arrowHead(end, tip) {
     if (!scene) return;
     if (scene.template === 'close') {
       closeScene(scene, packet.revealed);
-    } else if (scene.composition?.imageTreatment || scene.template === 'title' && scene.composition?.nodes.length === 0) {
+    } else if (scene.composition?.imageTreatment || scene.template === 'title' && (!scene.composition || scene.composition.nodes.length === 0)) {
       titleScene(scene, page);
     } else if (scene.composition) {
       composed(scene, page, packet.revealed, wantsMotion);

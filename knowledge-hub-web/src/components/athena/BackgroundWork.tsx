@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, CheckmarkFilled, Close, InProgress, Settings, WarningFilled } from '@carbon/icons-react';
+import { ArrowRight, CheckmarkFilled, ChevronDown, Close, InProgress, Settings, WarningFilled } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import { describeApiError, requireApiData } from '../../services/apiError';
 import { useBackgroundJobs } from '../../services/agentJobStore';
@@ -45,6 +45,7 @@ function submittedToMetis(run: JobRun | undefined): boolean {
 export const BackgroundWork: React.FC = () => {
   const { setBackgroundWork } = useAthenaContext();
   const [open, setOpen] = useState(false);
+  const [attentionOpen, setAttentionOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const location = useLocation();
@@ -162,8 +163,8 @@ export const BackgroundWork: React.FC = () => {
   const unseenFailures = items.some(item => item.updates.some(update => !update.seen && !update.ok));
   const groups = [
     { id: 'active', title: 'In progress' },
-    { id: 'attention', title: 'Needs attention' },
     { id: 'recent', title: 'Recent results' },
+    { id: 'attention', title: 'Needs attention' },
   ] as const;
   useEffect(() => { setOpen(false); }, [location.pathname, location.search]);
   useEffect(() => {
@@ -238,9 +239,18 @@ export const BackgroundWork: React.FC = () => {
           const rows = items.filter(item => item.group === group.id).filter(item =>
             group.id === 'active' || item.updates.some(update => !update.seen) || readRows++ < 8);
           if (!rows.length) return null;
+          const collapsible = group.id === 'attention';
+          const expanded = !collapsible || attentionOpen;
+          const newRows = rows.filter(item => item.updates.some(update => !update.seen)).length;
           return <section key={group.id} className="kh-background-work__section" aria-labelledby={`kh-work-${group.id}`}>
-            <h3 id={`kh-work-${group.id}`}>{group.title}<span>{rows.length}</span></h3>
-            <ul className="kh-background-work__list">{rows.map(item => {
+            {collapsible
+              ? <h3 id={`kh-work-${group.id}`}><button type="button" className="kh-background-work__toggle" aria-expanded={expanded}
+                aria-controls={`kh-work-list-${group.id}`} onClick={() => { setAttentionOpen(value => !value); }}>
+                <ChevronDown size={16} aria-hidden="true" className="kh-background-work__chevron" />
+                {group.title}<span>{rows.length}{newRows ? ` · ${newRows} new` : ''}</span>
+              </button></h3>
+              : <h3 id={`kh-work-${group.id}`}>{group.title}<span>{rows.length}</span></h3>}
+            {expanded && <ul id={`kh-work-list-${group.id}`} className="kh-background-work__list">{rows.map(item => {
               const unread = item.updates.some(update => !update.seen);
               const assignment = item.assignment;
               return <li key={item.id} className={`kh-background-work__item kh-background-work__item--${item.tone}${unread ? ' kh-background-work__item--unread' : ''}`} aria-busy={busy?.id === assignment?.id && busy !== null}>
@@ -266,7 +276,7 @@ export const BackgroundWork: React.FC = () => {
                   </div>
                 </div>
               </li>;
-            })}</ul>
+            })}</ul>}
           </section>;
         })}
         <details className="kh-background-work__imports">

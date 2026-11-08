@@ -6,4 +6,5 @@
 // the stale-cache bug that led to service workers being killed off before.
 self.addEventListener('install', () => { void self.skipWaiting(); });
 self.addEventListener('activate', (e) => { e.waitUntil(self.clients.claim()); });
-self.addEventListener('fetch', (e) => { e.respondWith(fetch(e.request)); });
+// Page loads are left to the browser: a failed pass-through navigation renders a blank window.
+self.addEventListener('fetch', (e) => { if (e.request.mode !== 'navigate') e.respondWith(fetch(e.request)); });

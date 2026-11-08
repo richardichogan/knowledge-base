@@ -5,7 +5,7 @@ import { NotFoundError, ValidationError } from '../types/errors.js';
 import { parseNoteContent } from '../utils/noteContent.js';
 import { SCRIPT_VISUAL_INSTRUCTION_LIMIT, type VisualScriptBlock } from '../utils/scriptVisuals.js';
 import { parseScriptVisualJobResult, SCRIPT_VISUAL_MAX_SECTIONS, SCRIPT_VISUAL_SPECIALIST, scriptVisualSnapshot, type ScriptVisualDraft, type ScriptVisualJobResult } from '../utils/scriptVisualJobs.js';
-import { designScriptVisuals, scriptVisualGraphContext } from './scriptVisualDesigner.js';
+import { designScriptVisuals, scriptVisualGraphContext, type ScriptVisualPriorForm } from './scriptVisualDesigner.js';
 
 interface ScriptVisualSubject { id: string; title: string; url: string; sections: VisualScriptBlock[] }
 
@@ -59,11 +59,26 @@ export async function runScriptVisualJob(context: SpecialistContext): Promise<Sp
   const drafts: ScriptVisualDraft[] = [];
   context.progress('Reading the script\'s knowledge-graph relationships. The script remains unchanged.');
   const graphNeighbours = await scriptVisualGraphContext(context.db, context.subjectId);
+  const priorDeckForms: ScriptVisualPriorForm[] = [];
   for (const [index, section] of snapshots.entries()) {
     context.signal.throwIfAborted();
     context.progress(`Designing section ${index + 1} of ${snapshots.length}. The script remains unchanged.`);
     const visuals = await designScriptVisuals(section, String(input['instruction']), context.signal,
-      section.id === input['openingSectionId'], graphNeighbours, section.id === input['closingSectionId']);
+      section.id === input['openingSectionId'], graphNeighbours, section.id === input['closingSectionId'], priorDeckForms);
+    for (const scene of visuals.scenes) {
+      const pattern = scene.composition?.pattern;
+      if (pattern) {
+        const focusSubject = pattern.subjects.find(subject => subject.id === pattern.focus);
+        priorDeckForms.push({
+          sectionTitle: String(section.content ?? ''),
+          sceneTitle: scene.title,
+          patternType: pattern.type,
+          kind: pattern.kind,
+          focusLabel: focusSubject?.label,
+          focusAsset: focusSubject?.asset,
+        });
+      }
+    }
     drafts.push({ section, visuals, expectedVisuals: typeof section.props?.scriptVisuals === 'string' ? section.props.scriptVisuals : '' });
   }
   context.signal.throwIfAborted();
