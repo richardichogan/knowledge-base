@@ -102,6 +102,7 @@ export function noteText(content: string): string {
       else if (type === 'numberedListItem') lines.push(`${indent}1. ${text}`);
       else if (type === 'checkListItem') lines.push(`${indent}- [${props['checked'] === true ? 'x' : ' '}] ${text}`);
       else if (type === 'codeBlock') lines.push(`\`\`\`${String(props['language'] ?? '')}`, text, '```');
+      else if (type === 'sourceCaption') lines.push(`${indent}Source: ${text || '(not given)'}`);
       else if (type === 'table') lines.push(`[table] ${JSON.stringify(b['content']).slice(0, TABLE_TEXT_CHARS)}`);
       else if (text !== '' || type === 'paragraph') lines.push(`${indent}${text}`);
       walk(b['children'], depth + 1);

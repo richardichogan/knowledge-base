@@ -172,8 +172,19 @@ function withParagraphBreaks(markdown: string): string {
   return out.join('\n');
 }
 
+// Athena reads a source caption as "Source: …", so a paragraph written that way becomes one.
+function sourceCaptions(blocks: Block[]): Block[] {
+  return blocks.map(block => {
+    if (block.type !== 'paragraph' || !Array.isArray(block.content)) return block;
+    const first = block.content[0];
+    if (first?.type !== 'text' || !/^Source:\s/.test(first.text ?? '')) return block;
+    const text = (first.text as string).replace(/^Source:\s+/, '');
+    return { ...block, type: 'sourceCaption', props: {}, content: [...(text ? [{ ...first, text }] : []), ...block.content.slice(1)] };
+  });
+}
+
 function parse(editor: Editor, markdown: string, script = false): Block[] {
-  const blocks = editor.tryParseMarkdownToBlocks(withParagraphBreaks(markdown.trim())) as Block[];
+  const blocks = sourceCaptions(editor.tryParseMarkdownToBlocks(withParagraphBreaks(markdown.trim())) as Block[]);
   if (!script) return blocks;
   return (scriptNoteBlocks(blocks) as Block[]).map(block => block.type === 'heading'
     ? { ...block, props: { ...block.props, scriptSection: true } } : block);

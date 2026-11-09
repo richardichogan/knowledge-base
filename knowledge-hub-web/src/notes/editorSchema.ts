@@ -4,6 +4,7 @@ import { entityMentionSpec, noteMentionSpec } from './EntityMention';
 import { passageTagStyles } from './passageTags';
 import { scriptCueSpec } from './ScriptCue';
 import { scriptHeadingSpec } from './ScriptSection';
+import { sourceCaptionSpec } from './SourceCaption';
 
 const codeBlockSpec = createCodeBlockSpec(codeBlockOptions);
 // Set this before mounting: mutating code marks afterwards feeds ProseMirror's DOM observer.
@@ -26,6 +27,7 @@ export const editorSchema = BlockNoteSchema.create({
     ...defaultBlockSpecs,
     heading: scriptHeadingSpec,
     codeBlock: codeBlockWithSpelling,
+    sourceCaption: sourceCaptionSpec,
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,

@@ -121,7 +121,8 @@ export function blocksToTextWithImages(blocks: Block[], visionByBlobId: Map<stri
           : blockContentSpans(block, scriptAnnotations).map((c) => c.text ?? '').join('').trim();
         const heading = scriptAnnotations && block.type === 'heading'
           ? scriptHeadingPrefix(block.props?.level) : '';
-        if (text) lines.push(heading + text);
+        if (block.type === 'sourceCaption') lines.push(`Source: ${text || '(not given)'}`);
+        else if (text) lines.push(heading + text);
         if (scriptAnnotations && block.props?.scriptSection) {
           lines.push(`[Script section id: ${block.id ?? 'not assigned'}]`);
           if (block.props.scriptVisuals) lines.push('[Linked presentation visuals available: use read_script_visuals with this section id for actual scenes and cues.]');

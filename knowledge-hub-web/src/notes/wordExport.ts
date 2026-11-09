@@ -120,6 +120,8 @@ export async function createWordExport(blocks: unknown[], title: string): Promis
           children = [await image(props)];
         } else if (['file', 'video', 'audio'].includes(String(type))) {
           children = [new TextRun(String(props['caption'] || props['name'] || type))];
+        } else if (type === 'sourceCaption') {
+          children.unshift(new TextRun({ text: 'Source: ', italics: true }));
         } else if (type === 'checkListItem') {
           children.unshift(new TextRun(props['checked'] === true ? '\u2612 ' : '\u2610 '));
         }

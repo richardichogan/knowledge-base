@@ -42,6 +42,7 @@ import { MetadataPanel, type MetadataPanelProps } from './MetadataPanel';
 import { useHostedNoteEditor } from './NoteEditorHost';
 import { useProjects } from '../hooks/useProjects';
 import { editorSchema } from './editorSchema';
+import { watchPasteForSource } from './pasteSource';
 import { parseTranscript, transcriptToBlocks } from './transcriptPaste';
 import { imagineDemoSpecificationPrompt } from './imagineDemoBrief';
 import { useAthenaContext } from '../context/AthenaContext';
@@ -313,6 +314,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
       initialContent: parsedInitial as any,
       schema: editorSchema,
       pasteHandler: ({ event, editor: ed, defaultPasteHandler }) => {
+        watchPasteForSource(ed);
         setTimeout(() => { uploadInlineImagesRef.current(); }, 0);
         const plain = event.clipboardData?.getData('text/plain');
         const html = event.clipboardData?.getData('text/html');
