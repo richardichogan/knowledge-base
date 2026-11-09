@@ -17,7 +17,24 @@ type Item = { title: string; detail: string } & (
 );
 
 function LinkSuggestions({ items, selectedIndex, onItemClick, loadingState }: SuggestionMenuProps<Item>): React.ReactElement {
-  return <div className="note-link-menu" id="bn-suggestion-menu" role="listbox" aria-label="Link to Athena content">
+  const list = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (selectedIndex === undefined) return;
+    list.current?.querySelector(`#bn-suggestion-menu-item-${selectedIndex}`)?.scrollIntoView({ block: 'nearest' });
+  }, [selectedIndex]);
+  useEffect(() => {
+    // BlockNote handles arrows and Enter; Tab would otherwise indent the block instead of choosing.
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Tab' || event.shiftKey || event.isComposing) return;
+      const item = selectedIndex === undefined ? undefined : items[selectedIndex];
+      if (!item || item.kind === 'message') return;
+      event.preventDefault(); event.stopPropagation();
+      onItemClick?.(item);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => { window.removeEventListener('keydown', onKey, true); };
+  }, [items, selectedIndex, onItemClick]);
+  return <div ref={list} className="note-link-menu" id="bn-suggestion-menu" role="listbox" aria-label="Link to Athena content">
     {loadingState === 'loading-initial' && <div className="note-link-menu__status" role="status">Finding links...</div>}
     {items.map((item, index) => <button key={`${item.kind}:${item.title}:${index}`} type="button" role="option"
       id={`bn-suggestion-menu-item-${index}`} aria-selected={selectedIndex === index}
