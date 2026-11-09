@@ -476,7 +476,7 @@ export function DiscoverPublishing({ onClose }: { onClose: () => void }): React.
         <button type="button" disabled={busy} onClick={() => { void holdCold(); }}>Hold them</button>
       </section>}
       {tab === 'upcoming' && <div className="kh-publishing__schedule-toolbar">
-        <p className="kh-publishing__meta">Approved, unpublished posts only, with status and source. Unapproved content remains in Drafts. Refresh replans approved Discover posts only; campaign and job controls remain in their existing editors. Job dates are trigger times, not guaranteed delivery times.</p>
+        <p className="kh-publishing__meta">Approved, unpublished posts only, with status and source. Unapproved content remains in Drafts. Refresh replans approved Discover posts only; campaign and job controls remain in their existing editors. Job times are the next send slot after posting spacing.</p>
         <button type="button" disabled={busy || content.isFetching} onClick={() => { void act('/schedule/refresh', 'POST', {}); }}>Refresh schedule</button>
       </div>}
       {shown.isLoading && <p role="status">Loading publishing {tab}…</p>}

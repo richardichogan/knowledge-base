@@ -1,7 +1,10 @@
 import type { Pool } from 'pg';
 import { MS_PER_HOUR, MS_PER_MINUTE } from '../config/constants.js';
 import { occurrences } from '../jobs/schedule.js';
-import { inWindow, slotBlock } from './delivery.js';
+import { env } from '../config/env.js';
+import { object, type JobRun } from '../jobs/contracts.js';
+import { runColumns } from '../jobs/store.js';
+import { destinationAccount, inWindow, slotBlock } from './delivery.js';
 import { PUBLISH_LIMITS, type Delivery, type Draft, type PublishingFeed } from './contracts.js';
 import { deliveryColumns, draftColumns, event, feeds, transaction } from './store.js';
 
@@ -75,8 +78,41 @@ function slots(feed: PublishingFeed, destination: Draft['destination'], from: Da
   return occurrences({ ...feed.policy, times }, from, until);
 }
 
-export function planSchedule(candidates: Candidate[], settings: PublishingFeed[], history: Delivery[], now = new Date()): ScheduledPost[] {
-  const bookings: Booking[] = [];
+export interface JobSlot { draftId: string; destination: Draft['destination']; account: string; at: Date }
+export const activeJobRunsSql = `SELECT ${runColumns} FROM managed_job_runs
+  WHERE NOT preview AND definition->'outputs' ?| ARRAY['blog','linkedin','bluesky']
+    AND status NOT IN ('succeeded','rejected') ORDER BY scheduled_at DESC LIMIT 50`;
+
+/**
+ * The time an approved job run will actually send each pending output: its trigger time,
+ * held back by the per-account spacing after the last confirmed post. The blog waits for
+ * the LinkedIn opportunity and Bluesky follows LinkedIn, matching the job runner.
+ */
+export function jobSlots(run: JobRun, history: Delivery[], now = new Date()): JobSlot[] {
+  if (!['queued', 'running'].includes(run.status) || (!run.approvedAt && run.definition.approval !== 'automatic')) return [];
+  const pending = (destination: string): boolean => run.definition.outputs.includes(destination as never)
+    && !run.steps.some(s => s.key === destination && s.status === 'succeeded');
+  const nextAfter = (destination: 'linkedin' | 'bluesky', account: string, from: number): number => {
+    const spacing = (destination === 'bluesky' ? PUBLISH_LIMITS.blueskySpacingHours : PUBLISH_LIMITS.linkedinSpacingHours) * MS_PER_HOUR;
+    const last = Math.max(0, ...history.filter(d => d.destination === destination && d.account === account && d.status === 'sent'
+      && d.publishedAt && !d.identity.startsWith('podcast:') && !d.identity.startsWith(`jobs:${run.id}:`)).map(d => Date.parse(d.publishedAt!)));
+    return Math.max(from, last + spacing);
+  };
+  const start = Math.max(Date.parse(run.scheduledAt), now.getTime());
+  const linkedinAccount = String(object(run.artifacts.linkedinAccount).id ?? '');
+  const slots: JobSlot[] = [];
+  const linkedinAt = pending('linkedin') && linkedinAccount ? nextAfter('linkedin', linkedinAccount, start) : start;
+  if (pending('blog')) slots.push({ draftId: `job:${run.id}:blog`, destination: 'blog', account: new URL(env.BLOG_POSTS_URL).host, at: new Date(linkedinAt) });
+  if (pending('linkedin') && linkedinAccount) slots.push({ draftId: `job:${run.id}:linkedin`, destination: 'linkedin', account: linkedinAccount, at: new Date(linkedinAt) });
+  if (pending('bluesky')) {
+    const account = destinationAccount('bluesky');
+    slots.push({ draftId: `job:${run.id}:bluesky`, destination: 'bluesky', account, at: new Date(nextAfter('bluesky', account, linkedinAt)) });
+  }
+  return slots;
+}
+
+export function planSchedule(candidates: Candidate[], settings: PublishingFeed[], history: Delivery[], now = new Date(), reserved: JobSlot[] = []): ScheduledPost[] {
+  const bookings: Booking[] = reserved.map(slot => ({ ...slot }));
   const planned = new Map<string, ScheduledPost>();
   const approved = candidates.filter(d => d.approval === 'approved' && !completed(d, history));
   const ordered = [...approved].sort((a, b) => {
@@ -172,7 +208,8 @@ export async function refreshSchedule(db: Pool): Promise<void> {
     const history = (await c.query<Delivery>(`SELECT ${deliveryColumns} FROM publishing_deliveries
       WHERE published_at>NOW()-INTERVAL '2 days' OR status<>'sent'
         OR draft_id IN (SELECT id FROM publishing_drafts WHERE approval='approved')`)).rows;
-    const plan = planSchedule(candidates, settings, history);
+    const runs = (await c.query<JobRun>(activeJobRunsSql)).rows;
+    const plan = planSchedule(candidates, settings, history, new Date(), runs.flatMap(run => jobSlots(run, history)));
     await c.query('DELETE FROM publishing_schedule WHERE NOT(draft_id=ANY($1::uuid[]))', [plan.map(p => p.draftId)]);
     for (const post of plan) {
       const changed = await c.query(`INSERT INTO publishing_schedule(draft_id,version,scheduled_at,reason)
