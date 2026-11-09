@@ -903,6 +903,7 @@ router.post('/:id/checkpoint', (req, res, next) => {
       content: input.content, expectedRevision: input.expectedRevision, protect: true,
     });
     res.json({ success: true, data });
+    recordUserNoteEdit(getDb(), data.id, data.content);
   })().catch(next);
 });
 router.post('/:id/history/:versionId/restore', (req, res, next) => {
@@ -928,7 +929,7 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
         throw new ValidationError('id is required', {});
       }
 
-      const input = req.body as Partial<{ content: string; tags: string[]; projectId: string | null; expectedRevision: number; passageTagsSupported: boolean }>;
+      const input = req.body as Partial<{ content: string; tags: string[]; projectId: string | null; expectedRevision: number; passageTagsSupported: boolean; author: string }>;
 
       if (typeof input.content !== 'string' || input.content.trim() === '') {
         throw new ValidationError('content is required', { content: 'must be a non-empty string' });
@@ -949,7 +950,9 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
 
       const body: ApiSuccess<Note> = { success: true, data: note };
       res.status(HTTP_STATUS.OK).json(body);
-      recordUserNoteEdit(db, note.id, note.content);
+      // The live editor saves Athena's applied chat edits through this route too: snapshot those as hers.
+      if (input.author === 'athena') recordAiAuthoredNote(db, note.id, note.content, 'athena');
+      else recordUserNoteEdit(db, note.id, note.content);
       // Re-index once edits settle, not on every autosave.
       scheduleNoteIndexing(db, note);
     } catch (err) {

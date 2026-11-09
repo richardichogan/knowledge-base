@@ -1143,10 +1143,11 @@ export class KnowledgeHubApi {
   }
 
   /** Updates a note. `tags` is only sent when given — omitting it leaves the stored tags untouched. */
-  async patchNote(id: string, content: string, tags?: string[], projectId?: string | null, expectedRevision?: number, passageTagsSupported = false): Promise<ApiResponse<Note>> {
+  async patchNote(id: string, content: string, tags?: string[], projectId?: string | null, expectedRevision?: number, passageTagsSupported = false, author?: 'athena'): Promise<ApiResponse<Note>> {
     const body: Record<string, unknown> = { content, expectedRevision, passageTagsSupported };
     if (tags !== undefined) body['tags'] = tags;
     if (projectId !== undefined) body['projectId'] = projectId;
+    if (author !== undefined) body['author'] = author;
     const r = await this.client.patch<ApiResponse<Note>>(`/api/notes/${id}`, body);
     return r.data;
   }

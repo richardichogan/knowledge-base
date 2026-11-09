@@ -499,6 +499,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   }, [editor, contentType, historyBusy, externalBusy]);
 
   const isDirtyRef = useRef(false);
+  // Set when Athena's applied changes are waiting to be saved, so the save is attributed to her.
+  const athenaChangePendingRef = useRef(false);
 
   // Formatting toolbar — tracks the block type / inline styles at the cursor so
   // the bottom toolbar buttons can toggle formatting and show their active state.
@@ -612,7 +614,9 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
     const submittedLocal = localDraftRef.current;
     isDirtyRef.current = false;
     let failure = 'Save failed - your draft is retained; will retry';
-    const saving = saveNote(liveDocument(), true).then(saved => {
+    const author = athenaChangePendingRef.current ? 'athena' as const : undefined;
+    athenaChangePendingRef.current = false;
+    const saving = saveNote(liveDocument(), true, author).then(saved => {
       savedDocRef.current = saved;
       void queryClient.invalidateQueries({ queryKey: ['note-backlinks'] });
       void queryClient.invalidateQueries({ queryKey: ['unlinked-mentions'] });
@@ -652,6 +656,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
       setTimeout(() => { setNotification(current => current?.kind === 'success' ? null : current); }, SAVED_BANNER_DURATION_MS);
     } else {
       isDirtyRef.current = true;
+      if (author) athenaChangePendingRef.current = true;
       persistDraft();
       setNotification({ kind: 'error', msg: failure });
     }
@@ -786,6 +791,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
       if (!mountedRef.current || getActiveBlockNoteEditor() !== editorRef.current) throw new Error('The open note changed. No Athena changes applied.');
       action();
       isDirtyRef.current = true;
+      athenaChangePendingRef.current = true;
       persistDraft();
     });
     if (!await doSave()) throw new Error('Athena changes are in the open draft, but the save was not confirmed. Resolve the save error in the note; do not reapply the changes.');
