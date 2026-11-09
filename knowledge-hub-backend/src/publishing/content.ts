@@ -25,7 +25,6 @@ export function jobPublishingPosts(run: JobRun, slots: JobSlot[] = []): Publishi
     if (step?.status === 'succeeded') return [];
     const copy = run.artifacts[destination];
     const slot = slots.find(item => item.draftId === `job:${run.id}:${destination}`);
-    const held = slot && slot.at.getTime() > Math.max(Date.parse(run.scheduledAt), Date.now());
     return [{
       draftId: `job:${run.id}:${destination}`, jobId: run.jobId, runId: run.id,
       title: typeof blog?.title === 'string' ? blog.title : run.definition.name,
@@ -34,10 +33,8 @@ export function jobPublishingPosts(run: JobRun, slots: JobSlot[] = []): Publishi
       origin: run.definition.kind === 'weekly-microsoft' ? 'Microsoft weekly digest' : 'Scheduled publishing job',
       approved: run.status !== 'awaiting-approval' && (run.approvedAt !== null || run.definition.approval === 'automatic'),
       status: step?.status === 'unconfirmed' ? 'Awaiting confirmation'
-        : step?.status === 'failed' ? 'Needs attention' : held ? 'Scheduled' : run.status,
-      reason: step?.error ?? (held ? (destination === 'bluesky' ? 'Next Bluesky slot: after LinkedIn and the 2-hour spacing since the last Bluesky post.'
-        : 'Next LinkedIn slot: 3 hours after the last LinkedIn post. The blog publishes first, then LinkedIn.')
-        : typeof run.artifacts.error === 'string' ? run.artifacts.error
+        : step?.status === 'failed' ? 'Needs attention' : run.status,
+      reason: step?.error ?? (typeof run.artifacts.error === 'string' ? run.artifacts.error
         : run.status === 'awaiting-approval' ? 'Awaiting approval in Jobs; this date is not permission to publish.'
           : `Job run: ${run.status}. Publishing is managed by the saved job, not the Discover schedule.`),
       sources, copy: typeof copy === 'string' ? copy : '',

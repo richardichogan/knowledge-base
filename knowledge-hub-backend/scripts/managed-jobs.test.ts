@@ -534,7 +534,7 @@ test('a blog response with no public URL becomes unconfirmed and neither social 
     assert.equal(claim.run.steps.find(s => s.key === 'blog')!.status, 'unconfirmed');
   } finally { await pg.close(); }
 });
-test('LinkedIn pacing keeps Bluesky queued behind it without republishing the blog', async () => {
+test('posting spacing never holds an approved job: LinkedIn then Bluesky send without republishing the blog', async () => {
   const { pg, db } = await fixture();
   try {
     const job = await store.saveJob(db, undefined, 0, definition({ approval: 'automatic', outputs: ['blog', 'bluesky', 'linkedin'] }), true, 'user');
@@ -550,17 +550,15 @@ test('LinkedIn pacing keeps Bluesky queued behind it without republishing the bl
       { key: 'blog', status: 'succeeded', startedAt: new Date().toISOString(), result: receipt },
     ];
     await db.query(`INSERT INTO publishing_deliveries(identity,destination,account,status,published_at) VALUES('earlier','linkedin','member','sent',NOW())`);
-    let blueSends = 0;
+    const order: string[] = [];
     const deliveries = {
       blog: async (): Promise<never> => { assert.fail('The accepted blog must not be republished.'); },
-      bluesky: async () => { blueSends++; return { uri: 'uri', url: 'https://bsky.app/fixture' }; },
-      linkedin: async (): Promise<never> => { assert.fail('LinkedIn must wait for its account-wide spacing.'); },
+      bluesky: async () => { order.push('bluesky'); return { uri: 'uri', url: 'https://bsky.app/fixture' }; },
+      linkedin: async () => { order.push('linkedin'); return { urn: 'fixture-urn', url: 'https://www.linkedin.com/fixture' }; },
       read: async () => ({ title: blog.title, text: prose }),
     };
     await executeRun(db, claim.run, claim.lease, deliveries);
-    assert.equal(claim.run.status, 'queued'); assert.equal(blueSends, 0);
-    await executeRun(db, claim.run, claim.lease, deliveries);
-    assert.equal(claim.run.status, 'queued'); assert.equal(blueSends, 0);
+    assert.equal(claim.run.status, 'succeeded'); assert.deepEqual(order, ['linkedin', 'bluesky']);
   } finally { await pg.close(); }
 });
 

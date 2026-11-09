@@ -35,15 +35,17 @@ export function destinationAccount(destination: Destination, member?: string): s
   if (destination === 'linkedin') return member ?? '(not connected)';
   return new URL(env.BLOG_POSTS_URL).host;
 }
-export function slotBlock(history: Delivery[], destination: Destination, now: Date, independentSchedule = false): string | null {
+export function slotBlock(history: Delivery[], _destination: Destination, _now: Date, _independentSchedule = false): string | null {
   history = history.filter(delivery => !delivery.identity.startsWith('podcast:'));
   if (history.some(d => d.status === 'sending' || d.status === 'unconfirmed')) return 'An earlier delivery is unresolved. Reconcile it before sending again.';
-  if (independentSchedule) return null;
-  if (destination === 'blog') return null;
-  const sent = history.filter(d => d.status === 'sent' && d.publishedAt);
-  const spacing = destination === 'bluesky' ? PUBLISH_LIMITS.blueskySpacingHours : PUBLISH_LIMITS.linkedinSpacingHours;
-  if (sent.some(d => now.getTime() - new Date(d.publishedAt!).getTime() < spacing * MS_PER_HOUR)) return 'Waiting for the minimum interval since the last successful post.';
   return null;
+}
+/** Spacing is a scheduling guideline only; it never holds a delivery. */
+export function spacingConflict(history: Delivery[], destination: Destination, at: Date): boolean {
+  if (destination === 'blog') return false;
+  const spacing = destination === 'bluesky' ? PUBLISH_LIMITS.blueskySpacingHours : PUBLISH_LIMITS.linkedinSpacingHours;
+  return history.some(d => d.status === 'sent' && d.publishedAt && !d.identity.startsWith('podcast:')
+    && Math.abs(at.getTime() - new Date(d.publishedAt).getTime()) < spacing * MS_PER_HOUR);
 }
 export async function assertSocialOpportunity(db: Pool, destination: 'linkedin' | 'bluesky', account: string, now = new Date(), independentSchedule = false): Promise<void> {
   await importPublishingHistory(db, destination, account);

@@ -13,7 +13,8 @@ process.env.BLOG_POSTS_URL = 'https://blog.fixture.invalid/api/posts';
 process.env.BLUESKY_IDENTIFIER = 'fixture.bsky.social';
 const store = await import('../src/publishing/store.js');
 const editorial = await import('../src/publishing/editorial.js');
-const { reserveDelivery, deliver, inWindow, slotBlock, PublicationDeferred, PublicationUnconfirmed } = await import('../src/publishing/delivery.js');
+const { reserveDelivery, deliver, inWindow, slotBlock, spacingConflict, PublicationDeferred, PublicationUnconfirmed } = await import('../src/publishing/delivery.js');
+const { importPublishingHistory } = await import('../src/publishing/legacyHistory.js');
 const { parsePolicy } = await import('../src/publishing/contracts.js');
 const { verifyBlog, tickPublishing, publishDraft, recoverBlogPublication } = await import('../src/publishing/worker.js');
 const { refreshSchedule, listSchedule, planSchedule } = await import('../src/publishing/schedule.js');
@@ -1204,24 +1205,25 @@ test('successful delivery uses actual publication time and returns the stored re
     assert.equal(sends, 1);
     const rows = (await f.db.query<Delivery>(`SELECT ${store.deliveryColumns} FROM publishing_deliveries`)).rows;
     assert.ok(rows[0]!.publishedAt);
-    assert.match(slotBlock(rows, 'bluesky', new Date())!, /interval/);
+    assert.equal(slotBlock(rows, 'bluesky', new Date()), null);
+    assert.ok(spacingConflict(rows, 'bluesky', new Date()));
   } finally { await f.close(); }
 });
-test('there are no daily caps: only spacing since the last success blocks a post', () => {
+test('there are no daily caps and spacing is only a planning guideline', () => {
   const now = new Date('2026-10-24T18:00Z');
   const history = [0, 1, 2, 3].map(i => ({ identity: `fixture:${i}`, status: 'sent', publishedAt: `2026-10-24T${String(i * 3 + 1).padStart(2, '0')}:00Z` } as Delivery));
-  assert.equal(slotBlock(history, 'bluesky', now), null);
-  assert.equal(slotBlock(history.slice(0, 3), 'linkedin', now), null);
-  assert.equal(slotBlock(history.map(d => ({ ...d, status: 'failed' })), 'bluesky', now), null);
-  assert.equal(slotBlock(history.map(d => ({ ...d, identity: `podcast:${d.identity}` })), 'bluesky', now), null);
+  assert.equal(spacingConflict(history, 'bluesky', now), false);
+  assert.equal(spacingConflict(history.slice(0, 3), 'linkedin', now), false);
+  assert.equal(spacingConflict(history.map(d => ({ ...d, status: 'failed' })), 'bluesky', now), false);
+  assert.equal(spacingConflict(history.map(d => ({ ...d, identity: `podcast:${d.identity}` })), 'bluesky', now), false);
 });
-test('explicit independent timing bypasses spacing, never unresolved deliveries', () => {
+test('spacing never blocks a delivery; unresolved deliveries always do', () => {
   const now = new Date('2026-11-02T11:30Z');
   const history = [0, 1, 2, 3].map(i => ({
     identity: `fixture:${i}`, status: 'sent', publishedAt: '2026-11-02T11:29Z',
   } as Delivery));
-  assert.match(slotBlock(history, 'bluesky', now)!, /interval/);
-  assert.match(slotBlock(history.slice(0, 1), 'bluesky', now)!, /interval/);
+  assert.ok(spacingConflict(history, 'bluesky', now));
+  assert.equal(slotBlock(history, 'bluesky', now), null);
   assert.equal(slotBlock(history, 'bluesky', now, true), null);
   for (const status of ['sending', 'unconfirmed'] as const) {
     assert.match(slotBlock([{ ...history[0]!, status }], 'bluesky', now, true)!, /unresolved/);
@@ -1239,10 +1241,10 @@ test('manual Discover posts bypass interval pacing while preserving duplicate an
       const send = async () => { sends++; return { url: 'https://example.test/post' }; };
       const first = { identity: `manual-${destination}-first`, independentSchedule: true };
       await deliver(f.db, destination, account, first, send);
-      await assert.rejects(reserveDelivery(f.db, destination, account, { identity: `automatic-${destination}` }), /interval/);
+      await deliver(f.db, destination, account, { identity: `automatic-${destination}` }, send);
       await deliver(f.db, destination, account, { identity: `manual-${destination}-second`, independentSchedule: true }, send);
       await deliver(f.db, destination, account, first, send);
-      assert.equal(sends, 2, 'manual posts are immediate, but the same delivery is not sent twice');
+      assert.equal(sends, 3, 'spacing never holds a post, but the same delivery is not sent twice');
       await assert.rejects(deliver(f.db, destination, account, { identity: `manual-${destination}-uncertain`, independentSchedule: true },
         async () => { throw new PublicationUnconfirmed('Receipt unavailable.'); }));
       await assert.rejects(reserveDelivery(f.db, destination, account, { identity: `manual-${destination}-next`, independentSchedule: true }), /unresolved/);
@@ -1424,7 +1426,9 @@ test('legacy manual and Jobs successes count towards the same account ledger', a
   try {
     await f.db.query(`INSERT INTO content_items(title,source,metadata) VALUES('Historic','discovered-article',$1)`,
       [JSON.stringify({ blueskyPost: { status: 'posted', url: 'https://bsky.app/fixture', postedAt: new Date().toISOString() } })]);
-    await assert.rejects(reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', { identity: 'new' }), /interval/);
+    await importPublishingHistory(f.db, 'bluesky', 'fixture.bsky.social');
+    const history = (await f.db.query<Delivery>(`SELECT ${store.deliveryColumns} FROM publishing_deliveries WHERE destination='bluesky'`)).rows;
+    assert.ok(spacingConflict(history, 'bluesky', new Date()));
     assert.equal((await f.db.query("SELECT * FROM publishing_deliveries WHERE identity LIKE 'discover:%'")).rows.length, 1);
   } finally { await f.close(); }
 });

@@ -4,7 +4,7 @@ import { occurrences } from '../jobs/schedule.js';
 import { env } from '../config/env.js';
 import { object, type JobRun } from '../jobs/contracts.js';
 import { runColumns } from '../jobs/store.js';
-import { destinationAccount, inWindow, slotBlock } from './delivery.js';
+import { destinationAccount, inWindow, slotBlock, spacingConflict } from './delivery.js';
 import { PUBLISH_LIMITS, type Delivery, type Draft, type PublishingFeed } from './contracts.js';
 import { deliveryColumns, draftColumns, event, feeds, transaction } from './store.js';
 
@@ -84,30 +84,19 @@ export const activeJobRunsSql = `SELECT ${runColumns} FROM managed_job_runs
     AND status NOT IN ('succeeded','rejected') ORDER BY scheduled_at DESC LIMIT 50`;
 
 /**
- * The time an approved job run will actually send each pending output: its trigger time,
- * held back by the per-account spacing after the last confirmed post. The blog waits for
- * the LinkedIn opportunity and Bluesky follows LinkedIn, matching the job runner.
+ * Approved job runs send as soon as they are due (trigger time or now). Spacing never
+ * delays them; their times are reserved so the planner can space other posts around them.
  */
-export function jobSlots(run: JobRun, history: Delivery[], now = new Date()): JobSlot[] {
+export function jobSlots(run: JobRun, _history: Delivery[] = [], now = new Date()): JobSlot[] {
   if (!['queued', 'running'].includes(run.status) || (!run.approvedAt && run.definition.approval !== 'automatic')) return [];
   const pending = (destination: string): boolean => run.definition.outputs.includes(destination as never)
     && !run.steps.some(s => s.key === destination && s.status === 'succeeded');
-  const nextAfter = (destination: 'linkedin' | 'bluesky', account: string, from: number): number => {
-    const spacing = (destination === 'bluesky' ? PUBLISH_LIMITS.blueskySpacingHours : PUBLISH_LIMITS.linkedinSpacingHours) * MS_PER_HOUR;
-    const last = Math.max(0, ...history.filter(d => d.destination === destination && d.account === account && d.status === 'sent'
-      && d.publishedAt && !d.identity.startsWith('podcast:') && !d.identity.startsWith(`jobs:${run.id}:`)).map(d => Date.parse(d.publishedAt!)));
-    return Math.max(from, last + spacing);
-  };
-  const start = Math.max(Date.parse(run.scheduledAt), now.getTime());
+  const at = new Date(Math.max(Date.parse(run.scheduledAt), now.getTime()));
   const linkedinAccount = String(object(run.artifacts.linkedinAccount).id ?? '');
   const slots: JobSlot[] = [];
-  const linkedinAt = pending('linkedin') && linkedinAccount ? nextAfter('linkedin', linkedinAccount, start) : start;
-  if (pending('blog')) slots.push({ draftId: `job:${run.id}:blog`, destination: 'blog', account: new URL(env.BLOG_POSTS_URL).host, at: new Date(linkedinAt) });
-  if (pending('linkedin') && linkedinAccount) slots.push({ draftId: `job:${run.id}:linkedin`, destination: 'linkedin', account: linkedinAccount, at: new Date(linkedinAt) });
-  if (pending('bluesky')) {
-    const account = destinationAccount('bluesky');
-    slots.push({ draftId: `job:${run.id}:bluesky`, destination: 'bluesky', account, at: new Date(nextAfter('bluesky', account, linkedinAt)) });
-  }
+  if (pending('blog')) slots.push({ draftId: `job:${run.id}:blog`, destination: 'blog', account: new URL(env.BLOG_POSTS_URL).host, at });
+  if (pending('linkedin') && linkedinAccount) slots.push({ draftId: `job:${run.id}:linkedin`, destination: 'linkedin', account: linkedinAccount, at });
+  if (pending('bluesky')) slots.push({ draftId: `job:${run.id}:bluesky`, destination: 'bluesky', account: destinationAccount('bluesky'), at });
   return slots;
 }
 
@@ -119,10 +108,13 @@ export function planSchedule(candidates: Candidate[], settings: PublishingFeed[]
     const rank = (d: Draft): number => d.destination === 'blog' ? 0 : d.destination === 'linkedin' ? LINKEDIN_ORDER : BLUESKY_ORDER;
     return rank(a) - rank(b) || (a.scheduledAt ?? 'z').localeCompare(b.scheduledAt ?? 'z');
   });
-  function available(draft: Draft, at: Date): boolean {
+  // Spacing is a guideline: prefer spaced slots, but ignore spacing when nothing else fits.
+  function available(draft: Draft, at: Date, spaced = true): boolean {
     const account = String(draft.content.account);
     const relevant = history.filter(d => d.destination === draft.destination && d.account === account && !d.identity.startsWith('podcast:'));
     if (slotBlock(relevant, draft.destination, at)) return false;
+    if (!spaced) return true;
+    if (spacingConflict(relevant, draft.destination, at)) return false;
     const reserved = bookings.filter(b => b.draftId !== draft.id && b.destination === draft.destination && b.account === account);
     const spacing = draft.destination === 'bluesky' ? PUBLISH_LIMITS.blueskySpacingHours : PUBLISH_LIMITS.linkedinSpacingHours;
     return !reserved.some(b => Math.abs(b.at.getTime() - at.getTime()) < spacing * MS_PER_HOUR);
@@ -170,14 +162,15 @@ export function planSchedule(candidates: Candidate[], settings: PublishingFeed[]
         ...slots(feed, draft.destination, new Date(Math.max(earliest, dependency)), until),
       ];
       const hook = pair.find(d => d.destination === 'linkedin');
-      at = overdue ? prior : options.find(time => time < until && inWindow(feed.policy, time) && available(draft, time)
-        && (draft.destination !== 'blog' || (hook
-          && inWindow(feed.policy, new Date(time.getTime() + LEAD)) && available(hook, new Date(time.getTime() + LEAD)))));
+      const fits = (spaced: boolean) => (time: Date): boolean => time < until && inWindow(feed.policy, time) && available(draft, time, spaced)
+        && (draft.destination !== 'blog' || (hook !== undefined
+          && inWindow(feed.policy, new Date(time.getTime() + LEAD)) && available(hook, new Date(time.getTime() + LEAD), spaced)));
+      at = overdue ? prior : options.find(fits(true)) ?? options.find(fits(false));
       const effectiveAt = at && new Date(Math.max(at.getTime(), now.getTime(), dependency,
         retry?.nextAttemptAt ? Date.parse(retry.nextAttemptAt) : 0));
-      const canReserve = effectiveAt !== undefined && inWindow(feed.policy, effectiveAt) && available(draft, effectiveAt);
-      if (overdue) reason = 'Overdue; awaiting delivery checks. The original assigned time is retained, not silently rescheduled.';
-      if (!at) reason = 'No slot in the next 30 days fits the publishing window, spacing and package dependencies. Adjust the publishing window or resolve earlier queued items, then refresh. This draft remains queued.';
+      const canReserve = effectiveAt !== undefined && inWindow(feed.policy, effectiveAt) && available(draft, effectiveAt, false);
+      if (overdue) reason = 'Overdue; sends at the next delivery check.';
+      if (!at) reason = 'No slot in the next 30 days fits the publishing window and package dependencies. Adjust the publishing window or resolve earlier queued items, then refresh. This draft remains queued.';
       else if (canReserve) {
         const reservation = bookings.find(b => b.draftId === draft.id);
         if (reservation) reservation.at = effectiveAt;
