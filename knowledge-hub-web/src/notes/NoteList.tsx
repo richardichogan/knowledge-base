@@ -29,6 +29,8 @@ interface NoteListProps {
   showTools?: boolean;
   tagIds?: string;
   onCollapse?: () => void;
+  /** Rendered directly below the search row (Think's Filters). */
+  belowTools?: React.ReactNode;
   notes: ThinkListItem[];
   selectedId: string | null;
   onSelect: (id: string) => void;
@@ -66,6 +68,7 @@ export const NoteList: React.FC<NoteListProps> = ({
   showTools = true,
   tagIds,
   onCollapse,
+  belowTools,
   notes,
   selectedId,
   onSelect,
@@ -283,6 +286,7 @@ export const NoteList: React.FC<NoteListProps> = ({
           title="Collapse notes and tags to the left" aria-label="Collapse notes and tags to the left"
           onClick={onCollapse}><SidePanelClose size={16} aria-hidden="true" /></button>}
       </div>}
+      {belowTools}
 
       <div className={`notes-list kh-triage--${density}`} aria-label="Notes. J and K move; O opens the focused note."
         onKeyDown={event => {

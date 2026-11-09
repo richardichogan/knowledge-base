@@ -1,10 +1,9 @@
 .notes-navigation-split {
   flex: 1;
   min-height: 0;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) minmax(0, 2fr);
-
-  &--filters-collapsed { grid-template-rows: auto minmax(0, 1fr); }
+  display: flex;
+  flex-direction: column;
+  > .notes-navigation-list { flex: 1; }
 }
 
 .notes-navigation-list {
@@ -14,7 +13,9 @@
   min-width: 0;
   overflow: hidden;
 
-  > .notes-list { min-height: 0; }
+  // Filters sit under the search row; expanded, they take at most a third of the panel and scroll.
+  > .notes-filters { flex: 0 0 auto; max-height: 33%; border-top: 1px solid var(--cds-border-subtle-01); }
+  > .notes-list { flex: 1; min-height: 0; }
   .notes-list-empty { padding: 16px; text-align: left; line-height: 1.5; }
 }
 

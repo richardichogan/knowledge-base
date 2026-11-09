@@ -875,13 +875,13 @@ export const NotesPage: React.FC = () => {
           </div>}
 
           {mode === 'notes' && (
-            <div className={`notes-navigation-split${filtersCollapsed ? ' notes-navigation-split--filters-collapsed' : ''}`}>
-            <NoteFilters selectedTagId={selectedTagId} onSelectTag={setSelectedTagId}
-              selectedContentType={selectedContentType} onSelectContentType={setSelectedContentType}
-              collapsed={filtersCollapsed} onToggleCollapsed={() => setFiltersCollapsed(!filtersCollapsed)} />
+            <div className="notes-navigation-split">
             <div className="notes-navigation-list">
             <NoteList
               showTools
+              belowTools={<NoteFilters selectedTagId={selectedTagId} onSelectTag={setSelectedTagId}
+                selectedContentType={selectedContentType} onSelectContentType={setSelectedContentType}
+                collapsed={filtersCollapsed} onToggleCollapsed={() => setFiltersCollapsed(!filtersCollapsed)} />}
               {...(!mobile ? { onCollapse: () => setListCollapsed(true) } : {})}
               {...(filterTagIds ? { tagIds: filterTagIds } : {})}
               notes={notes}
