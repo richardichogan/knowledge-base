@@ -129,6 +129,7 @@ export async function commissionDocumentCompilation(db: Pool, args: Record<strin
         sources.push({ id: row.id.toLowerCase(), title: row.title.slice(0, MAX_TITLE_CHARS) });
       }
     }
+    sources.splice(0, sources.length, ...orderSources(sources));
     if (sources.length > MAX_SOURCES) throw new ValidationError(`titlePattern matches ${sources.length} documents; the maximum is ${MAX_SOURCES}. Hand off again now using sourceDescription instead, so Iris selects the right ones herself.`);
   }
   const brief: CompileBrief = { title: parsed.title, instruction: parsed.instruction, sources,
@@ -195,7 +196,7 @@ async function selectDescribedSources(context: SpecialistContext, input: Compile
   }
   if (!selected.size) throw new ValidationError(`No Library documents matched the description "${description}". Hand off again with more specific wording, or name the documents.`);
   if (selected.size > MAX_SOURCES) throw new ValidationError(`The description matched ${selected.size} documents; the maximum for one note is ${MAX_SOURCES}. Hand off again with a narrower description.`);
-  return [...selected.entries()].map(([id, title]) => ({ id, title }));
+  return orderSources([...selected.entries()].map(([id, title]) => ({ id, title })));
 }
 
 /** Writes the resolved sources into the job input (attempt-locked) and drops the description so selection runs once. */
@@ -245,6 +246,14 @@ async function compileSource(context: SpecialistContext, input: CompileInput, so
       documentSynthesis: review.review.summary }) },
   ], SECTION_MAX_TOKENS, undefined, signal);
   return { id: source.id, title: source.title, markdown: text(markdown, 'Section', MAX_SECTION_CHARS) };
+}
+
+const NATURAL_TITLES = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
+
+/** Executive summaries first, then natural order (D2 before D10) rather than plain text order. */
+function orderSources<T extends { title: string }>(sources: T[]): T[] {
+  const executive = (title: string): number => /executive|exec\s*summary/i.test(title) ? 0 : 1;
+  return [...sources].sort((a, b) => executive(a.title) - executive(b.title) || NATURAL_TITLES.compare(a.title, b.title));
 }
 
 function assemble(input: CompileInput, checkpoint: CompileCheckpoint): string {

@@ -314,6 +314,27 @@ function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined,
       if (missing.length) throw new Error(`${String(missing.length)} block${missing.length === 1 ? '' : 's'} changed or moved since Athena read the note; nothing in them was altered. Ask Athena to format again.`);
       return;
     }
+    case 'move_section': {
+      for (const move of edit.moves ?? []) {
+        const current = editor.document as Block[];
+        const at = current.findIndex(block => block.id === move.blockId);
+        const head = current[at];
+        if (!head || head.type !== 'heading' || head.id === titleId) throw new Error('A section changed or moved since Athena read the note; nothing was moved. Ask Athena to reorder again.');
+        const level = head.props?.level ?? 1;
+        let end = at + 1;
+        while (end < current.length && !(current[end].type === 'heading' && (current[end].props?.level ?? 1) <= level)) end++;
+        const section = current.slice(at, end);
+        const target = move.beforeId === undefined ? undefined : current.find(block => block.id === move.beforeId);
+        if (move.beforeId !== undefined && (!target || section.includes(target) || target.id === titleId)) {
+          throw new Error('The destination section changed or moved since Athena read the note; nothing was moved. Ask Athena to reorder again.');
+        }
+        editor.removeBlocks(section);
+        const rest = editor.document as Block[];
+        if (target) editor.insertBlocks(section, target, 'before');
+        else editor.insertBlocks(section, rest[rest.length - 1], 'after');
+      }
+      return;
+    }
     case 'replace_text': {
       const find = edit.find ?? '';
       const matches = flatten(blocks).filter(b => inlineText(b).includes(find));

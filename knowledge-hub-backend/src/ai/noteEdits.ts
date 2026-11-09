@@ -17,12 +17,15 @@ export type NoteEditAction =
   | 'replace_text'     // replace exact text `find` with `markdown`
   | 'replace_all'
   | 'format_blocks'    // change how existing blocks are styled (heading, list, quote…); never changes wording
+  | 'move_section'     // move a heading and its content before another heading (or to the end); never changes wording
   | 'set_script_visuals';
 
 export const NOTE_FORMAT_STYLES = ['paragraph', 'h1', 'h2', 'h3', 'bullet', 'numbered', 'checklist', 'quote'] as const;
 export type NoteFormatStyle = typeof NOTE_FORMAT_STYLES[number];
 
 export interface NoteBlockFormat { blockId: string; style: NoteFormatStyle; stripMarker?: boolean }
+
+export interface NoteSectionMove { blockId: string; beforeId?: string }
 
 export interface NoteEditProposal {
   delivery?: 'apply' | 'preview';
@@ -36,9 +39,11 @@ export interface NoteEditProposal {
   expectedVisuals?: string;
   layout?: Array<{ n: number; to?: number; as: NoteFormatStyle; stripMarker?: boolean }>;
   formats?: NoteBlockFormat[];
+  move?: { n: number; before?: number };
+  moves?: NoteSectionMove[];
 }
 
-const ACTIONS: readonly NoteEditAction[] = ['append', 'prepend', 'add_to_section', 'replace_section', 'delete_section', 'replace_text', 'replace_all', 'format_blocks'];
+const ACTIONS: readonly NoteEditAction[] = ['append', 'prepend', 'add_to_section', 'replace_section', 'delete_section', 'replace_text', 'replace_all', 'format_blocks', 'move_section'];
 const FORMAT_OPERATION_LIMIT = 400;
 const FORMAT_RANGE_LIMIT = 400;
 const REPAIR_CONTEXT_CHARS = 24_000;
@@ -93,6 +98,16 @@ export function validateNoteEdits(raw: unknown): { edits: NoteEditProposal[]; pr
       edits.push({ action, summary: summary.slice(0, 200), layout });
       return;
     }
+    if (action === 'move_section') {
+      const n = typeof e['n'] === 'number' && Number.isInteger(e['n']) ? e['n'] : -1;
+      const before = typeof e['before'] === 'number' && Number.isInteger(e['before']) ? e['before'] : undefined;
+      if (n < 0 || (e['before'] !== undefined && e['before'] !== null && before === undefined)) {
+        problems.push(`edit ${String(i + 1)}: move_section needs "n" (heading block number from read_note_layout) and optionally "before" (the heading block number to place it in front of; omit to move it to the end of the note)`);
+        return;
+      }
+      edits.push({ action, summary: summary.slice(0, 200), move: { n, ...(before !== undefined && { before }) } });
+      return;
+    }
     if (action !== 'delete_section' && action !== 'replace_text' && markdown === undefined) {
       problems.push(`edit ${String(i + 1)}: "${action}" needs "markdown" content`); return;
     }
@@ -143,7 +158,7 @@ const STYLE_OF_TYPE = (block: NoteBlock): NoteFormatStyle | null => {
 };
 
 /** A bounded page of the note's blocks with stable numbers, for formatting-only edits. */
-export function noteLayoutPage(blocks: NoteBlock[], offset: number, limit: number): {
+export function noteLayoutPage(blocks: NoteBlock[], offset: number, limit: number, headingsOnly = false): {
   total: number; blocks: string[]; nextOffset: number | null;
 } {
   const flat = flattenBlocks(blocks);
@@ -152,7 +167,7 @@ export function noteLayoutPage(blocks: NoteBlock[], offset: number, limit: numbe
   for (let n = Math.max(0, offset); n < flat.length; n++) {
     const block = flat[n]!;
     const text = blockText(block).trim();
-    if (!text) continue;
+    if (!text || (headingsOnly && block.type !== 'heading')) continue;
     if (rows.length >= limit) { next = n; break; }
     const type = block.type === 'heading' ? `h${String(block.props?.level ?? 1)}` : LAYOUT_CODES[block.type ?? ''] ?? block.type ?? '?';
     rows.push(`${String(n)}|${type}|${String(text.length)}|${text.replace(/\s+/g, ' ').slice(0, 80)}`);
@@ -185,6 +200,42 @@ export function resolveFormatEdits(edits: NoteEditProposal[], blocks: NoteBlock[
     problems.push('every block in that layout already has the requested style, so there is nothing to change');
   }
   return { edits: resolved.filter(edit => edit.action !== 'format_blocks' || (edit.formats?.length ?? 0) > 0), problems };
+}
+
+/**
+ * Resolves heading block numbers to block ids for move_section. Reordering never changes wording,
+ * so these edits need no content review. Numbers refer to the saved note, ids are what the editor uses.
+ */
+export function resolveMoveEdits(edits: NoteEditProposal[], blocks: NoteBlock[]): { edits: NoteEditProposal[]; problems: string[] } {
+  const flat = flattenBlocks(blocks);
+  const title = blocks.find(block => block.type === 'heading' && blockText(block).trim());
+  const problems: string[] = [];
+  const topHeading = (n: number, index: number, what: string): NoteBlock | undefined => {
+    const block = flat[n];
+    if (!block) { problems.push(`edit ${String(index + 1)}: there is no block number ${String(n)}`); return undefined; }
+    if (block.type !== 'heading' || !block.id || !blocks.includes(block) || block.props?.scriptSection) {
+      problems.push(`edit ${String(index + 1)}: block ${String(n)} is not a top-level heading, so it cannot be ${what}. Use heading numbers from read_note_layout with headingsOnly`);
+      return undefined;
+    }
+    return block;
+  };
+  const resolved = edits.map((edit, index) => {
+    if (edit.action !== 'move_section' || !edit.move) return edit;
+    const head = topHeading(edit.move.n, index, 'moved');
+    const target = edit.move.before === undefined ? undefined : topHeading(edit.move.before, index, 'a destination');
+    if (!head || (edit.move.before !== undefined && !target)) return edit;
+    if (head === title) { problems.push(`edit ${String(index + 1)}: the note title cannot be moved`); return edit; }
+    if (target === title) { problems.push(`edit ${String(index + 1)}: nothing can be placed before the note title`); return edit; }
+    const start = blocks.indexOf(head);
+    const level = head.props?.level ?? 1;
+    let end = start + 1;
+    while (end < blocks.length && !(blocks[end]!.type === 'heading' && (blocks[end]!.props?.level ?? 1) <= level)) end++;
+    const targetAt = target ? blocks.indexOf(target) : -1;
+    if (targetAt >= start && targetAt < end) { problems.push(`edit ${String(index + 1)}: a section cannot be moved into itself`); return edit; }
+    const { move: _move, ...rest } = edit;
+    return { ...rest, moves: [{ blockId: head.id ?? '', ...(target?.id && { beforeId: target.id }) }] };
+  });
+  return { edits: resolved, problems };
 }
 
 /** The note's top-level headings, as the applier sees them. */
@@ -236,7 +287,7 @@ export function checkEditsAgainstNote(edits: NoteEditProposal[], blocks: NoteBlo
   const label = (i: number): string => String(i - alreadyProposed + 1);
   const hasHeading = (target: string): boolean => headings.some((h) => h === target || h.includes(target) || (target.includes(h) && h !== ''));
   edits.forEach((e, i) => {
-    if (e.action === 'format_blocks') return;
+    if (e.action === 'format_blocks' || e.action === 'move_section') return;
     if (e.action === 'set_script_visuals') {
       const section = blocks.find(block => block.id === e.sectionId && block.props?.scriptSection);
       if (!script || !section || !e.visuals || !visualSourceCurrent(e.visuals.source, section)) {
