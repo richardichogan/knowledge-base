@@ -65,7 +65,7 @@ export function validateNoteEdits(raw: unknown): { edits: NoteEditProposal[]; pr
       problems.push(`edit ${String(i + 1)}: "${action}" needs the exact heading text`); return;
     }
     if (action === 'replace_text' && (find === undefined || markdown === undefined)) {
-      problems.push(`edit ${String(i + 1)}: replace_text needs "find" (exact existing text) and "markdown" (replacement)`); return;
+      problems.push(`edit ${String(i + 1)}: replace_text needs "find" (exact existing text) and "markdown" (replacement). To add new content instead, use action "append" (end of note) or "add_to_section" with just "markdown"`); return;
     }
     if (action !== 'delete_section' && action !== 'replace_text' && markdown === undefined) {
       problems.push(`edit ${String(i + 1)}: "${action}" needs "markdown" content`); return;
@@ -172,9 +172,10 @@ export function checkEditsAgainstNote(edits: NoteEditProposal[], blocks: NoteBlo
       problems.push(`edit ${n}: body edits must preserve the title heading; edit the note title directly to rename it`);
     }
     if (reported && e.action === 'replace_text' && /[\r\n]/.test(e.markdown ?? '')) {
-      problems.push(`edit ${n}: replace_text must contain plain replacement text within the existing paragraph, not multiple paragraphs`);
+      problems.push(`edit ${n}: replace_text must contain plain replacement text within the existing paragraph, not multiple paragraphs. To add new paragraphs, lists or sections use add_to_section (with the exact heading) or append instead`);
     }
-    if (reported && wanted !== '' && (e.action === 'add_to_section' || e.action === 'replace_section' || e.action === 'delete_section') && !hasHeading(wanted)) {
+    const isLabel = e.action === 'add_to_section' && texts.some(t => t.length <= 80 && norm(t) === wanted);
+    if (reported && wanted !== '' && (e.action === 'add_to_section' || e.action === 'replace_section' || e.action === 'delete_section') && !hasHeading(wanted) && !isLabel) {
       problems.push(`edit ${n}: there is no heading "${e.heading ?? ''}" in the note${i > 0 ? ' (as it will be after the edits before this one)' : ''}`);
     }
     if (e.action === 'replace_text' && e.find !== undefined) {

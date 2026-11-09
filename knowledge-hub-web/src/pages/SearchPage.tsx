@@ -52,7 +52,7 @@ export const SearchPage: React.FC = () => {
       </div>
 
       {isPending && submitted.length > 0 && <InlineLoading description="Searching…" />}
-      {isError && <InlineNotification kind="error" title="Search failed" subtitle="Is the backend running?" lowContrast />}
+      {isError && <InlineNotification kind="error" title="Search failed" subtitle="Is the backend running?" lowContrast hideCloseButton />}
 
       {items.length > 0 && (
         <div className="sr-results">

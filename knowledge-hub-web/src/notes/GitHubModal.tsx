@@ -9,7 +9,8 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Modal, TextInput } from '@carbon/react';
+import { TextInput } from '@carbon/react';
+import { KhModal as Modal } from '../components/KhModal';
 import { api } from '../services/api';
 import { describeApiError } from '../services/apiError';
 import {

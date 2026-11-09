@@ -7,7 +7,7 @@ import { deferredTurnTraceRecorder } from './turnTrace.js';
  * whether it authorises a saved change. The prediction is only recorded in the turn trace and
  * compared with the tools the main model actually used during trace review. It never alters the turn.
  */
-const SHADOW_VERSION = 'decision-1-shadow-v1';
+const SHADOW_VERSION = 'decision-1-shadow-v2';
 const TIMEOUT_MS = 8_000;
 const PREDICT_THRESHOLD = 0.5;
 const MESSAGE_CHARS = 1_500;
@@ -27,7 +27,7 @@ export const ROUTING_FAMILIES = {
   podcast: 'Podcast scripts, campaigns or episode material',
   publishing: 'Publishing feeds, scheduled jobs or automation',
   memory: 'Save or forget a standing instruction or preference',
-  decisions: 'Review recorded decisions and assumptions',
+  decisions: 'Look up the decisions and assumptions recorded in the Decisions area; not needed when a decision is merely discussed or being drafted in the open note',
 } as const;
 export type RoutingFamily = keyof typeof ROUTING_FAMILIES;
 

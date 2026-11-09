@@ -3,7 +3,8 @@
  * Modal to accept a pending tag suggestion — user picks a parent then confirms.
  */
 import React, { useState } from 'react';
-import { Modal, Select, SelectItem, InlineNotification } from '@carbon/react';
+import { Select, SelectItem, InlineNotification } from '@carbon/react';
+import { KhModal as Modal } from '../KhModal';
 import { useTaxonomy } from '../../hooks/useTaxonomy';
 import { api } from '../../services/api';
 

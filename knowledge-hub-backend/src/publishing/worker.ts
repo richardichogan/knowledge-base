@@ -10,7 +10,7 @@ import { microsoftRelevanceSql } from '../utils/microsoftRelevance.js';
 import { assessTopic, editorialServices, readSources, reviewDraft, type EditorialServices } from './editorial.js';
 import { normalisePublishingBlogCategories } from './blogCategories.js';
 import { assertSocialOpportunity, BlogVerificationPending, deliver, destinationAccount, inWindow, PublicationDeferred, PublicationUnconfirmed, type DeliveryContext } from './delivery.js';
-import { deliveryColumns, draftColumns, event, feeds, holdTopic, intake, listTopics, sourceColumns, topicColumns, transaction, writtenPublishingSourcesSql } from './store.js';
+import { deliveryColumns, draftColumns, event, feeds, closeDeadPackages, holdTopic, intake, releaseTopic, listTopics, sourceColumns, topicColumns, transaction, writtenPublishingSourcesSql } from './store.js';
 import { PUBLISH_LIMITS, type Delivery, type Draft, type Source, type Topic } from './contracts.js';
 import { refreshSchedule } from './schedule.js';
 import { MS_PER_MINUTE } from '../config/constants.js';
@@ -163,6 +163,19 @@ export async function publishDraft(db: Pool, draft: Draft, services = publishing
     JSON.stringify({ ...receipt, status: 'posted', postedAt: new Date().toISOString(), ledgerManaged: true, draftId: draft.id })]);
 }
 
+const AUTO_RETRY_LIMIT = 3;
+// Packages stopped by Athena's own workers retry on their own, spaced out; a hold or rejection from the user never does.
+async function retryStoppedPackages(db: Pool): Promise<void> {
+  const stopped = (await db.query<{ id: string }>(`SELECT t.id FROM publishing_topics t WHERE t.state='held' AND t.error IS NOT NULL
+    AND EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=t.id)
+    AND NOT EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=t.id AND approval<>'pending')
+    AND (SELECT COUNT(*) FROM publishing_events e WHERE e.topic_id=t.id AND e.event='topic-retried' AND e.actor='publishing-auto-retry')<$1
+    AND EXISTS(SELECT 1 FROM (SELECT event,actor,created_at FROM publishing_events WHERE topic_id=t.id
+      AND event IN ('topic-held','topic-rejected','topic-retried','draft-refresh-error','draft-recovery-error') ORDER BY id DESC LIMIT 1) last
+      WHERE (last.event IN ('draft-refresh-error','draft-recovery-error') OR (last.event='topic-held' AND last.actor IN ('review-worker','editorial-worker')))
+        AND last.created_at<NOW()-INTERVAL '30 minutes') ORDER BY t.created_at DESC LIMIT 20`, [AUTO_RETRY_LIMIT])).rows;
+  for (const topic of stopped) if (await releaseTopic(db, topic.id, 'publishing-auto-retry')) break;
+}
 export async function tickPublishing(db: Pool, editorial: EditorialServices = editorialServices, publishing = publishingServices): Promise<void> {
   if (env.NODE_ENV !== 'production' || env.isDevelopment) return;
   const lock = await db.connect();
@@ -182,6 +195,8 @@ export async function tickPublishing(db: Pool, editorial: EditorialServices = ed
     for (const delivery of confirmations) await recoverBlogPublication(db, delivery, publishing.read);
     await db.query(`UPDATE publishing_topics SET state='held',lease=NULL,lease_until=NULL,error='Editorial worker interrupted. Review or reassess this topic.'
       WHERE state='assessing' AND lease_until<NOW()`);
+    await closeDeadPackages(db);
+    await retryStoppedPackages(db);
     await intake(db);
     const hasDraftCapacity = (await listTopics(db, 0, true)).length < PUBLISH_LIMITS.draftShortlist;
     const lease = randomUUID();

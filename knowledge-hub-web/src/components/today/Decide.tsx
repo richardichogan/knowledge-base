@@ -98,8 +98,8 @@ function PublishingDetail({ item }: { item: DecideItem }): React.ReactElement {
     <p className="today-brief__reason"><strong>Why today:</strong> {item.detail}</p>
     {message && <p className="today-brief__meta" role="status">{message}</p>}
     {error && <p className="today-brief__error" role="alert">{error}</p>}
-    {topicId && <TopicReview key={item.refId} id={topicId} act={act} busy={busy} feeds={feeds.data ?? []}
-      initialDestination={(str(item.meta.destination) as PublishingDraft['destination'] | null) ?? null} />}
+    {topicId && <div className="kh-publishing today-decide__review"><TopicReview key={item.refId} id={topicId} act={act} busy={busy} feeds={feeds.data ?? []}
+      initialDestination={(str(item.meta.destination) as PublishingDraft['destination'] | null) ?? null} /></div>}
   </>;
 }
 

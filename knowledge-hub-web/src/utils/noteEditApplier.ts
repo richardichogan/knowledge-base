@@ -107,6 +107,21 @@ function findHeading(blocks: Block[], heading: string): number {
   return partial ? partial.i : -1;
 }
 
+/** A short paragraph used as a label (e.g. "Key points") in notes that have no real headings. */
+function findLabel(blocks: Block[], heading: string): number {
+  const target = norm(heading);
+  if (target === '') return -1;
+  return blocks.findIndex(b => b.type !== 'heading' && !/ListItem$/.test(String(b.type))
+    && inlineText(b).length <= 80 && norm(inlineText(b)) === target);
+}
+
+/** Last block of the list that directly follows the label at `i`, or the label itself. */
+function labelEnd(blocks: Block[], i: number): Block {
+  let end = blocks[i];
+  for (let j = i + 1; j < blocks.length && /ListItem$/.test(String(blocks[j].type)); j++) end = blocks[j];
+  return end;
+}
+
 /** Blocks after heading `i` up to (not including) the next heading of the same or higher level. */
 function sectionBody(blocks: Block[], i: number): Block[] {
   const lvl = level(blocks[i]);
@@ -198,7 +213,12 @@ function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined,
     }
     case 'add_to_section': {
       const i = findHeading(blocks, edit.heading ?? '');
-      if (i < 0) throw new Error(`Section “${edit.heading ?? ''}” not found`);
+      if (i < 0) {
+        const label = findLabel(blocks, edit.heading ?? '');
+        if (label < 0) throw new Error(`Section “${edit.heading ?? ''}” not found`);
+        editor.insertBlocks(parse(editor, withoutLeadingHeading(md, edit.heading), script), labelEnd(blocks, label), 'after');
+        return;
+      }
       const body = sectionBody(blocks, i);
       const anchor = body.length > 0 ? body[body.length - 1] : blocks[i];
       editor.insertBlocks(parse(editor, withoutLeadingHeading(md, edit.heading), script), anchor, 'after');

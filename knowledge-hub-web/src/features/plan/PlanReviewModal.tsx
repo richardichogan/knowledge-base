@@ -4,7 +4,8 @@
  * ones to apply. Nothing changes until "Apply selected".
  */
 import React, { useEffect, useState } from 'react';
-import { InlineLoading, InlineNotification, Modal } from '@carbon/react';
+import { InlineLoading, InlineNotification } from '@carbon/react';
+import { KhModal as Modal } from '../../components/KhModal';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, type PlanReviewAction, type PlanReviewProposal } from '../../services/api';
 import { toISODateString } from '../../utils/dates';

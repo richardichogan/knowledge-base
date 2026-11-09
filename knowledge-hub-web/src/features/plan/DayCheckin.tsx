@@ -3,7 +3,8 @@
  * (done / next working day / new date / drop) or the day is consciously skipped. Stops tasks rolling over silently.
  */
 import React, { useState } from 'react';
-import { InlineNotification, Modal } from '@carbon/react';
+import { InlineNotification } from '@carbon/react';
+import { KhModal as Modal } from '../../components/KhModal';
 import { CheckmarkOutline } from '@carbon/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';

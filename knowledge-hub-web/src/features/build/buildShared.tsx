@@ -3,12 +3,12 @@
  * "Send to Build" entry points on Think notes and Athena outputs.
  */
 import React, { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { isAxiosError } from 'axios';
 import { api, type BuildSpecWithTasks } from '../../services/api';
 import type { ApiResponse } from '../../types/apiResponse';
+import { AppDialog } from '../../components/AppDialog';
 
 const REPO_LIST_STALE_MS = 5 * 60_000;
 
@@ -131,26 +131,20 @@ export const SendToBuildDialog: React.FC<{ source: Source; onClose: () => void }
       .finally(() => { setBusy(false); });
   };
 
-  // Portalled so it isn't clipped by the Athena side panel's containing block.
-  return createPortal(
-    <div className="docs-upload-dialog-overlay" role="presentation" onClick={onClose}>
-      <div className="docs-upload-dialog build-send-dialog" role="dialog" aria-modal="true" aria-labelledby="build-send-title"
-        onClick={(e) => { e.stopPropagation(); }}>
-        <h2 id="build-send-title" className="docs-upload-dialog__title">Send to Build</h2>
-        <p className="docs-upload-dialog__subtitle">
-          Creates a build spec from this {source.kind === 'note' ? 'note' : 'output'}. You can review it and decompose it into agent tasks before anything is sent to GitHub.
-        </p>
-        <div className="build-send-dialog__fields">
-          <RepoField value={repo} repos={repos} onChange={(r) => { setRepo(r); setBaseBranch(''); }} listId="build-send-repo-options" />
-          <BranchField repo={repo} value={baseBranch} onChange={setBaseBranch} />
-        </div>
-        {error !== null && <p className="build-error">{error}</p>}
-        <div className="build-row build-send-dialog__actions">
-          <button type="button" className="kb-import-btn" onClick={onClose}>Cancel</button>
-          <button type="button" className="docs-upload-btn" disabled={busy || repo === ''} onClick={send}>{busy ? 'Creating…' : 'Create spec'}</button>
-        </div>
+  return (
+    <AppDialog title="Send to Build" onClose={() => { if (!busy) onClose(); }}
+      actions={<>
+        <button type="button" className="kh-dialog__button" onClick={onClose}>Cancel</button>
+        <button type="button" className="kh-dialog__button kh-dialog__button--primary" disabled={busy || repo === ''} onClick={send}>{busy ? 'Creating…' : 'Create spec'}</button>
+      </>}>
+      <p className="kh-dialog__intro">
+        Creates a build spec from this {source.kind === 'note' ? 'note' : 'output'}. You can review it and decompose it into agent tasks before anything is sent to GitHub.
+      </p>
+      <div className="build-send-dialog__fields">
+        <RepoField value={repo} repos={repos} onChange={(r) => { setRepo(r); setBaseBranch(''); }} listId="build-send-repo-options" />
+        <BranchField repo={repo} value={baseBranch} onChange={setBaseBranch} />
       </div>
-    </div>,
-    document.body,
+      {error !== null && <p className="kh-dialog__error" role="alert">{error}</p>}
+    </AppDialog>
   );
 };

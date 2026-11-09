@@ -7,12 +7,14 @@ export const AppDialog: React.FC<{
   title: string;
   onClose: () => void;
   children: React.ReactNode;
-  actions: React.ReactNode;
+  actions?: React.ReactNode;
+  label?: string | undefined;
+  className?: string | undefined;
   tone?: 'info' | 'success' | 'danger';
   wide?: boolean;
   alert?: boolean;
   settings?: boolean;
-}> = ({ title, onClose, children, actions, tone = 'info', wide = false, alert = false, settings = false }) => {
+}> = ({ title, onClose, children, actions, tone = 'info', wide = false, alert = false, settings = false, label, className }) => {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const bodyId = useId();
@@ -20,7 +22,8 @@ export const AppDialog: React.FC<{
     const dialog = ref.current;
     const previousFocus = document.activeElement;
     dialog?.showModal();
-    dialog?.querySelector<HTMLElement>('[data-dialog-autofocus]')?.focus();
+    (dialog?.querySelector<HTMLElement>('[data-dialog-autofocus]')
+      ?? dialog?.querySelector<HTMLElement>('.kh-dialog__body input:not(:disabled):not([type="hidden"]), .kh-dialog__body textarea:not(:disabled)'))?.focus();
     return () => {
       dialog?.close();
       if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
@@ -44,18 +47,21 @@ export const AppDialog: React.FC<{
     }
   }
   return createPortal(
-    <dialog ref={ref} className={`kh-dialog kh-dialog--${tone}${wide ? ' kh-dialog--wide' : ''}${settings ? ' kh-dialog--settings' : ''}`}
+    <dialog ref={ref} className={`kh-dialog kh-dialog--${tone}${wide ? ' kh-dialog--wide' : ''}${settings ? ' kh-dialog--settings' : ''}${className ? ` ${className}` : ''}`}
       role={alert ? 'alertdialog' : 'dialog'} aria-labelledby={titleId} aria-describedby={alert ? bodyId : undefined} aria-modal="true"
       onCancel={(e) => { e.preventDefault(); onClose(); }}
       onKeyDown={handleKeyDown}
       onClick={(e) => { e.stopPropagation(); }}>
       <header className="kh-dialog__header">
         <Icon size={24} className="kh-dialog__icon" />
-        <h2 id={titleId}>{title}</h2>
+        <div className="kh-dialog__heading">
+          {label !== undefined && <span className="kh-dialog__label">{label}</span>}
+          <h2 id={titleId}>{title}</h2>
+        </div>
         <button type="button" className="kh-dialog__close" aria-label="Close dialog" onClick={onClose}><Close size={20} /></button>
       </header>
       <div id={bodyId} className="kh-dialog__body">{children}</div>
-      <footer className="kh-dialog__actions">{actions}</footer>
+      {actions != null && <footer className="kh-dialog__actions">{actions}</footer>}
     </dialog>, document.body,
   );
 };

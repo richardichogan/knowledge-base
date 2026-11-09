@@ -655,6 +655,7 @@ interface HookConsistency {
   revised: Record<string, unknown>;
   hooks: Draft[];
   findings: { id: string; reason: string }[];
+  rewrite: { id: string; reason: string }[];
   restored: { id: string; version: number; blogVersion: number; blogContent: Record<string, unknown>; passedAt: string }[];
 }
 async function checkPassedHookConsistency(db: Pool, blog: Draft, revised: Record<string, unknown>,
@@ -663,7 +664,8 @@ async function checkPassedHookConsistency(db: Pool, blog: Draft, revised: Record
   if (!hooks.length) return undefined;
   const restored: HookConsistency['restored'] = [];
   for (const hook of hooks) {
-    if (hook.approval !== 'pending' || hook.held) {
+    const delivered = await db.query("SELECT 1 FROM publishing_deliveries WHERE draft_id=$1 LIMIT 1", [hook.id]);
+    if (!['pending', 'approved'].includes(hook.approval) || hook.held || delivered.rowCount) {
       throw new ConflictError('A previously passed hook is not eligible for consistency preservation. The saved package is unchanged.', 'PUBLISHING_CONFLICT');
     }
     if (hook.review === 'pass' && hook.reviewedBlogVersion === blog.version) continue;
@@ -700,6 +702,7 @@ Return one result per supplied hook ID. Mark consistent false if a hook conflict
     throw new ValidationError('The hook consistency check returned incomplete results. The saved package is unchanged.');
   }
   const findings: HookConsistency['findings'] = [];
+  const rewrite: HookConsistency['rewrite'] = [];
   for (const hook of hooks) {
     const results = response.hooks.filter((result: unknown) => result && typeof result === 'object'
       && !Array.isArray(result) && (result as Record<string, unknown>).id === hook.id);
@@ -708,10 +711,25 @@ Return one result per supplied hook ID. Mark consistent false if a hook conflict
       || typeof result.reason !== 'string' || !result.reason.trim()) {
       throw new ValidationError('The hook consistency check returned invalid results. The saved package is unchanged.');
     }
-    if (!result.consistent) throw new ConflictError(`A passed ${hook.destination} hook may conflict with the corrected blog: ${result.reason}. The saved package is unchanged.`, 'PUBLISHING_CONFLICT');
+    if (!result.consistent) { rewrite.push({ id: hook.id, reason: result.reason.trim() }); continue; }
     findings.push({ id: hook.id, reason: result.reason });
   }
-  return { original: blog.content, revised, hooks, findings, restored };
+  return { original: blog.content, revised, hooks, findings, rewrite, restored };
+}
+// A hook the corrected blog no longer supports is rewritten as a new version from the corrected blog and reviewed afresh.
+async function rewriteInconsistentHooks(c: PoolClient, consistency: HookConsistency): Promise<void> {
+  for (const item of consistency.rewrite) {
+    const hook = consistency.hooks.find(candidate => candidate.id === item.id)!;
+    const version = hook.version + 1;
+    const content = JSON.stringify({ ...hook.content, copy: '' });
+    await c.query(`UPDATE publishing_drafts SET content=$3,version=$2,review='pending',approval='pending',reviewed_at=NULL,
+      reviewed_blog_version=NULL,reason=$4,updated_at=NOW() WHERE id=$1`,
+    [hook.id, version, content, `Rewriting against the corrected blog: ${item.reason}`.slice(0, 900)]);
+    await c.query('INSERT INTO publishing_versions(draft_id,version,content) VALUES($1,$2,$3)', [hook.id, version, content]);
+    if (hook.approval === 'approved') await c.query('DELETE FROM publishing_schedule WHERE draft_id=$1', [hook.id]);
+    await event(c, hook.topicId, 'editorial-recovery', 'hook-rewrite-requested', { draftId: hook.id, previousVersion: hook.version, version, reason: item.reason,
+      ...(hook.approval === 'approved' ? { approvalWithdrawn: true } : {}) });
+  }
 }
 async function verifyHookConsistencyHistory(c: PoolClient, blog: Draft, consistency: HookConsistency): Promise<void> {
   for (const restored of consistency.restored) {
@@ -749,22 +767,24 @@ export async function reconcilePassedBlogHooks(db: Pool, blog: Draft, sources: S
     if (!current || !isDeepStrictEqual(current, blog) || !isDeepStrictEqual(currentHooks, consistency.hooks)) {
       throw new ConflictError('The package changed during hook reconciliation. Nothing was changed.', 'PUBLISHING_CONFLICT');
     }
-    const protectedRows = await c.query(`SELECT id FROM publishing_drafts WHERE topic_id=$1 AND approval='approved'
-      UNION ALL SELECT s.draft_id AS id FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id WHERE d.topic_id=$1
-      UNION ALL SELECT draft_id AS id FROM publishing_deliveries WHERE topic_id=$1`, [blog.topicId]);
+    const protectedRows = await c.query(`SELECT id FROM publishing_drafts WHERE topic_id=$1 AND approval='approved' AND NOT(id=ANY($2::uuid[]))
+      UNION ALL SELECT s.draft_id AS id FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id WHERE d.topic_id=$1 AND NOT(d.id=ANY($2::uuid[]))
+      UNION ALL SELECT draft_id AS id FROM publishing_deliveries WHERE topic_id=$1`, [blog.topicId, consistency.hooks.map(hook => hook.id)]);
     const topic = await c.query<{ state: Topic['state'] }>('SELECT state FROM publishing_topics WHERE id=$1', [blog.topicId]);
     if (protectedRows.rowCount || topic.rows[0]?.state === 'rejected') {
       throw new ConflictError('The package is no longer available for hook reconciliation. Nothing was changed.', 'PUBLISHING_CONFLICT');
     }
     await verifyHookConsistencyHistory(c, current, consistency);
-    for (const restored of consistency.restored) {
+    const rewriteIds = new Set(consistency.rewrite.map(item => item.id));
+    for (const restored of consistency.restored.filter(item => !rewriteIds.has(item.id))) {
       await c.query(`UPDATE publishing_drafts SET review='pass',reviewed_at=$2,reviewed_blog_version=$3,
         reason='Original pass preserved after blog consistency check.',updated_at=NOW() WHERE id=$1`,
       [restored.id, restored.passedAt, blog.version]);
     }
+    await rewriteInconsistentHooks(c, consistency);
     await event(c, blog.topicId, 'editorial-recovery', 'blog-hook-consistency-preserved', {
       draftId: blog.id, previousVersion: blog.version, version: blog.version, hooks: consistency.findings,
-      restoredPasses: consistency.restored.map(({ id, version, blogVersion, passedAt }) => ({ id, version, blogVersion, passedAt })),
+      restoredPasses: consistency.restored.filter(item => !rewriteIds.has(item.id)).map(({ id, version, blogVersion, passedAt }) => ({ id, version, blogVersion, passedAt })),
     });
   });
 }
@@ -810,10 +830,11 @@ export async function editDraft(db: Pool, id: string, version: unknown, value: u
           throw new ConflictError('A passed hook would be invalidated by an automatic blog edit. The saved package is unchanged.', 'PUBLISHING_CONFLICT');
         }
       }
-      const approved = await c.query("SELECT id FROM publishing_drafts WHERE topic_id=$1 AND approval='approved'", [d.topicId]);
+      const checkedHooks = (consistency?.hooks ?? []).map(hook => hook.id);
+      const approved = await c.query("SELECT id FROM publishing_drafts WHERE topic_id=$1 AND approval='approved' AND NOT(id=ANY($2::uuid[]))", [d.topicId, checkedHooks]);
       if (approved.rowCount) throw new ConflictError('The package was sent for scheduling; automatic revisions cannot change it.', 'PUBLISHING_CONFLICT');
-      const scheduled = await c.query(`SELECT s.draft_id FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id WHERE d.topic_id=$1
-        UNION ALL SELECT draft_id FROM publishing_deliveries WHERE topic_id=$1`, [d.topicId]);
+      const scheduled = await c.query(`SELECT s.draft_id FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id WHERE d.topic_id=$1 AND NOT(d.id=ANY($2::uuid[]))
+        UNION ALL SELECT draft_id FROM publishing_deliveries WHERE topic_id=$1`, [d.topicId, checkedHooks]);
       if (scheduled.rowCount) throw new ConflictError('Scheduled copy cannot be changed by automatic revisions.', 'PUBLISHING_CONFLICT');
     }
     const delivered = await c.query("SELECT id FROM publishing_deliveries WHERE draft_id=$1 AND status IN ('sending','sent','unconfirmed')", [id]);
@@ -839,15 +860,17 @@ export async function editDraft(db: Pool, id: string, version: unknown, value: u
         ...(tagCorrection ? { removedTag: tagCorrection.tag } : {}),
       });
     } else if (consistency) {
+      const rewriteIds = new Set(consistency.rewrite.map(item => item.id));
       await c.query(`UPDATE publishing_drafts SET reviewed_blog_version=$2
-        WHERE id=ANY($1::uuid[])`, [consistency.hooks.map(hook => hook.id), next]);
-      for (const restored of consistency.restored) {
+        WHERE id=ANY($1::uuid[])`, [consistency.hooks.filter(hook => !rewriteIds.has(hook.id)).map(hook => hook.id), next]);
+      await rewriteInconsistentHooks(c, consistency);
+      for (const restored of consistency.restored.filter(item => !rewriteIds.has(item.id))) {
         await c.query(`UPDATE publishing_drafts SET review='pass',reviewed_at=$2,
           reason='Original pass preserved after blog consistency check.' WHERE id=$1`, [restored.id, restored.passedAt]);
       }
       await event(c, d.topicId, actor, 'blog-hook-consistency-preserved', {
         draftId: id, previousVersion: d.version, version: next, hooks: consistency.findings,
-        restoredPasses: consistency.restored.map(({ id, version, blogVersion, passedAt }) => ({ id, version, blogVersion, passedAt })),
+        restoredPasses: consistency.restored.filter(item => !rewriteIds.has(item.id)).map(({ id, version, blogVersion, passedAt }) => ({ id, version, blogVersion, passedAt })),
       });
       await c.query(`UPDATE publishing_drafts SET review='pending',approval='pending',reviewed_at=NULL,
         reason='Blog changed; hook must be reviewed and approved again.' WHERE topic_id=$1 AND destination IN ('linkedin','bluesky') AND variant='blog'

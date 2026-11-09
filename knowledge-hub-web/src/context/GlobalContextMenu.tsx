@@ -19,7 +19,7 @@ import React, {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { Modal } from '@carbon/react';
+import { KhModal as Modal } from '../components/KhModal';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Checkmark, Diagram, Link, Copy, TaskAdd, Idea, DocumentAdd, ChatBot, ArrowRight, Rocket, Image as ImageIcon } from '@carbon/icons-react';

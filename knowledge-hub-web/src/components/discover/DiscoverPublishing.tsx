@@ -126,7 +126,15 @@ export function TopicReview({ id, act, busy, feeds, readyOnly = false, initialDe
   function decide(draft: PublishingDraft, action: string): void { void act(`/drafts/${draft.id}/decision`, 'POST', { version: draft.version, action, reason }); }
   return <div className="kh-publishing__review">
     <h3 className="kh-publishing__review-title">{d.topic.title}</h3>
-    {d.topic.error && <p className="kh-publishing__notice">Preparation stopped. This item is not ready for approval.</p>}
+    {d.topic.error && <div className="kh-publishing__notice kh-publishing__stopped" role="status">
+      <p><strong>Preparation stopped.</strong> {d.topic.error}</p>
+      {d.topic.state === 'held' && d.drafts.some(item => item.approval === 'rejected') && d.deliveries.length === 0
+        && <p className="kh-publishing__meta">A destination in this package was rejected, so Athena cannot finish it. Use Reject draft to remove the whole package, or reject the topic under Sources and topic controls.</p>}
+      {d.topic.state === 'held' && d.drafts.length > 0 && d.drafts.every(item => item.approval === 'pending') && d.deliveries.length === 0 && <>
+        <p className="kh-publishing__meta">Athena retries this automatically. You can retry now.</p>
+        <div className="kh-publishing__actions"><button type="button" className="kh-publishing__primary" disabled={busy}
+          onClick={() => { void act(`/topics/${id}/decision`, 'POST', { action: 'retry' }); }}>Retry preparation</button></div></>}
+    </div>}
     {visibleDrafts.length === 0 && <p className="kh-publishing__empty">Athena has not completed this draft’s preparation. Only finished, reviewed posts are offered for scheduling.</p>}
     {visibleDrafts.length > 0 && <nav className="kh-publishing__destinations" aria-label="Draft destination">
       {visibleDrafts.map(draft => <button type="button" key={draft.destination} aria-pressed={current?.id === draft.id}
@@ -138,7 +146,7 @@ export function TopicReview({ id, act, busy, feeds, readyOnly = false, initialDe
       const blog = d.drafts.find(candidate => candidate.destination === 'blog');
       const linkedin = d.drafts.find(candidate => candidate.destination === 'linkedin');
       const pair = [blog, linkedin];
-      const packageBlocker = d.topic.state !== 'ready' ? 'This topic is on hold or still being prepared.'
+      const packageBlocker = d.topic.state !== 'ready' ? 'This topic is on hold or still being prepared. Retry preparation above, or wait: Athena retries automatically.'
         : !blog || !linkedin ? 'The blog and LinkedIn copy must both be prepared before scheduling.'
         : pair.map(candidate => candidate && publishingApprovalBlocker(candidate)
           ? `${names[candidate.destination]}: ${publishingApprovalBlocker(candidate)}` : null).find(Boolean)

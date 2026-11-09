@@ -250,4 +250,7 @@
 .today-goals__section .today-proactive__rows, .today-goals__athena .today-proactive__rows { margin-top: 4px; }
 .today-decide__detail { display: flex; flex-direction: column; gap: 8px;
   .today-brief__actions { margin-top: 4px; } }
+.today-decide__review { flex: none; margin-top: 8px; }
+// The decision header above already names the topic.
+.today-decide__review .kh-publishing__review-title { display: none; }
 .today-decide__title { margin: 0; font-size: var(--kh-section-title); font-weight: 600; line-height: 1.4; color: var(--cds-text-primary); overflow-wrap: anywhere; }

@@ -3,7 +3,8 @@
  * Modal to merge a pending suggestion into an existing tag.
  */
 import React, { useState } from 'react';
-import { Modal, InlineNotification } from '@carbon/react';
+import { InlineNotification } from '@carbon/react';
+import { KhModal as Modal } from '../KhModal';
 import { TagPicker } from '../TagPicker';
 import { api } from '../../services/api';
 

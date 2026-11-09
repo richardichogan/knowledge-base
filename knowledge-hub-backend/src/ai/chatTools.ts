@@ -782,7 +782,8 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
           "For repairs or consolidation, replace the contradictory content rather than appending overrides or a plan " +
           "instead of the requested finished content. Check that promised records, tables and references actually " +
           "exist in the proposed Markdown. Tool acceptance verifies edit targets, not semantic completeness or a saved result. " +
-          "Reference headings EXACTLY as they appear in the note. " +
+          "Reference headings EXACTLY as they appear in the note. Some notes (podcast prep) have no real headings, only short label paragraphs such as 'Key points': " +
+          "add_to_section works with that label text and inserts after the label and its list. To ADD content never use replace_text; use add_to_section or append. " +
           "For Script notes, # script title, ## chapter and ### section are editor-only heading blocks excluded from the autocue; " +
           "the spoken paragraphs beneath them remain included. Preserve these levels and use headings, not colour, to mark nonspoken titles. " +
           "Script sections are cards with editor-only heading titles and nested spoken blocks. " +
@@ -1065,8 +1066,8 @@ export async function executeToolCall(
       return { error: error instanceof Error ? error.message : 'The script operation failed. No completion has been confirmed.' };
     }
   }
-  if (turn.podcastOwner && ['create_note_draft', 'propose_note_edit', 'update_note', 'save_output'].includes(name)) {
-    return { error: 'The Podcast script is stored outside the parent note body. Use read_podcast_script and update_podcast_script for script fields, not a disconnected note or chat-only substitute.' };
+  if (turn.podcastOwner && ['create_note_draft', 'update_note', 'save_output'].includes(name)) {
+    return { error: 'Do not create a disconnected note. Use propose_note_edit for the episode prep note body, or read_podcast_script and update_podcast_script for script fields.' };
   }
   if (name === 'read_design_package' || name === 'save_design_documents' || name.includes('design_readiness')) {
     if (isOutsideCollectionTool(name, turn.retrievalScope)) return { error: 'Design operations are outside this request’s enforced collection scope.', code: 'scope_mismatch' };
@@ -1469,8 +1470,9 @@ export async function executeToolCall(
       const editMode = args['editMode'] ?? 'preserve_formatting';
       if (editMode !== 'preserve_formatting' && editMode !== 'structural') return { error: 'No edits proposed: editMode must be preserve_formatting or structural.' };
       const allowStructural = turn.allowStructuralNoteEdits ?? (editMode === 'structural');
-      if (!allowStructural && edits.some(edit => edit.action !== 'replace_text')) {
-        return { error: 'No edits proposed. This is a wording/review correction, not permission to rewrite or reformat the note. Use unique exact replace_text edits with plain replacement text. Preserve headings, title, rich formatting, links, lists, images and all untouched content.' };
+      const additive = new Set(['append', 'prepend', 'add_to_section', 'replace_text']);
+      if (!allowStructural && edits.some(edit => !additive.has(edit.action))) {
+        return { error: 'No edits proposed. Replacing or deleting whole sections and full rewrites need editMode "structural". To ADD content use append, prepend or add_to_section (no structural mode needed); to change wording use exact replace_text edits. Preserve headings, title, rich formatting, links, lists, images and all untouched content.' };
       }
       // Check every edit against the note as saved, so Apply can't fail on a heading or phrase that isn't there.
       const saved = await loadNoteBlocks(db, turn.noteId);

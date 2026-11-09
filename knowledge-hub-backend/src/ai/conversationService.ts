@@ -347,6 +347,7 @@ It proves persistence of that revision, not visual correctness or that the open 
   const designBlock = design ? `## Working Design package (server-resolved)
 The conversation belongs to Design ${JSON.stringify(design.title)} (parent ${design.parentNoteId}), not an independent note.
 Active original: ${toolContext.noteId ?? 'none'}. Authoritative section links: ${JSON.stringify(design.selections)}.
+A Design is a COMPOUND content type: a parent Think note that only links its sections, which are separate originals: Use Case, Spec and Architecture (each its own Think note with its own revision) and Diagram (a linked native canvas). The parent body is not a section and holds none of their content. Work out which section the request concerns (the active original above is the default), read that section with read_design_package, and write it with save_design_documents using that section's own id and revision. Diagram changes go through the diagram tools or specialist hand-off, never through the document tools. Never put one section's content into another or into the parent.
 Use read_design_package to read the current originals and revisions before work. Use save_design_documents when asked to revise/create/save sections; it updates those originals or atomically creates and links a genuinely missing section.
 Do not use generic draft creation, demo-specification generation, Outputs, chat-only deliverables, or edit the parent to stand in for a section. "Save in the Spec tab" means save the Spec original in this Design. Do not ask again for permission already given.
 Use case = actors, goals, journey and outcomes; Spec = detailed behaviours, constraints and acceptance; Architecture = technical structure; Diagram = the linked native canvas. HTML is the shared interactive visual within Spec, not an extra document for every tab.
@@ -356,10 +357,17 @@ IMAGINE specification readiness lives in the existing Spec tab. read_design_read
 Writing the whole spec from the use case, or generating the Blueprint, is specialist work: use hand_off_to_specialist (spec-writer or blueprint-designer) instead of writing it yourself. It runs in the background and reports back in this chat; do not wait for it or claim it has finished. Targeted edits to a section stay with save_design_documents.` : '';
   const podcastBlock = toolContext.podcastOwner ? `## Working Podcast episode (server-resolved)
 Episode identity: ${toolContext.podcastOwner}. Active stage: ${pageContext?.podcastTab ?? 'unspecified'}.
-The intro and script cards are structured episode data, NOT the parent note body. Use read_podcast_script to retrieve their actual current text, revision, card identities, worker state and duration estimates.
+A Podcast episode is a COMPOUND content type: one parent Think note whose five stages each live in a different place. Always work out which stage the request concerns (the active stage above is the default) and use that stage's own tool:
+- Prep = the parent note's body, which is the open note. Read it from the supplied note context; edit it with propose_note_edit.
+- Script = the intro and topic cards held in episode data, outside the note body. read_podcast_script / update_podcast_script only.
+- Transcript = the uploaded recording transcript, stored on the episode. read_podcast_script reports only whether one exists (transcriptAvailable); there is no edit tool here, so never claim to have read or changed it.
+- Show Notes = a separate linked Think note written by the Show Notes persona from the transcript (id in read_podcast_script stages.showNotesNoteId). It is not the parent body and not edited from this chat.
+- Campaign = the launch, quote and blog posts, recording teaser and images, with their approvals and schedule. read_podcast_campaign, update_podcast_recording_teaser, update_podcast_campaign_image, replace_podcast_youtube_link.
+Never put content for one stage into another (prep material into script cards, script text into the prep note). "The note" or "the prep" means the Prep stage; "the script" or "the cards" means Script. If the stage is ambiguous for a write, ask one short question; for reads, say which stage you read.
+The intro and script cards are structured episode data, NOT the parent note body. The parent note body is the episode's prep note: when asked to add, write or change prep-note content, edit it directly with propose_note_edit (it saves through the live editor; do not tell Richard to paste it, and never put prep material into the script cards unless he asks for script content). Use read_podcast_script to retrieve their actual current text, revision, card identities, worker state and duration estimates.
 Use supplied word counts and the stated speaking-rate assumptions for reading-time questions; distinguish synopsis reading from bullets and live discussion. Do not ask the user to paste text that this tool can retrieve.
 Read remaining pages before claiming a complete script review. For explicit script edits, use update_podcast_script with the current revision and exact card IDs; preserve all other fields. This directly saves to the Script tab, with no Apply preview.
-Do not use generic note updates, Outputs or new notes as a substitute for script edits. Never claim a change without a successful save result.
+Do not use new notes or Outputs as a substitute for script edits or prep-note edits. Never claim a change without a successful save result.
 David and Cyrus supply their own contributions: draft only Richard's enterprise-alignment material. For complete regeneration use the podcast-script-writer specialist with the revision just read and the normal replacement confirmation; it works in the background.
 Targeted edits stay with the script tools. Do not run full generation for a small change, and do not write while a script worker is queued/running.
 Only operate on the script when the request concerns it; unrelated questions remain unrelated. Transcript, Show Notes and Campaign are separate stages, not parts of a script-field update.
@@ -401,7 +409,7 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
     .filter(t => hooks.allowedTools === undefined || hooks.allowedTools.includes(t.function.name))
     .filter(t => hooks.allowedWriteTools === undefined || !WRITE_TOOLS.has(t.function.name) || hooks.allowedWriteTools.includes(t.function.name))
     .filter(t => !design || !['create_note_draft', 'propose_note_edit', 'update_note', 'save_output', DEMO_SPECIFICATION_WRITE_TOOL, 'get_demo_specification_template'].includes(t.function.name))
-    .filter(t => !toolContext.podcastOwner || !['create_note_draft', 'propose_note_edit', 'update_note', 'save_output'].includes(t.function.name))
+    .filter(t => !toolContext.podcastOwner || !['create_note_draft', 'update_note', 'save_output'].includes(t.function.name))
     .filter((t) => hooks.noOutputsPanel !== true || t.function.name !== 'save_output')
     .filter((t) => t.function.name !== 'propose_note_edit' || noteOpen)
     .filter((t) => !['read_script_visuals', 'design_script_visuals', 'apply_script_visuals'].includes(t.function.name) || noteOpen && !design && !toolContext.podcastOwner)

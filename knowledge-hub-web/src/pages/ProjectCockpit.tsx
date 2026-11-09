@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Button, InlineLoading, Modal, Select, SelectItem, Tag, TextInput } from '@carbon/react';
+import { Button, InlineLoading, Select, SelectItem, Tag, TextInput } from '@carbon/react';
+import { KhModal as Modal } from '../components/KhModal';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DataNotice } from '../components/DataNotice';
 import { api } from '../services/api';

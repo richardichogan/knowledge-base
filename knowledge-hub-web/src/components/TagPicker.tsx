@@ -178,7 +178,7 @@ export const TagPicker: React.FC<TagPickerProps> = ({ selectedIds, onChange, tri
         })}
       </div>
     </div>,
-    document.body,
+    triggerRef.current?.closest('dialog[open]') ?? document.body,
   ) : null;
 
   return (

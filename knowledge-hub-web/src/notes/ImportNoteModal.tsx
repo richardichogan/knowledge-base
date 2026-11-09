@@ -9,7 +9,8 @@
  */
 
 import React, { useState } from 'react';
-import { Modal, TextInput, InlineLoading, InlineNotification } from '@carbon/react';
+import { TextInput, InlineLoading, InlineNotification } from '@carbon/react';
+import { KhModal as Modal } from '../components/KhModal';
 import { api } from '../services/api';
 import { requireApiData } from '../services/apiError';
 import { ProjectOptions } from '../components/ProjectOptions';

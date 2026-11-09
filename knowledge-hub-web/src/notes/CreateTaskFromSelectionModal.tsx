@@ -11,6 +11,7 @@ import { api } from '../services/api';
 import { ProjectOptions } from '../components/ProjectOptions';
 import { useProjects } from '../hooks/useProjects';
 import type { TaskDestination } from '../types/task';
+import { AppDialog } from '../components/AppDialog';
 
 interface Props {
   selectedText: string;
@@ -117,99 +118,47 @@ Respond with only the JSON object, no markdown, no explanation.`;
   }
 
   function handleKeyDown(e: React.KeyboardEvent): void {
-    if (e.key === 'Escape') onClose();
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void handleCreate();
   }
 
   return (
-    <div className="ctsm-overlay" onClick={onClose} onKeyDown={handleKeyDown} role="presentation">
-      <div
-        className="ctsm-modal"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Create task from selection"
-      >
-        <div className="ctsm-header">
-          <span className="ctsm-title">Create Task</span>
-          {aiLoading && <span className="ctsm-ai-badge">✦ AI filling…</span>}
-          <button className="ctsm-close" onClick={onClose} aria-label="Close">✕</button>
+    <AppDialog title="Create task" onClose={onClose}
+      actions={<>
+        {aiLoading && <span className="kh-dialog__hint">✦ AI filling…</span>}
+        {!aiLoading && <span className="kh-dialog__hint">⌘↵ to create</span>}
+        <button type="button" className="kh-dialog__button" onClick={onClose}>Cancel</button>
+        <button type="button" className="kh-dialog__button kh-dialog__button--primary" onClick={() => void handleCreate()}
+          disabled={aiLoading || saving || !title.trim()}>{saving ? 'Creating…' : 'Create task'}</button>
+      </>}>
+      <div onKeyDown={handleKeyDown}>
+        <p className="kh-dialog__intro">From selection: &ldquo;{selectedText.slice(0, 120)}{selectedText.length > 120 ? '…' : ''}&rdquo;</p>
+        <div className="kh-dialog__field">
+          <label htmlFor="ctsm-title">Title</label>
+          <input id="ctsm-title" ref={titleRef} value={title} onChange={(e) => setTitle(e.target.value)}
+            placeholder={aiLoading ? 'AI is thinking…' : 'Task title'} disabled={aiLoading} />
         </div>
-
-        <div className="ctsm-selected-preview">
-          <span className="ctsm-preview-label">From selection:</span>
-          <span className="ctsm-preview-text">"{selectedText.slice(0, 120)}{selectedText.length > 120 ? '…' : ''}"</span>
+        <div className="kh-dialog__field">
+          <label htmlFor="ctsm-desc">Description</label>
+          <textarea id="ctsm-desc" value={description} onChange={(e) => setDescription(e.target.value)}
+            placeholder={aiLoading ? 'AI is thinking…' : 'Task description'} disabled={aiLoading} rows={4} />
         </div>
-
-        <div className="ctsm-field">
-          <label className="ctsm-label" htmlFor="ctsm-title">Title</label>
-          <input
-            id="ctsm-title"
-            ref={titleRef}
-            className="ctsm-input"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder={aiLoading ? 'AI is thinking…' : 'Task title'}
-            disabled={aiLoading}
-          />
-        </div>
-
-        <div className="ctsm-field">
-          <label className="ctsm-label" htmlFor="ctsm-desc">Description</label>
-          <textarea
-            id="ctsm-desc"
-            className="ctsm-textarea"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder={aiLoading ? 'AI is thinking…' : 'Task description'}
-            disabled={aiLoading}
-            rows={4}
-          />
-        </div>
-
-        <div className="ctsm-row">
-          <div className="ctsm-field ctsm-field--half">
-            <label className="ctsm-label" htmlFor="ctsm-project">Workstream</label>
-            <select
-              id="ctsm-project"
-              className="ctsm-select"
-              value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
-              disabled={aiLoading}
-            >
+        <div className="kh-dialog__row">
+          <div className="kh-dialog__field">
+            <label htmlFor="ctsm-project">Workstream</label>
+            <select id="ctsm-project" value={projectId} onChange={(e) => setProjectId(e.target.value)} disabled={aiLoading}>
               <ProjectOptions projects={projects} selected={projectId} />
             </select>
           </div>
-
-          <div className="ctsm-field ctsm-field--half">
-            <label className="ctsm-label" htmlFor="ctsm-dest">Destination</label>
-            <select
-              id="ctsm-dest"
-              className="ctsm-select"
-              value={destination}
-              onChange={(e) => setDestination(e.target.value as TaskDestination)}
-            >
+          <div className="kh-dialog__field">
+            <label htmlFor="ctsm-dest">Destination</label>
+            <select id="ctsm-dest" value={destination} onChange={(e) => setDestination(e.target.value as TaskDestination)}>
               <option value="todo">To-do list</option>
               <option value="github-issue">GitHub Issue</option>
             </select>
           </div>
         </div>
-
-        {error !== null && <p className="ctsm-error">{error}</p>}
-
-        <div className="ctsm-actions">
-          <button className="ctsm-btn-secondary" onClick={onClose}>Cancel</button>
-          <button
-            className="ctsm-btn-primary"
-            onClick={() => void handleCreate()}
-            disabled={aiLoading || saving || !title.trim()}
-          >
-            {saving ? 'Creating…' : 'Create Task'}
-          </button>
-        </div>
-
-        <p className="ctsm-hint">⌘↵ to create · Esc to cancel</p>
+        {error !== null && <p className="kh-dialog__error" role="alert">{error}</p>}
       </div>
-    </div>
+    </AppDialog>
   );
 };

@@ -5,10 +5,8 @@
 import React, { useState, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import {
-  Button, TextInput, TextArea, Modal,
-  Select, SelectItem, InlineNotification, Checkbox, ComboBox, FilterableMultiSelect,
-} from '@carbon/react';
+import { Button, TextInput, TextArea, Select, SelectItem, InlineNotification, Checkbox, ComboBox, FilterableMultiSelect } from '@carbon/react';
+import { KhModal as Modal } from '../components/KhModal';
 import { Add, Edit, TrashCan, LogoGithub, Launch } from '@carbon/icons-react';
 import {
   useProjects,

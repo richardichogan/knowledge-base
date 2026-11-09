@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Modal } from '@carbon/react';
+import { KhModal as Modal } from './KhModal';
 import { useQuery } from '@tanstack/react-query';
 import { SettingsLink } from '../navigation/SettingsLink';
 import { isAxiosError } from 'axios';

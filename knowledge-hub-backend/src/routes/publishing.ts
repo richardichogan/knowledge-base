@@ -7,7 +7,7 @@ import { env } from '../config/env.js';
 import { object, text } from '../jobs/contracts.js';
 import { ValidationError, ConflictError, NotFoundError } from '../types/errors.js';
 import { getLinkedInMember } from '../integrations/social/linkedin.js';
-import { approvePackage, decideDraft, discardDraft, rejectDraftTopic, deliveryColumns, draftColumns, event, feeds, holdTopic, listTopics, saveFeed, topicDetail, transaction } from '../publishing/store.js';
+import { approvePackage, decideDraft, discardDraft, rejectDraftTopic, deliveryColumns, draftColumns, event, feeds, holdTopic, listTopics, releaseTopic, saveFeed, topicDetail, transaction } from '../publishing/store.js';
 import { feedId, PUBLISH_LIMITS, uuid, type Delivery, type Draft } from '../publishing/contracts.js';
 import { editDraft } from '../publishing/editorial.js';
 import { verifyBlog } from '../publishing/worker.js';
@@ -149,8 +149,11 @@ export function createPublishingRouter(getDb: () => Pool = defaultGetDb): Router
       if (!changed.rowCount) throw new ValidationError('Only held topics without drafts can be reassessed; edit existing drafts instead.');
       await event(getDb(), id, actor(req), 'reassessment-requested', {});
       recordAiDecision(getDb(), { kind: 'reassess', agent: 'discovery-editorial-assessment', targetType: 'publishing-topic', targetId: id });
+    } else if (b.action === 'retry') {
+      if (!await releaseTopic(getDb(), id, actor(req))) throw new ValidationError('Only a stopped package with unapproved drafts can be retried.');
+      recordAiDecision(getDb(), { kind: 'retry', agent: 'discovery-editorial-assessment', targetType: 'publishing-topic', targetId: id });
     } else {
-      if (!['hold', 'reject'].includes(String(b.action))) throw new ValidationError('Choose hold, reject or reassess.');
+      if (!['hold', 'reject'].includes(String(b.action))) throw new ValidationError('Choose hold, reject, reassess or retry.');
       const reason = text(b.reason ?? '', 'reason', PUBLISH_LIMITS.maxGuidance);
       await holdTopic(getDb(), id, b.action === 'reject', actor(req), reason);
       recordAiDecision(getDb(), { kind: String(b.action), agent: 'discovery-editorial-assessment', targetType: 'publishing-topic', targetId: id, note: reason });

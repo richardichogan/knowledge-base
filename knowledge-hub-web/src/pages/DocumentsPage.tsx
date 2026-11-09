@@ -36,6 +36,7 @@ import type { PaneWidthOptions } from '../hooks/usePersistedState';
 import { alertDialog } from '../services/appDialogs';
 import { requireApiSuccess, describeApiError } from '../services/apiError';
 import { DataNotice } from '../components/DataNotice';
+import { AppDialog } from '../components/AppDialog';
 import { PageHeader } from '../components/PageHeader';
 
 // Same cap as Think notes: enough for long specs, bounded for the model.
@@ -251,6 +252,12 @@ export const DocumentsPage: React.FC = () => {
       setUploadLoading(false);
     }
   }, [projectOptions, uploadProjectId, uploadTitle, qc]);
+
+  const closeUploadDialog = (): void => {
+    setUploadDialogOpen(false);
+    setUploadTitle('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -537,84 +544,35 @@ export const DocumentsPage: React.FC = () => {
 
       {/* ── Upload dialog ── */}
       {uploadDialogOpen && (
-        <div className="docs-upload-dialog-overlay">
-          <div className="docs-upload-dialog">
-            <h2 className="docs-upload-dialog__title">Upload Document</h2>
-            <p className="docs-upload-dialog__subtitle">PDF, DOCX, XLSX, or PPTX files will be stored in Sources under the selected workstream and indexed automatically.</p>
-
-            {/* File input */}
-            <div className="docs-upload-dialog__section">
-              <label className="docs-upload-dialog__label">File</label>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".pdf,.docx,.xlsx,.pptx"
-                onChange={handleFileSelect}
-                disabled={uploadLoading}
-                hidden
-              />
-              <button
-                className="docs-upload-dialog__file-btn"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploadLoading}
-              >
-                {fileInputRef.current?.files?.[0]?.name || 'Choose file…'}
-              </button>
-            </div>
-
-            {/* Title input */}
-            <div className="docs-upload-dialog__section">
-              <label className="docs-upload-dialog__label">Title (optional)</label>
-              <input
-                type="text"
-                className="docs-upload-dialog__input"
-                placeholder="Document title"
-                value={uploadTitle}
-                onChange={(e) => setUploadTitle(e.target.value)}
-                disabled={uploadLoading}
-              />
-            </div>
-
-            <div className="docs-upload-dialog__section">
-              <label className="docs-upload-dialog__label" htmlFor="docs-upload-project">Workstream</label>
-              <select
-                id="docs-upload-project"
-                className="docs-upload-dialog__select"
-                value={uploadProjectId}
-                onChange={(e) => { setUploadProjectId(e.target.value); }}
-                disabled={uploadLoading}
-              >
-                {!projectOptions.some((project) => project.id === 'personal') && <option value="personal">Personal / unassigned</option>}
-                <ProjectOptions projects={projectOptions} selected={uploadProjectId} />
-              </select>
-            </div>
-
-            {/* Actions */}
-            <div className="docs-upload-dialog__actions">
-              <button
-                className="docs-upload-dialog__btn docs-upload-dialog__btn--cancel"
-                onClick={() => {
-                  setUploadDialogOpen(false);
-                  setUploadTitle('');
-                  if (fileInputRef.current) fileInputRef.current.value = '';
-                }}
-                disabled={uploadLoading}
-              >
-                Cancel
-              </button>
-              <button
-                className="docs-upload-dialog__btn docs-upload-dialog__btn--primary"
-                onClick={() => {
-                  const file = fileInputRef.current?.files?.[0];
-                  if (file) handleUpload(file);
-                }}
-                disabled={uploadLoading || !fileInputRef.current?.files?.[0]}
-              >
-                {uploadLoading ? 'Uploading…' : 'Upload'}
-              </button>
-            </div>
+        <AppDialog title="Upload document" onClose={() => { if (!uploadLoading) closeUploadDialog(); }}
+          actions={<>
+            <button type="button" className="kh-dialog__button" disabled={uploadLoading} onClick={closeUploadDialog}>Cancel</button>
+            <button type="button" className="kh-dialog__button kh-dialog__button--primary" disabled={uploadLoading || !fileInputRef.current?.files?.[0]}
+              onClick={() => { const file = fileInputRef.current?.files?.[0]; if (file) handleUpload(file); }}>
+              {uploadLoading ? 'Uploading…' : 'Upload'}
+            </button>
+          </>}>
+          <p className="kh-dialog__intro">PDF, DOCX, XLSX, or PPTX files will be stored in Sources under the selected workstream and indexed automatically.</p>
+          <div className="kh-dialog__field">
+            <span className="kh-dialog__field-label">File</span>
+            <input ref={fileInputRef} type="file" accept=".pdf,.docx,.xlsx,.pptx" onChange={handleFileSelect} disabled={uploadLoading} hidden />
+            <button type="button" className="kh-dialog__button kh-dialog__file" onClick={() => fileInputRef.current?.click()} disabled={uploadLoading}>
+              {fileInputRef.current?.files?.[0]?.name || 'Choose file…'}
+            </button>
           </div>
-        </div>
+          <div className="kh-dialog__field">
+            <label htmlFor="docs-upload-title">Title (optional)</label>
+            <input id="docs-upload-title" type="text" placeholder="Document title" value={uploadTitle}
+              onChange={(e) => setUploadTitle(e.target.value)} disabled={uploadLoading} />
+          </div>
+          <div className="kh-dialog__field">
+            <label htmlFor="docs-upload-project">Workstream</label>
+            <select id="docs-upload-project" value={uploadProjectId} onChange={(e) => { setUploadProjectId(e.target.value); }} disabled={uploadLoading}>
+              {!projectOptions.some((project) => project.id === 'personal') && <option value="personal">Personal / unassigned</option>}
+              <ProjectOptions projects={projectOptions} selected={uploadProjectId} />
+            </select>
+          </div>
+        </AppDialog>
       )}
     </div>
   );

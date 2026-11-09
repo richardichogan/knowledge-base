@@ -10,6 +10,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { TagPicker } from '../TagPicker';
 import { api } from '../../services/api';
+import { AppDialog } from '../AppDialog';
 
 interface QuickSparkModalProps {
   open: boolean;
@@ -86,82 +87,43 @@ export const QuickSparkModal: React.FC<QuickSparkModalProps> = ({ open, onClose 
     }
   };
 
-  const handleGlobalKeyDown = (e: KeyboardEvent): void => {
-    if (e.key === 'Escape') onClose();
-  };
-
-  useEffect(() => {
-    if (!open) return;
-    document.addEventListener('keydown', handleGlobalKeyDown);
-    return () => { document.removeEventListener('keydown', handleGlobalKeyDown); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-
   if (!open) return null;
 
   return (
-    <>
-      <div className="qs-backdrop" onClick={onClose} />
-      <div className="qs-modal" role="dialog" aria-label="New Spark" aria-modal="true">
-        <p className="qs-label">NEW SPARK</p>
-        <p className="qs-hint">Cmd+Enter to save · Esc to cancel</p>
-
-        <textarea
-          ref={textRef}
-          className="qs-body"
-          placeholder="What's on your mind?"
-          value={body}
-          onChange={(e) => { setBody(e.target.value); }}
-          onKeyDown={handleKeyDown}
-          rows={4}
-        />
-
-        <div className="qs-tags">
-          <TagPicker
-            selectedIds={tagIds}
-            onChange={setTagIds}
-            trigger={
-              <button className="qs-tag-trigger">
-                {tagIds.length === 0 ? '+ Add tags' : `${tagIds.length} tag${tagIds.length === 1 ? '' : 's'}`}
-              </button>
-            }
-          />
-        </div>
-
-        {recentItems.length > 0 && (
-          <div className="qs-attach">
-            <label className="qs-attach-label" htmlFor="qs-attach-select">Attach to…</label>
-            <select
-              id="qs-attach-select"
-              className="qs-attach-select"
-              value={attachId}
-              onChange={(e) => {
-                const selected = recentItems.find((i) => i.id === e.target.value);
-                setAttachId(e.target.value);
-                setAttachType(selected?.type ?? '');
-              }}
-            >
-              <option value="">— Unattached —</option>
-              {recentItems.map((item) => (
-                <option key={item.id} value={item.id}>{item.title}</option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {error !== null && <p className="qs-error">{error}</p>}
-
-        <div className="qs-actions">
-          <button
-            className="qs-save-btn"
-            disabled={body.trim() === '' || mutation.isPending}
-            onClick={() => { mutation.mutate(); }}
-          >
-            {mutation.isPending ? 'Saving…' : 'Save'}
-          </button>
-          <button className="qs-cancel-btn" onClick={onClose}>Cancel</button>
-        </div>
+    <AppDialog title="New spark" onClose={onClose}
+      actions={<>
+        <span className="kh-dialog__hint">⌘↵ to save</span>
+        <button type="button" className="kh-dialog__button" onClick={onClose}>Cancel</button>
+        <button type="button" className="kh-dialog__button kh-dialog__button--primary" disabled={body.trim() === '' || mutation.isPending}
+          onClick={() => { mutation.mutate(); }}>{mutation.isPending ? 'Saving…' : 'Save'}</button>
+      </>}>
+      <div className="kh-dialog__field kh-dialog__field--first">
+        <label htmlFor="qs-body">What&apos;s on your mind?</label>
+        <textarea id="qs-body" ref={textRef} placeholder="What's on your mind?" value={body}
+          onChange={(e) => { setBody(e.target.value); }} onKeyDown={handleKeyDown} rows={4} />
       </div>
-    </>
+      <div className="kh-dialog__field">
+        <span className="kh-dialog__field-label">Tags</span>
+        <TagPicker selectedIds={tagIds} onChange={setTagIds}
+          trigger={<button type="button" className="kh-dialog__button kh-dialog__file">
+            {tagIds.length === 0 ? '+ Add tags' : `${tagIds.length} tag${tagIds.length === 1 ? '' : 's'}`}
+          </button>} />
+      </div>
+      {recentItems.length > 0 && (
+        <div className="kh-dialog__field">
+          <label htmlFor="qs-attach-select">Attach to…</label>
+          <select id="qs-attach-select" value={attachId}
+            onChange={(e) => {
+              const selected = recentItems.find((i) => i.id === e.target.value);
+              setAttachId(e.target.value);
+              setAttachType(selected?.type ?? '');
+            }}>
+            <option value="">— Unattached —</option>
+            {recentItems.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
+          </select>
+        </div>
+      )}
+      {error !== null && <p className="kh-dialog__error" role="alert">{error}</p>}
+    </AppDialog>
   );
 };

@@ -137,3 +137,9 @@
     transition: none;
   }
 }
+
+.cds--inline-notification {
+  max-inline-size: 100%;
+  min-inline-size: 0;
+  box-sizing: border-box;
+}

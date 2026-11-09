@@ -10,10 +10,8 @@ import React, { useRef, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  InlineLoading, InlineNotification,
-  Modal, TextInput, TextArea, Select, SelectItem,
-} from '@carbon/react';
+import { InlineLoading, InlineNotification, TextInput, TextArea, Select, SelectItem } from '@carbon/react';
+import { KhModal as Modal } from '../components/KhModal';
 import { AthenaRibbon } from '../components/athena/AthenaRibbon';
 import { Add, ArrowRight, Calendar, ChatLaunch, Checkmark, ChevronDown, Close, Edit, Launch, OverflowMenuVertical, Repeat, Upload } from '@carbon/icons-react';
 import { api } from '../services/api';

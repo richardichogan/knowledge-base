@@ -88,7 +88,9 @@
   &::backdrop { background: rgba(0, 0, 0, 0.68); }
   &--wide { width: min(660px, calc(100vw - 32px)); }
   &__header { display: flex; align-items: center; gap: 12px; padding: 24px 24px 0; }
-  &__header h2 { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.3; flex: 1; }
+  &__header h2 { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.3; }
+  &__heading { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  &__label { color: var(--cds-text-secondary); font-size: var(--kh-text-meta); letter-spacing: 0.02em; }
   &__icon { color: var(--kh-accent); flex-shrink: 0; }
   &--danger &__icon { color: var(--cds-support-error); }
   &--success &__icon { color: var(--cds-support-success); }
@@ -106,6 +108,25 @@
   &__button:disabled { opacity: 0.45; cursor: not-allowed; }
   &__button:focus-visible, &__close:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 3px; }
 }
+.kh-dialog__intro { margin: 0 0 4px; color: var(--cds-text-secondary); font-size: var(--kh-text-body); line-height: 1.6; overflow-wrap: anywhere; }
+.kh-dialog__hint { margin-right: auto; align-self: center; color: var(--cds-text-secondary); font-size: var(--kh-text-meta); }
+.kh-dialog__error { margin: 16px 0 0; color: var(--cds-text-error); font-size: var(--kh-text-body); line-height: 1.5; overflow-wrap: anywhere; }
+.kh-dialog__row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.kh-dialog__field {
+  display: flex; flex-direction: column; gap: 6px; margin-top: 16px; min-width: 0;
+  > label, > .kh-dialog__field-label { color: var(--cds-text-secondary); font-size: var(--kh-text-meta); }
+  :is(input:not([type="hidden"]):not([type="file"]):not([type="checkbox"]):not([type="radio"]), textarea, select) {
+    box-sizing: border-box; width: 100%; min-height: var(--kh-control-height); padding: 8px 12px; font: inherit;
+    color: var(--cds-text-primary); background: var(--cds-field-01); border: 0; border-bottom: 1px solid var(--cds-border-strong-01); border-radius: 0;
+    &::placeholder { color: var(--cds-text-placeholder); }
+    &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: -2px; }
+    &:disabled { opacity: 0.6; cursor: not-allowed; }
+  }
+  textarea { resize: vertical; }
+}
+.kh-dialog__file { align-self: flex-start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kh-dialog .build-send-dialog__fields { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; }
+@media (max-width: 600px) { .kh-dialog__row { grid-template-columns: minmax(0, 1fr); gap: 0; } }
 .kh-dialog--settings {
   width: min(1040px, calc(100vw - 32px));
   max-height: calc(100dvh - 48px);
@@ -6751,8 +6772,6 @@ body.kh-pane-resizing {
 }
 
 .notes-github-modal {
-  .cds--modal-container { background: var(--cds-layer-01); color: var(--cds-text-primary); }
-  .cds--modal-content { padding-bottom: 1rem; }
   .cds--text-input { background: var(--cds-field-01); color: var(--cds-text-primary); }
   .cds--text-input:focus { outline-color: var(--kh-accent); }
   .cds--text-input[readonly] { opacity: 0.75; }
@@ -6888,42 +6907,6 @@ body.kh-pane-resizing {
 .pw-gate__btn {
   align-self: flex-start;
   padding: 0.5rem 1.5rem;
-}
-
-.kh-session-dialog {
-  position: fixed;
-  inset: 0;
-  margin: auto;
-  width: min(440px, calc(100vw - 32px));
-  max-height: calc(100dvh - 32px);
-  overflow-y: auto;
-  padding: 24px;
-  border: 1px solid #525252;
-  border-top: 3px solid var(--cds-support-warning);
-  background: #262626;
-  color: #f4f4f4;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
-  font-family: 'IBM Plex Sans', sans-serif;
-
-  &::backdrop { background: rgba(0, 0, 0, 0.65); }
-  h2 { margin: 0 0 12px; font-size: 1.25rem; line-height: 1.4; }
-  p { margin: 0 0 20px; font-size: 0.875rem; line-height: 1.5; color: #c6c6c6; }
-  .kh-session-dialog__label { color: var(--cds-support-warning); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; }
-  .kh-session-dialog__error { color: #ffb3b8; }
-}
-
-.kh-session-dialog__button {
-  padding: 12px 20px;
-  border: 1px solid transparent;
-  background: #0f62fe;
-  color: #fff;
-  font: inherit;
-  font-size: 0.875rem;
-  cursor: pointer;
-  &:hover:not(:disabled) { background: #0353e9; }
-  &:active:not(:disabled) { background: #002d9c; }
-  &:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
-  &:disabled { background: #393939; color: #8d8d8d; cursor: wait; }
 }
 
 // ── Projects page ────────────────────────────────────────────────────────────
@@ -11041,99 +11024,6 @@ $project-colour-map: (
 
 .isc-error { font-size: 0.75rem; color: var(--cds-support-error); width: 100%; }
 
-// ── Quick Spark Modal ─────────────────────────────────────────────────────────
-
-.qs-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 900;
-}
-
-.qs-modal {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 480px;
-  max-height: 360px;
-  background: var(--cds-layer-01);
-  border: 1px solid var(--cds-border-subtle-01);
-  padding: 1.25rem 1.5rem;
-  z-index: 901;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.qs-label {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--cds-text-primary);
-  margin: 0;
-}
-
-.qs-hint { font-size: 0.75rem; color: var(--cds-text-helper); margin: -0.5rem 0 0; }
-
-.qs-body {
-  width: 100%;
-  background: var(--cds-layer-02);
-  border: 1px solid var(--cds-border-subtle-01);
-  color: var(--cds-text-primary);
-  font-family: 'IBM Plex Sans', sans-serif;
-  font-size: var(--kh-text-body);
-  padding: 0.5rem 0.75rem;
-  resize: none;
-  outline: none;
-  &:focus { border-color: var(--cds-focus); }
-}
-
-.qs-tags { display: flex; align-items: center; }
-
-.qs-tag-trigger {
-  font-size: 0.75rem;
-  color: var(--cds-link-primary);
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 0;
-}
-
-.qs-attach { display: flex; flex-direction: column; gap: 0.25rem; }
-.qs-attach-label { font-size: 0.75rem; color: var(--cds-text-secondary); }
-
-.qs-attach-select {
-  font-size: var(--kh-text-body);
-  background: var(--cds-layer-02);
-  border: 1px solid var(--cds-border-subtle-01);
-  color: var(--cds-text-primary);
-  padding: 0.25rem 0.5rem;
-}
-
-.qs-error { font-size: 0.75rem; color: var(--cds-support-error); margin: 0; }
-.qs-actions { display: flex; gap: 0.5rem; margin-top: auto; }
-
-.qs-save-btn {
-  padding: 0.375rem 1rem;
-  background: var(--cds-interactive);
-  color: var(--cds-text-on-color);
-  border: none;
-  cursor: pointer;
-  font-size: 0.875rem;
-  &:disabled { opacity: 0.5; cursor: not-allowed; }
-}
-
-.qs-cancel-btn {
-  padding: 0.375rem 1rem;
-  background: none;
-  border: 1px solid var(--cds-border-subtle-01);
-  color: var(--cds-text-primary);
-  cursor: pointer;
-  font-size: 0.875rem;
-}
-
 // ── Task List View (.tl-) ─────────────────────────────────────────────────────
 
 .tl-root {
@@ -13881,194 +13771,6 @@ $project-colour-map: (
   gap: 1rem;
 }
 
-.docs-upload-dialog-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.docs-upload-dialog {
-  background: var(--cds-layer-01);
-  border: 1px solid var(--cds-border-subtle-01);
-  border-radius: var(--kh-radius-lg);
-  padding: 1.5rem;
-  width: 90%;
-  max-width: 420px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-}
-
-.docs-upload-dialog__title {
-  margin: 0 0 0.5rem;
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--cds-text-primary);
-}
-
-.docs-upload-dialog__subtitle {
-  margin: 0 0 1.25rem;
-  font-size: 0.875rem;
-  color: var(--cds-text-secondary);
-}
-
-.docs-upload-dialog__section {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-}
-
-.docs-upload-dialog__label {
-  display: block;
-  font-size: var(--kh-text-body);
-  font-weight: 500;
-  color: var(--cds-text-primary);
-}
-
-.docs-upload-dialog__file-btn {
-  width: 100%;
-  padding: 0.75rem;
-  background: var(--cds-field-01);
-  border: 1px solid var(--cds-border-subtle-01);
-  border-radius: var(--kh-radius-md);
-  color: var(--cds-text-primary);
-  font-size: 0.875rem;
-  cursor: pointer;
-  text-align: left;
-  transition: border-color 0.12s ease;
-
-  &:hover:not(:disabled) {
-    border-color: var(--cds-border-strong-01);
-  }
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-}
-
-.docs-upload-dialog__input {
-  width: 100%;
-  padding: 0.75rem;
-  background: var(--cds-field-01);
-  border: 1px solid var(--cds-border-subtle-01);
-  border-radius: var(--kh-radius-md);
-  color: var(--cds-text-primary);
-  font-size: 0.875rem;
-  box-sizing: border-box;
-
-  &::placeholder {
-    color: var(--cds-text-placeholder);
-  }
-
-  &:focus {
-    outline: none;
-    border-color: var(--cds-focus);
-    box-shadow: 0 0 0 1px var(--cds-focus);
-  }
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-}
-
-.docs-project-filter {
-  display: flex;
-  flex-direction: column;
-  gap: 0.375rem;
-  margin-bottom: 0.75rem;
-  padding: 0.75rem;
-  background: var(--cds-layer-01);
-  border: 1px solid var(--cds-border-subtle-01);
-  border-radius: var(--kh-radius-md);
-}
-
-.docs-project-filter__label {
-  color: var(--cds-text-helper);
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.docs-project-filter__select,
-.docs-upload-dialog__select {
-  width: 100%;
-  padding: 0.75rem;
-  background: var(--cds-field-01);
-  border: 1px solid var(--cds-border-subtle-01);
-  border-radius: var(--kh-radius-md);
-  color: var(--cds-text-primary);
-  font-size: 0.875rem;
-  box-sizing: border-box;
-  cursor: pointer;
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
-
-  &:hover:not(:disabled) {
-    border-color: var(--cds-border-strong-01);
-  }
-
-  &:focus {
-    outline: none;
-    border-color: var(--cds-focus);
-    box-shadow: 0 0 0 1px var(--cds-focus);
-  }
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-}
-
-.docs-upload-dialog__actions {
-  display: flex;
-  gap: 0.75rem;
-  justify-content: flex-end;
-}
-
-.docs-upload-dialog__btn {
-  padding: 0.5rem 1rem;
-  border-radius: var(--kh-radius-md);
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-  border: none;
-  transition: opacity 0.12s ease;
-
-  &--cancel {
-    background: transparent;
-    color: var(--cds-text-primary);
-    border: 1px solid var(--cds-border-subtle-01);
-
-    &:hover:not(:disabled) {
-      background: var(--cds-layer-hover-01);
-    }
-
-    &:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-  }
-
-  &--primary {
-    background: var(--kh-accent);
-    color: #000;
-
-    &:hover:not(:disabled) {
-      opacity: 0.9;
-    }
-
-    &:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-  }
-}
-
 // Fixed width so New note / New spark / New canvas don't resize the command
 // bar when switching Think views (sized for the longest label).
 .notes-header__new {
@@ -15523,8 +15225,7 @@ fieldset.proj-modal-body {
 .build-task__actions .kb-import-btn { padding: 3px 10px; font-size: 0.75rem; }
 .build-task__actions:empty { display: none; }
 
-.build-page .kb-import-btn:disabled,
-.build-send-dialog .kb-import-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.build-page .kb-import-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .build-events { list-style: none; margin: 0; padding: 0; }
 
@@ -15550,9 +15251,6 @@ fieldset.proj-modal-body {
 
 .build-event__msg { color: var(--cds-text-secondary); line-height: 1.5; }
 
-.build-send-dialog { max-width: 480px; }
-.build-send-dialog__fields { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1rem; }
-.build-send-dialog__actions { justify-content: flex-end; }
 
 @media (max-width: 900px) {
   .build-page { padding: 2rem 1rem; }

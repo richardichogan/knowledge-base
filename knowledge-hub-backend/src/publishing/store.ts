@@ -243,6 +243,45 @@ export async function rejectDraftTopic(db: Pool, topicId: string, versions: Reco
     });
   });
 }
+// Returns a stopped package to editorial preparation. Passed reviews, approvals and anything scheduled or delivered are untouched.
+export async function releaseTopic(db: Pool, id: string, actor: string): Promise<boolean> {
+  return transaction(db, async c => {
+    const topic = await c.query(`UPDATE publishing_topics SET state='ready',error=NULL WHERE id=$1 AND state='held'
+      AND EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=$1)
+      AND NOT EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=$1 AND approval<>'pending')
+      AND NOT EXISTS(SELECT 1 FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id WHERE d.topic_id=$1)
+      AND NOT EXISTS(SELECT 1 FROM publishing_deliveries WHERE topic_id=$1) RETURNING id`, [id]);
+    if (!topic.rowCount) return false;
+    await c.query(`UPDATE publishing_drafts SET held=FALSE,review=CASE WHEN review='pass' THEN review ELSE 'pending' END,
+      reason=CASE WHEN review='pass' THEN reason ELSE 'Preparation retried.' END,updated_at=NOW()
+      WHERE topic_id=$1 AND approval='pending'`, [id]);
+    await event(c, id, actor, 'topic-retried', {});
+    return true;
+  });
+}
+// Packages that can never ship are closed so they leave Drafts instead of waiting on the user: a package with a rejected destination, and held leftovers of a topic already published.
+export async function closeDeadPackages(db: Pool): Promise<number> {
+  return transaction(db, async c => {
+    const noDelivery = 'NOT EXISTS(SELECT 1 FROM publishing_deliveries WHERE topic_id=t.id)';
+    const rejectedParts = (await c.query<{ id: string }>(`UPDATE publishing_topics t SET state='rejected' WHERE state='held'
+      AND EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=t.id AND approval='rejected')
+      AND NOT EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=t.id AND approval='approved')
+      AND NOT EXISTS(SELECT 1 FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id WHERE d.topic_id=t.id)
+      AND ${noDelivery} RETURNING t.id`)).rows;
+    for (const topic of rejectedParts) {
+      await c.query(`UPDATE publishing_drafts SET approval='rejected',held=TRUE,reason='A destination was rejected, so the package was closed; source article retained.',updated_at=NOW()
+        WHERE topic_id=$1 AND approval='pending'`, [topic.id]);
+      await event(c, topic.id, 'package-cleanup', 'package-closed', { reason: 'rejected destination' });
+    }
+    const leftovers = (await c.query<{ id: string; topic_id: string }>(`UPDATE publishing_drafts d SET approval='rejected',held=TRUE,
+      reason='This topic was already published; the leftover copy was closed.',updated_at=NOW()
+      WHERE d.approval='pending' AND d.held
+      AND EXISTS(SELECT 1 FROM publishing_deliveries x WHERE x.topic_id=d.topic_id AND x.status='sent')
+      AND NOT EXISTS(SELECT 1 FROM publishing_schedule s WHERE s.draft_id=d.id) RETURNING d.id,d.topic_id`)).rows;
+    for (const draft of leftovers) await event(c, draft.topic_id, 'package-cleanup', 'package-closed', { draftId: draft.id, reason: 'already published' });
+    return rejectedParts.length + leftovers.length;
+  });
+}
 export async function holdTopic(db: Pool, id: string, rejected: boolean, actor: string, reason: string): Promise<void> {
   await transaction(db, async c => {
     const changed = await c.query("UPDATE publishing_topics SET state=$2,error=$3 WHERE id=$1 RETURNING id", [id, rejected ? 'rejected' : 'held', reason]);
