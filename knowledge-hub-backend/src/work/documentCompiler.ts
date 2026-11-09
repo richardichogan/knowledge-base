@@ -131,12 +131,12 @@ function describeUnread(result: unknown): string {
 async function compileSource(context: SpecialistContext, input: CompileInput, source: CompileSource, index: number): Promise<CompiledSection> {
   const signal = AbortSignal.any([context.signal, AbortSignal.timeout(SOURCE_TIMEOUT_MS)]);
   const label = `${index + 1}/${input.sources.length}`;
-  const client = getFoundryClient(DOCUMENT_COMPILER_SPECIALIST).scoped({ sessionId: context.jobId });
+  const client = getFoundryClient(DOCUMENT_COMPILER_SPECIALIST).scoped({ sessionId: context.subjectId });
   const purpose = `Condense this document into its section of one consolidated note titled "${input.title}". `
     + `Preserve its requirements, identifiers, figures, decisions and acceptance criteria. Instruction from the user: ${input.instruction}`;
   context.progress(`Iris: reading ${source.title} (${label}).`);
   const review = await readWholeDocument(context.db, {
-    sessionId: context.jobId, scopeKey: `document-compiler:${context.subjectId}`, purpose, signal,
+    sessionId: context.subjectId, scopeKey: `document-compiler:${context.subjectId}`, purpose, signal,
     onProgress: message => context.progress(`Iris: ${source.title} (${label}). ${message}`),
     read: async (cursor): Promise<KnowledgeAccess> => {
       signal.throwIfAborted();
