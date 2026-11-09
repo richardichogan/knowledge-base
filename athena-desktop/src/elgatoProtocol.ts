@@ -66,6 +66,7 @@ export function parsePresentationVisuals(value: unknown, length: number): Presen
     const data = value as Record<string, unknown>;
     if (data.imageTreatment !== undefined && data.imageTreatment !== 'full' && data.imageTreatment !== 'blend') throw new Error('Invalid header image treatment.');
     if (data.frame !== undefined && data.frame !== 'around-presenter') throw new Error('Invalid presentation composition frame.');
+    if (data.pattern !== undefined && (data.imageTreatment !== undefined || data.frame !== undefined)) throw new Error('A pattern composition cannot also set imageTreatment or frame.');
     if (!Array.isArray(data.nodes) || (!data.nodes.length && !data.imageTreatment && !titleOnly) || data.nodes.length > 24
       || !Array.isArray(data.links) || data.links.length > 24) throw new Error('Invalid presentation composition elements.');
     if (data.imageTreatment && (data.nodes.length || data.links.length || reveals)) throw new Error('Header imagery cannot be mixed with animated diagram content.');
@@ -83,6 +84,34 @@ export function parsePresentationVisuals(value: unknown, length: number): Presen
       if (!['teal', 'blue', 'purple', 'neutral', 'warning', 'success'].includes(String(value))) throw new Error('Invalid presentation composition tone.');
       return value as VisualNode['tone'];
     };
+    const pattern = ((): VisualPattern | undefined => {
+      if (data.pattern === undefined) return undefined;
+      if (!data.pattern || typeof data.pattern !== 'object' || Array.isArray(data.pattern)) throw new Error('Invalid presentation composition pattern.');
+      const raw = data.pattern as Record<string, unknown>;
+      if (!['flow', 'converge', 'branch', 'stack', 'compare', 'hub', 'cycle', 'statement', 'tree', 'tiers'].includes(String(raw.type))
+        || !['icon', 'panel', 'text', 'block'].includes(String(raw.kind))) throw new Error('Invalid presentation composition pattern.');
+      if (!Array.isArray(raw.subjects) || !raw.subjects.length || raw.subjects.length > 24) throw new Error('Invalid presentation composition pattern.');
+      const subjectIds = new Set<string>();
+      const subjects = raw.subjects.map((entry: unknown): VisualPatternSubject => {
+        if (!entry || typeof entry !== 'object') throw new Error('Invalid presentation composition pattern subject.');
+        const subject = entry as Record<string, unknown>;
+        const id = string(subject.id, 80);
+        if (!id.trim() || subjectIds.has(id)) throw new Error('Invalid presentation composition pattern subject id.');
+        subjectIds.add(id);
+        if (subject.icon !== undefined && !PRESENTATION_ICONS.includes(String(subject.icon))) throw new Error('Invalid presentation composition pattern icon.');
+        if (subject.asset !== undefined && !PRESENTATION_ASSET_IDS.includes(String(subject.asset))) throw new Error('Invalid presentation composition pattern asset.');
+        if (subject.emphasis !== undefined && !['highlight', 'underline', 'strike'].includes(String(subject.emphasis))) throw new Error('Invalid presentation composition pattern emphasis.');
+        return { id, label: string(subject.label, 120), detail: string(subject.detail, 240), tone: tone(subject.tone), reveal: reveal(subject.reveal),
+          ...(subject.asset === undefined ? {} : { asset: subject.asset as NonNullable<VisualPatternSubject['asset']> }),
+          ...(subject.icon === undefined ? {} : { icon: subject.icon as NonNullable<VisualPatternSubject['icon']> }),
+          ...(subject.kicker === undefined ? {} : { kicker: string(subject.kicker, 40) }),
+          ...(subject.emphasis === undefined ? {} : { emphasis: subject.emphasis as NonNullable<VisualPatternSubject['emphasis']> }) };
+      });
+      const focus = raw.focus === undefined ? undefined : string(raw.focus, 80);
+      if (focus !== undefined && !subjectIds.has(focus)) throw new Error('Invalid presentation composition pattern focus.');
+      return { type: raw.type as VisualPattern['type'], kind: raw.kind as VisualPattern['kind'],
+        ...(focus === undefined ? {} : { focus }), subjects };
+    })();
     const ids = new Set<string>();
     const nodes = data.nodes.map((raw: unknown): VisualNode => {
       if (!raw || typeof raw !== 'object') throw new Error('Invalid presentation composition node.');
@@ -94,9 +123,12 @@ export function parsePresentationVisuals(value: unknown, length: number): Presen
       if (!['panel', 'text', 'icon', 'image', 'asset', 'stat', 'block', 'quote'].includes(kind) || !PRESENTATION_ICONS.includes(String(node.icon))) throw new Error('Invalid presentation composition node type.');
       if (kind === 'asset' ? !PRESENTATION_ASSET_IDS.includes(String(node.asset)) : node.asset !== undefined) throw new Error('Invalid presentation composition asset.');
       if (node.role !== undefined && (!['hero', 'primary', 'secondary'].includes(String(node.role)) || !['panel', 'icon', 'asset', 'stat', 'block'].includes(kind))) throw new Error('Invalid presentation composition role.');
-      const x = number(node.x, 80, 1520), y = number(node.y, 240, 790);
-      const width = number(node.width, 40, 1440), height = number(node.height, 40, 550);
-      if (x + width > 1520 || y + height > 800) throw new Error('Presentation composition is outside the stage.');
+      const x = pattern ? number(node.x, -1200, 3200) : number(node.x, 80, 1520);
+      const y = pattern ? number(node.y, -1200, 2400) : number(node.y, 240, 790);
+      const width = pattern ? number(node.width, 1, 2400) : number(node.width, 40, 1440);
+      const height = pattern ? number(node.height, 1, 2400) : number(node.height, 40, 550);
+      // Pattern-generated geometry is trusted: the layout engine may overrun the stage and the renderer scales the whole scene to fit.
+      if (!pattern && (x + width > 1520 || y + height > 800)) throw new Error('Presentation composition is outside the stage.');
       if (node.entrance !== undefined && !['fade', 'rise', 'left', 'right', 'scale', 'wipe'].includes(String(node.entrance))) throw new Error('Invalid presentation composition entrance.');
       if (node.emphasis !== undefined && !['highlight', 'underline', 'strike'].includes(String(node.emphasis))) throw new Error('Invalid presentation composition emphasis.');
       if (node.size !== undefined && !['xl', 'l', 'm', 's'].includes(String(node.size))) throw new Error('Invalid presentation composition text size.');
@@ -160,7 +192,8 @@ export function parsePresentationVisuals(value: unknown, length: number): Presen
     });
     return { label: string(data.label, 100), imagePrompt: string(data.imagePrompt, 1800), nodes, links,
       ...(data.imageTreatment === undefined ? {} : { imageTreatment: data.imageTreatment as NonNullable<VisualComposition['imageTreatment']> }),
-      ...(data.frame === undefined ? {} : { frame: 'around-presenter' as const }) };
+      ...(data.frame === undefined ? {} : { frame: 'around-presenter' as const }),
+      ...(pattern === undefined ? {} : { pattern }) };
   };
   const artwork = (value: unknown): PresentationArtwork => {
     if (!value || typeof value !== 'object') throw new Error('Invalid presentation artwork.');
@@ -280,4 +313,4 @@ export function playbackCommand(state: PresentationState, command: DesktopComman
   }
   return next;
 }
-import type { VisualComposition, VisualNode, VisualNodeState, VisualLink, VisualVideoMode, VisualVideoState } from '../assets/visualComposition';
+import type { VisualComposition, VisualNode, VisualNodeState, VisualLink, VisualPattern, VisualPatternSubject, VisualVideoMode, VisualVideoState } from '../assets/visualComposition';
