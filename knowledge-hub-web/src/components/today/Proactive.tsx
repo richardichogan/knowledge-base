@@ -1,6 +1,6 @@
 /**
  * components/today/Proactive.tsx — Phase 2/3 proactive Athena: the Imagine deal desk, meeting prep with promises,
- * chases and keep-in-touch nudges, content packages, the CFP shortlist, Athena's self-report and work Athena paused
+ * chases and keep-in-touch nudges, the CFP shortlist, Athena's self-report and work Athena paused
  * after repeated failures. Proposals surface in peak hours, at most three at a time; held items stay in Athena's context.
  * Everything reads GET /api/today/proactive and acts through the same actions as Athena's manage_proactive tool.
  */
@@ -10,7 +10,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, Renew } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import { describeApiError, requireApiData } from '../../services/apiError';
-import type { CadenceNudge, ChaseProposal, ContentPackage, LoopPause, PrepCard, ProactiveAction, ProactiveOverview, PromiseProposal } from '../../types/goals';
+import type { CadenceNudge, ChaseProposal, LoopPause, PrepCard, ProactiveAction, ProactiveOverview, PromiseProposal } from '../../types/goals';
 
 export const PROACTIVE_KEY = ['today', 'proactive'] as const;
 const POLL_MS = 4_000;
@@ -26,8 +26,7 @@ export function useProactive(idlePollMs: number | false = false) {
   return useQuery({
     queryKey: PROACTIVE_KEY,
     queryFn: async (): Promise<ProactiveOverview> => requireApiData(await api.getProactive()),
-    refetchInterval: q => (q.state.data?.deals.running || q.state.data?.meetingPrep.running
-      || q.state.data?.packages.some(p => p.status === 'drafting' || p.status === 'in-review') ? POLL_MS : idlePollMs),
+    refetchInterval: q => (q.state.data?.deals.running || q.state.data?.meetingPrep.running ? POLL_MS : idlePollMs),
   });
 }
 
@@ -57,7 +56,6 @@ export function proactiveContext(data: ProactiveOverview | undefined): string {
     `Promises awaiting a decision: ${open(prep.promises).map(p => `[${p.id}] ${p.owner === 'richard' ? 'Richard' : p.who} — ${p.text}${held(p)}`).join('; ') || 'none'}.`,
     `Chases: ${open(prep.chases).map(c => `[${c.id}] ${c.taskTitle} (${c.waitingOn ? `waiting on ${c.waitingOn}, ` : ''}${c.workingDays} working days)${held(c)}`).join('; ') || 'none'}.`,
     `Keep-in-touch: ${open(prep.cadence).map(c => `[${c.id}] ${c.person}, ${c.workingDays} working days${held(c)}`).join('; ') || 'none'}.`,
-    `Content packages: ${data.packages.map(p => `[${p.id}] ${p.title} (${p.trigger}, ${p.status})${held(p)}`).join('; ') || 'none'}.`,
     `CFP shortlist: ${data.cfps.shortlist.map(c => `[${c.id}] ${c.conference}, deadline ${when(c.deadline)}${held(c)}`).join('; ') || 'none'}. Scheduled: ${data.cfps.scheduled.map(s => `${s.conference} abstract due ${when(s.dueAt)}`).join('; ') || 'none'}.`,
     `Athena's proposals since ${when(data.ledger.since)}: ${data.ledger.proposed} proposed, ${data.ledger.accepted} accepted, ${data.ledger.open} awaiting a decision, ${data.ledger.ignored} ignored, ${data.ledger.dismissed} rejected. Stopped: ${data.ledger.stopped.map(s => s.label).join(', ') || 'none'}.`,
   ];
@@ -251,46 +249,6 @@ export function MeetingPrepPanel(): React.ReactElement {
       </>}
       <ActionError m={act} />
     </div>
-  );
-}
-
-const PACKAGE_STATUS: Record<ContentPackage['status'], string> = {
-  drafting: 'Drafting', 'in-review': 'In editorial review', 'ready-to-approve': 'Ready to approve', ready: 'Ready in Think', approved: 'Approved',
-  published: 'Published', rejected: 'Rejected', expired: 'Expired', failed: 'Failed',
-};
-const PACKAGE_TRIGGER: Record<ContentPackage['trigger'], string> = {
-  competitor: 'Competitor move', discover: 'Strong Imagine fit', podcast: 'From the podcast', win: 'Anonymised deal win',
-};
-
-/** Plan › Drafts: one card per content package linking the blog, LinkedIn post, Think note and source. */
-export function ContentPackages(): React.ReactElement | null {
-  const q = useProactive();
-  const act = useProactiveAction();
-  const all = (q.data?.packages ?? []).filter(p => !['rejected', 'expired'].includes(p.status));
-  const packages = all.filter(p => !p.held);
-  if (q.isError) return <p className="kh-drafts__status" role="alert">Content packages could not be loaded: {describeApiError(q.error)}</p>;
-  if (!all.length) return null;
-  return (
-    <section aria-labelledby="drafts-packages" className="kh-drafts__packages">
-      <h2 id="drafts-packages" className="kh-drafts__group">Content packages <span>{packages.length}</span></h2>
-      <ul>{packages.map(p => <li key={p.id} className="kh-drafts__package">
-        <span className="kh-drafts__title">{p.blog?.title || p.title}</span>
-        <span className="kh-drafts__meta">{PACKAGE_STATUS[p.status]} · {PACKAGE_TRIGGER[p.trigger]} · {when(p.createdAt)}</span>
-        {p.angle && <p className="kh-drafts__angle">{p.angle}</p>}
-        {p.error && <p className="kh-drafts__meta today-goals__failed">{p.error}</p>}
-        <div className="kh-drafts__package-links">
-          {(p.blog || p.linkedin) && <Link to="/discover?publishing=1">Blog and LinkedIn in Publishing</Link>}
-          {p.noteId && <Link to={noteLink(p.noteId)}>{p.noteOnly ? 'LinkedIn post, blog outline, podcast segment and CFP abstract' : 'Podcast segment and CFP abstract'}</Link>}
-          {p.url && <a href={p.url} target="_blank" rel="noreferrer">Source article</a>}
-          {p.status === 'ready' && <button type="button" className="kh-btn-ghost" disabled={act.isPending}
-            onClick={() => { act.mutate({ action: 'use-package', args: { id: p.id }, key: `use:${p.id}` }); }}>{busy(act, `use:${p.id}`) ? 'Saving...' : 'Use it'}</button>}
-          {!['approved', 'published'].includes(p.status) && <button type="button" className="kh-btn-ghost" disabled={act.isPending}
-            onClick={() => { act.mutate({ action: 'dismiss-package', args: { id: p.id }, key: p.id }); }}>{busy(act, p.id) ? 'Dismissing...' : 'Dismiss'}</button>}
-        </div>
-      </li>)}</ul>
-      {all.length > packages.length && q.data && <p className="kh-drafts__meta">{all.length - packages.length} more held until {when(q.data.timing.nextWindow, true)}. Athena shows at most three proposals at a time, in your peak hours.</p>}
-      <ActionError m={act} />
-    </section>
   );
 }
 

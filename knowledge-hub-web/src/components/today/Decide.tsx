@@ -22,8 +22,8 @@ export function useDecide() {
 }
 
 const KIND_LABEL: Record<DecideKind, string> = {
-  publishing: 'Publishing', decision: 'Open question', promise: 'Promise', chase: 'Chase', cadence: 'Keep in touch',
-  package: 'Content package', cfp: 'CFP', paused: 'Paused', email: 'Unsent draft', waiting: 'Waiting on',
+  publishing: 'Publishing', decision: 'Open question', promise: 'Promise', chase: 'Chase', cadence: 'Keep in touch',
+  cfp: 'CFP', paused: 'Paused', email: 'Unsent draft', waiting: 'Waiting on',
 };
 const day = (iso: string): string => new Date(iso).toLocaleDateString('en-GB', { timeZone: 'Europe/London', day: 'numeric', month: 'short' });
 const str = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
@@ -124,10 +124,6 @@ export function DecideDetail({ item, onAsk }: { item: DecideItem; onAsk: () => v
       {item.kind === 'promise' && <Buttons m={m} buttons={[p('accept-promise', item.meta.owner === 'richard' ? 'Accept: make a task and draft' : 'Accept: track as waiting on', 'Accepting...', true), p('dismiss-promise', 'Dismiss', 'Dismissing...')]} />}
       {item.kind === 'chase' && <Buttons m={m} buttons={[p('dismiss-chase', 'Dismiss chase', 'Dismissing...')]} />}
       {item.kind === 'cadence' && <Buttons m={m} buttons={[p('accept-cadence', 'Accept: make a task and draft', 'Accepting...', true), p('dismiss-cadence', 'Dismiss', 'Dismissing...')]} />}
-      {item.kind === 'package' && <>
-        <Buttons m={m} buttons={[p('use-package', 'Use package', 'Saving...', true), p('dismiss-package', 'Dismiss package', 'Dismissing...')]} />
-        {str(item.meta.noteId) && <div className="today-brief__actions"><Link className="today-brief__quiet" to={`/think?note=${encodeURIComponent(String(item.meta.noteId))}`}>Open package note <ArrowRight size={16} /></Link></div>}
-      </>}
       {item.kind === 'cfp' && <>
         <Buttons m={m} buttons={[p('confirm-cfp', 'Confirm: schedule abstract', 'Confirming...', true), p('dismiss-cfp', 'Dismiss', 'Dismissing...')]} />
         {str(item.meta.cfpUrl) && <div className="today-brief__actions"><a className="today-brief__quiet" href={String(item.meta.cfpUrl)} target="_blank" rel="noreferrer">Open CFP <ArrowRight size={16} /></a></div>}

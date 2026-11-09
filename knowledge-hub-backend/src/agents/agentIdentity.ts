@@ -13,7 +13,7 @@ const OWNERS: Record<RoleId, readonly string[]> = {
     'decisions', 'passage-followup', 'task-assistance-assessment', 'task-assistance-assessor', 'memory-suggestions',
     'memory-review', 'agent-lesson-review', 'scheduled-prompt', 'knowledge-nightly-review', 'tagging-sweep',
     'archive-tasks', 'connections', 'foundry-backfill', 'task-review', 'task-message-drafter', 'goals-brief', 'goals-scorecard',
-    'deal-desk', 'meeting-prep', 'content-package', 'cfp-abstract', 'goal-review',
+    'deal-desk', 'meeting-prep', 'cfp-abstract', 'goal-review',
   ],
   iris: ['task-researcher', 'chat-researcher', 'document-reading', 'document-review', 'deep-dive', 'blog-research', 'manual-blog-research'],
   calliope: [

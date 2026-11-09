@@ -86,7 +86,7 @@ export function focusTools(
     const name = tool.function.name;
     if (name === 'manage_scheduled_jobs' && !wantsJobs) return false;
     if (name === 'manage_publishing_feeds' && !wantsJobs && !/\b(?:publish\w*|posting|bluesky|bsky|linkedin|editorial|blog)\b/i.test(text)) return false;
-    if (name === 'manage_proactive' && !/\b(?:deal\s*(?:desk|brief)s?|meetings?|prep\w*|promis\w*|chas\w*|cadence|reconnect|nudg\w*|content\s+packages?|packages?|cfps?|abstracts?|conferences?|proactive|proposals?|self-report|switched\s+off|adnoc|royal\s+london|ikea|reckitt|miha|chad|josh|waiting\s+on|paused|loop\w*|stuck|peak|held|podcast\s+package|wins?)\b/i.test(text)) return false;
+    if (name === 'manage_proactive' && !/\b(?:deal\s*(?:desk|brief)s?|meetings?|prep\w*|promis\w*|chas\w*|cadence|reconnect|nudg\w*|cfps?|abstracts?|conferences?|proactive|proposals?|self-report|switched\s+off|adnoc|royal\s+london|ikea|reckitt|miha|chad|josh|waiting\s+on|paused|loop\w*|stuck|peak|held|wins?)\b/i.test(text)) return false;
     if (name === 'manage_decide_queue' && !/\b(?:decide|decision\w*|queue|approv\w*|picks?|waiting\s+on|waiting|held|promis\w*|proposals?|drafts?|unsent|today|open\s+questions?)\b/i.test(text)) return false;
     if (name === 'manage_goals' && !/\b(?:goals?|brief|scorecard|moves?|tidy|tidy-up|on track|slipping|at risk|proposals?|cfps?|specialisation|specialization|this week|priorit\w*|focus|overdue|inbox|today|adjust\w*|link\w*|workstreams?|targets?|deadlines?|review)\b/i.test(text)) return false;
     if (name === 'get_demo_specification_template' || name === 'create_demo_specification') return wantsDemoSpecification;

@@ -107,7 +107,7 @@ todayRouter.post('/goals/tidy/apply', (req, res, next) => {
 todayRouter.post('/goals/tidy/undo', (req, res, next) => {
   void undoTidyBatch(getDb(), (req.body as { batchId?: unknown } | undefined)?.batchId, 'richard').then((data) => { res.json({ success: true, data }); }).catch(next);
 });
-/** GET /api/today/proactive — deal desk, meeting prep, promises/chases/cadence, content packages, CFP shortlist and Athena's self-report. */
+/** GET /api/today/proactive — deal desk, meeting prep, promises/chases/cadence, CFP shortlist and Athena's self-report. */
 todayRouter.get('/proactive', (_req, res, next) => {
   void proactiveOverview(getDb()).then((data) => { res.json({ success: true, data }); }).catch(next);
 });

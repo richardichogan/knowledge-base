@@ -84,20 +84,12 @@ export interface MeetingPrepState {
   reportDate: string | null; generatedAt: string | null; trigger: string | null; cards: PrepCard[];
   promises: PromiseProposal[]; chases: ChaseProposal[]; cadence: CadenceNudge[]; chasedAt: Record<string, string>; running: boolean;
 }
-export interface ContentPackage {
-  id: string; topicId: string; noteId: string | null; itemId: string; title: string; url: string;
-  trigger: 'competitor' | 'discover' | 'podcast' | 'win'; why: string; angle: string; createdAt: string; error?: string;
-  noteOnly?: boolean; decision?: 'accepted' | 'dismissed'; held?: boolean;
-  status: 'drafting' | 'in-review' | 'ready-to-approve' | 'ready' | 'approved' | 'published' | 'rejected' | 'expired' | 'failed';
-  blog: { id: string; review: string; approval: string; held: boolean; title: string } | null;
-  linkedin: { id: string; review: string; approval: string; held: boolean } | null;
-}
 export interface CfpCard {
   id: string; conference: string; fit: string; score: number; deadline: string; eventStart: string | null;
   location: string | null; isVirtual: boolean; cfpUrl: string; held?: boolean;
 }
 export interface CfpSchedule { cfpId: string; conference: string; deadline: string; dueAt: string; confirmedAt: string; noteId: string | null; taskId: string | null; error?: string }
-export type ProposalType = 'goal-move' | 'date-proposal' | 'deal-followup' | 'promise' | 'chase' | 'cadence' | 'content-package' | 'cfp' | 'chat-next-step' | 'goal-adjustment';
+export type ProposalType = 'goal-move' | 'date-proposal' | 'deal-followup' | 'promise' | 'chase' | 'cadence' | 'cfp' | 'chat-next-step' | 'goal-adjustment';
 export interface ProposalReport {
   since: string; proposed: number; accepted: number; open: number; ignored: number; dismissed: number;
   byType: Array<{ type: ProposalType; label: string; proposed: number; accepted: number; open: number; ignored: number; dismissed: number }>;
@@ -113,16 +105,15 @@ export interface ProactiveOverview {
   timing: { peak: boolean; held: number; nextWindow: string };
   deals: { rows: DealDeskRow[]; running: boolean };
   meetingPrep: MeetingPrepState;
-  packages: ContentPackage[];
   cfps: { shortlist: CfpCard[]; scheduled: CfpSchedule[] };
   ledger: ProposalReport;
 }
 export type ProactiveAction = 'run-deal-desk' | 'update-deal-from-notes' | 'deal-history' | 'undo-deal-update' | 'refresh-meeting-prep'
-  | 'accept-promise' | 'dismiss-promise' | 'accept-cadence' | 'dismiss-cadence' | 'dismiss-chase' | 'run-content-package' | 'run-story-package' | 'use-package' | 'dismiss-package' | 'resume-paused' | 'stop-paused'
+  | 'accept-promise' | 'dismiss-promise' | 'accept-cadence' | 'dismiss-cadence' | 'dismiss-chase' | 'resume-paused' | 'stop-paused'
   | 'confirm-cfp' | 'dismiss-cfp' | 'enable-proposal-type' | 'disable-proposal-type';
 
 /** Today's Decide queue (GET /api/today/decide), oldest first. */
-export type DecideKind = 'publishing' | 'decision' | 'promise' | 'chase' | 'cadence' | 'package' | 'cfp' | 'paused' | 'email' | 'waiting';
+export type DecideKind = 'publishing' | 'decision' | 'promise' | 'chase' | 'cadence' | 'cfp' | 'paused' | 'email' | 'waiting';
 export interface DecideItem {
   id: string; kind: DecideKind; refId: string; title: string; detail: string; source: string; createdAt: string; held: boolean;
   meta: Record<string, string | number | boolean | null>;

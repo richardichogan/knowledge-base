@@ -1,6 +1,6 @@
 /**
  * goals/proposals.ts — Athena's proposal ledger. Every proactive proposal (weekly moves, date changes, deal follow-ups,
- * promises, chases, cadence nudges, content packages, CFPs and chat next steps) is recorded with its outcome so the
+ * promises, chases, cadence nudges, CFPs and chat next steps) is recorded with its outcome so the
  * Friday scorecard can report what Athena proposed and what Richard did with it. A proposal type ignored three weeks
  * running is switched off automatically and the scorecard says so; Richard can switch it back on.
  */
@@ -16,11 +16,11 @@ const IGNORED_WEEKS = 3;
 const OPEN_MS = 2 * 86_400_000;
 const TITLE_LIMIT = 200;
 
-export const PROPOSAL_TYPES = ['goal-move', 'date-proposal', 'deal-followup', 'promise', 'chase', 'cadence', 'content-package', 'cfp', 'chat-next-step', 'goal-adjustment'] as const;
+export const PROPOSAL_TYPES = ['goal-move', 'date-proposal', 'deal-followup', 'promise', 'chase', 'cadence', 'cfp', 'chat-next-step', 'goal-adjustment'] as const;
 export type ProposalType = typeof PROPOSAL_TYPES[number];
 export const PROPOSAL_LABELS: Record<ProposalType, string> = {
   'goal-move': 'Weekly moves', 'date-proposal': 'Due-date changes', 'deal-followup': 'Deal follow-up drafts', promise: 'Promises from meetings',
-  chase: 'Chase drafts', cadence: 'Keep-in-touch nudges', 'content-package': 'Content packages', cfp: 'CFP shortlist', 'chat-next-step': 'Chat next steps',
+  chase: 'Chase drafts', cadence: 'Keep-in-touch nudges', cfp: 'CFP shortlist', 'chat-next-step': 'Chat next steps',
   'goal-adjustment': 'Monthly goal adjustments',
 };
 /** The weekly brief and scorecard are the backbone of the goals loop: reported, never switched off automatically. */

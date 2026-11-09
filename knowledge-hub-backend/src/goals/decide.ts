@@ -12,14 +12,13 @@ import { convertOpenDecision } from './scorecard.js';
 import { recordTaskEdit } from '../work/taskEditActivity.js';
 import { ValidationError } from '../types/errors.js';
 
-export type DecideKind = 'publishing' | 'decision' | 'promise' | 'chase' | 'cadence' | 'package' | 'cfp' | 'paused' | 'email' | 'waiting';
+export type DecideKind = 'publishing' | 'decision' | 'promise' | 'chase' | 'cadence' | 'cfp' | 'paused' | 'email' | 'waiting';
 export interface DecideItem {
   /** `<kind>:<refId>` — unique within the queue. */
   id: string; kind: DecideKind; refId: string; title: string; detail: string; source: string; createdAt: string; held: boolean;
   meta: Record<string, string | number | boolean | null>;
 }
 
-const OPEN_PACKAGE = new Set(['ready-to-approve', 'ready']);
 const DETAIL_LIMIT = 600;
 const clip = (s: string, n = DETAIL_LIMIT): string => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 const iso = (v: string | Date | null | undefined, fallback = new Date(0)): string => {
@@ -105,10 +104,6 @@ export async function decideQueue(db: Pool): Promise<DecideItem[]> {
     items.push({ id: `cadence:${c.id}`, kind: 'cadence', refId: c.id, title: `Keep in touch with ${c.person}`,
       detail: `${c.reason} Last contact ${c.workingDays} working days ago.`, source: 'Keep-in-touch proposal',
       createdAt: iso(c.at), held: Boolean(c.held), meta: { person: c.person } });
-  }
-  for (const p of proactive.packages.filter(x => OPEN_PACKAGE.has(x.status) && !x.decision)) {
-    items.push({ id: `package:${p.id}`, kind: 'package', refId: p.id, title: p.title, detail: `${p.why} Angle: ${p.angle}`,
-      source: `Content package · ${p.trigger}`, createdAt: iso(p.createdAt), held: Boolean(p.held), meta: { noteId: p.noteId, status: p.status } });
   }
   for (const c of proactive.cfps.shortlist) {
     items.push({ id: `cfp:${c.id}`, kind: 'cfp', refId: c.id, title: c.conference, detail: `${c.fit} CFP deadline ${c.deadline.slice(0, 10)}.`,

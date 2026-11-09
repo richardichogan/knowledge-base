@@ -1,6 +1,6 @@
 export interface JobDefinition {
   name: string; kind: 'content-sync' | 'm365-import' | 'weekly-microsoft' | 'prompt' | 'discover-picks' | 'task-review' | 'publishing-picks'
-    | 'goals-brief' | 'goals-scorecard' | 'deal-desk' | 'meeting-prep' | 'content-packages' | 'cfp-shortlist'; prompt: string;
+    | 'goals-brief' | 'goals-scorecard' | 'deal-desk' | 'meeting-prep' | 'cfp-shortlist'; prompt: string;
   schedule: { timezone: string; days: number[]; times: string[] };
   approval: 'required' | 'automatic'; deviceId: string; inputFolder: string; outputFolder: string;
   outputs: Array<'think' | 'slack' | 'blog' | 'bluesky' | 'linkedin' | 'file'>;

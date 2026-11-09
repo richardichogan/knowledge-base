@@ -40,9 +40,6 @@ function proactiveNews(data: ProactiveOverview | undefined): AthenaNewsItem[] {
   for (const c of live(prep.cadence).filter((x) => x.status === 'proposed')) {
     items.push({ id: `cadence:${c.id}`, tone: 'proposal', label: `Keep in touch with ${c.person}`, detail: c.reason, to: '/?item=today-meetings' });
   }
-  for (const p of live(data.packages).filter((x) => !x.decision && (x.status === 'ready' || x.status === 'ready-to-approve'))) {
-    items.push({ id: `package:${p.id}`, tone: 'proposal', label: `Content package: ${p.title}`, detail: p.why, to: `/plan?view=drafts&draft=${encodeURIComponent(p.id)}` });
-  }
   for (const c of live(data.cfps.shortlist)) {
     items.push({ id: `cfp:${c.id}`, tone: 'proposal', label: `Call for papers: ${c.conference}`, detail: c.fit, to: '/?item=goal:voice' });
   }

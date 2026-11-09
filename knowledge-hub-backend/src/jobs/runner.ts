@@ -32,7 +32,6 @@ import { refreshGoalBrief } from '../goals/brief.js';
 import { refreshScorecard } from '../goals/scorecard.js';
 import { runDealDesk } from '../goals/dealDesk.js';
 import { refreshMeetingPrep } from '../goals/meetingPrep.js';
-import { runContentPackages, runStoryPackage } from '../goals/contentPackages.js';
 import { runGoalReview } from '../goals/goalReview.js';
 import { runCfpShortlist } from '../goals/cfpShortlist.js';
 
@@ -214,15 +213,6 @@ export async function executeRun(db: Pool, run: JobRun, lease: string, delivery:
         const prep = await refreshMeetingPrep(db, 'job');
         run.artifacts.message = `Prepared ${String(prep.cards.length)} meeting cards, ${String(prep.promises.filter(p => p.status === 'proposed').length)} promises, ${String(prep.chases.length)} chases.`;
         return { cards: prep.cards.length };
-      });
-    } else if (run.definition.kind === 'content-packages') {
-      if (run.preview) run.artifacts = { message: 'Preview only: Athena would pick at most one competitor move or strong Imagine-fit article and draft a blog + LinkedIn package for your approval, and at most one note-only package from a new podcast episode or anonymised deal win. Nothing is posted.' };
-      else await step(db, run, lease, 'content-packages', async () => {
-        const pkg = await runContentPackages(db, 'job');
-        const story = await runStoryPackage(db, 'job');
-        run.artifacts.message = [pkg ? `Drafted a content package: ${pkg.title}.` : 'No article was worth a package today.',
-          story ? `Drafted a ${story.trigger} package: ${story.title}.` : ''].filter(Boolean).join(' ');
-        return { package: pkg?.id ?? null, story: story?.id ?? null };
       });
     } else if (run.definition.kind === 'goal-review') {
       if (run.preview) run.artifacts = { message: 'Preview only: once a month Athena would review each goal against progress and propose target, deadline or workstream-link adjustments for you to accept or dismiss. Nothing changes until you accept.' };

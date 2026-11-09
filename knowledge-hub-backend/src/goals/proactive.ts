@@ -1,6 +1,6 @@
 /**
  * goals/proactive.ts — one read model and one action dispatcher for Phase 2/3 proactive Athena
- * (deal desk, meeting prep, promises, chases, cadence, content packages, CFP shortlist, self-report).
+ * (deal desk, meeting prep, promises, chases, cadence, CFP shortlist, self-report).
  * Today's routes and Athena's manage_proactive tool both go through here, so they share every service and rule.
  */
 import type { Pool } from 'pg';
@@ -8,7 +8,6 @@ import { ValidationError } from '../types/errors.js';
 import type { TaskActivityActor } from '../work/taskEditActivity.js';
 import { dealDeskHistory, dealDeskRunning, dealDeskStatus, runDealDesk, undoDealUpdate, updateDealFromNotes } from './dealDesk.js';
 import { decideCadence, decidePromise, dismissChase, getMeetingPrep, meetingPrepRunning, refreshMeetingPrep } from './meetingPrep.js';
-import { dismissPackage, listPackages, runContentPackages, runStoryPackage, usePackage } from './contentPackages.js';
 import { cfpShortlist, decideCfp } from './cfpShortlist.js';
 import { gateProposals, proposalReport, proposalType, setProposalTypeEnabled } from './proposals.js';
 import { loopPauses, resolvePause } from './loopBreaker.js';
@@ -16,15 +15,13 @@ import { handOff } from '../agents/engine.js';
 import { resumeJob } from '../jobs/store.js';
 
 export async function proactiveOverview(db: Pool) {
-  const [deals, prep, packages, cfps, ledger, paused] = await Promise.all([
-    dealDeskStatus(db), getMeetingPrep(db), listPackages(db), cfpShortlist(db), proposalReport(db), loopPauses(db)]);
+  const [deals, prep, cfps, ledger, paused] = await Promise.all([
+    dealDeskStatus(db), getMeetingPrep(db), cfpShortlist(db), proposalReport(db), loopPauses(db)]);
   // Peak timing: open proposals surface Mon–Fri 9–11 and 16–18 (UK), three at a time. Held items stay readable by Athena.
-  const OPEN_PACKAGE = new Set(['drafting', 'in-review', 'ready-to-approve', 'ready']);
   const candidates = [
     ...prep.promises.filter(x => x.status === 'proposed').map(x => `promise:${x.id}`),
     ...prep.chases.filter(x => x.status === 'proposed').map(x => `chase:${x.id}`),
     ...prep.cadence.filter(x => x.status === 'proposed').map(x => `cadence:${x.id}`),
-    ...packages.packages.filter(x => OPEN_PACKAGE.has(x.status)).map(x => x.id),
     ...cfps.shortlist.map(x => `cfp:${x.id}`),
   ];
   const gate = await gateProposals(db, candidates);
@@ -37,7 +34,6 @@ export async function proactiveOverview(db: Pool) {
       promises: prep.promises.map(x => ({ ...x, held: held(`promise:${x.id}`) })),
       chases: prep.chases.map(x => ({ ...x, held: held(`chase:${x.id}`) })),
       cadence: prep.cadence.map(x => ({ ...x, held: held(`cadence:${x.id}`) })) },
-    packages: packages.packages.map(x => ({ ...x, held: held(x.id) })),
     cfps: { ...cfps, shortlist: cfps.shortlist.map(x => ({ ...x, held: held(`cfp:${x.id}`) })) },
     ledger,
   };
@@ -47,7 +43,7 @@ export type ProactiveOverview = Awaited<ReturnType<typeof proactiveOverview>>;
 export const PROACTIVE_ACTIONS = [
   'run-deal-desk', 'update-deal-from-notes', 'deal-history', 'undo-deal-update',
   'refresh-meeting-prep', 'accept-promise', 'dismiss-promise', 'accept-cadence', 'dismiss-cadence', 'dismiss-chase',
-  'run-content-package', 'run-story-package', 'use-package', 'dismiss-package', 'confirm-cfp', 'dismiss-cfp', 'enable-proposal-type', 'disable-proposal-type',
+  'confirm-cfp', 'dismiss-cfp', 'enable-proposal-type', 'disable-proposal-type',
   'resume-paused', 'stop-paused',
 ] as const;
 export type ProactiveAction = typeof PROACTIVE_ACTIONS[number];
@@ -72,13 +68,6 @@ export async function proactiveAction(db: Pool, action: unknown, args: Record<st
     case 'accept-cadence': return decideCadence(db, args.id, true, actor);
     case 'dismiss-cadence': return decideCadence(db, args.id, false, actor);
     case 'dismiss-chase': return dismissChase(db, args.id);
-    case 'run-content-package': {
-      const itemId = typeof args.itemId === 'string' && args.itemId.trim() ? args.itemId.trim() : undefined;
-      void runContentPackages(db, trigger, itemId).catch(log('Content package')); return { started: true };
-    }
-    case 'run-story-package': void runStoryPackage(db, trigger).catch(log('Story package')); return { started: true };
-    case 'use-package': await usePackage(db, str(args.id, 'the package id')); return { used: true };
-    case 'dismiss-package': await dismissPackage(db, str(args.id, 'the package id'), actor); return { dismissed: true };
     case 'confirm-cfp': return decideCfp(db, str(args.id, 'the CFP id'), true, actor);
     case 'dismiss-cfp': return decideCfp(db, str(args.id, 'the CFP id'), false, actor);
     case 'enable-proposal-type': await setProposalTypeEnabled(db, proposalType(args.type), true); return proposalReport(db);

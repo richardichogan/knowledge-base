@@ -7,7 +7,7 @@ export const jobKinds: Record<JobDefinition['kind'], string> = {
   'task-review': 'Athena task review',
   'publishing-picks': 'Today\'s publishing picks',
   'goals-brief': 'Weekly goal moves', 'goals-scorecard': 'Friday scorecard',
-  'deal-desk': 'Imagine deal desk', 'meeting-prep': 'Meeting prep', 'content-packages': 'Content packages', 'cfp-shortlist': 'CFP shortlist',
+  'deal-desk': 'Imagine deal desk', 'meeting-prep': 'Meeting prep', 'cfp-shortlist': 'CFP shortlist',
 };
 
 export const outputNames: Record<JobDefinition['outputs'][number], string> = {
