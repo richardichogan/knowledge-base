@@ -6,7 +6,7 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { getDb } from '../db/db.js';
 import { handleConversationTurn, type TurnHooks, summariseSession, rollUpConversationSummary, formatSessionForThink, summarizeNoteContent, generateSessionTitle } from '../ai/conversationService.js';
-import { getOrCreateSessionHistory, getModelHistory, appendTurn, toConversationMessages, setSessionTitleIfMissing, listSessions, deleteSession, rollUpSummaryIfNeeded, getSessionPersona, setSessionPersona, getSessionProjectId, setSessionProjectId, getSessionIdForNote, linkSessionToNote, getSessionIdForItem, linkSessionToItem, ITEM_KEY_PATTERN, setGeneratedSessionTitle, renameSession, setSessionPinned, countUserTurns, searchSessions, setPendingTurn, getPendingTurn, setNextSteps } from '../ai/chatSessionStore.js';
+import { getOrCreateSessionHistory, getModelHistory, appendTurn, toConversationMessages, setSessionTitleIfMissing, listSessions, deleteSession, rollUpSummaryIfNeeded, getSessionPersona, setSessionPersona, getSessionProjectId, setSessionProjectId, getSessionIdForNote, linkSessionToNote, getSessionIdForItem, linkSessionToItem, ITEM_KEY_PATTERN, setGeneratedSessionTitle, renameSession, setSessionPinned, countUserTurns, searchSessions, setPendingTurn, getPendingTurn, setNextSteps, setNoteEditReceipt, parseNoteEditReceipt } from '../ai/chatSessionStore.js';
 import { proposeWriteAction, confirmWriteAction, cancelWriteAction, getPendingProposals } from '../ai/writeActionService.js';
 import { textToBlocks } from '../ai/chatTools.js';
 import { draftSpecFromSession } from '../ai/specDraft.js';
@@ -537,6 +537,27 @@ router.delete('/session/:sessionId/turn', (req: Request, res: Response, next: Ne
          WHERE id = $1 AND pending_turn->>'status' = 'interrupted' RETURNING id`, [sessionId],
       );
       const body: ApiSuccess<{ cleared: boolean }> = { success: true, data: { cleared: rows.length > 0 } };
+      res.status(HTTP_STATUS.OK).json(body);
+    } catch (err) {
+      next(err);
+    }
+  })();
+});
+
+/**
+ * PUT /api/ai/messages/:messageId/note-edit-receipt
+ * The live editor reports whether the edits on a reply were saved, partly applied or blocked,
+ * so Athena's next turn knows the real outcome. Body: { state, applied, failed, error? }
+ */
+router.put('/messages/:messageId/note-edit-receipt', (req: Request, res: Response, next: NextFunction): void => {
+  void (async () => {
+    try {
+      const { messageId } = req.params as { messageId: string };
+      const receipt = parseNoteEditReceipt(req.body);
+      if (receipt === null) throw new ValidationError('A valid editor receipt is required', { body: 'invalid' });
+      if (!/^\d+$/.test(messageId)) throw new ValidationError('Invalid message id', { messageId: 'invalid' });
+      const stored = await setNoteEditReceipt(getDb(), messageId, receipt);
+      const body: ApiSuccess<{ stored: boolean }> = { success: true, data: { stored } };
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) {
       next(err);

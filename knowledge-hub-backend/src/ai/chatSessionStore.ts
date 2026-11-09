@@ -182,6 +182,47 @@ export async function setNextSteps(db: Pool, messageId: string, steps: string[])
   await db.query(`UPDATE ai_chat_messages SET next_steps = $2 WHERE id = $1`, [messageId, JSON.stringify(steps)]);
 }
 
+export interface NoteEditReceipt {
+  state: 'saved' | 'partial' | 'blocked';
+  applied: number;
+  failed: string[];
+  error?: string;
+}
+
+export function parseNoteEditReceipt(value: unknown): NoteEditReceipt | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (v['state'] !== 'saved' && v['state'] !== 'partial' && v['state'] !== 'blocked') return null;
+  if (typeof v['applied'] !== 'number' || !Number.isFinite(v['applied'])) return null;
+  const failed = Array.isArray(v['failed']) ? v['failed'].filter((f): f is string => typeof f === 'string').slice(0, 20).map((f) => f.slice(0, 400)) : [];
+  return {
+    state: v['state'], applied: v['applied'], failed,
+    ...(typeof v['error'] === 'string' ? { error: v['error'].slice(0, 400) } : {}),
+  };
+}
+
+/** The editor's verdict on a reply's edits, shown to the model so it never assumes an edit landed. */
+export function noteEditReceiptText(value: unknown): string {
+  const receipt = parseNoteEditReceipt(value);
+  if (receipt === null) return '';
+  const detail = [...receipt.failed, ...(receipt.error !== undefined ? [receipt.error] : [])].map((f) => `- ${f}`).join('\n');
+  const head = receipt.state === 'saved'
+    ? `${String(receipt.applied)} edit(s) applied and saved`
+    : receipt.state === 'partial'
+      ? `${String(receipt.applied)} edit(s) applied, ${String(receipt.failed.length)} FAILED — the failed edits are NOT in the note`
+      : 'NO edits were applied — the note is unchanged';
+  return `\n\n[Editor receipt for the note edits above: ${head}.${detail ? `\n${detail}` : ''}]`;
+}
+
+/** Records what the live editor did with the edits attached to an assistant reply. */
+export async function setNoteEditReceipt(db: Pool, messageId: string, receipt: NoteEditReceipt): Promise<boolean> {
+  const { rowCount } = await db.query(
+    `UPDATE ai_chat_messages SET note_edit_receipt = $2 WHERE id = $1 AND role = 'assistant'`,
+    [messageId, JSON.stringify(receipt)],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
 /** Replaces a stored message's text (an alternative answer chosen with "Use this one"). */
 export async function replaceMessageContent(db: Pool, messageId: string, content: string): Promise<void> {
   await db.query(`UPDATE ai_chat_messages SET content = $2 WHERE id = $1`, [messageId, content]);
@@ -537,12 +578,15 @@ export async function getModelHistory(db: Pool, sessionId: string): Promise<Conv
   const session = sessionRows[0];
   const summarizedThroughId = session?.summarized_through_id ?? 0;
 
-  const { rows: recentRows } = await db.query<{ role: 'user' | 'assistant'; content: string }>(
-    `SELECT role, content FROM ai_chat_messages WHERE session_id = $1 AND id > $2 ORDER BY created_at ASC, id ASC`,
+  const { rows: recentRows } = await db.query<{ role: 'user' | 'assistant'; content: string; note_edit_receipt: unknown }>(
+    `SELECT role, content, note_edit_receipt FROM ai_chat_messages WHERE session_id = $1 AND id > $2 ORDER BY created_at ASC, id ASC`,
     [sessionId, summarizedThroughId],
   );
 
-  const recent: ConversationMessage[] = recentRows.map((r) => ({ role: r.role, content: r.content }));
+  const recent: ConversationMessage[] = recentRows.map((r) => ({
+    role: r.role,
+    content: r.role === 'assistant' ? `${r.content}${noteEditReceiptText(r.note_edit_receipt)}` : r.content,
+  }));
 
   if (session?.summary != null && session.summary.trim() !== '') {
     return [

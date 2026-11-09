@@ -1058,6 +1058,11 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         if (result.success && result.data.noteEdits?.length && result.data.noteEditsFor
           && result.data.noteEdits.every(edit => edit.delivery !== 'preview')) {
           result.data.noteEditResult = await deliverNoteEdits(result.data.assistantMessageId, result.data.noteEditsFor, result.data.noteEdits);
+          const receiptFor = result.data.assistantMessageId;
+          if (receiptFor !== undefined && receiptFor !== '') {
+            void api.recordNoteEditReceipt(receiptFor, result.data.noteEditResult)
+              .catch((error: unknown) => { console.error('[Athena note edit receipt]', error); });
+          }
         }
         if (result.success && result.data.reply.trim() && notificationTurnId !== undefined) {
           notifyPromptCompleted(notificationTurnId, startedAt, result.data.sessionId,

@@ -375,6 +375,8 @@ function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined,
       editor.updateBlock(target, { content });
       return;
     }
+    default:
+      throw new Error(`This version of the app does not support the "${String((edit as { action: unknown }).action)}" edit. Reload the page to update it, then ask Athena again.`);
   }
 }
 

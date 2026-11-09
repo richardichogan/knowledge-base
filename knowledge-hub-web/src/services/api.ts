@@ -38,7 +38,7 @@ import type {
 } from '../types';
 import { getApiToken } from './auth';
 import type { AgentHandOffResult, AgentJob, AssignmentNotice, AssignmentSummary } from '../types/agentJobs';
-import type { NoteInsightsView } from '../types/ai';
+import type { NoteEditDeliveryResult, NoteInsightsView } from '../types/ai';
 import type { TaskAssistanceDetail, TaskAssistanceProposal, TaskAssistanceStarted } from '../types/taskAssistance';
 import { requireApiData } from './apiError';
 import type { DecisionLinkCandidate, DecisionLinkInput, DecisionSemantics } from '../types/semanticDecision';
@@ -1550,6 +1550,11 @@ export class KnowledgeHubApi {
       `/api/notes/${encodeURIComponent(noteId)}/insights`,
     );
     return r.data;
+  }
+
+  /** Tells Athena what the live editor actually did with the edits attached to one of her replies. */
+  async recordNoteEditReceipt(messageId: string, receipt: NoteEditDeliveryResult): Promise<void> {
+    await this.client.put(`/api/ai/messages/${encodeURIComponent(messageId)}/note-edit-receipt`, receipt);
   }
 
   /** Hides one insight chip for that note version. */
