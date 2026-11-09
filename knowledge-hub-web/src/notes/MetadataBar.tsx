@@ -38,7 +38,7 @@ export const MetadataBar: React.FC<MetadataBarProps> = ({
         <div className="notes-meta-field">
           <ComboBox<ContentTypeOption>
             id="note-content-type"
-            items={CONTENT_TYPE_OPTIONS}
+            items={CONTENT_TYPE_OPTIONS.filter((o) => !o.legacy || o.id === contentType)}
             itemToString={(item) => item?.label ?? ''}
             titleText="Content type"
             selectedItem={selectedTypeOption}

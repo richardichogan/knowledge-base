@@ -357,7 +357,7 @@ export const MetadataPanel: React.FC<MetadataPanelProps> = ({
                   >
                     {CONTENT_TYPE_GROUPS.map((group) => (
                       <optgroup key={group.label} label={group.label}>
-                        {group.options.map((o) => (
+                        {group.options.filter((o) => !o.legacy || o.id === contentType).map((o) => (
                           <option key={o.id} value={o.id}>{o.label}</option>
                         ))}
                       </optgroup>

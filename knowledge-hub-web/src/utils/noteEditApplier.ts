@@ -188,6 +188,25 @@ function validatedVisualEdit(blocks: Block[], edit: NoteEdit, script: boolean) {
   return { section, visuals: parseScriptVisuals(edit.visuals, section) };
 }
 
+const FORMAT_TARGETS: Record<NonNullable<NoteEdit['formats']>[number]['style'], { type: string; props: Record<string, unknown> }> = {
+  paragraph: { type: 'paragraph', props: {} },
+  h1: { type: 'heading', props: { level: 1 } },
+  h2: { type: 'heading', props: { level: 2 } },
+  h3: { type: 'heading', props: { level: 3 } },
+  bullet: { type: 'bulletListItem', props: {} },
+  numbered: { type: 'numberedListItem', props: {} },
+  checklist: { type: 'checkListItem', props: { checked: false } },
+  quote: { type: 'quote', props: {} },
+};
+
+/** Removes only a typed list marker from the start of a block; every other character stays. */
+function stripLeadingMarker(content: Block[]): Block[] | undefined {
+  const first = content[0];
+  if (first?.type !== 'text' || typeof first.text !== 'string') return undefined;
+  const text = first.text.replace(/^\s*(?:[-*•–]\s+|\d+[.)]\s+|\[[ xX]?\]\s+)/, '');
+  return text === first.text ? undefined : [...(text ? [{ ...first, text }] : []), ...content.slice(1)];
+}
+
 function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined, script: boolean): void {
   const blocks = editor.document as Block[];
   const md = edit.markdown ?? '';
@@ -268,6 +287,20 @@ function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined,
           editor.replaceBlocks(blocks, [titleBlock, ...replacement]);
         } else editor.replaceBlocks(blocks, replacement);
       }
+      return;
+    }
+    case 'format_blocks': {
+      const missing: string[] = [];
+      const byId = new Map(flatten(blocks).map(candidate => [candidate.id, candidate]));
+      for (const format of edit.formats ?? []) {
+        const block = byId.get(format.blockId);
+        if (!block) { missing.push(format.blockId); continue; }
+        const content = format.stripMarker && Array.isArray(block.content)
+          ? stripLeadingMarker(block.content) : undefined;
+        const target = FORMAT_TARGETS[format.style];
+        editor.updateBlock(block, { type: target.type, props: target.props, ...(content && { content }) });
+      }
+      if (missing.length) throw new Error(`${String(missing.length)} block${missing.length === 1 ? '' : 's'} changed or moved since Athena read the note; nothing in them was altered. Ask Athena to format again.`);
       return;
     }
     case 'replace_text': {

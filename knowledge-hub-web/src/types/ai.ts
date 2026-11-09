@@ -243,7 +243,8 @@ export interface MapChange {
 /** One edit Athena proposes to the open Think note. */
 export interface NoteEdit {
   delivery?: 'apply' | 'preview';
-  action: 'append' | 'prepend' | 'add_to_section' | 'replace_section' | 'delete_section' |   'replace_text' | 'replace_all' | 'set_script_visuals';
+  action: 'append' | 'prepend' | 'add_to_section' | 'replace_section' | 'delete_section' |   'replace_text' | 'replace_all' | 'format_blocks' | 'set_script_visuals';
+  formats?: Array<{ blockId: string; style: 'paragraph' | 'h1' | 'h2' | 'h3' | 'bullet' | 'numbered' | 'checklist' | 'quote'; stripMarker?: boolean }>;
   sectionId?: string;
   visuals?: import('../../../knowledge-hub-backend/src/utils/scriptVisuals').ScriptVisuals;
   expectedVisuals?: string;

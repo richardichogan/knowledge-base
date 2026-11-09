@@ -1,12 +1,8 @@
 /**
- * Saves a structured first-draft note or summary without leaving the chat.
+ * Saves the conversation summary and transcript to Think without leaving the chat.
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import { Export } from '@carbon/icons-react';
-import { api } from '../../services/api';
-import { createNote } from '../../notes/noteStorage';
-import { alertDialog } from '../../services/appDialogs';
 import { useAnchoredPopovers } from '../../hooks/useAnchoredPopovers';
 
 interface MoveToThinkProps {
@@ -22,10 +18,8 @@ interface MoveToThinkProps {
   linkConversation?: boolean;
 }
 
-export const MoveToThink: React.FC<MoveToThinkProps> = ({ sessionId, projectId, disabled, variant = 'header', onExportSummary, linkConversation = true }) => {
-  const queryClient = useQueryClient();
+export const MoveToThink: React.FC<MoveToThinkProps> = ({ disabled, variant = 'header', onExportSummary }) => {
   const [open, setOpen] = useState(false);
-  const [kind, setKind] = useState<'spec' | 'summary'>('spec');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -37,42 +31,6 @@ export const MoveToThink: React.FC<MoveToThinkProps> = ({ sessionId, projectId, 
     document.addEventListener('mousedown', onDown);
     return () => { document.removeEventListener('mousedown', onDown); };
   }, [open, busy]);
-
-  async function createSpec(): Promise<void> {
-    let savedTitle: string | null = null;
-    setError(null);
-    setBusy('Writing the first draft from this chat… about 15–30 seconds');
-    try {
-      const draft = await api.draftSpecFromSession(sessionId);
-      if (!draft.success) throw new Error(draft.error.message);
-      setBusy('Creating the note…');
-      const { markdownToNoteBlocks } = await import('../../notes/markdownToBlocks');
-      const note = await createNote({ title: draft.data.title, contentType: 'spec', contentJson: JSON.stringify(markdownToNoteBlocks(draft.data.markdown)) }, projectId !== '' ? projectId : undefined);
-      if (note === null) throw new Error('The note could not be saved.');
-      savedTitle = note.title;
-      void queryClient.invalidateQueries({ queryKey: ['notes-list'] });
-      void queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      if (!linkConversation) {
-        setOpen(false);
-        await alertDialog(`"${note.title}" has been saved to Think. This chat stays linked to your original note.`, { title: 'Saved to Think', tone: 'success' });
-        return;
-      }
-      const linked = await api.linkSessionToNote(sessionId, note.id, draft.data.title);
-      if (!linked.success) {
-        setOpen(false);
-        await alertDialog(`"${note.title}" was saved to Think, but the conversation could not be linked: ${linked.error.message}. Your chat remains here.`, { title: 'Note saved; linking failed', tone: 'danger' });
-        return;
-      }
-      setOpen(false);
-      await alertDialog(`"${note.title}" has been saved to Think.`, { title: 'Saved to Think', tone: 'success' });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Something went wrong. Please try again.';
-      if (savedTitle !== null) {
-        setOpen(false);
-        await alertDialog(`"${savedTitle}" was saved to Think, but the conversation could not be linked: ${message}. Your chat remains here.`, { title: 'Note saved; linking failed', tone: 'danger' });
-      } else setError(message);
-    } finally { setBusy(null); }
-  }
 
   return (
     <div className={`ai-move ai-move--${variant}`} ref={rootRef}
@@ -96,14 +54,7 @@ export const MoveToThink: React.FC<MoveToThinkProps> = ({ sessionId, projectId, 
         <div className="ai-move__panel" role="dialog" aria-label="Save to Think">
           <h3 className="ai-move__title">Save to Think</h3>
           <label className="ai-move__option">
-            <input type="radio" name="move-kind" checked={kind === 'spec'} onChange={() => { setKind('spec'); }} disabled={busy !== null} />
-            <span>
-              <strong>Agent-ready specification</strong>
-              <span className="ai-move__hint">Requirements, scope, implementation boundaries, acceptance criteria and verification. Unresolved decisions are marked as blockers. Saved as a Technical spec in Think; your chat stays here.</span>
-            </span>
-          </label>
-          <label className="ai-move__option">
-            <input type="radio" name="move-kind" checked={kind === 'summary'} onChange={() => { setKind('summary'); }} disabled={busy !== null} />
+            <input type="radio" name="move-kind" checked readOnly />
             <span>
               <strong>Summary and transcript</strong>
               <span className="ai-move__hint">An archive copy. The chat stays here.</span>
@@ -117,9 +68,9 @@ export const MoveToThink: React.FC<MoveToThinkProps> = ({ sessionId, projectId, 
               type="button"
               className="ai-move__go"
               disabled={busy !== null}
-              onClick={() => { if (kind === 'spec') void createSpec(); else { setOpen(false); onExportSummary(); } }}
+              onClick={() => { setOpen(false); onExportSummary(); }}
             >
-              {kind === 'spec' ? 'Create spec note' : 'Save to Think'}
+              Save to Think
             </button>
           </div>
         </div>

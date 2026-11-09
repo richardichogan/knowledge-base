@@ -322,11 +322,11 @@ export const NotesPage: React.FC = () => {
     }
   }
 
-  async function handleCreateNote(contentType: 'note' | 'spec' = 'note'): Promise<boolean> {
+  async function handleCreateNote(): Promise<boolean> {
     if (creatingNoteRef.current) return false;
     creatingNoteRef.current = true;
     try {
-      const doc = await createNote({ title: contentType === 'spec' ? 'Untitled spec' : 'Untitled', contentType, contentJson: '[]' });
+      const doc = await createNote({ title: 'Untitled', contentType: 'note', contentJson: '[]' });
       if (doc !== null) {
         setSelectedDesign(null);
         await queryClient.invalidateQueries({ queryKey: ['notes-list'] });
@@ -346,12 +346,6 @@ export const NotesPage: React.FC = () => {
       creatingNoteRef.current = false;
     }
   }
-
-  useEffect(() => {
-    if (requestedCreation === 'spec') void handleCreateNote('spec');
-    // The creation guard prevents duplicate writes; successful creation consumes the URL request.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [requestedCreation]);
 
   useDesktopCommand('new-note', async () => {
     if (!await handleCreateNote()) throw new Error('Could not create a note. Check Think before retrying.');

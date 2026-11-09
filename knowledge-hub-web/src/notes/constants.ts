@@ -34,6 +34,8 @@ export interface ContentTypeOption {
   id: ContentType;
   label: string;
   group: ContentTypeGroup;
+  /** Kept only so existing notes still show their type; not offered when choosing a type. */
+  legacy?: boolean;
 }
 
 /** Stored ids never change — other features key off them. Only labels and grouping are presentational. */
@@ -44,7 +46,7 @@ export const CONTENT_TYPE_OPTIONS: ContentTypeOption[] = [
   { id: 'meeting',              label: 'Meeting notes',      group: 'Work' },
   { id: 'project',              label: 'Workstream note',       group: 'Work' },
   { id: 'use-case',             label: 'Use case',           group: 'Work' },
-  { id: 'spec',                 label: 'Technical spec',     group: 'Work' },
+  { id: 'spec',                 label: 'Technical spec',     group: 'Work', legacy: true },
   { id: 'architecture',         label: 'Architecture doc',   group: 'Work' },
   { id: 'blog',                 label: 'Blog draft',         group: 'Publishing' },
   { id: 'newsletter',           label: 'Newsletter edition', group: 'Publishing' },

@@ -8,7 +8,7 @@ import { recallDocumentMemory } from '../../ai/knowledge/documentReading.js';
 export const EXCLUSION_GATED_TOOLS: ReadonlySet<string> = new Set([
   'search_knowledge_base', 'search_library', 'find_files', 'read_knowledge_record', 'read_diagram', 'read_diagram_versions',
   'search_diagrams', 'search_knowledge_graph', 'search_past_chats', 'read_past_chat',
-  'read_script_visuals', 'design_script_visuals', 'apply_script_visuals',
+  'read_script_visuals', 'design_script_visuals', 'apply_script_visuals', 'read_note_layout',
   'read_note_tags', 'set_note_tags',
 ]);
 

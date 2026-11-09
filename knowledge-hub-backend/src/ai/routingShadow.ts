@@ -43,7 +43,7 @@ const FAMILY_RULES: Array<[RoutingFamily, RegExp]> = [
   ['library', /library/],
   ['calendar', /schedule|calendar|meeting|email/],
   ['web', /^fetch_web_page$|tavily|web_search|microsoft_docs/],
-  ['note_edit', /propose_note_edit|propose_map_changes|create_note_draft|update_note|create_spark|script_visuals|save_output/],
+  ['note_edit', /propose_note_edit|read_note_layout|propose_map_changes|create_note_draft|update_note|create_spark|script_visuals|save_output/],
   ['tasks', /task|work_content|deliverable|progress_review|content_plan/],
   ['knowledge', /knowledge|note_tags|relationship|read_output/],
 ];

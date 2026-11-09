@@ -9,7 +9,7 @@ import { confirmDialog } from '../../services/appDialogs';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { InlineLoading } from '@carbon/react';
-import { Add, Launch } from '@carbon/icons-react';
+import { Launch } from '@carbon/icons-react';
 import {
   api,
   type BuildAgent,
@@ -550,13 +550,7 @@ export const BuildPage: React.FC = () => {
 
   return (
     <main className="build-page">
-      <PageHeader title="Build" subtitle="Turn a spec into tasks for GitHub’s cloud coding agents, then follow each PR through to merge." actions={
-        <button type="button" className="docs-upload-btn" onClick={() => { void (async () => {
-          if (!await confirmLeave()) return;
-          setProtectedDraft(false);
-          navigate('/think?new=spec');
-        })(); }}><Add size={20} /> New spec</button>
-      } />
+      <PageHeader title="Build" subtitle="Turn a spec into tasks for GitHub’s cloud coding agents, then follow each PR through to merge." />
 
       <div className="build-layout">
         <aside className="build-list" aria-label="Specs">

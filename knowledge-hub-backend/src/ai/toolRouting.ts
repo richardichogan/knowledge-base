@@ -9,6 +9,8 @@ const NOTE_EDIT_PATTERN =
   /\b(?:add|insert|append|prepend|put|write|update|edit|rewrite|re-?word|fix|tidy|clean\s+up|restructure|reformat|reorgani[sz]e|turn|convert|replace|remove|delete|expand|shorten|condense|correct)\b[\s\S]{0,120}\b(?:note|section|paragraph|heading|intro(?:duction)?|conclusion|summary|bullets?|list|checklist|table|action\s+items?|next\s+steps|this|it|top|bottom|end|start)\b/i;
 const EXPLICIT_NOTE_TARGET_PATTERN = /\b(?:note|section|paragraph|heading|intro(?:duction)?|conclusion|summary|bullets?|list|checklist|table|action\s+items?)\b/i;
 const DIRECT_EDIT_REQUEST_PATTERN = /^\s*(?:please\s+)?(?:add|insert|append|prepend|put|write|update|edit|rewrite|re-?word|fix|tidy|clean\s+up|restructure|reformat|reorgani[sz]e|turn|convert|replace|remove|delete|expand|shorten|condense|correct)\b/i;
+const FORMAT_ONLY_PATTERN = /\b(?:(?:re-?)?format|tidy(?:\s+up)?|clean\s+up|neaten|restyle|lay\s*out)\b[\s\S]{0,60}\b(?:note|this|it|document|page|properly|correctly|nicely|up)\b|\bmake\s+(?:this|it|the\s+note)\s+(?:look\s+)?(?:neat|tidy|clean|readable|right|better)\b/i;
+const REWRITE_PATTERN = /\b(?:re-?write|redraft|re-?word|expand|shorten|condense|summari[sz]e|translate|add|insert|remove|delete)\b/i;
 const SELF_CAPABILITY_QUESTION_PATTERN =
   /\b(?:who\s+are\s+you|what\s+(?:are\s+you|can\s+you\s+do)|(?:your|athena['’]s)\s+(?:own\s+)?(?:identity|capabilities|role|purpose|limitations)|(?:about\s+yourself|know\s+about\s+yourself)|what\s+tools\s+(?:do\s+you\s+have|can\s+you\s+use))\b/i;
 
@@ -80,7 +82,7 @@ export function focusTools(
   const wantsRelationships = RELATIONSHIP_INTENT_PATTERN.test(text) || RECORD_RELATIONSHIP_PATTERN.test(text);
   const wantsTraversal = turn.knowledgeOrchestration === true && RELATIONSHIP_INTENT_PATTERN.test(text);
   const wantsStructured = turn.knowledgeOrchestration === true && STRUCTURED_INTENT_PATTERN.test(text);
-  const wantsDemoSpecification = /\bdemo\s+spec(?:ification)?\b/i.test(text);
+  const wantsDesign = /\bdesigns?\b/i.test(text);
   const wantsJobs = /\b(?:jobs?|schedul\w*|automat\w*|recurr\w*|cron|digest|daily\s+insights|m365.*(?:import|sync)|publishing\s+workflow)\b/i.test(text);
   return tools.filter((tool) => {
     const name = tool.function.name;
@@ -89,7 +91,7 @@ export function focusTools(
     if (name === 'manage_proactive' && !/\b(?:deal\s*(?:desk|brief)s?|meetings?|prep\w*|promis\w*|chas\w*|cadence|reconnect|nudg\w*|cfps?|abstracts?|conferences?|proactive|proposals?|self-report|switched\s+off|adnoc|royal\s+london|ikea|reckitt|miha|chad|josh|waiting\s+on|paused|loop\w*|stuck|peak|held|wins?)\b/i.test(text)) return false;
     if (name === 'manage_decide_queue' && !/\b(?:decide|decision\w*|queue|approv\w*|picks?|waiting\s+on|waiting|held|promis\w*|proposals?|drafts?|unsent|today|open\s+questions?)\b/i.test(text)) return false;
     if (name === 'manage_goals' && !/\b(?:goals?|brief|scorecard|moves?|tidy|tidy-up|on track|slipping|at risk|proposals?|cfps?|specialisation|specialization|this week|priorit\w*|focus|overdue|inbox|today|adjust\w*|link\w*|workstreams?|targets?|deadlines?|review)\b/i.test(text)) return false;
-    if (name === 'get_demo_specification_template' || name === 'create_demo_specification') return wantsDemoSpecification;
+    if (name === 'create_design') return wantsDesign;
     if (STRUCTURED_TOOL_NAMES.has(name)) return wantsStructured;
     if (name === 'traverse_relationships') return wantsTraversal;
     if (name === 'read_record_relationships') return wantsRelationships;
@@ -166,6 +168,12 @@ export function selectRequiredToolChoice(
   if (hasEditableNote && /\b(?:visuals?|scenes?|reveals?|animation)\b/i.test(userMessage)) {
     const name = findToolName(tools, name => name === 'read_script_visuals');
     if (name) return { type: 'function', function: { name } };
+  }
+
+  // Formatting only: read the saved block layout first so the edit restyles blocks instead of rewriting text.
+  if (hasEditableNote && FORMAT_ONLY_PATTERN.test(userMessage) && !REWRITE_PATTERN.test(userMessage) && !NOT_A_NOTE_EDIT_PATTERN.test(userMessage)) {
+    const layoutToolName = findToolName(tools, name => name === 'read_note_layout');
+    if (layoutToolName !== undefined) return { type: 'function', function: { name: layoutToolName } };
   }
 
   // Asked to change the open note: propose an edit (previewed, applied by the

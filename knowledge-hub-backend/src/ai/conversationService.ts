@@ -45,7 +45,6 @@ import { modelReadingSteps, readWholeDocument } from './knowledge/documentReadin
 import { readDirectDocument } from './knowledge/directDocumentReading.js';
 import { READING_BATCH_TOKENS, REVIEW_CONTEXT_RESERVE, remainingReviewTokens, textTokens } from './knowledge/reviewContext.js';
 import type { KnowledgeAccess } from '../types/knowledge.js';
-import { DEMO_SPECIFICATION_WRITE_TOOL } from './demoSpecification.js';
 import { getCanvas } from '../services/canvasService.js';
 import { buildPeopleContext } from '../services/peopleContext.js';
 import { buildCanvasContext } from '../services/canvasContent.js';
@@ -152,7 +151,7 @@ const NO_OUTPUTS_PANEL_NOTE = [
 const NOTE_EDIT_MAX_TOKENS = 14_000;
 
 /** Tools that change something; left out when a turn must only read. */
-const WRITE_TOOLS = new Set([...WORK_WRITE_TOOLS, ...BUILD_WRITE_TOOLS, ...USE_CASE_WRITE_TOOLS, ...DESIGN_READINESS_WRITE_TOOLS, 'apply_diagram_candidate', 'generate_project_progress_review', 'update_podcast_script', 'replace_podcast_youtube_link', 'save_design_documents', 'set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'propose_local_file_write', 'remember', 'forget_memory', 'save_output', 'manage_scheduled_jobs', 'manage_publishing_feeds', 'manage_goals', 'manage_proactive', 'manage_decide_queue', 'refresh_discover_picks', 'hand_off_to_specialist', 'import_meeting_list', DEMO_SPECIFICATION_WRITE_TOOL, ...ASSET_WRITE_TOOLS]);
+const WRITE_TOOLS = new Set([...WORK_WRITE_TOOLS, ...BUILD_WRITE_TOOLS, ...USE_CASE_WRITE_TOOLS, ...DESIGN_READINESS_WRITE_TOOLS, 'apply_diagram_candidate', 'generate_project_progress_review', 'update_podcast_script', 'replace_podcast_youtube_link', 'save_design_documents', 'set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'propose_local_file_write', 'remember', 'forget_memory', 'save_output', 'manage_scheduled_jobs', 'manage_publishing_feeds', 'manage_goals', 'manage_proactive', 'manage_decide_queue', 'refresh_discover_picks', 'hand_off_to_specialist', 'import_meeting_list', 'create_design', ...ASSET_WRITE_TOOLS]);
 WRITE_TOOLS.add('design_script_visuals');
 WRITE_TOOLS.add('apply_script_visuals');
 
@@ -410,10 +409,10 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
   const permittedTools = (hooks.readOnlyTools === true ? allTools.filter((t) => !WRITE_TOOLS.has(t.function.name)) : allTools)
     .filter(t => hooks.allowedTools === undefined || hooks.allowedTools.includes(t.function.name))
     .filter(t => hooks.allowedWriteTools === undefined || !WRITE_TOOLS.has(t.function.name) || hooks.allowedWriteTools.includes(t.function.name))
-    .filter(t => !design || !['create_note_draft', 'propose_note_edit', 'update_note', 'save_output', DEMO_SPECIFICATION_WRITE_TOOL, 'get_demo_specification_template'].includes(t.function.name))
+    .filter(t => !design || !['create_note_draft', 'propose_note_edit', 'read_note_layout', 'update_note', 'save_output', 'create_design'].includes(t.function.name))
     .filter(t => !toolContext.podcastOwner || !['create_note_draft', 'update_note', 'save_output'].includes(t.function.name))
     .filter((t) => hooks.noOutputsPanel !== true || t.function.name !== 'save_output')
-    .filter((t) => t.function.name !== 'propose_note_edit' || noteOpen)
+    .filter((t) => !['propose_note_edit', 'read_note_layout'].includes(t.function.name) || noteOpen)
     .filter((t) => !['read_script_visuals', 'design_script_visuals', 'apply_script_visuals'].includes(t.function.name) || noteOpen && !design && !toolContext.podcastOwner)
     .filter((t) => t.function.name !== 'propose_map_changes' || mapOutlineResult !== null);
   const catalog = new ToolCatalog(permittedTools);
@@ -434,7 +433,7 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
   if (openDiagram && permittedTools.some(tool => tool.function.name === 'hand_off_to_specialist')) catalog.load(['hand_off_to_specialist']);
   const contextCapabilities = catalog.loadPermitted([
     ...(openDiagram ? ['update_diagram', 'set_diagram_projects', 'hand_off_to_specialist', 'check_specialist_jobs', 'apply_diagram_candidate'] : []),
-    ...(noteOpen ? ['propose_note_edit', 'read_script_visuals', 'design_script_visuals', 'apply_script_visuals'] : []),
+    ...(noteOpen ? ['propose_note_edit', 'read_note_layout', 'read_script_visuals', 'design_script_visuals', 'apply_script_visuals'] : []),
     ...(mapOutlineResult ? ['propose_map_changes'] : []),
     ...(design ? ['save_design_documents'] : []),
     ...(toolContext.podcastOwner ? ['update_podcast_script'] : []),
@@ -560,7 +559,7 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
     }
 
     const tools = catalog.schemas().filter(tool => supportsScope(tool.function.name));
-    const longForm = design || toolContext.podcastOwner || chatDraft !== null || tools.some(tool => ['propose_note_edit', DEMO_SPECIFICATION_WRITE_TOOL, 'save_output', 'save_design_documents'].includes(tool.function.name));
+    const longForm = design || toolContext.podcastOwner || chatDraft !== null || tools.some(tool => ['propose_note_edit', 'create_design', 'save_output', 'save_design_documents'].includes(tool.function.name));
     const maxTokens = longForm ? NOTE_EDIT_MAX_TOKENS : model === 'reasoning' ? AI_REASONING_MODEL_MAX_TOKENS : AI_CHAT_MAX_TOKENS;
     const roundToolChoice: LlmToolChoice = wrapUp ? 'none' : nextRoundTool ?? (i === 0 && requiredFirstTool !== undefined ? requiredFirstTool : 'auto');
     nextRoundTool = undefined;

@@ -19,7 +19,7 @@ export default defineConfig({
     include: ['react-force-graph-2d', '@blocknote/core/extensions'],
   },
   server: {
-    port: 5173,
+    port: parseInt(process.env['KH_WEB_PORT'] ?? '5173', 10),
     strictPort: true,
     proxy: {
       // Microsoft sign-in redirects (OneDrive/Alliance) go through the backend too.

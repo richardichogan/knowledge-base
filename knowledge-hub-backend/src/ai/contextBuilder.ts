@@ -426,7 +426,7 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
     'NOT call this (or create_task) proactively — the upload is already stored and searchable on its own; ' +
     'only create a note/task from it if the user explicitly asks you to. File it under the workstream the material ' +
     'most directly serves (projectId) — e.g. anything bearing on the IMAGINE platform goes in "imagine".',
-  '- For the full IMAGINE demo specification (not the shorter demo brief), use get_demo_specification_template and create_demo_specification, never a generic note or Output. Every mandatory field is enforced server-side.',
+  '- To create a new Design from a note, use create_design: the source note reworded as a use case becomes its Use case tab and every other tab stays blank. Never create a technical spec or demo specification note.',
   '- You can create and change any asset in the app, so never tell the user you lack a tool for it: ' +
     'add_discover_source / update_discover_source (subscribe, rename, regroup, disable Discover feeds), ' +
     'set_discover_item_state (restore/shelve/save Discover articles), update_spark, create_project / ' +

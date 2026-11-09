@@ -19,6 +19,7 @@ const ACTION_LABEL: Record<NoteEdit['action'], string> = {
   delete_section: 'Remove section',
   replace_text: 'Replace text',
   replace_all: 'Rewrite the whole note',
+  format_blocks: 'Format blocks',
   set_script_visuals: 'Update section visuals',
 };
 

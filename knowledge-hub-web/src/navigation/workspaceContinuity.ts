@@ -6,10 +6,19 @@ const AREAS = ['/think', '/discover', '/plan', '/build', '/projects', '/my-work'
 const positions = new Map<string, Map<string, number>>();
 const SCROLLERS = ['.kh-content', '.notes-list', '.notes-editor-scroll'];
 
+// Links that open a dialog or job once; resuming them would reopen it every time the area is revisited.
+const ONE_SHOT_PARAMS = ['socialDraft', 'blogJob'];
+
+function isOneShot(search: string): boolean {
+  const params = new URLSearchParams(search);
+  return ONE_SHOT_PARAMS.some(name => params.has(name));
+}
+
 export function resumeWorkspacePath(path: string): string {
   if (!AREAS.includes(path)) return path;
   const saved = readStored(`kh-resume:${path}`);
-  return saved && (saved === path || saved.startsWith(`${path}?`)) ? saved : path;
+  if (!saved || !(saved === path || saved.startsWith(`${path}?`))) return path;
+  return isOneShot(saved.slice(path.length)) ? path : saved;
 }
 
 /** Explicit deep links always win; only navigation to an area's root resumes it. */
@@ -17,7 +26,7 @@ export function useWorkspaceContinuity(): void {
   const location = useLocation();
   const key = `${location.pathname}${location.search}`;
   useLayoutEffect(() => {
-    if (AREAS.includes(location.pathname)) writeStored(`kh-resume:${location.pathname}`, key);
+    if (AREAS.includes(location.pathname) && !isOneShot(location.search)) writeStored(`kh-resume:${location.pathname}`, key);
     const saved = positions.get(key);
     const pending = new Map(saved);
     const capture = (event: Event): void => {

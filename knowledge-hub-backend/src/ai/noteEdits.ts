@@ -16,7 +16,13 @@ export type NoteEditAction =
   | 'delete_section'   // remove `heading` and its content
   | 'replace_text'     // replace exact text `find` with `markdown`
   | 'replace_all'
+  | 'format_blocks'    // change how existing blocks are styled (heading, list, quote…); never changes wording
   | 'set_script_visuals';
+
+export const NOTE_FORMAT_STYLES = ['paragraph', 'h1', 'h2', 'h3', 'bullet', 'numbered', 'checklist', 'quote'] as const;
+export type NoteFormatStyle = typeof NOTE_FORMAT_STYLES[number];
+
+export interface NoteBlockFormat { blockId: string; style: NoteFormatStyle; stripMarker?: boolean }
 
 export interface NoteEditProposal {
   delivery?: 'apply' | 'preview';
@@ -28,9 +34,13 @@ export interface NoteEditProposal {
   sectionId?: string;
   visuals?: ScriptVisuals;
   expectedVisuals?: string;
+  layout?: Array<{ n: number; to?: number; as: NoteFormatStyle; stripMarker?: boolean }>;
+  formats?: NoteBlockFormat[];
 }
 
-const ACTIONS: readonly NoteEditAction[] = ['append', 'prepend', 'add_to_section', 'replace_section', 'delete_section', 'replace_text', 'replace_all'];
+const ACTIONS: readonly NoteEditAction[] = ['append', 'prepend', 'add_to_section', 'replace_section', 'delete_section', 'replace_text', 'replace_all', 'format_blocks'];
+const FORMAT_OPERATION_LIMIT = 400;
+const FORMAT_RANGE_LIMIT = 400;
 const REPAIR_CONTEXT_CHARS = 24_000;
 const REPAIR_MATCH_LIMIT = 12;
 const REPAIR_PRECEDING_PARAGRAPHS = 3;
@@ -67,6 +77,22 @@ export function validateNoteEdits(raw: unknown): { edits: NoteEditProposal[]; pr
     if (action === 'replace_text' && (find === undefined || markdown === undefined)) {
       problems.push(`edit ${String(i + 1)}: replace_text needs "find" (exact existing text) and "markdown" (replacement). To add new content instead, use action "append" (end of note) or "add_to_section" with just "markdown"`); return;
     }
+    if (action === 'format_blocks') {
+      const layout = (Array.isArray(e['layout']) ? e['layout'] : []).flatMap((raw: unknown) => {
+        const op = (raw ?? {}) as Record<string, unknown>;
+        const style = NOTE_FORMAT_STYLES.find(candidate => candidate === op['as']);
+        const n = typeof op['n'] === 'number' && Number.isInteger(op['n']) ? op['n'] : -1;
+        const to = typeof op['to'] === 'number' && Number.isInteger(op['to']) ? op['to'] : n;
+        return style && n >= 0 && to >= n && to - n < FORMAT_RANGE_LIMIT
+          ? [{ n, to, as: style, ...(op['stripMarker'] === true && { stripMarker: true }) }] : [];
+      });
+      if (layout.length === 0 || layout.length > FORMAT_OPERATION_LIMIT) {
+        problems.push(`edit ${String(i + 1)}: format_blocks needs 1-${String(FORMAT_OPERATION_LIMIT)} "layout" items like {"n": 12, "as": "h2"} using block numbers from read_note_layout (as: ${NOTE_FORMAT_STYLES.join(', ')}; "to" optional inclusive end of a range of at most ${String(FORMAT_RANGE_LIMIT)} blocks)`);
+        return;
+      }
+      edits.push({ action, summary: summary.slice(0, 200), layout });
+      return;
+    }
     if (action !== 'delete_section' && action !== 'replace_text' && markdown === undefined) {
       problems.push(`edit ${String(i + 1)}: "${action}" needs "markdown" content`); return;
     }
@@ -100,6 +126,65 @@ function norm(s: string): string {
 
 function flattenBlocks(blocks: NoteBlock[]): NoteBlock[] {
   return blocks.flatMap((b) => [b, ...flattenBlocks(Array.isArray(b.children) ? b.children : [])]);
+}
+
+const FORMATTABLE_TYPES = new Set(['paragraph', 'heading', 'bulletListItem', 'numberedListItem', 'checkListItem', 'quote']);
+const LAYOUT_CODES: Record<string, string> = { paragraph: 'p', bulletListItem: 'ul', numberedListItem: 'ol', checkListItem: 'chk', quote: 'q' };
+const STYLE_OF_TYPE = (block: NoteBlock): NoteFormatStyle | null => {
+  switch (block.type) {
+    case 'paragraph': return 'paragraph';
+    case 'heading': return block.props?.level === 1 ? 'h1' : block.props?.level === 3 ? 'h3' : 'h2';
+    case 'bulletListItem': return 'bullet';
+    case 'numberedListItem': return 'numbered';
+    case 'checkListItem': return 'checklist';
+    case 'quote': return 'quote';
+    default: return null;
+  }
+};
+
+/** A bounded page of the note's blocks with stable numbers, for formatting-only edits. */
+export function noteLayoutPage(blocks: NoteBlock[], offset: number, limit: number): {
+  total: number; blocks: string[]; nextOffset: number | null;
+} {
+  const flat = flattenBlocks(blocks);
+  const rows: string[] = [];
+  let next: number | null = null;
+  for (let n = Math.max(0, offset); n < flat.length; n++) {
+    const block = flat[n]!;
+    const text = blockText(block).trim();
+    if (!text) continue;
+    if (rows.length >= limit) { next = n; break; }
+    const type = block.type === 'heading' ? `h${String(block.props?.level ?? 1)}` : LAYOUT_CODES[block.type ?? ''] ?? block.type ?? '?';
+    rows.push(`${String(n)}|${type}|${String(text.length)}|${text.replace(/\s+/g, ' ').slice(0, 80)}`);
+  }
+  return { total: flat.length, blocks: rows, nextOffset: next };
+}
+
+/** Resolves block numbers to block ids. Formatting never changes wording, so these edits need no content review. */
+export function resolveFormatEdits(edits: NoteEditProposal[], blocks: NoteBlock[]): { edits: NoteEditProposal[]; problems: string[] } {
+  const flat = flattenBlocks(blocks);
+  const title = blocks.find(block => block.type === 'heading' && blockText(block).trim());
+  const problems: string[] = [];
+  const resolved = edits.map((edit, index) => {
+    if (edit.action !== 'format_blocks') return edit;
+    const formats = new Map<string, NoteBlockFormat>();
+    for (const op of edit.layout ?? []) {
+      for (let n = op.n; n <= (op.to ?? op.n); n++) {
+        const block = flat[n];
+        if (!block) { problems.push(`edit ${String(index + 1)}: there is no block number ${String(n)}`); break; }
+        if (!blockText(block).trim()) continue;
+        if (block === title || !block.id || !FORMATTABLE_TYPES.has(block.type ?? '') || block.props?.scriptSection) continue;
+        if (STYLE_OF_TYPE(block) === op.as && !op.stripMarker) continue;
+        formats.set(block.id, { blockId: block.id, style: op.as, ...(op.stripMarker && { stripMarker: true }) });
+      }
+    }
+    const { layout: _layout, ...rest } = edit;
+    return { ...rest, formats: [...formats.values()] };
+  });
+  if (problems.length === 0 && resolved.every(edit => edit.action === 'format_blocks' && edit.formats?.length === 0)) {
+    problems.push('every block in that layout already has the requested style, so there is nothing to change');
+  }
+  return { edits: resolved.filter(edit => edit.action !== 'format_blocks' || (edit.formats?.length ?? 0) > 0), problems };
 }
 
 /** The note's top-level headings, as the applier sees them. */
@@ -151,6 +236,7 @@ export function checkEditsAgainstNote(edits: NoteEditProposal[], blocks: NoteBlo
   const label = (i: number): string => String(i - alreadyProposed + 1);
   const hasHeading = (target: string): boolean => headings.some((h) => h === target || h.includes(target) || (target.includes(h) && h !== ''));
   edits.forEach((e, i) => {
+    if (e.action === 'format_blocks') return;
     if (e.action === 'set_script_visuals') {
       const section = blocks.find(block => block.id === e.sectionId && block.props?.scriptSection);
       if (!script || !section || !e.visuals || !visualSourceCurrent(e.visuals.source, section)) {
