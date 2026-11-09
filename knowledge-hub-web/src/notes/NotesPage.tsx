@@ -11,7 +11,8 @@ import { useQuery, useInfiniteQuery, useQueryClient, type InfiniteData } from '@
 import { InlineLoading } from '@carbon/react';
 import { Add, SidePanelOpen, SidePanelClose, DocumentImport, ChevronDown, Document, Idea, Draw, TrashCan, Renew, ArrowLeft } from '@carbon/icons-react';
 import { NoteList } from './NoteList';
-import { NoteTagFolders, tagFolderPath } from './NoteTagFolders';
+import { NoteFilters, tagFolderPath } from './NoteTagFolders';
+import { CONTENT_TYPE_OPTIONS, type ContentType } from './constants';
 import { expandTagIds, useTaxonomy } from '../hooks/useTaxonomy';
 import { QuickSparkModal } from '../components/sparks/QuickSparkModal';
 import { fetchNotesPage, fetchNote, createNote, deleteNote, extractNoteBlockText, buildPreview } from './noteStorage';
@@ -137,7 +138,7 @@ export const NotesPage: React.FC = () => {
   const [sparkModalOpen,   setSparkModalOpen]   = useState(false);
   const [canvasError, setCanvasError] = useState<string | null>(null);
   const [listCollapsed, setListCollapsedNow] = usePersistedBoolean('kh_think_list_collapsed', false);
-  const [tagsCollapsed, setTagsCollapsed] = usePersistedBoolean('kh_think_tags_collapsed', false);
+  const [filtersCollapsed, setFiltersCollapsed] = usePersistedBoolean('kh_think_filters_collapsed', true);
   const setListCollapsed = useCallback((next: boolean): void => { slidePanels(() => { setListCollapsedNow(next); }); }, [setListCollapsedNow]);
   const { setAthenaContext, setThinkNavigation } = useAthenaContext();
   // Command-bar element NoteEditor portals its note actions (Export, Push, Delete) into.
@@ -145,6 +146,9 @@ export const NotesPage: React.FC = () => {
 
   const [listQuery, setListQuery] = useState<NoteListQuery>({ sort: 'modified' });
   const [selectedTagId, setSelectedTagId] = useState<string | null>(null);
+  const [selectedContentType, setSelectedContentType] = useState<ContentType | null>(null);
+  // Definitions live in their own alphabetical section; filtering to another type hides it.
+  const definitionsVisible = selectedContentType === null || selectedContentType === 'definition';
   const taxonomy = useTaxonomy();
   const selectedTag = taxonomy.data?.flatMap(parent => [parent, ...(parent.children ?? [])])
     .find(tag => tag.id === selectedTagId);
@@ -156,9 +160,11 @@ export const NotesPage: React.FC = () => {
   }, []);
   const { data: notePages, isLoading, isError, error: listError, isFetching, refetch,
     hasNextPage, fetchNextPage, isFetchingNextPage, isFetchNextPageError } = useInfiniteQuery({
-    queryKey: ['notes-list', 'designs', listQuery, filterTagIds ?? ''],
+    queryKey: ['notes-list', 'designs', listQuery, filterTagIds ?? '', selectedContentType ?? ''],
     queryFn: ({ pageParam }) => fetchNotesPage(pageParam, listQuery, 'designs',
-      { excludeContentType: 'definition', excludeTaskEmails: true, ...(filterTagIds ? { tagIds: filterTagIds } : {}) }),
+      { excludeContentType: 'definition', excludeTaskEmails: true,
+        ...(selectedContentType ? { contentType: selectedContentType } : {}),
+        ...(filterTagIds ? { tagIds: filterTagIds } : {}) }),
     initialPageParam: 1,
     getNextPageParam: nextNotesPage,
     staleTime: 30_000,
@@ -183,26 +189,30 @@ export const NotesPage: React.FC = () => {
   const noteTotal = notePages?.pages[0]?.total ?? 0;
   useEffect(() => {
     if (mode !== 'notes') { setThinkNavigation(null); return; }
-    const listed = [...notes, ...definitions];
+    const listedDefinitions = definitionsVisible ? definitions : NO_NOTES;
+    const listed = [...notes, ...listedDefinitions];
     const folders = (taxonomy.data ?? []).flatMap(parent => [parent, ...(parent.children ?? [])]);
     const error = listError ?? definitionsQuery.error;
     setThinkNavigation({
       selectedTag: selectedTagId ? { id: selectedTagId, path: selectedTagPath, filterTagIds: filterTagIds?.split(',') ?? [] } : null,
+      selectedContentType: selectedContentType ? { id: selectedContentType,
+        label: CONTENT_TYPE_OPTIONS.find(option => option.id === selectedContentType)?.label ?? selectedContentType } : null,
       folders: folders.slice(0, 100).map(tag => ({ id: tag.id, name: tag.name, parentId: tag.parentId ?? null })),
       totalFolders: folders.length, foldersHasMore: folders.length > 100,
-      listCollapsed, tagsCollapsed,
+      listCollapsed, filtersCollapsed,
       folderStatus: taxonomy.isError ? 'error' : taxonomy.isPending ? 'loading' : 'ready',
       ...(taxonomy.error ? { folderError: describeApiError(taxonomy.error) } : {}),
       search: listQuery.q ?? '', sort: listQuery.sort ?? 'modified',
       notes: listed.slice(0, 50).map(note => ({ id: note.id, title: note.title })),
-      loadedNotes: listed.length, totalNotes: noteTotal + (definitionsQuery.data?.pages[0]?.total ?? 0),
-      hasMore: Boolean(hasNextPage || definitionsQuery.hasNextPage || listed.length > 50),
+      loadedNotes: listed.length, totalNotes: noteTotal + (definitionsVisible ? definitionsQuery.data?.pages[0]?.total ?? 0 : 0),
+      hasMore: Boolean(hasNextPage || (definitionsVisible && definitionsQuery.hasNextPage) || listed.length > 50),
       listStatus: error ? 'error' : isLoading || definitionsQuery.isPending ? 'loading' : 'ready',
       ...(error ? { listError: describeApiError(error) } : {}),
     });
-  }, [mode, selectedTagId, selectedTagPath, filterTagIds, taxonomy.data, taxonomy.isError, taxonomy.isPending, taxonomy.error,
+  }, [mode, selectedTagId, selectedTagPath, filterTagIds, selectedContentType, definitionsVisible,
+    taxonomy.data, taxonomy.isError, taxonomy.isPending, taxonomy.error,
     listQuery, notes, definitions, noteTotal, definitionsQuery.data, definitionsQuery.hasNextPage, definitionsQuery.isPending,
-    definitionsQuery.error, hasNextPage, isLoading, listError, listCollapsed, tagsCollapsed, setThinkNavigation]);
+    definitionsQuery.error, hasNextPage, isLoading, listError, listCollapsed, filtersCollapsed, setThinkNavigation]);
   useEffect(() => () => setThinkNavigation(null), [setThinkNavigation]);
   const selectDesign = (id: string, role?: string, assetId?: string): void => {
     setSelectedDesign(id); setSelectedEpisode(null); setSelectedId(id); setMode('notes'); setMobilePane('editor');
@@ -865,7 +875,10 @@ export const NotesPage: React.FC = () => {
           </div>}
 
           {mode === 'notes' && (
-            <div className={`notes-navigation-split${tagsCollapsed ? ' notes-navigation-split--tags-collapsed' : ''}`}>
+            <div className={`notes-navigation-split${filtersCollapsed ? ' notes-navigation-split--filters-collapsed' : ''}`}>
+            <NoteFilters selectedTagId={selectedTagId} onSelectTag={setSelectedTagId}
+              selectedContentType={selectedContentType} onSelectContentType={setSelectedContentType}
+              collapsed={filtersCollapsed} onToggleCollapsed={() => setFiltersCollapsed(!filtersCollapsed)} />
             <div className="notes-navigation-list">
             <NoteList
               showTools
@@ -886,17 +899,15 @@ export const NotesPage: React.FC = () => {
               loadMoreError={isFetchNextPageError}
               fetching={isFetching}
               onLoadMore={() => { void fetchNextPage({ cancelRefetch: false }); }}
-              definitions={definitions}
-              definitionsHasMore={definitionsQuery.hasNextPage}
-              definitionsLoadingMore={definitionsQuery.isFetchingNextPage}
+              definitions={definitionsVisible ? definitions : NO_NOTES}
+              definitionsHasMore={definitionsVisible ? definitionsQuery.hasNextPage : false}
+              definitionsLoadingMore={definitionsVisible ? definitionsQuery.isFetchingNextPage : false}
               onLoadMoreDefinitions={() => { void definitionsQuery.fetchNextPage({ cancelRefetch: false }); }}
             />
-            {definitionsQuery.isError && <p className="notes-tag-folders__notice notes-tag-folders__notice--error" role="alert">
+            {definitionsVisible && definitionsQuery.isError && <p className="notes-tag-folders__notice notes-tag-folders__notice--error" role="alert">
               Definitions unavailable. <button type="button" onClick={() => { void definitionsQuery.refetch(); }}>Retry</button>
             </p>}
             </div>
-            <NoteTagFolders selectedId={selectedTagId} onSelect={setSelectedTagId}
-              collapsed={tagsCollapsed} onToggleCollapsed={() => setTagsCollapsed(!tagsCollapsed)} />
             </div>
           )}
 

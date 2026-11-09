@@ -56,11 +56,12 @@ export interface AthenaPageContext {
 
 export interface ThinkNavigationContext {
   selectedTag: { id: string; path: string; filterTagIds: string[] } | null;
+  selectedContentType: { id: string; label: string } | null;
   folders: Array<{ id: string; name: string; parentId: string | null }>;
   totalFolders: number;
   foldersHasMore: boolean;
   listCollapsed: boolean;
-  tagsCollapsed: boolean;
+  filtersCollapsed: boolean;
   folderStatus: 'loading' | 'error' | 'ready';
   folderError?: string;
   search: string;
@@ -85,7 +86,7 @@ export function withThinkContext(page: AthenaPageContext | null, navigation: Thi
   if (!navigation) return page;
   const active = page ?? { type: 'notes', title: 'Think' };
   const detail = [
-    'Think navigation: tag folders are filters over existing tags, not physical folders. Parent folders include child tags. Listed notes are summaries, not evidence that their bodies were read. Read saved records before making content-specific claims. Use read_note_tags for current filing and paginated folder retrieval, and set_note_tags for requested filing changes.',
+    'Think navigation: the Filters section combines a content-type filter and tag folders; both apply to the list together. Tag folders are filters over existing tags, not physical folders. Parent folders include child tags. selectedContentType restricts the list to one content type. Listed notes are summaries, not evidence that their bodies were read. Read saved records before making content-specific claims. Use read_note_tags for current filing and paginated folder retrieval, and set_note_tags for requested filing changes.',
     JSON.stringify(navigation),
     filing?.noteId === active.id ? `Saved note filing: ${JSON.stringify(filing)}` : undefined,
     active.detail,
