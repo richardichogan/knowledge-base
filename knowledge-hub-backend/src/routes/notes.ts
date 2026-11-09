@@ -38,6 +38,7 @@ import { invalidateDefinitions } from '../ai/definitions.js';
 import { getFoundryClient } from '../ai/foundryClient.js';
 import { prepareAutomaticTaskAssistance } from '../work/taskAssistanceQueue.js';
 import { queueScriptVisuals } from '../services/scriptVisualJobs.js';
+import { ensureNoteInsights, dismissNoteInsight } from '../ai/noteInsights.js';
 
 const router = Router();
 // Any note write can add, edit or remove a definition Athena relies on.
@@ -68,6 +69,28 @@ router.post('/:id/script-visuals/jobs', (req, res, next) => {
       if (typeof instruction !== 'string' || !req.params['id']) throw new ValidationError('Provide a script and visual design request.');
       const result = await queueScriptVisuals(getDb(), req.params['id'], instruction, { requestedBy: 'app' });
       res.status(HTTP_STATUS.ACCEPTED).json({ success: true, data: result });
+    } catch (error) { next(error); }
+  })();
+});
+
+// Moment-of-work insights: cached per saved note version; polling never re-runs a finished check.
+router.post('/:id/insights', (req, res, next) => {
+  void (async (): Promise<void> => {
+    try {
+      if (!req.params['id']) throw new ValidationError('Invalid note identifier');
+      res.json({ success: true, data: await ensureNoteInsights(getDb(), req.params['id']) });
+    } catch (error) { next(error); }
+  })();
+});
+
+router.post('/:id/insights/dismiss', (req, res, next) => {
+  void (async (): Promise<void> => {
+    try {
+      const body = req.body as { signature?: unknown; findingId?: unknown };
+      if (!req.params['id'] || typeof body.signature !== 'string' || typeof body.findingId !== 'string') {
+        throw new ValidationError('Provide the insight version signature and finding to dismiss');
+      }
+      res.json({ success: true, data: await dismissNoteInsight(getDb(), req.params['id'], body.signature, body.findingId) });
     } catch (error) { next(error); }
   })();
 });

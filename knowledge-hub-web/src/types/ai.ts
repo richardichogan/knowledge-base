@@ -23,6 +23,20 @@ export interface ChatTurnTraceEventPage {
   nextSequence: number | null; nextOffset: number | null;
 }
 
+/** One moment-of-work finding surfaced as a chip above the note-linked Athena panel. */
+export interface NoteInsightFinding {
+  id: string;
+  kind: 'contradiction' | 'terminology' | 'stale_reference' | 'open_question';
+  title: string;
+  detail: string;
+}
+export interface NoteInsightsView {
+  signature: string;
+  status: 'pending' | 'done' | 'failed';
+  findings: NoteInsightFinding[];
+  dismissed: string[];
+}
+
 export interface ChatPageContext {
   id?: string;
   conversationId?: string;

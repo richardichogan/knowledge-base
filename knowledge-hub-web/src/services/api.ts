@@ -38,6 +38,7 @@ import type {
 } from '../types';
 import { getApiToken } from './auth';
 import type { AgentHandOffResult, AgentJob, AssignmentNotice, AssignmentSummary } from '../types/agentJobs';
+import type { NoteInsightsView } from '../types/ai';
 import type { TaskAssistanceDetail, TaskAssistanceProposal, TaskAssistanceStarted } from '../types/taskAssistance';
 import { requireApiData } from './apiError';
 import type { DecisionLinkCandidate, DecisionLinkInput, DecisionSemantics } from '../types/semanticDecision';
@@ -1539,6 +1540,23 @@ export class KnowledgeHubApi {
       '/api/ai/summarize-note',
       { title, content },
       { timeout: CHAT_TIMEOUT_MS },
+    );
+    return r.data;
+  }
+
+  /** Cached moment-of-work insights for the note's saved version; starts one background check when none exists. Safe to poll. */
+  async ensureNoteInsights(noteId: string): Promise<ApiResponse<NoteInsightsView>> {
+    const r = await this.client.post<ApiResponse<NoteInsightsView>>(
+      `/api/notes/${encodeURIComponent(noteId)}/insights`,
+    );
+    return r.data;
+  }
+
+  /** Hides one insight chip for that note version. */
+  async dismissNoteInsight(noteId: string, signature: string, findingId: string): Promise<ApiResponse<NoteInsightsView>> {
+    const r = await this.client.post<ApiResponse<NoteInsightsView>>(
+      `/api/notes/${encodeURIComponent(noteId)}/insights/dismiss`,
+      { signature, findingId },
     );
     return r.data;
   }

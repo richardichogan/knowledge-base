@@ -32,6 +32,7 @@ import { ComposerSuggestion, composerSuggestions } from '../components/athena/Co
 import { ComposerControl } from '../components/athena/ComposerControl';
 import { useAthenaMood } from '../chat/athenaMood';
 import { ChatBubble } from '../components/athena/ChatBubble';
+import { NoteInsightsStrip } from '../components/athena/NoteInsightsStrip';
 import { athenaMotionPhase, athenaExpressiveEase, microphoneLevel, ATHENA_ANSWER_MS, ATHENA_MIN_THINK_MS, ATHENA_TYPING_IDLE_MS } from '../chat/athenaMotion';
 import { SideTabsPanel } from '../components/SideTabsPanel';
 import { ChatOutputsTab } from '../components/athena/ChatOutputsTab';
@@ -2448,6 +2449,14 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           </Tile>
         ))}
 
+        {isNoteLinkedPanel && currentNoteId !== undefined && (pageContext?.type === 'note' || pageContext?.type === 'document') && (
+          <NoteInsightsStrip
+            noteId={currentNoteId}
+            onOpenFinding={(finding) => {
+              void submitMessage(`Tell me more about the insight "${finding.title}" you flagged on this note. If a fix makes sense, propose the edit.`);
+            }}
+          />
+        )}
         <div
           ref={messagesRef}
           className={`${compact ? 'ai-messages ai-messages--compact' : 'ai-messages cds--tile'}${showJumpToLatest || promptCount > 1 ? ' ai-messages--with-tools' : ''}`}

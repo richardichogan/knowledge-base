@@ -1,4 +1,5 @@
 import type { NoteEditProposal } from './noteEdits.js';
+import { noteInsightsContextBlock } from './noteInsights.js';
 import { randomUUID } from 'node:crypto';
 import { DESIGN_CHAT_TOOLS, DESIGN_READINESS_WRITE_TOOLS, type DesignTurnState } from './designTools.js';
 import { PODCAST_CHAT_TOOLS, type PodcastTurnState } from './podcastTools.js';
@@ -377,7 +378,10 @@ For explicitly requested teaser-copy changes, read its current revision then use
 Generated image specifications, exact text, presenter attribution, dimensions and image identifiers are included in read_podcast_campaign. For a requested artwork-text correction use update_podcast_campaign_image; it renders only that image from saved source and refreshes Campaign without altering other posts or scheduling.
 The Monday launch and weekday quote posts over two weeks are authored in Show Notes; scheduling must not rewrite them or let other bookings, spacing or daily caps displace them.
 For newly prepared campaigns the publication order is Teaser, Launch, Blog Post, then Quotes and fuller/generic posts. Stages may span different days. Flag conflicting authored dates before approval instead of silently shifting dates. Existing approved campaigns retain their schedule.` : '';
-  const systemExtras = [RETRIEVAL_DICTIONARY, reviewBlock, designBlock, podcastBlock, actionBlock, hooks.noOutputsPanel === true && !design && !toolContext.podcastOwner ? NO_OUTPUTS_PANEL_NOTE : '', hooks.referenceBlock ?? '', standingBlock, peopleBlock, dateBlock, mapBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
+  const insightsBlock = toolContext.noteId !== undefined && (pageContext?.type === 'note' || pageContext?.type === 'document')
+    ? await noteInsightsContextBlock(db, toolContext.noteId).catch((err: unknown) => { console.error('[note-insights] context failed:', err); return ''; })
+    : '';
+  const systemExtras = [RETRIEVAL_DICTIONARY, reviewBlock, designBlock, podcastBlock, actionBlock, hooks.noOutputsPanel === true && !design && !toolContext.podcastOwner ? NO_OUTPUTS_PANEL_NOTE : '', hooks.referenceBlock ?? '', standingBlock, peopleBlock, dateBlock, mapBlock, insightsBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
   const safeHistory = await scrubExcludedHistory(db, history, excluded).catch(() => history.filter((m) => m.role !== 'assistant'));
   const baseMessages = await assembleMessages(context, safeHistory, userMessage, persona, pageContext, systemExtras);
   hooks.signal?.throwIfAborted();
