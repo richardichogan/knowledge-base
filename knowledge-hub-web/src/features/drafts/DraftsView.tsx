@@ -8,7 +8,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Chat, Email } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import { describeApiError, requireApiData } from '../../services/apiError';
-import { extractNoteBlockText, fetchNote, type NoteContentBlock } from '../../notes/noteStorage';
+import { deleteNote, extractNoteBlockText, fetchNote, type NoteContentBlock } from '../../notes/noteStorage';
+import { alertDialog } from '../../services/appDialogs';
 import { athenaLinkText } from '../../notes/linkLabels';
 import { deferredView } from '../../utils/deferredView';
 import { useAthenaContext } from '../../context/AthenaContext';
@@ -90,6 +91,16 @@ export const DraftsView: React.FC<{ selectId: string | null }> = ({ selectId }) 
   useEffect(() => () => { setAthenaContext(null); }, [setAthenaContext]);
 
   const refresh = (): void => { void qc.invalidateQueries({ queryKey: DRAFTS_KEY }); };
+  const removeDraft = async (id: string): Promise<void> => {
+    try {
+      await deleteNote(id);
+      qc.setQueryData<DraftSummary[]>(DRAFTS_KEY, prev => prev?.filter(draft => draft.noteId !== id));
+      setSelected(null);
+      refresh();
+    } catch (err) {
+      await alertDialog(describeApiError(err), { title: 'Could not delete draft', tone: 'danger' });
+    }
+  };
 
   return <div className="kh-drafts">
     <nav className="kh-drafts__list" aria-label="Drafts">
@@ -114,7 +125,7 @@ export const DraftsView: React.FC<{ selectId: string | null }> = ({ selectId }) 
         : !doc.data ? <p className="kh-drafts__status" role="status">Opening draft…</p>
         : <NoteEditor key={doc.data.id} doc={doc.data}
           onSaved={updated => { qc.setQueryData(['draft-document', updated.id], updated); refresh(); }}
-          onDelete={() => { setSelected(null); refresh(); }} />}
+          onDelete={(id) => { void removeDraft(id); }} />}
     </div>
   </div>;
 };
