@@ -43,6 +43,11 @@ function replaceInlineText(content: Block[], find: string, replacement: string, 
       inserted = true;
       return insert;
     }
+    if (item.type === 'noteMention' || item.type === 'entityMention') {
+      // Backlinks take no space in the text Athena reads, so they stay put unless the passage runs across one.
+      if (offset > start && offset < end) throw new Error('This passage runs across a link to another note. Select the text on one side of the link.');
+      return [item];
+    }
     if (item.type !== 'text' || typeof item.text !== 'string') {
       throw new Error('This passage contains embedded content. Select a plain text passage instead.');
     }
