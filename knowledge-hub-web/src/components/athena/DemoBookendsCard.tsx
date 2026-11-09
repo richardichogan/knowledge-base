@@ -38,7 +38,9 @@ function DemoPage({ bookends, page }: { bookends: DemoBookends; page: Page }): R
     if (!element) return;
     const shadow = element.shadowRoot ?? element.attachShadow({ mode: 'open' });
     const styles = document.createElement('style');
-    styles.textContent = css.replaceAll('100vh', '100cqh').replaceAll('position: fixed', 'position: absolute');
+    // These pages are static: paused entrance animations would otherwise hold every line at opacity 0.
+    styles.textContent = `${css.replaceAll('100vh', '100cqh').replaceAll('position: fixed', 'position: absolute')}
+.visual-slide * { animation: none !important; }`;
     const root = document.createElement('div');
     root.className = 'visual-root';
     const stage = document.createElement('main');
@@ -68,7 +70,9 @@ function DemoPage({ bookends, page }: { bookends: DemoBookends; page: Page }): R
     slide.classList.remove(...motion);
     try {
       await document.fonts.ready;
-      const url = await toPng(slide, { width: 1600, height: 900, pixelRatio: 1.2, backgroundColor: '#161616', style: { transform: 'none' } });
+      // The renderer's empty presenter <video> makes html-to-image reject the whole export; these pages never use it.
+      const url = await toPng(slide, { width: 1600, height: 900, pixelRatio: 1.2, backgroundColor: '#161616', style: { transform: 'none' },
+        filter: node => node.nodeName !== 'VIDEO' });
       const link = document.createElement('a');
       link.href = url;
       link.download = `${slug(bookends.intro.title)}-${page}.png`;

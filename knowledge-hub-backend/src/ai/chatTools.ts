@@ -700,7 +700,10 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
           'Shows an intro page and an exit page for a solution demo in your reply, rendered in the same style as the script ' +
           "visuals (the typographic opening title and the end page with the IBM eight-bar logo), each with a 1920x1080 PNG " +
           'download for video editing. Use it when Richard asks for intro/exit, opening/closing or bookend pages for a demo. ' +
-          'FIRST draft the wording in your reply and get his approval; call this only with approved wording (or to show a ' +
+          'The look is fixed to the script visuals: never ask about tone, branding, style or design. If he has not given the ' +
+          'wording, propose the full intro and exit wording yourself in one reply from what you know about the demo and ask him ' +
+          'to approve it once; do not ask him to supply a title. When he approves (e.g. "sounds good", "create them"), call ' +
+          'this immediately in that turn. Call it only with approved wording (or to show a ' +
           'revision he asked for). Distil his actual demo; never invent claims or slogans. Nothing is saved; the pages ' +
           'appear in this chat reply. After calling it, reply in one short line.',
         parameters: {
