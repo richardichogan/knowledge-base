@@ -37,7 +37,11 @@ export interface PromiseProposal {
   id: string; owner: 'richard' | 'other'; who: string; text: string; due: string | null; projectId: string | null; reportDate: string;
   draft: DraftText | null; status: 'proposed' | 'accepted' | 'dismissed'; taskId: string | null; draftId: string | null; decidedAt: string | null;
 }
-export interface ChaseProposal { id: string; taskId: string; taskTitle: string; waitingOn: string; workingDays: number; draftId: string; at: string; status: 'proposed' | 'dismissed' }
+export interface ChaseProposal {
+  id: string; taskId: string; taskTitle: string; waitingOn: string; workingDays: number;
+  /** Suggested wording; the draft is created only when Richard accepts. Older chases already carry a draftId. */
+  draft?: DraftText; draftId: string | null; at: string; status: 'proposed' | 'accepted' | 'dismissed'; decidedAt?: string | null;
+}
 export interface CadenceNudge {
   id: string; person: string; workingDays: number; lastSeen: string | null; reason: string; draft: DraftText;
   status: 'proposed' | 'accepted' | 'dismissed'; taskId: string | null; draftId: string | null; at: string; decidedAt: string | null;
@@ -144,7 +148,7 @@ async function buildCards(db: Pool, state: MeetingPrepState): Promise<{ reportDa
   return { reportDate: report.d, cards, promises };
 }
 
-/** Waiting tasks untouched for five working days get one chase draft (linked to the task), at most once per quiet spell. */
+/** Waiting tasks untouched for five working days get one chase suggestion, at most once per quiet spell; the draft is created on accept. */
 async function buildChases(db: Pool, state: MeetingPrepState, now: Date): Promise<ChaseProposal[]> {
   if (!await proposalEnabled(db, 'chase')) return [];
   const rows = (await db.query<{ id: string; title: string; waiting_on: string | null; updated_at: Date; body: string | null }>(
@@ -166,11 +170,9 @@ async function buildChases(db: Pool, state: MeetingPrepState, now: Date): Promis
     const task = rows.find(r => r.id === c.taskId);
     const d = draftText(c.draft);
     if (!task || !d || out.some(o => o.taskId === task.id)) continue;
-    const draft = await createWorkContent(db, 'email-draft', { title: d.subject || `Chase: ${task.title}`.slice(0, 200), taskId: task.id, body: d.body, channel: d.channel,
-      ...(d.subject ? { subject: d.subject } : {}), ...(d.to || task.waiting_on ? { to: d.to || task.waiting_on } : {}) });
     const chase: ChaseProposal = { id: randomUUID(), taskId: task.id, taskTitle: task.title, waitingOn: task.waiting_on || d.to || '', workingDays: workingDaysBetween(task.updated_at, now),
-      draftId: draft.noteId, at: now.toISOString(), status: 'proposed' };
-    await recordProposal(db, 'chase', `chase:${chase.id}`, `Chase: ${task.title}`, draft.noteId).catch(() => { /* reporting only */ });
+      draft: { ...d, to: d.to || task.waiting_on || '' }, draftId: null, at: now.toISOString(), status: 'proposed', decidedAt: null };
+    await recordProposal(db, 'chase', `chase:${chase.id}`, `Chase: ${task.title}`).catch(() => { /* reporting only */ });
     out.push(chase);
   }
   return out;
@@ -308,16 +310,37 @@ export async function decideCadence(db: Pool, id: unknown, accept: boolean, acto
   return n;
 }
 
-/** Dismissing a chase archives its unsent draft. */
+/** Accepting a chase creates its draft in Plan › Drafts, linked to the waiting task; nothing is sent. */
+export async function acceptChase(db: Pool, id: unknown): Promise<ChaseProposal> {
+  if (typeof id !== 'string' || !id) throw new ValidationError('Choose a chase.');
+  const c = await mutateState<MeetingPrepState, ChaseProposal>(db, STATE_KEY, { ...EMPTY }, async s => {
+    const c = (s.chases ?? []).find(x => x.id === id);
+    if (!c) throw new NotFoundError('Chase');
+    if (c.status !== 'proposed') throw new ConflictError(`This chase was already ${c.status}.`, 'CHASE_DECIDED');
+    if (!c.draftId) {
+      if (!c.draft) throw new ValidationError('This chase has no suggested wording. Refresh meeting prep.');
+      const task = (await db.query<{ archived: boolean }>('SELECT archived FROM tasks WHERE id::text=$1', [c.taskId])).rows[0];
+      if (!task || task.archived) throw new ConflictError('That task has been archived or deleted.', 'CHASE_TASK_GONE');
+      c.draftId = await makeDraft(db, c.taskId, `Chase: ${c.taskTitle}`, c.draft);
+    }
+    c.status = 'accepted'; c.decidedAt = new Date().toISOString();
+    return c;
+  });
+  await decideProposal(db, `chase:${c.id}`, 'accepted').catch(() => { /* reporting only */ });
+  return c;
+}
+
+/** Dismissing a chase archives any unsent draft an older chase already created. */
 export async function dismissChase(db: Pool, id: unknown): Promise<ChaseProposal> {
   if (typeof id !== 'string' || !id) throw new ValidationError('Choose a chase.');
   const c = await mutateState<MeetingPrepState, ChaseProposal>(db, STATE_KEY, { ...EMPTY }, s => {
     const c = (s.chases ?? []).find(x => x.id === id);
     if (!c) throw new NotFoundError('Chase');
-    c.status = 'dismissed';
+    if (c.status !== 'proposed') throw new ConflictError(`This chase was already ${c.status}.`, 'CHASE_DECIDED');
+    c.status = 'dismissed'; c.decidedAt = new Date().toISOString();
     return c;
   });
-  await db.query(`UPDATE notes SET status='archived', updated_at=NOW() WHERE id=$1 AND EXISTS (SELECT 1 FROM email_drafts WHERE note_id=$1 AND status <> 'sent')`, [c.draftId]);
+  if (c.draftId) await db.query(`UPDATE notes SET status='archived', updated_at=NOW() WHERE id=$1 AND EXISTS (SELECT 1 FROM email_drafts WHERE note_id=$1 AND status <> 'sent')`, [c.draftId]);
   await decideProposal(db, `chase:${c.id}`, 'dismissed').catch(() => { /* reporting only */ });
   return c;
 }

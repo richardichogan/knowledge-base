@@ -122,13 +122,14 @@ export function DecideDetail({ item, onAsk }: { item: DecideItem; onAsk: () => v
         <div className="today-brief__actions"><Link className="today-brief__quiet" to={`/chat?session=${encodeURIComponent(String(item.meta.sessionId))}`}>Open the chat <ArrowRight size={16} /></Link></div>
       </>}
       {item.kind === 'promise' && <Buttons m={m} buttons={[p('accept-promise', item.meta.owner === 'richard' ? 'Accept: make a task and draft' : 'Accept: track as waiting on', 'Accepting...', true), p('dismiss-promise', 'Dismiss', 'Dismissing...')]} />}
-      {item.kind === 'chase' && <Buttons m={m} buttons={[p('dismiss-chase', 'Dismiss chase', 'Dismissing...')]} />}
+      {item.kind === 'chase' && <Buttons m={m} buttons={[p('accept-chase', draftId ? 'Accept chase' : 'Accept: create draft', 'Accepting...', true), p('dismiss-chase', 'Dismiss chase', 'Dismissing...')]} />}
       {item.kind === 'cadence' && <Buttons m={m} buttons={[p('accept-cadence', 'Accept: make a task and draft', 'Accepting...', true), p('dismiss-cadence', 'Dismiss', 'Dismissing...')]} />}
       {item.kind === 'cfp' && <>
         <Buttons m={m} buttons={[p('confirm-cfp', 'Confirm: schedule abstract', 'Confirming...', true), p('dismiss-cfp', 'Dismiss', 'Dismissing...')]} />
         {str(item.meta.cfpUrl) && <div className="today-brief__actions"><a className="today-brief__quiet" href={String(item.meta.cfpUrl)} target="_blank" rel="noreferrer">Open CFP <ArrowRight size={16} /></a></div>}
       </>}
       {item.kind === 'paused' && <Buttons m={m} buttons={[p('resume-paused', 'Try again', 'Resuming...', true), p('stop-paused', 'Leave stopped', 'Saving...')]} />}
+      {item.kind === 'email' && <Buttons m={m} buttons={[d('draft-delete', 'Delete draft', 'Deleting...')]} />}
       {(item.kind === 'email' || draftId) && <div className="today-brief__actions">
         <Link className="today-brief__quiet" to={`/plan?view=drafts&draft=${encodeURIComponent(item.kind === 'email' ? item.refId : draftId ?? '')}`}>Open draft <ArrowRight size={16} /></Link></div>}
       {str(item.meta.taskId) && item.kind !== 'waiting' && <div className="today-brief__actions">

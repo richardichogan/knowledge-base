@@ -204,7 +204,7 @@ export async function executeRun(db: Pool, run: JobRun, lease: string, delivery:
       if (run.preview) run.artifacts = { message: 'Preview only: Athena would update the Imagine deal-desk notes from new evidence, logging each change for undo, and prepare follow-up drafts. Nothing is sent.' };
       else await step(db, run, lease, 'deal-desk', async () => {
         const result = await runDealDesk(db, 'job');
-        run.artifacts.message = `Updated ${String(result.updated)} deal brief${result.updated === 1 ? '' : 's'}; ${String(result.drafts)} follow-up drafts.`;
+        run.artifacts.message = `Updated ${String(result.updated)} deal brief${result.updated === 1 ? '' : 's'}; ${String(result.followUps)} follow-up${result.followUps === 1 ? '' : 's'} suggested (drafted only on request).`;
         return result;
       });
     } else if (run.definition.kind === 'meeting-prep') {

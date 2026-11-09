@@ -44,7 +44,7 @@ function useProactiveAction() {
 /** Compact summary for Athena's page context; manage_proactive status returns the full records. */
 export function proactiveContext(data: ProactiveOverview | undefined): string {
   if (!data) return 'Proactive work: not loaded yet; use manage_proactive status.';
-  const deals = data.deals.rows.map(d => `- ${d.name} [${d.projectId}]${d.noteId ? ` brief note ${d.noteId}` : ' no brief yet'}${d.latest ? `; latest change ${when(d.latest.createdAt, true)}: ${d.latest.summary}${d.latest.undoneAt ? ' (undone)' : ''} [update ${d.latest.id}]` : ''}`);
+  const deals = data.deals.rows.map(d => `- ${d.name} [${d.projectId}]${d.noteId ? ` brief note ${d.noteId}` : ' no brief yet'}${d.latest ? `; latest change ${when(d.latest.createdAt, true)}: ${d.latest.summary}${d.latest.undoneAt ? ' (undone)' : ''}${d.latest.draftId ? ` follow-up draft ${d.latest.draftId}` : d.latest.followUp && !d.latest.undoneAt ? ` suggested follow-up to ${d.latest.followUp.to || 'recipient'} (no draft yet; create-deal-draft)` : ''} [update ${d.latest.id}]` : ''}`);
   const prep = data.meetingPrep;
   const open = <T extends { status: string }>(xs: T[]): T[] => xs.filter(x => x.status === 'proposed');
   const held = (x: { held?: boolean }): string => (x.held ? ' (held for the next peak window)' : '');
@@ -54,7 +54,7 @@ export function proactiveContext(data: ProactiveOverview | undefined): string {
     `Paused by Athena after repeated failures: ${(data.paused ?? []).filter(p => p.status === 'open').map(p => `[${p.key}] ${p.question}`).join('; ') || 'none'}.`,
     data.timing ? `Timing: ${data.timing.peak ? 'peak hours now' : `outside peak hours; next window ${when(data.timing.nextWindow, true)}`}; ${data.timing.held} proposal${data.timing.held === 1 ? '' : 's'} held.` : 'Timing: unknown.',
     `Promises awaiting a decision: ${open(prep.promises).map(p => `[${p.id}] ${p.owner === 'richard' ? 'Richard' : p.who} — ${p.text}${held(p)}`).join('; ') || 'none'}.`,
-    `Chases: ${open(prep.chases).map(c => `[${c.id}] ${c.taskTitle} (${c.waitingOn ? `waiting on ${c.waitingOn}, ` : ''}${c.workingDays} working days)${held(c)}`).join('; ') || 'none'}.`,
+    `Chases: ${open(prep.chases).map(c => `[${c.id}] ${c.taskTitle} (${c.waitingOn ? `waiting on ${c.waitingOn}, ` : ''}${c.workingDays} working days, ${c.draftId ? `draft ${c.draftId}` : 'no draft until accepted'})${held(c)}`).join('; ') || 'none'}.`,
     `Keep-in-touch: ${open(prep.cadence).map(c => `[${c.id}] ${c.person}, ${c.workingDays} working days${held(c)}`).join('; ') || 'none'}.`,
     `CFP shortlist: ${data.cfps.shortlist.map(c => `[${c.id}] ${c.conference}, deadline ${when(c.deadline)}${held(c)}`).join('; ') || 'none'}. Scheduled: ${data.cfps.scheduled.map(s => `${s.conference} abstract due ${when(s.dueAt)}`).join('; ') || 'none'}.`,
     `Athena's proposals since ${when(data.ledger.since)}: ${data.ledger.proposed} proposed, ${data.ledger.accepted} accepted, ${data.ledger.open} awaiting a decision, ${data.ledger.ignored} ignored, ${data.ledger.dismissed} rejected. Stopped: ${data.ledger.stopped.map(s => s.label).join(', ') || 'none'}.`,
@@ -94,6 +94,9 @@ export function DealDesk(): React.ReactElement {
           <div className="today-brief__actions">
             {row.noteId && <Link className="today-brief__quiet" to={noteLink(row.noteId)}>Open brief <ArrowRight size={16} /></Link>}
             {u?.draftId && <Link className="today-brief__quiet" to={draftLink(u.draftId)}>Open follow-up draft <ArrowRight size={16} /></Link>}
+            {u?.followUp && !u.draftId && !u.undoneAt && <button type="button" className="today-brief__quiet" disabled={act.isPending}
+              onClick={() => { act.mutate({ action: 'create-deal-draft', args: { updateId: u.id }, key: `draft:${u.id}` }); }}>
+              {busy(act, `draft:${u.id}`) ? 'Creating...' : 'Create follow-up draft'}</button>}
             {u?.canUndo && <button type="button" className="today-brief__quiet" disabled={act.isPending}
               onClick={() => { act.mutate({ action: 'undo-deal-update', args: { updateId: u.id }, key: `undo:${u.id}` }); }}>
               {busy(act, `undo:${u.id}`) ? 'Undoing...' : 'Undo'}</button>}
@@ -104,7 +107,7 @@ export function DealDesk(): React.ReactElement {
         <button type="button" className="today-brief__quiet" disabled={running} onClick={() => { act.mutate({ action: 'run-deal-desk', key: 'run' }); }}>
           <Renew size={16} /> {running ? 'Athena is updating the briefs...' : 'Update deal briefs now'}</button>
       </div>
-      <p className="today-brief__meta">Athena edits each brief directly every weekday at 10:30 and logs every change. Follow-ups are drafts; nothing is sent.</p>
+      <p className="today-brief__meta">Athena edits each brief directly every weekday at 10:30 and logs every change. Athena suggests follow-ups; a draft is created only when you choose Create follow-up draft, and nothing is sent.</p>
       <ActionError m={act} />
     </section>
   );
@@ -181,7 +184,7 @@ function Decision({ p, act, accept, dismiss, acceptLabel, children }: {
         ? <div className="today-brief__actions">
           {accept && <button type="button" className="today-brief__primary" disabled={act.isPending} onClick={() => { act.mutate({ action: accept, args: { id: p.id }, key: `a:${p.id}` }); }}>
             {busy(act, `a:${p.id}`) ? 'Creating...' : acceptLabel}</button>}
-          {'draftId' in p && p.draftId && !accept && <Link className="today-brief__quiet" to={draftLink(p.draftId)}>Open draft <ArrowRight size={16} /></Link>}
+          {'draftId' in p && p.draftId && <Link className="today-brief__quiet" to={draftLink(p.draftId)}>Open draft <ArrowRight size={16} /></Link>}
           <button type="button" className="today-brief__quiet" disabled={act.isPending} onClick={() => { act.mutate({ action: dismiss, args: { id: p.id }, key: `d:${p.id}` }); }}>
             {busy(act, `d:${p.id}`) ? 'Saving...' : 'Dismiss'}</button>
         </div>
@@ -227,9 +230,9 @@ export function MeetingPrepPanel(): React.ReactElement {
         <section className="today-goals__section" aria-labelledby="prep-chases">
           <h4 id="prep-chases">Chases</h4>
           {chases.length === 0 ? <p className="today-brief__empty">{allChases.length ? 'Chases are held for your next peak window.' : 'Nothing has been waiting five working days.'}</p>
-            : <ul className="today-goals__dates">{chases.map(c => <Decision key={c.id} p={c} act={act} dismiss="dismiss-chase">
+            : <ul className="today-goals__dates">{chases.map(c => <Decision key={c.id} p={c} act={act} accept="accept-chase" dismiss="dismiss-chase" acceptLabel={c.draftId ? 'Accept' : 'Create draft'}>
               <Link className="today-goals__tidy-title" to={taskLink(c.taskId)}>{c.taskTitle}</Link>
-              <span className="today-brief__meta">{c.waitingOn ? `Waiting on ${c.waitingOn}` : 'Waiting'} for {c.workingDays} working days. A chase draft is ready.</span>
+              <span className="today-brief__meta">{c.waitingOn ? `Waiting on ${c.waitingOn}` : 'Waiting'} for {c.workingDays} working days. {c.draftId ? 'A chase draft is ready.' : `Chase${c.draft?.to ? ` to ${c.draft.to}` : ''} drafted only if you accept.`}</span>
             </Decision>)}</ul>}
         </section>
         <section className="today-goals__section" aria-labelledby="prep-cadence">

@@ -97,7 +97,7 @@ export async function decideQueue(db: Pool): Promise<DecideItem[]> {
   }
   for (const c of prep.chases.filter(x => x.status === 'proposed')) {
     items.push({ id: `chase:${c.id}`, kind: 'chase', refId: c.id, title: `Chase: ${c.taskTitle}`,
-      detail: `Waiting${c.waitingOn ? ` on ${c.waitingOn}` : ''} for ${c.workingDays} working days. Athena drafted a chase.`, source: 'Chase proposal',
+      detail: `Waiting${c.waitingOn ? ` on ${c.waitingOn}` : ''} for ${c.workingDays} working days. ${c.draftId ? 'Athena drafted a chase.' : 'Athena has suggested a chase; the draft is created only if you accept.'}`, source: 'Chase proposal',
       createdAt: iso(c.at), held: Boolean(c.held), meta: { taskId: c.taskId, draftId: c.draftId } });
   }
   for (const c of prep.cadence.filter(x => x.status === 'proposed')) {
@@ -132,7 +132,7 @@ export function decideSummary(items: DecideItem[]): string {
   return `Decide queue (${items.length}, oldest first):\n${items.map(i => `- [${i.kind} ${i.refId}] ${i.title}${i.held ? ' (held)' : ''} — ${i.source}, ${i.createdAt.slice(0, 10)}${i.kind === 'waiting' ? ` · task: ${String(i.meta.taskTitle)}` : ''}`).join('\n')}`;
 }
 
-/** Decide-queue actions without an existing endpoint: chat decisions and waiting-on confirmation. */
+/** Decide-queue actions without an existing endpoint: chat decisions, waiting-on confirmation and deleting unsent drafts. */
 export async function decideAction(db: Pool, action: string, args: Record<string, unknown>, actor: 'richard' | 'athena'): Promise<unknown> {
   const id = typeof args.id === 'string' ? args.id.trim() : '';
   if (!id) throw new ValidationError('id is required', { id: 'required' });
@@ -155,6 +155,14 @@ export async function decideAction(db: Pool, action: string, args: Record<string
     await db.query('UPDATE tasks SET waiting_on=$2, updated_at=NOW() WHERE id::text=$1', [id, who]);
     await recordTaskEdit(db, id, actor, [{ field: 'waitingOn', label: 'Waiting on', from: before.waiting_on, to: who }]);
     return { waitingOn: who };
+  }
+  if (action === 'draft-delete') {
+    // Same as Plan › Drafts Delete: the note is archived and leaves the timeline. Sent drafts are kept as the record.
+    const r = await db.query(`UPDATE notes SET status='archived', updated_at=NOW() WHERE id=$1 AND status='active'
+      AND EXISTS (SELECT 1 FROM email_drafts WHERE note_id=$1 AND status='draft')`, [id]);
+    if (!r.rowCount) throw new ValidationError('That draft is no longer an unsent draft.', { id: 'stale' });
+    await db.query(`DELETE FROM content_items WHERE source='note' AND source_id=$1`, [id]);
+    return { deleted: true };
   }
   if (action === 'waiting-skip') {
     // Skipping hides the suggestion until the task next changes; recorded in the task's activity.

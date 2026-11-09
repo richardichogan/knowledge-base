@@ -1,7 +1,7 @@
 /**
  * goals/brief.ts — the Monday brief: one move per goal for the week, chosen from the goal's open Plan tasks.
- * Athena prepares groundwork automatically for moves on existing tasks (a message draft in Plan › Drafts, or queued
- * research); nothing is sent. Tasks are created or moved only when Richard accepts a move.
+ * Athena prepares groundwork for moves on existing tasks (suggested message wording, drafted into Plan › Drafts only
+ * when Richard accepts, or queued research); nothing is sent. Tasks and drafts are created only when Richard accepts a move.
  */
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
@@ -27,6 +27,8 @@ export interface GoalMove {
   id: string; goalId: GoalId; goalName: string; title: string; reason: string;
   taskId: string | null; taskTitle: string | null; prep: MovePrep;
   prepStatus: 'draft-ready' | 'research-queued' | 'none' | 'failed' | 'on-accept'; prepDetail: string | null; draftId: string | null;
+  /** Suggested message wording; the draft itself is created only when Richard accepts the move. */
+  draft?: { channel: 'email' | 'slack' | 'teams'; to: string; subject: string; body: string };
   status: 'proposed' | 'accepted' | 'dismissed'; decidedAt: string | null; acceptedTaskId: string | null;
 }
 export interface GoalBrief {
@@ -125,8 +127,8 @@ async function generate(db: Pool, trigger: GoalBrief['trigger']): Promise<GoalBr
           const channel = r.draftChannel === 'slack' || r.draftChannel === 'teams' ? r.draftChannel : 'email';
           const subject = clip(r.draftSubject, 200).replace(/[\r\n]+/g, ' ');
           const to = clip(r.draftTo, 200).replace(/[\r\n]+/g, ' ');
-          const draft = await createWorkContent(db, 'email-draft', { title: subject || title, taskId, body, channel, ...(subject ? { subject } : {}), ...(to ? { to } : {}) });
-          move.draftId = draft.noteId; move.prepStatus = 'draft-ready'; move.prepDetail = `${channel === 'email' ? 'Email' : channel === 'slack' ? 'Slack' : 'Teams'} draft ready in Plan › Drafts. Nothing has been sent.`;
+          move.draft = { channel, to, subject, body };
+          move.prepStatus = 'on-accept'; move.prepDetail = `${channel === 'email' ? 'Email' : channel === 'slack' ? 'Slack' : 'Teams'} draft is created in Plan › Drafts only if you accept. Nothing is sent.`;
         }
       } else if (prep === 'research' && taskId) {
         if (!owner) throw new ValidationError('No task-assistance owner is configured.');
@@ -188,6 +190,13 @@ export function acceptGoalMove(db: Pool, moveId: unknown, actor: TaskActivityAct
         await db.query('INSERT INTO task_notes(task_id,body) VALUES($1,$2)', [move.taskId, note]);
       }
       move.acceptedTaskId = move.taskId;
+      if (move.prep === 'message' && move.draft && !move.draftId) {
+        const d = move.draft;
+        const draft = await createWorkContent(db, 'email-draft', { title: d.subject || move.title, taskId: move.taskId, body: d.body, channel: d.channel,
+          ...(d.subject ? { subject: d.subject } : {}), ...(d.to ? { to: d.to } : {}) });
+        move.draftId = draft.noteId; move.prepStatus = 'draft-ready';
+        move.prepDetail = `${d.channel === 'email' ? 'Email' : d.channel === 'slack' ? 'Slack' : 'Teams'} draft ready in Plan › Drafts. Nothing has been sent.`;
+      }
     } else {
       const project = goal(move.goalId).homeProject;
       const id = (await db.query<{ id: string }>(

@@ -15,6 +15,7 @@ export interface GoalMove {
   id: string; goalId: GoalId; goalName: string; title: string; reason: string;
   taskId: string | null; taskTitle: string | null; prep: 'message' | 'research' | 'none';
   prepStatus: 'draft-ready' | 'research-queued' | 'none' | 'failed' | 'on-accept'; prepDetail: string | null; draftId: string | null;
+  draft?: DraftText;
   status: 'proposed' | 'accepted' | 'dismissed'; decidedAt: string | null; acceptedTaskId: string | null;
 }
 export interface GoalBrief {
@@ -59,9 +60,10 @@ export interface GoalSettings {
 
 /** Mirrors knowledge-hub-backend/src/goals/proactive.ts (GET /api/today/proactive). */
 export interface DealChange { section: string; before: string; after: string }
+export interface DealFollowUp { taskId: string; channel: 'email' | 'slack' | 'teams'; to: string; subject: string; body: string }
 export interface DealUpdate {
   id: string; projectId: string; noteId: string; trigger: string; summary: string; changes: DealChange[];
-  draftId: string | null; createdAt: string; undoneAt: string | null; canUndo: boolean;
+  followUp: DealFollowUp | null; draftId: string | null; createdAt: string; undoneAt: string | null; canUndo: boolean;
 }
 export interface DealDeskRow { projectId: string; name: string; noteId: string | null; latest: DealUpdate | null }
 export interface DraftText { channel: 'email' | 'slack' | 'teams'; to: string; subject: string; body: string }
@@ -74,7 +76,10 @@ export interface PromiseProposal {
   id: string; owner: 'richard' | 'other'; who: string; text: string; due: string | null; projectId: string | null; reportDate: string;
   draft: DraftText | null; status: 'proposed' | 'accepted' | 'dismissed'; taskId: string | null; draftId: string | null; decidedAt: string | null;
 }
-export interface ChaseProposal { held?: boolean; id: string; taskId: string; taskTitle: string; waitingOn: string; workingDays: number; draftId: string; at: string; status: 'proposed' | 'dismissed' }
+export interface ChaseProposal {
+  held?: boolean; id: string; taskId: string; taskTitle: string; waitingOn: string; workingDays: number;
+  draft?: DraftText; draftId: string | null; at: string; status: 'proposed' | 'accepted' | 'dismissed'; decidedAt?: string | null;
+}
 export interface CadenceNudge {
   held?: boolean;
   id: string; person: string; workingDays: number; lastSeen: string | null; reason: string; draft: DraftText;
@@ -108,8 +113,8 @@ export interface ProactiveOverview {
   cfps: { shortlist: CfpCard[]; scheduled: CfpSchedule[] };
   ledger: ProposalReport;
 }
-export type ProactiveAction = 'run-deal-desk' | 'update-deal-from-notes' | 'deal-history' | 'undo-deal-update' | 'refresh-meeting-prep'
-  | 'accept-promise' | 'dismiss-promise' | 'accept-cadence' | 'dismiss-cadence' | 'dismiss-chase' | 'resume-paused' | 'stop-paused'
+export type ProactiveAction = 'run-deal-desk' | 'update-deal-from-notes' | 'deal-history' | 'undo-deal-update' | 'create-deal-draft' | 'refresh-meeting-prep'
+  | 'accept-promise' | 'dismiss-promise' | 'accept-cadence' | 'dismiss-cadence' | 'accept-chase' | 'dismiss-chase' | 'resume-paused' | 'stop-paused'
   | 'confirm-cfp' | 'dismiss-cfp' | 'enable-proposal-type' | 'disable-proposal-type';
 
 /** Today's Decide queue (GET /api/today/decide), oldest first. */
@@ -118,4 +123,4 @@ export interface DecideItem {
   id: string; kind: DecideKind; refId: string; title: string; detail: string; source: string; createdAt: string; held: boolean;
   meta: Record<string, string | number | boolean | null>;
 }
-export type DecideAction = 'decision-decided' | 'decision-drop' | 'decision-task' | 'decision-note' | 'decision-spark' | 'waiting-on' | 'waiting-skip';
+export type DecideAction = 'decision-decided' | 'decision-drop' | 'decision-task' | 'decision-note' | 'decision-spark' | 'waiting-on' | 'waiting-skip' | 'draft-delete';

@@ -1,7 +1,8 @@
 /**
  * goals/dealDesk.ts — one living "Deal desk" Think note per Imagine opportunity. Athena reads the Daily Briefing,
  * watchlist findings, calendar items and open tasks, rewrites only the fixed sections that changed, logs every change
- * with the previous writing so it can be undone, and prepares a follow-up draft (never sent) when a next step is due.
+ * with the previous writing so it can be undone, and suggests follow-up wording when a next step is due; the draft is
+ * created only when Richard asks for it, and nothing is ever sent.
  */
 import type { Pool } from 'pg';
 import { getFoundryClient } from '../ai/foundryClient.js';
@@ -12,7 +13,7 @@ import { parseWriting, writeNote, type Writing } from '../services/noteVersionSe
 import { createWorkContent } from '../work/workContent.js';
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
 import { mutateState, readState } from './goals.js';
-import { proposalEnabled, recordProposal } from './proposals.js';
+import { decideProposal, proposalEnabled, recordProposal } from './proposals.js';
 
 const STATE_KEY = 'deal-desk';
 const LOOKBACK_DAYS = 3;
@@ -43,12 +44,14 @@ type SectionKey = typeof SECTIONS[number]['key'];
 
 interface DeskState { notes: Record<string, string>; lastRun: string | null }
 export interface DealChange { section: string; before: string; after: string }
+/** Suggested follow-up wording; a draft is created only when Richard asks for it. */
+export interface DealFollowUp { taskId: string; channel: 'email' | 'slack' | 'teams'; to: string; subject: string; body: string }
 export interface DealUpdate {
   id: string; projectId: string; noteId: string; trigger: string; summary: string; changes: DealChange[];
-  draftId: string | null; createdAt: string; undoneAt: string | null; canUndo: boolean;
+  followUp: DealFollowUp | null; draftId: string | null; createdAt: string; undoneAt: string | null; canUndo: boolean;
 }
 export interface DealDeskRow { projectId: string; name: string; noteId: string | null; latest: DealUpdate | null }
-export interface DealRunResult { updated: number; unchanged: number; skipped: number; drafts: number; errors: string[] }
+export interface DealRunResult { updated: number; unchanged: number; skipped: number; followUps: number; errors: string[] }
 
 const PROMPT = [
   'You are Athena, keeping Richard Hogan\'s deal brief for one IBM Imagine opportunity current.',
@@ -182,7 +185,7 @@ async function updateOne(db: Pool, opp: Opportunity, trigger: string, since: Dat
   const previous: Writing = parseWriting(row.content);
   const writing: Writing = { ...previous, contentJson: JSON.stringify(textToBlocks(render(current.intro, next, current.extra))) };
   const saved = await writeNote(db, noteId, { content: JSON.stringify({ ...JSON.parse(row.content) as object, ...writing }), expectedRevision: row.revision, protectBefore: true });
-  let draftId: string | null = null;
+  let followUp: DealFollowUp | null = null;
   const f = parsed.followUp;
   const taskId = typeof f?.taskId === 'string' && tasks.some(t => t.id === f.taskId) ? f.taskId : null;
   const body = clip(f?.body, DRAFT_CHARS);
@@ -190,16 +193,15 @@ async function updateOne(db: Pool, opp: Opportunity, trigger: string, since: Dat
     const channel = f?.channel === 'slack' || f?.channel === 'teams' ? f.channel : 'email';
     const subject = clip(f?.subject, 200).replace(/[\r\n]+/g, ' ');
     const to = clip(f?.to, 200).replace(/[\r\n]+/g, ' ');
-    const draft = await createWorkContent(db, 'email-draft', { title: subject || `Follow-up: ${opp.name}`, taskId, body, channel, ...(subject ? { subject } : {}), ...(to ? { to } : {}) });
-    draftId = draft.noteId;
+    followUp = { taskId, channel, to, subject, body };
   }
   const summary = clip(parsed.summary, SUMMARY_CHARS) || `Updated ${changes.map(c => c.section).join(', ')}.`;
   const inserted = (await db.query<{ id: string; created_at: Date }>(
-    `INSERT INTO deal_desk_updates(project_id, note_id, trigger, summary, changes, previous_writing, revision_after, draft_id)
+    `INSERT INTO deal_desk_updates(project_id, note_id, trigger, summary, changes, previous_writing, revision_after, follow_up)
      VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id::text, created_at`,
-    [opp.projectId, noteId, trigger, summary, JSON.stringify(changes), JSON.stringify(previous), saved.revision ?? row.revision + 1, draftId])).rows[0]!;
-  if (draftId) await recordProposal(db, 'deal-followup', `deal:${inserted.id}`, `${opp.name}: follow-up draft`, draftId).catch(() => { /* reporting only */ });
-  return { id: inserted.id, projectId: opp.projectId, noteId, trigger, summary, changes, draftId, createdAt: inserted.created_at.toISOString(), undoneAt: null, canUndo: true };
+    [opp.projectId, noteId, trigger, summary, JSON.stringify(changes), JSON.stringify(previous), saved.revision ?? row.revision + 1, followUp ? JSON.stringify(followUp) : null])).rows[0]!;
+  if (followUp) await recordProposal(db, 'deal-followup', `deal:${inserted.id}`, `${opp.name}: follow-up draft`).catch(() => { /* reporting only */ });
+  return { id: inserted.id, projectId: opp.projectId, noteId, trigger, summary, changes, followUp, draftId: null, createdAt: inserted.created_at.toISOString(), undoneAt: null, canUndo: true };
 }
 
 let inFlight: Promise<DealRunResult> | null = null;
@@ -210,12 +212,12 @@ export function runDealDesk(db: Pool, trigger: 'job' | 'manual' | 'athena'): Pro
     const state = await readState<DeskState>(db, STATE_KEY);
     const since = state?.lastRun ? new Date(state.lastRun) : new Date(Date.now() - LOOKBACK_DAYS * 86_400_000);
     const force = trigger !== 'job' || new Date().getDay() === 1;
-    const result: DealRunResult = { updated: 0, unchanged: 0, skipped: 0, drafts: 0, errors: [] };
+    const result: DealRunResult = { updated: 0, unchanged: 0, skipped: 0, followUps: 0, errors: [] };
     for (const opp of OPPORTUNITIES) {
       try {
         const r = await updateOne(db, opp, trigger, since, '', force);
         if (r === 'skipped') result.skipped++; else if (r === 'unchanged') result.unchanged++;
-        else { result.updated++; if (r.draftId) result.drafts++; }
+        else { result.updated++; if (r.followUp) result.followUps++; }
       } catch (error) { result.errors.push(`${opp.name}: ${error instanceof Error ? error.message : String(error)}`); }
     }
     await mutateState<DeskState, void>(db, STATE_KEY, { notes: {}, lastRun: null }, s => { s.lastRun = new Date().toISOString(); });
@@ -235,15 +237,40 @@ export async function updateDealFromNotes(db: Pool, projectId: unknown, pasted: 
 }
 
 interface UpdateRow { id: string; project_id: string; note_id: string; trigger: string; summary: string; changes: DealChange[];
-  draft_id: string | null; created_at: Date; undone_at: Date | null; revision_after: number; revision: number | null }
+  follow_up: DealFollowUp | null; draft_id: string | null; created_at: Date; undone_at: Date | null; revision_after: number; revision: number | null }
 const toUpdate = (r: UpdateRow): DealUpdate => ({ id: r.id, projectId: r.project_id, noteId: r.note_id, trigger: r.trigger, summary: r.summary,
-  changes: r.changes, draftId: r.draft_id, createdAt: r.created_at.toISOString(), undoneAt: r.undone_at?.toISOString() ?? null,
+  changes: r.changes, followUp: r.follow_up, draftId: r.draft_id, createdAt: r.created_at.toISOString(), undoneAt: r.undone_at?.toISOString() ?? null,
   canUndo: !r.undone_at && r.revision === r.revision_after });
+
+/** Creates the suggested follow-up as a draft in Plan › Drafts, linked to its task. Nothing is sent. */
+export async function createDealDraft(db: Pool, updateId: unknown): Promise<DealUpdate> {
+  if (typeof updateId !== 'string' || !updateId) throw new ValidationError('Choose a deal-desk change.');
+  const r = (await db.query<UpdateRow>(
+    `SELECT u.id::text, u.project_id, u.note_id::text, u.trigger, u.summary, u.changes, u.follow_up, u.draft_id::text, u.created_at, u.undone_at,
+            u.revision_after, n.revision FROM deal_desk_updates u LEFT JOIN notes n ON n.id=u.note_id AND n.status='active' WHERE u.id::text=$1`, [updateId])).rows[0];
+  if (!r) throw new NotFoundError('Deal-desk change');
+  if (r.undone_at) throw new ConflictError('This change has been undone.', 'DEAL_UNDONE');
+  if (r.draft_id) throw new ConflictError('The follow-up draft already exists.', 'DEAL_DRAFT_EXISTS');
+  const f = r.follow_up;
+  if (!f) throw new ValidationError('This change has no suggested follow-up.');
+  const task = (await db.query<{ archived: boolean }>('SELECT archived FROM tasks WHERE id::text=$1', [f.taskId])).rows[0];
+  if (!task || task.archived) throw new ConflictError('The follow-up task has been archived or deleted.', 'DEAL_TASK_GONE');
+  const name = OPPORTUNITIES.find(o => o.projectId === r.project_id)?.name ?? 'deal';
+  const draft = await createWorkContent(db, 'email-draft', { title: f.subject || `Follow-up: ${name}`, taskId: f.taskId, body: f.body, channel: f.channel,
+    ...(f.subject ? { subject: f.subject } : {}), ...(f.to ? { to: f.to } : {}) });
+  const claimed = await db.query('UPDATE deal_desk_updates SET draft_id=$2 WHERE id::text=$1 AND draft_id IS NULL', [updateId, draft.noteId]);
+  if (!claimed.rowCount) {
+    await db.query(`UPDATE notes SET status='archived', updated_at=NOW() WHERE id=$1`, [draft.noteId]);
+    throw new ConflictError('The follow-up draft already exists.', 'DEAL_DRAFT_EXISTS');
+  }
+  await decideProposal(db, `deal:${r.id}`, 'accepted').catch(() => { /* reporting only */ });
+  return { ...toUpdate(r), draftId: draft.noteId };
+}
 
 export async function dealDeskStatus(db: Pool): Promise<DealDeskRow[]> {
   const state = await readState<DeskState>(db, STATE_KEY);
   const rows = (await db.query<UpdateRow>(
-    `SELECT DISTINCT ON (u.project_id) u.id::text, u.project_id, u.note_id::text, u.trigger, u.summary, u.changes, u.draft_id::text,
+    `SELECT DISTINCT ON (u.project_id) u.id::text, u.project_id, u.note_id::text, u.trigger, u.summary, u.changes, u.follow_up, u.draft_id::text,
             u.created_at, u.undone_at, u.revision_after, n.revision FROM deal_desk_updates u LEFT JOIN notes n ON n.id=u.note_id AND n.status='active'
       ORDER BY u.project_id, u.created_at DESC`)).rows;
   return OPPORTUNITIES.map(o => {
@@ -255,7 +282,7 @@ export async function dealDeskStatus(db: Pool): Promise<DealDeskRow[]> {
 export async function dealDeskHistory(db: Pool, projectId: unknown, limit = 10): Promise<DealUpdate[]> {
   const opp = opportunity(projectId);
   return (await db.query<UpdateRow>(
-    `SELECT u.id::text, u.project_id, u.note_id::text, u.trigger, u.summary, u.changes, u.draft_id::text, u.created_at, u.undone_at, u.revision_after, n.revision
+    `SELECT u.id::text, u.project_id, u.note_id::text, u.trigger, u.summary, u.changes, u.follow_up, u.draft_id::text, u.created_at, u.undone_at, u.revision_after, n.revision
        FROM deal_desk_updates u LEFT JOIN notes n ON n.id=u.note_id AND n.status='active' WHERE u.project_id=$1 ORDER BY u.created_at DESC LIMIT $2`,
     [opp.projectId, Math.min(Math.max(limit, 1), 50)])).rows.map(toUpdate);
 }
@@ -264,7 +291,7 @@ export async function dealDeskHistory(db: Pool, projectId: unknown, limit = 10):
 export async function undoDealUpdate(db: Pool, updateId: unknown): Promise<DealUpdate> {
   if (typeof updateId !== 'string' || !updateId) throw new ValidationError('Choose a deal-desk change.');
   const r = (await db.query<UpdateRow & { previous_writing: Writing }>(
-    `SELECT u.id::text, u.project_id, u.note_id::text, u.trigger, u.summary, u.changes, u.draft_id::text, u.created_at, u.undone_at,
+    `SELECT u.id::text, u.project_id, u.note_id::text, u.trigger, u.summary, u.changes, u.follow_up, u.draft_id::text, u.created_at, u.undone_at,
             u.revision_after, u.previous_writing, n.revision FROM deal_desk_updates u LEFT JOIN notes n ON n.id=u.note_id AND n.status='active' WHERE u.id::text=$1`,
     [updateId])).rows[0];
   if (!r) throw new NotFoundError('Deal-desk change');
