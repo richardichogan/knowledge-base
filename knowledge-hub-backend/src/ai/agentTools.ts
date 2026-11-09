@@ -91,13 +91,14 @@ export function agentToolDefinitions(): LlmToolDefinition[] {
               properties: {
                 title: { type: 'string', maxLength: 200, description: 'Title of the new note.' },
                 instruction: { type: 'string', maxLength: 4000, description: 'What the user asked for, applied to every document, e.g. strip any remaining claims references.' },
-                sources: { type: 'array', minItems: 1, maxItems: 30, items: {
+                sources: { type: 'array', maxItems: 30, items: {
                   type: 'object', additionalProperties: false, properties: {
                     id: { type: 'string', description: 'Document ID exactly as returned by search_library.' },
                     title: { type: 'string', maxLength: 200 },
                   }, required: ['id', 'title'],
                 } },
-              }, required: ['title', 'instruction', 'sources'],
+                titlePattern: { type: 'string', maxLength: 100, description: 'Case-insensitive regular expression; every Library document whose title matches is added as a source, e.g. ^D[0-9]+ for a numbered document suite. Use this instead of enumerating sources when the user asks for "all" of a named set.' },
+              }, required: ['title', 'instruction'],
             },
             researchBrief: {
               type: 'object', additionalProperties: false,

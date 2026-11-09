@@ -21,6 +21,7 @@ import { requireChatAction } from './chatResearch.js';
 export const DOCUMENT_COMPILER_SPECIALIST = 'document-compiler';
 const MAX_SOURCES = 30;
 const MAX_TITLE_CHARS = 200;
+const MAX_PATTERN_CHARS = 100;
 const MAX_INSTRUCTION_CHARS = 4_000;
 const MAX_REQUEST_CHARS = 20_000;
 const MAX_IDENTITY_CHARS = 200;
@@ -33,7 +34,7 @@ const CHECKPOINT_VERSION = 1;
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 
 interface CompileSource { id: string; title: string }
-interface CompileBrief { title: string; instruction: string; sources: CompileSource[] }
+interface CompileBrief { title: string; instruction: string; sources: CompileSource[]; titlePattern?: string }
 interface CompileInput extends CompileBrief { ownerId: string; requestId: string; request: string }
 interface CompiledSection { id: string; title: string; markdown?: string; failure?: string }
 interface CompileCheckpoint {
@@ -49,10 +50,12 @@ function text(value: unknown, label: string, maximum: number): string {
 
 export function parseCompileBrief(value: unknown): CompileBrief {
   const input = record(value, 'Compile brief');
-  if (!Array.isArray(input['sources']) || !input['sources'].length || input['sources'].length > MAX_SOURCES) {
-    throw new ValidationError(`Give between one and ${MAX_SOURCES} source documents.`);
+  const titlePattern = input['titlePattern'] === undefined ? undefined : text(input['titlePattern'], 'Title pattern', MAX_PATTERN_CHARS);
+  const rawSources = input['sources'] === undefined && titlePattern !== undefined ? [] : input['sources'];
+  if (!Array.isArray(rawSources) || rawSources.length > MAX_SOURCES || !rawSources.length && titlePattern === undefined) {
+    throw new ValidationError(`Give between one and ${MAX_SOURCES} source documents, or a titlePattern matching them.`);
   }
-  const sources = input['sources'].map((item: unknown): CompileSource => {
+  const sources = rawSources.map((item: unknown): CompileSource => {
     const source = record(item, 'Source document');
     const id = text(source['id'], 'Source document ID', MAX_IDENTITY_CHARS);
     if (!UUID.test(id)) throw new ValidationError('Each source needs the document ID returned by search_library.');
@@ -60,11 +63,14 @@ export function parseCompileBrief(value: unknown): CompileBrief {
   });
   if (new Set(sources.map(source => source.id)).size !== sources.length) throw new ValidationError('Each source document may be listed once.');
   return { title: text(input['title'], 'Note title', MAX_TITLE_CHARS),
-    instruction: text(input['instruction'], 'Compile instruction', MAX_INSTRUCTION_CHARS), sources };
+    instruction: text(input['instruction'], 'Compile instruction', MAX_INSTRUCTION_CHARS), sources,
+    ...(titlePattern !== undefined && { titlePattern }) };
 }
 
 export function parseDocumentCompilerInput(value: Record<string, unknown>): CompileInput & Record<string, unknown> {
-  return { ...parseCompileBrief(value), ownerId: text(value['ownerId'], 'Authenticated owner', MAX_IDENTITY_CHARS),
+  const brief = parseCompileBrief(value);
+  if (!brief.sources.length) throw new ValidationError('The commissioned job must carry its resolved source documents.');
+  return { ...brief, ownerId: text(value['ownerId'], 'Authenticated owner', MAX_IDENTITY_CHARS),
     requestId: text(value['requestId'], 'Request identity', MAX_IDENTITY_CHARS),
     request: text(value['request'], 'Original request', MAX_REQUEST_CHARS) };
 }
@@ -91,14 +97,32 @@ function parseCheckpoint(value: unknown, input: CompileInput): CompileCheckpoint
 
 export async function commissionDocumentCompilation(db: Pool, args: Record<string, unknown>, turn: TrustedChatBlogAction): Promise<unknown> {
   const { ownerId, sessionId } = requireChatAction(turn);
-  const brief = parseCompileBrief(args['compileBrief']);
+  const parsed = parseCompileBrief(args['compileBrief']);
   const found = await db.query<{ id: string }>(
     `SELECT id::text FROM content_items WHERE id = ANY($1::uuid[])
-      AND source IN ('github-doc','github-content-store','user-upload','onedrive-document')`, [brief.sources.map(source => source.id)]);
-  const missing = brief.sources.filter(source => !found.rows.some(row => row.id === source.id));
+      AND source IN ('github-doc','github-content-store','user-upload','onedrive-document')`, [parsed.sources.map(source => source.id)]);
+  const missing = parsed.sources.filter(source => !found.rows.some(row => row.id === source.id));
   if (missing.length) {
     throw new ValidationError(`These are not Library documents: ${missing.map(source => source.title).join('; ')}. Use the IDs returned by search_library.`);
   }
+  const sources = [...parsed.sources];
+  if (parsed.titlePattern !== undefined) {
+    let matched: { id: string; title: string }[];
+    try {
+      matched = (await db.query<{ id: string; title: string }>(
+        `SELECT id::text, title FROM content_items WHERE title ~* $1
+          AND source IN ('github-doc','github-content-store','user-upload','onedrive-document') ORDER BY title`,
+        [parsed.titlePattern])).rows;
+    } catch { throw new ValidationError('titlePattern is not a valid regular expression.'); }
+    if (!matched.length && !sources.length) throw new ValidationError('No Library documents match that titlePattern. Check it against search_library titles.');
+    for (const row of matched) {
+      if (!sources.some(source => source.id === row.id.toLowerCase())) {
+        sources.push({ id: row.id.toLowerCase(), title: row.title.slice(0, MAX_TITLE_CHARS) });
+      }
+    }
+    if (sources.length > MAX_SOURCES) throw new ValidationError(`titlePattern matches ${sources.length} documents; the maximum is ${MAX_SOURCES}. Narrow the pattern.`);
+  }
+  const brief: CompileBrief = { title: parsed.title, instruction: parsed.instruction, sources };
   const result = await handOff(db, { specialist: DOCUMENT_COMPILER_SPECIALIST, subjectId: sessionId,
     input: { ...brief, ownerId, requestId: contentSignature({ sessionId, brief }), request: turn.userMessage },
     requestedBy: 'chat', conversationId: sessionId });

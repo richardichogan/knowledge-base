@@ -456,11 +456,14 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
     'Use the returned job ID to check progress or, when requested, resume/cancel the research in this chat. ' +
     'Research completion means the requested findings and recommendations, not merely an internal feature ' +
     'assessment. Saved documentation is not proof of the current deployed implementation.',
-  '- To combine, consolidate or rewrite MANY documents (more than about three) into one note, find them with ' +
-    'search_library, then call hand_off_to_specialist with specialist document-compiler and a compileBrief ' +
-    '(note title, the user\'s instruction applied to every document, and each document\'s ID and title). Do not ' +
-    'read the whole set yourself in this turn: a single answer cannot read that much. Report started only from a ' +
-    'successful handoff; the finished note is posted back in this chat. Use the returned job ID with ' +
+  '- To combine, consolidate or rewrite MANY documents (more than about three) into one note, call ' +
+    'hand_off_to_specialist with specialist document-compiler and a compileBrief (note title, the user\'s ' +
+    'instruction applied to every document, and the documents as sources from search_library and/or a ' +
+    'titlePattern — a case-insensitive regular expression matching their titles, e.g. ^D[0-9]+ for a numbered ' +
+    'suite; prefer titlePattern when the user asks for "all" of a named set so none are missed). Hand off ' +
+    'FIRST, before reading: a single answer cannot read that much, and if the search/read limit is hit the ' +
+    'remaining work must still be handed off rather than reported as partial coverage. Report started only ' +
+    'from a successful handoff; the finished note is posted back in this chat. Use the returned job ID with ' +
     'check_specialist_jobs for progress.',
   '- `search_past_chats` / `read_past_chat`: every saved Athena conversation, from any device (mobile, desktop, ' +
     'Athena Desktop) and including chats started from a Think note. Whenever the user refers to an earlier chat ' +

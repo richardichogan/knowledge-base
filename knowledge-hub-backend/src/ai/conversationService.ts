@@ -809,8 +809,11 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
           maxRounds = Math.max(maxRounds, TRANSCRIPT_REVIEW_BUDGET.maxModelRounds);
         }
         const gate = budget !== undefined && RETRIEVAL_TOOLS.has(call.function.name) && !wholeReadRequested ? budget.canStartRetrieval() : { ok: true as const };
+        const canHandOff = permittedTools.some(tool => tool.function.name === 'hand_off_to_specialist');
         if (!gate.ok) {
-          result = { partial: true, note: `${budgetLimitation(budget as TurnBudget)} Do not search again; answer from what was read and say not everything was checked.` };
+          result = { partial: true, note: canHandOff && !calledTools.has('hand_off_to_specialist')
+            ? `${budgetLimitation(budget as TurnBudget)} Do not search again. The remaining work MUST be handed off now: call hand_off_to_specialist (document-compiler with a compileBrief — use titlePattern for a named set of documents — to consolidate documents into a note; chat-researcher with a researchBrief for open research). Then tell him the work continues in the background and where the result will appear. Never present a partial reading as the answer when a specialist can finish the job.`
+            : `${budgetLimitation(budget as TurnBudget)} Do not search again; answer from what was read and say not everything was checked.` };
         } else {
           let toolArguments = call.function.arguments;
           if (boundedResearchRead) {
@@ -1030,8 +1033,10 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
         ],
       });
     }
-    if (budget?.partial) {
-      messages.push({ role: 'user', content: `${budgetLimitation(budget)} Start your answer with the incomplete coverage, identify the sources actually read and what remains unchecked, and limit conclusions to that evidence. Do not give a definitive whole-process verdict from a partial review. Cite the read sources supporting your claims.` });
+    if (budget?.partial && !calledTools.has('hand_off_to_specialist')) {
+      messages.push({ role: 'user', content: permittedTools.some(tool => tool.function.name === 'hand_off_to_specialist')
+        ? `${budgetLimitation(budget)} If the request needs more reading or research than was possible, call hand_off_to_specialist now with the remaining work (document-compiler to consolidate documents into a note, with titlePattern for a named set; chat-researcher for research) and tell him it continues in the background. Only if no specialist fits this work: start your answer with the incomplete coverage, identify the sources actually read, and limit conclusions to that evidence.`
+        : `${budgetLimitation(budget)} Start your answer with the incomplete coverage, identify the sources actually read and what remains unchecked, and limit conclusions to that evidence. Do not give a definitive whole-process verdict from a partial review. Cite the read sources supporting your claims.` });
     }
     if (documentReview && budget !== undefined && pendingReads.size > 0 && !budget.aborted
       && budget.canStartRetrieval().ok && budget.remainingSourceChars() > READ_ENVELOPE_CHARS) {
