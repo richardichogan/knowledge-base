@@ -21,6 +21,7 @@ const ACTION_LABEL: Record<NoteEdit['action'], string> = {
   replace_all: 'Rewrite the whole note',
   format_blocks: 'Format blocks',
   move_section: 'Move section',
+  replace_every: 'Replace everywhere',
   set_script_visuals: 'Update section visuals',
 };
 

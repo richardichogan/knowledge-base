@@ -6,6 +6,7 @@
  */
 import type { BlockNoteEditor } from '@blocknote/core';
 import type { NoteEdit } from '../types';
+import { nextMatch } from '../../../knowledge-hub-backend/src/utils/textMatches';
 import { passageTagKeys } from '../notes/passageTagModel';
 import { scriptInlineContent } from '../../../knowledge-hub-backend/src/podcasts/scriptAnnotations';
 import { scriptNoteBlocks } from '../../../knowledge-hub-backend/src/utils/scriptNoteContent';
@@ -26,9 +27,9 @@ function inlineText(block: Block): string {
     c.type === 'scriptCue' ? `[${c.props?.cue === 'beat' ? 'beat' : 'pause'}]` : c.text ?? inlineText({ content: c.content })).join('');
 }
 
-function replaceInlineText(content: Block[], find: string, replacement: string, script = false): Block[] {
+function replaceInlineText(content: Block[], find: string, replacement: string, script = false, from = 0, wholeWord = false): Block[] {
   const text = inlineText({ content });
-  const start = text.indexOf(find);
+  const start = from > 0 || wholeWord ? nextMatch(text, find, wholeWord, from) : text.indexOf(find);
   const end = start + find.length;
   let offset = 0;
   let inserted = false;
@@ -340,6 +341,28 @@ function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined,
       }
       return;
     }
+    case 'replace_every': {
+      const find = edit.find ?? '';
+      const wholeWord = edit.wholeWord === true;
+      let changed = 0;
+      let skipped = 0;
+      for (const block of flatten(editor.document as Block[])) {
+        if (block.id === titleId || !Array.isArray(block.content) || nextMatch(inlineText(block), find, wholeWord) < 0) continue;
+        try {
+          let content: Block[] = block.content;
+          let at = nextMatch(inlineText({ content }), find, wholeWord);
+          while (at >= 0) {
+            content = replaceInlineText(content, find, md, script, at, wholeWord);
+            changed++;
+            at = nextMatch(inlineText({ content }), find, wholeWord, at + md.length);
+          }
+          preservePassageTags(block.content, content);
+          editor.updateBlock(block, { content });
+        } catch { skipped++; }
+      }
+      if (skipped > 0) throw new Error(`Changed ${String(changed)}, but left ${String(skipped)} paragraph${skipped === 1 ? '' : 's'} untouched because the text runs across a link or a tagged passage. Edit those by hand.`);
+      return;
+    }
     case 'replace_text': {
       const find = edit.find ?? '';
       const matches = flatten(blocks).filter(b => inlineText(b).includes(find));
@@ -368,7 +391,7 @@ export function applyNoteEdits(editor: Editor, edits: NoteEdit[], options: { scr
   }
   const run = (): void => {
     const cards = options.script && (editor.document as Block[]).some(block => block.props?.scriptSection)
-      && edits.some(edit => edit.action !== 'replace_text' && edit.action !== 'set_script_visuals');
+      && edits.some(edit => edit.action !== 'replace_text' && edit.action !== 'replace_every' && edit.action !== 'set_script_visuals');
     if (cards) editor.replaceBlocks(editor.document, ungroupScriptSections(editor.document as Block[]));
     const titleBlock = (editor.document as Block[]).find(block => block.type === 'heading' && inlineText(block).trim());
     for (const edit of edits) {

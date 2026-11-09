@@ -6,6 +6,7 @@
  */
 
 import { scriptAnnotationRuns } from '../podcasts/scriptAnnotations.js';
+import { replaceMatches } from '../utils/textMatches.js';
 import { parseScriptVisuals, visualSourceCurrent, type ScriptVisuals } from '../utils/scriptVisuals.js';
 
 export type NoteEditAction =
@@ -17,6 +18,7 @@ export type NoteEditAction =
   | 'replace_text'     // replace exact text `find` with `markdown`
   | 'replace_all'
   | 'format_blocks'    // change how existing blocks are styled (heading, list, quote…); never changes wording
+  | 'replace_every'    // replace every exact occurrence of `find` with `markdown` throughout the note (title excluded)
   | 'move_section'     // move a heading and its content before another heading (or to the end); never changes wording
   | 'set_script_visuals';
 
@@ -41,9 +43,10 @@ export interface NoteEditProposal {
   formats?: NoteBlockFormat[];
   move?: { n: number; before?: number };
   moves?: NoteSectionMove[];
+  wholeWord?: boolean;
 }
 
-const ACTIONS: readonly NoteEditAction[] = ['append', 'prepend', 'add_to_section', 'replace_section', 'delete_section', 'replace_text', 'replace_all', 'format_blocks', 'move_section'];
+const ACTIONS: readonly NoteEditAction[] = ['append', 'prepend', 'add_to_section', 'replace_section', 'delete_section', 'replace_text', 'replace_all', 'format_blocks', 'move_section', 'replace_every'];
 const FORMAT_OPERATION_LIMIT = 400;
 const FORMAT_RANGE_LIMIT = 400;
 const REPAIR_CONTEXT_CHARS = 24_000;
@@ -96,6 +99,17 @@ export function validateNoteEdits(raw: unknown): { edits: NoteEditProposal[]; pr
         return;
       }
       edits.push({ action, summary: summary.slice(0, 200), layout });
+      return;
+    }
+    if (action === 'replace_every') {
+      const replacement = typeof e['markdown'] === 'string' ? e['markdown'] : undefined;
+      if (find === undefined || replacement === undefined || find === replacement) {
+        problems.push(`edit ${String(i + 1)}: replace_every needs "find" (the exact text to change everywhere) and "markdown" (the plain replacement text, different from find)`); return;
+      }
+      if (/[\r\n]/.test(find) || /[\r\n]/.test(replacement)) {
+        problems.push(`edit ${String(i + 1)}: replace_every works on text within a single paragraph; "find" and "markdown" cannot contain line breaks`); return;
+      }
+      edits.push({ action, summary: summary.slice(0, 200), find, markdown: replacement, ...(e['wholeWord'] === true && { wholeWord: true }) });
       return;
     }
     if (action === 'move_section') {
@@ -283,11 +297,23 @@ export function checkEditsAgainstNote(edits: NoteEditProposal[], blocks: NoteBlo
   let texts = flattenBlocks(blocks).map(blockText);
   const problems: string[] = [];
   const title = blocks.find(block => block.type === 'heading' && blockText(block).trim());
+  const titleIndex = title === undefined ? -1 : flattenBlocks(blocks).indexOf(title);
   // `alreadyProposed` edits (earlier calls this turn) shape the headings but aren't reported on again; numbering restarts after them.
   const label = (i: number): string => String(i - alreadyProposed + 1);
   const hasHeading = (target: string): boolean => headings.some((h) => h === target || h.includes(target) || (target.includes(h) && h !== ''));
   edits.forEach((e, i) => {
     if (e.action === 'format_blocks' || e.action === 'move_section') return;
+    if (e.action === 'replace_every') {
+      let found = 0;
+      texts = texts.map((text, index) => {
+        if (index === titleIndex) return text;
+        const result = replaceMatches(text, e.find ?? '', e.markdown ?? '', e.wholeWord === true);
+        found += result.count;
+        return result.text;
+      });
+      if (found === 0 && i >= alreadyProposed) problems.push(`edit ${label(i)}: "${e.find ?? ''}" does not appear in the note${e.wholeWord ? ' as a whole word' : ''} (matching is exact and case-sensitive)`);
+      return;
+    }
     if (e.action === 'set_script_visuals') {
       const section = blocks.find(block => block.id === e.sectionId && block.props?.scriptSection);
       if (!script || !section || !e.visuals || !visualSourceCurrent(e.visuals.source, section)) {
@@ -341,4 +367,22 @@ export function checkEditsAgainstNote(edits: NoteEditProposal[], blocks: NoteBlo
     if (e.action !== 'replace_all' && e.action !== 'replace_text' && markdown !== undefined) texts = [...texts, ...markdown.split('\n').filter((l) => l.trim() !== '')];
   });
   return problems;
+}
+
+/** How many places each replace_every edit will change, applying the edits in order. */
+export function countReplaceEvery(edits: NoteEditProposal[], blocks: NoteBlock[]): Array<{ find: string; count: number }> {
+  const title = blocks.find(block => block.type === 'heading' && blockText(block).trim());
+  let texts = flattenBlocks(blocks).filter(block => block !== title).map(blockText);
+  const counts: Array<{ find: string; count: number }> = [];
+  for (const edit of edits) {
+    if (edit.action !== 'replace_every') continue;
+    let count = 0;
+    texts = texts.map(text => {
+      const result = replaceMatches(text, edit.find ?? '', edit.markdown ?? '', edit.wholeWord === true);
+      count += result.count;
+      return result.text;
+    });
+    counts.push({ find: edit.find ?? '', count });
+  }
+  return counts;
 }
