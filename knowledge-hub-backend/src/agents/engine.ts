@@ -356,7 +356,8 @@ async function recoverExpiredJobs(db: Pool): Promise<void> {
       WHERE worker_pool=$1 AND assignment_id IS NULL AND protocol_version<=$3 AND status='running'
         AND (lease_until IS NULL OR lease_until<=clock_timestamp()) AND attempts>=$2
         AND NOT (specialist='task-researcher' AND input ? 'researchFormattingCheckpoint')
-        AND NOT (specialist='chat-researcher' AND input ? 'researchCheckpoint') RETURNING *`,
+        AND NOT (specialist='chat-researcher' AND input ? 'researchCheckpoint')
+        AND NOT (specialist='document-compiler' AND input ? 'compileCheckpoint') RETURNING *`,
     [workerPool(), AGENT_MAX_ATTEMPTS, AGENT_PROTOCOL_VERSION],
   );
   for (const row of failed.rows) {

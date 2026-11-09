@@ -115,6 +115,9 @@ agentJobsRouter.post('/', wrap((req) => {
   if (body['specialist'] === 'chat-researcher') {
     throw new ForbiddenError('Start, resume or cancel Iris research through the authenticated originating chat.');
   }
+  if (body['specialist'] === 'document-compiler') {
+    throw new ForbiddenError('Document compilation starts only from the authenticated originating chat.');
+  }
   if (body['specialist'] === 'script-visual-designer') {
     throw new ValidationError('Use the script visual request endpoint to capture the saved source safely.');
   }

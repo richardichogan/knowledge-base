@@ -195,7 +195,7 @@ export function parseResearchCheckpoint(value: unknown, input: ResearchInput): R
   return checkpoint;
 }
 
-function requireChatAction(turn: TrustedChatBlogAction): { ownerId: string; sessionId: string } {
+export function requireChatAction(turn: TrustedChatBlogAction): { ownerId: string; sessionId: string } {
   if (!turn.userId || !turn.sessionId || !UUID.test(turn.sessionId) || !turn.workforceRequestId || !turn.userMessage?.trim()
     || turn.readOnly !== false || turn.exclusionsFailed !== false || turn.excludedIds === undefined) {
     throw new ForbiddenError('Iris requires an authenticated, writable current chat with verified source exclusions.');

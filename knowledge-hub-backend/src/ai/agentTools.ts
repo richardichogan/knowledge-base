@@ -15,6 +15,7 @@ import { startChatManualBlogCommission, type TrustedChatBlogAction } from '../ag
 import { applyDiagramCandidate, captureDiagramRequest, type DiagramAccess } from '../services/diagramCandidates.js';
 import type { RetrievalScope } from './knowledge/retrievalScope.js';
 import { CHAT_RESEARCH_SPECIALIST, commissionChatResearch } from '../work/chatResearch.js';
+import { DOCUMENT_COMPILER_SPECIALIST, commissionDocumentCompilation } from '../work/documentCompiler.js';
 
 export interface AgentToolContext extends TrustedChatBlogAction {
   designOwner?: string | undefined;
@@ -84,6 +85,20 @@ export function agentToolDefinitions(): LlmToolDefinition[] {
             confirmed: { type: 'boolean', description: 'He agreed to a plan that replaces existing work.' },
             researchAction: { type: 'string', enum: ['start', 'resume', 'cancel'], description: 'Iris chat research only; defaults to start. Resume retains completed evidence. Cancel stops further work.' },
             jobId: { type: 'string', description: 'Iris chat research job ID, required for resume or cancel.' },
+            compileBrief: {
+              type: 'object', additionalProperties: false,
+              description: 'document-compiler only. The Library documents to combine into one new Think note.',
+              properties: {
+                title: { type: 'string', maxLength: 200, description: 'Title of the new note.' },
+                instruction: { type: 'string', maxLength: 4000, description: 'What the user asked for, applied to every document, e.g. strip any remaining claims references.' },
+                sources: { type: 'array', minItems: 1, maxItems: 30, items: {
+                  type: 'object', additionalProperties: false, properties: {
+                    id: { type: 'string', description: 'Document ID exactly as returned by search_library.' },
+                    title: { type: 'string', maxLength: 200 },
+                  }, required: ['id', 'title'],
+                } },
+              }, required: ['title', 'instruction', 'sources'],
+            },
             researchBrief: {
               type: 'object', additionalProperties: false,
               description: 'Iris chat research only. Split external research into distinct public topics before reading internal material. Queries must contain public product/topic terms only, never private content, customer details or internal identifiers.',
@@ -149,7 +164,7 @@ const brief = (job: AgentJob): Record<string, unknown> => ({
   jobId: job.id, specialist: job.specialistName, subject: job.subjectTitle, link: job.subjectUrl || undefined, status: job.status,
   latestProgress: job.progress.at(-1), summary: job.summary ?? undefined, error: job.error ?? undefined,
   prerequisiteStep: job.isStep || undefined, startedAt: job.startedAt ?? undefined, finishedAt: job.finishedAt ?? undefined,
-  ...(job.specialist === 'daedalus' && job.status === 'done' || job.specialist === CHAT_RESEARCH_SPECIALIST ? { result: job.result } : {}),
+  ...(job.specialist === 'daedalus' && job.status === 'done' || job.specialist === CHAT_RESEARCH_SPECIALIST || job.specialist === DOCUMENT_COMPILER_SPECIALIST ? { result: job.result } : {}),
 });
 
 export async function executeAgentTool(
@@ -192,6 +207,7 @@ export async function executeAgentTool(
 
     const specialistId = typeof args['specialist'] === 'string' ? args['specialist'] : '';
     if (specialistId === CHAT_RESEARCH_SPECIALIST) return await commissionChatResearch(db, args, turn);
+    if (specialistId === DOCUMENT_COMPILER_SPECIALIST) return await commissionDocumentCompilation(db, args, turn);
     const specialist = getSpecialist(specialistId);
     if (!specialist) return { error: `Unknown specialist. Choose one of: ${listSpecialists().map((s) => s.id).join(', ')}.` };
     if (specialist.id === 'script-visual-designer') return { error: 'Use design_script_visuals for script visuals; it validates access and captures the saved source before queuing Ariadne.' };

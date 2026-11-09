@@ -7,7 +7,7 @@ import { deferredTurnTraceRecorder } from './turnTrace.js';
  * whether it authorises a saved change. The prediction is only recorded in the turn trace and
  * compared with the tools the main model actually used during trace review. It never alters the turn.
  */
-const SHADOW_VERSION = 'decision-1-shadow-v2';
+const SHADOW_VERSION = 'decision-1-shadow-v3';
 const TIMEOUT_MS = 8_000;
 const PREDICT_THRESHOLD = 0.5;
 const MESSAGE_CHARS = 1_500;
@@ -27,11 +27,13 @@ export const ROUTING_FAMILIES = {
   podcast: 'Podcast scripts, campaigns or episode material',
   publishing: 'Publishing feeds, scheduled jobs or automation',
   memory: 'Save or forget a standing instruction or preference',
+  handoff: 'Hand the job to a background specialist agent instead of doing it inside this chat answer: combining, consolidating or reviewing many documents, deep multi-source research, or long writing that cannot be finished within one answer; not needed for a quick lookup or a single short document',
   decisions: 'Look up the decisions and assumptions recorded in the Decisions area; not needed when a decision is merely discussed or being drafted in the open note',
 } as const;
 export type RoutingFamily = keyof typeof ROUTING_FAMILIES;
 
 const FAMILY_RULES: Array<[RoutingFamily, RegExp]> = [
+  ['handoff', /^hand_off_to_specialist$|^check_specialist_jobs$|^check_workforce_assignments$/],
   ['podcast', /podcast/],
   ['publishing', /publish|scheduled_jobs/],
   ['discover', /discover|digest|watchlist/],
@@ -175,7 +177,8 @@ export function reviewRoutingShadow(events: ReviewEvent[]): RoutingShadowCheck {
       evidence.push(event.sequence);
     }
   }
-  const actual = new Set<string>([...called].map(toolFamily).filter((family): family is RoutingFamily => family !== undefined));
+  // Traces recorded before a family existed carry no score for it, so it cannot count as a miss.
+  const actual = new Set<string>([...called].map(toolFamily).filter((family): family is RoutingFamily => family !== undefined && family in scores));
   const missed = [...actual].filter(family => !predicted.has(family));
   const extra = [...predicted].filter(family => !actual.has(family));
   const predictedEdit = typeof prediction.authorisesEdit === 'number' && prediction.authorisesEdit >= threshold;
