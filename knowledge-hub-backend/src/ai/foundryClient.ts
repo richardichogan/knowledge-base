@@ -19,6 +19,10 @@ import { agentLessonsBlock } from './agentLessons.js';
 import { currentAgent } from './aiLedger.js';
 
 const DEFAULT_CHAT_TEMPERATURE = 0.7;
+/** Athena chat's tool rounds think before answering; without an explicit effort these models barely reason. */
+const CHAT_REASONING_EFFORT = 'low';
+/** Reasoning tokens count against the output cap, so they get their own room rather than squeezing the reply. */
+const CHAT_REASONING_HEADROOM_TOKENS = 4_000;
 const AI_RESPONSE_HEADERS_TIMEOUT_MS = 30_000;
 const NATIVE_FETCH_HEADERS_TIMEOUT_MS = 300_000;
 const MAX_ERROR_DETAILS_CHARS = 300;
@@ -406,12 +410,15 @@ export class FoundryClient {
     const url = viaResponses
       ? `${endpoint}/openai/v1/responses`
       : `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`;
+    const effort = this.chatReasoning(tools, deployment);
+    if (effort !== undefined) maxTokens += CHAT_REASONING_HEADROOM_TOKENS;
     const body = viaResponses
-      ? { ...responsesBody(deployment, messages, tools, maxTokens, toolChoice, extras.builtInTools), stream: true }
+      ? { ...responsesBody(deployment, messages, tools, maxTokens, toolChoice, extras.builtInTools), ...(effort !== undefined && { reasoning: { effort } }), stream: true }
       : {
           messages,
           max_completion_tokens: maxTokens,
-          ...(this.supportsCustomTemperature(model) && { temperature: 0.7 }),
+          // These models accept temperature only with reasoning off.
+          ...(effort !== undefined ? { reasoning_effort: effort } : this.supportsCustomTemperature(model) && { temperature: 0.7 }),
           ...(tools.length > 0 && { tools, tool_choice: toolChoice }),
           stream: true,
           stream_options: { include_usage: true },
@@ -527,6 +534,11 @@ export class FoundryClient {
     return model !== 'reasoning';
   }
 
+  /** Reasoning effort for Athena chat's tool rounds; gpt-4-family deployments don't accept it. */
+  private chatReasoning(tools: unknown[] | undefined, deployment: string): typeof CHAT_REASONING_EFFORT | undefined {
+    return this.feature === 'chat' && tools !== undefined && !/^gpt-4/i.test(deployment) ? CHAT_REASONING_EFFORT : undefined;
+  }
+
   private async request(
     model: AiModel,
     messages: ConversationMessage[] | LlmMessage[],
@@ -543,6 +555,7 @@ export class FoundryClient {
     const startedAt = Date.now();
     const deployment = route?.deployment ?? this.getDeployment(model);
     const api = model === 'reasoning' && (route?.api ?? env.AZURE_OPENAI_GPT54_API) === 'responses' ? 'responses' : 'chat';
+    if (this.chatReasoning(tools, deployment)) maxTokens += CHAT_REASONING_HEADROOM_TOKENS;
     let usage: TokenUsage | undefined;
     let budget: AssignmentModelCall | undefined;
     try {
@@ -584,11 +597,15 @@ export class FoundryClient {
       return this.requestViaResponses(model, deployment, endpoint, apiKey, messages, tools, maxTokens, toolChoice, timeoutMs, signal, jsonSchema);
     }
     const url = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${env.AZURE_OPENAI_API_VERSION}`;
+    const effort = this.chatReasoning(tools, deployment);
     const body = {
       messages,
       max_completion_tokens: maxTokens,
       ...(jsonSchema !== undefined && { response_format: { type: 'json_schema', json_schema: { ...jsonSchema, strict: true } } }),
-      ...(this.supportsCustomTemperature(model) && { temperature: jsonSchema !== undefined ? 0 : DEFAULT_CHAT_TEMPERATURE }),
+      // These models accept temperature only with reasoning off.
+      ...(effort !== undefined
+        ? { reasoning_effort: effort }
+        : this.supportsCustomTemperature(model) && { temperature: jsonSchema !== undefined ? 0 : DEFAULT_CHAT_TEMPERATURE }),
       ...(tools !== undefined && tools.length > 0 && { tools, tool_choice: toolChoice }),
     };
 
@@ -645,9 +662,11 @@ export class FoundryClient {
     signal?: AbortSignal,
     jsonSchema?: LlmJsonSchema,
   ): Promise<ChatCompletionResponse> {
+    const effort = this.chatReasoning(tools, deployment);
     const body = {
       ...responsesBody(deployment, messages, tools, maxTokens, toolChoice),
       ...(jsonSchema ? { text: { format: { type: 'json_schema', ...jsonSchema, strict: true } } } : {}),
+      ...(effort !== undefined && { reasoning: { effort } }),
     };
     return this.traced(deployment, 'responses', body, async () => {
     let response: Response;
