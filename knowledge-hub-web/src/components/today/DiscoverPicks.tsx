@@ -5,7 +5,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Launch } from '@carbon/icons-react';
+import { Archive, ArrowRight, Launch } from '@carbon/icons-react';
 import { api } from '../../services/api';
 import { describeApiError } from '../../services/apiError';
 import type { DiscoverPick, DiscoverPicksResponse } from '../../types/discoverPicks';
@@ -45,11 +45,24 @@ export function draftHref(pick: DiscoverPick, format: 'linkedin' | 'short'): str
 export function picksContext(picks: DiscoverPick[], generatedAt: string | null): string {
   if (!generatedAt) return 'Worth posting today: no picks have been chosen yet.';
   if (picks.length === 0) return `Worth posting today (chosen ${generatedAt}): no remaining picks.`;
-  return `Worth posting today (chosen ${generatedAt}; read_discover_picks returns the live list):\n${picks.map((p, i) =>
+  return `Worth posting today (chosen ${generatedAt}; read_discover_picks returns the live list; set_discover_item_state with archived removes a pick):\n${picks.map((p, i) =>
     `${i + 1}. [${p.id}] ${p.title} — ${p.source || 'unknown source'}, ${p.workflowState}. Angle: ${p.angle}`).join('\n')}`;
 }
 
 export function DiscoverPickDetail({ pick, onAsk }: { pick: DiscoverPick; onAsk: () => void }): React.ReactElement {
+  const qc = useQueryClient();
+  const archive = useMutation({
+    mutationFn: async () => {
+      const res = await api.updateDiscoverWorkflow(pick.id, 'archived');
+      if (!res.success) throw new Error(res.error.message);
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: DISCOVER_PICKS_KEY }),
+        qc.invalidateQueries({ queryKey: ['discover'] }),
+      ]);
+    },
+  });
   return (
     <article className="today-brief__item">
       <div className="today-brief__item-top">
@@ -63,8 +76,12 @@ export function DiscoverPickDetail({ pick, onAsk }: { pick: DiscoverPick; onAsk:
         <Link className="today-brief__primary" to={draftHref(pick, 'short')}>Draft for Bluesky <ArrowRight size={16} /></Link>
         {pick.url && <a className="today-brief__quiet" href={pick.url} target="_blank" rel="noreferrer">Read article <Launch size={16} /></a>}
         <button type="button" className="today-brief__quiet" aria-label={`Ask Athena about ${pick.title}`} onClick={onAsk}>Ask Athena</button>
-      </div>
-    </article>
+                <button type="button" className="today-brief__quiet" disabled={archive.isPending} onClick={() => { archive.mutate(); }}>
+                  <Archive size={16} /> {archive.isPending ? 'Archiving...' : 'Archive'}
+                </button>
+              </div>
+              {archive.isError && <p className="today-brief__error" role="alert">The article could not be archived. {describeApiError(archive.error)}</p>}
+            </article>
   );
 }
 
