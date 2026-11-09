@@ -1472,7 +1472,7 @@ export async function executeToolCall(
       const allowStructural = turn.allowStructuralNoteEdits ?? (editMode === 'structural');
       const additive = new Set(['append', 'prepend', 'add_to_section', 'replace_text']);
       if (!allowStructural && edits.some(edit => !additive.has(edit.action))) {
-        return { error: 'No edits proposed. Replacing or deleting whole sections and full rewrites need editMode "structural". To ADD content use append, prepend or add_to_section (no structural mode needed); to change wording use exact replace_text edits. Preserve headings, title, rich formatting, links, lists, images and all untouched content.' };
+        return { error: 'No edits proposed. This is a wording/review correction, not permission to rewrite or reformat the note: replacing or deleting whole sections and full rewrites need editMode "structural". To ADD content use append, prepend or add_to_section (no structural mode needed); to change wording use exact replace_text edits. Preserve headings, title, rich formatting, links, lists, images and all untouched content.' };
       }
       // Check every edit against the note as saved, so Apply can't fail on a heading or phrase that isn't there.
       const saved = await loadNoteBlocks(db, turn.noteId);

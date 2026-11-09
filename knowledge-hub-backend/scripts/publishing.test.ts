@@ -708,7 +708,7 @@ test('a specifically authorised tag removal preserves passed hooks and all other
   } finally { await f.close(); }
 });
 for (const outcome of ['consistent', 'restored-pass', 'conflict', 'concurrent-change'] as const) {
-  test(`blog repair preserves passed hooks only after a ${outcome} consistency check`, async () => {
+  test(`blog repair handles passed hooks only after a ${outcome} consistency check`, async () => {
     const f = await publishingFixture();
     try {
       const t = await topic(f.db); const s = await source(f.db, t.id);
@@ -739,7 +739,7 @@ for (const outcome of ['consistent', 'restored-pass', 'conflict', 'concurrent-ch
           return { outcome: 'revise', findings: [reviewedPassage(input, 'summary', 'Clarify the summary.')] };
         },
       };
-      if (outcome === 'consistent' || outcome === 'restored-pass') {
+      if (outcome === 'consistent' || outcome === 'restored-pass' || outcome === 'conflict') {
         await editorial.reviewDraft(f.db, b, [s], services);
       } else {
         await assert.rejects(editorial.reviewDraft(f.db, b, [s], services), /saved package is unchanged/i);
@@ -747,7 +747,15 @@ for (const outcome of ['consistent', 'restored-pass', 'conflict', 'concurrent-ch
       const rows = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE topic_id=$1`, [t.id])).rows;
       const savedBlog = rows.find(row => row.id === b.id)!;
       const savedHook = rows.find(row => row.id === hook.id)!;
-      assert.equal(savedBlog.version, outcome === 'consistent' || outcome === 'restored-pass' ? 2 : 1);
+      assert.equal(savedBlog.version, outcome === 'consistent' || outcome === 'restored-pass' || outcome === 'conflict' ? 2 : 1);
+      if (outcome === 'conflict') {
+        assert.equal(savedHook.review, 'pending');
+        assert.equal(savedHook.version, hook.version + 1);
+        assert.equal(savedHook.reviewedBlogVersion, null);
+        const rewrites = await f.db.query("SELECT id FROM publishing_events WHERE event='hook-rewrite-requested' AND topic_id=$1", [t.id]);
+        assert.equal(rewrites.rowCount, 1);
+        return;
+      }
       assert.equal(savedHook.review, 'pass');
       assert.equal(savedHook.reviewedBlogVersion, outcome === 'consistent' || outcome === 'restored-pass' ? 2 : 1);
       if (outcome !== 'concurrent-change') assert.deepEqual(savedHook.content, hook.content);
