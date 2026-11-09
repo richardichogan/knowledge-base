@@ -52,6 +52,7 @@ import { buildCanvasContext } from '../services/canvasContent.js';
 import { findDiagramContext, DIAGRAM_READING_GUIDANCE } from '../services/diagramContext.js';
 import type { MapChangeProposal } from './mapEdits.js';
 import { LOCAL_FILE_TOOLS, localFilesPrompt, type LocalFileWriteProposal, type LocalFolder } from './localFiles.js';
+import type { DemoBookends } from '../utils/demoBookends.js';
 import { ukClock } from '../sync/ukClock.js';
 import { recordTurnTrace, setTraceProject, withTurnTrace, withTurnSpan } from './turnTrace.js';
 import { startRoutingShadow } from './routingShadow.js';
@@ -231,6 +232,7 @@ async function conversationTurn(
     useCaseId?: string | undefined; useCaseState?: UseCaseTurnState;
     taskStatusChanges?: TaskStatusProposal[];
     localFolders?: LocalFolder[]; localFileWrites?: LocalFileWriteProposal[];
+    demoBookends?: DemoBookends[];
   } = {},
   /** Live turn hooks (background turns): streamed text, activity lines, Stop, a longer time budget. */
   hooks: TurnHooks = {},

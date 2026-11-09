@@ -71,6 +71,8 @@ import { ReplyMeta } from '../components/athena/ReplyMeta';
 import { RememberedNotice } from '../components/athena/RememberedNotice';
 import { ReplyFeedback } from '../components/athena/ReplyFeedback';
 import { NoteEditCard } from '../components/athena/NoteEditCard';
+import { DemoBookendsCard } from '../components/athena/DemoBookendsCard';
+import { splitDemoBookends } from '../../../knowledge-hub-backend/src/utils/demoBookends';
 import { MapChangeCard } from '../components/athena/MapChangeCard';
 import { LocalFileWriteCard } from '../components/athena/LocalFileWriteCard';
 import { desktopErrorMessage, getDesktop } from '../types/desktop';
@@ -2510,11 +2512,15 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               )}
               {msg.role === 'user' ? (
                 <div className="ai-bubble-text"><PeopleMessageText text={msg.content} /></div>
-              ) : (
-                <AnswerText html={renderAssistantMessage(msg.content, { projectNameById })}
-                  arrivalAt={i === lastAssistantIndex && replyArrival?.complete ? replyArrival.startedAt : null}
-                  onComplete={() => { setRevealingAnswer(false); }} />
-              )}
+              ) : (() => {
+                const { text, bookends } = splitDemoBookends(msg.content);
+                return <>
+                  <AnswerText html={renderAssistantMessage(text, { projectNameById })}
+                    arrivalAt={i === lastAssistantIndex && replyArrival?.complete ? replyArrival.startedAt : null}
+                    onComplete={() => { setRevealingAnswer(false); }} />
+                  {bookends.map((b, n) => <DemoBookendsCard key={n} bookends={b} />)}
+                </>;
+              })()}
               {msg.role === 'assistant' && (
                 <details className="ai-reply-details">
                   <summary className="ai-reply-details__toggle">Response details</summary>

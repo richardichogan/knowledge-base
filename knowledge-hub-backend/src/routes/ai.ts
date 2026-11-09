@@ -30,6 +30,7 @@ import type { WorkTurnState } from '../ai/workContentTools.js';
 import type { TaskStatusProposal } from '../work/taskStatusChange.js';
 import type { MapChangeProposal } from '../ai/mapEdits.js';
 import { parseLocalFolders, type LocalFileWriteProposal } from '../ai/localFiles.js';
+import { demoBookendsBlock, type DemoBookends } from '../utils/demoBookends.js';
 import { uploadBlobAsText } from '../integrations/cms/blobClient.js';
 import { createNoteRecord } from './notes.js';
 import { env } from '../config/env.js';
@@ -214,6 +215,7 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   const taskStatusChanges: TaskStatusProposal[] = [];
   const mapChanges: MapChangeProposal[] = [];
   const localFileWrites: LocalFileWriteProposal[] = [];
+  const demoBookends: DemoBookends[] = [];
   const localFolders = parseLocalFolders(requestedLocalFolders);
   let openNoteId = typeof noteId === 'string' && noteId.trim() !== '' ? noteId.trim() : undefined;
   let designOwner: string | undefined;
@@ -268,7 +270,7 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
     db, modelHistory, message, effectiveModel, persona, effectiveSessionId, alreadyHeld ? undefined : pageContext,
     (toolName) => { toolsUsed.add(toolName); },
     { userId, noteId: openNoteId, designOwner, designState, podcastOwner, podcastState, workState,
-      buildSpecId, buildState, useCaseId, useCaseState, taskStatusChanges, noteEdits, mapChanges, localFolders, localFileWrites },
+      buildSpecId, buildState, useCaseId, useCaseState, taskStatusChanges, noteEdits, mapChanges, localFolders, localFileWrites, demoBookends },
     { ...hooks, contextUsed, onAudit: (row) => { audit.row = row; } },
   );
   hooks.signal?.throwIfAborted();
@@ -277,7 +279,7 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   // Deliverables live in Outputs, never also in the reply: if Athena saved one this turn, any pasted
   // copy is taken out of the reply; if she didn't but wrote one he asked for, it's moved to Outputs.
   // (Only where the Outputs panel is shown.)
-  const reply = outputsPanel === false || designOwner !== undefined || podcastOwner !== undefined
+  const deliveredReply = outputsPanel === false || designOwner !== undefined || podcastOwner !== undefined
     ? modelReply
     : await (toolsUsed.has('save_output')
       ? removeSavedCopiesFromReply(db, effectiveSessionId, turnStartedAt, modelReply)
@@ -287,6 +289,8 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
       console.warn('[outputs] could not keep the deliverable out of the reply:', err);
       return modelReply;
     });
+  // Demo intro/exit pages live in the reply itself (rendered by the chat), so Athena sees them in history.
+  const reply = demoBookends.length > 0 ? `${deliveredReply.trim()}\n\n${demoBookendsBlock(demoBookends[0]!)}` : deliveredReply;
   // Suggested next steps, made while the reply is saved (a few seconds at most).
   hooks.onActivity?.('Finishing up');
   void noteChatNextStepChoice(db, effectiveSessionId, message).catch(() => { /* the ledger is reporting only */ });

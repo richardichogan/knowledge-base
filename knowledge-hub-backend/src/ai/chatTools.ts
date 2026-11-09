@@ -36,6 +36,7 @@ import { saveOutputVersion, getOutput, readOutputForChat } from './chatOutputs.j
 import { buildTodayScheduleBlock, looksLikeMeetingList, importMeetingList } from '../integrations/ibm/ibmMeetings.js';
 import { textToBlocks } from './markdownToNoteBlocks.js';
 import { scriptNoteBlocks } from '../utils/scriptNoteContent.js';
+import { demoBookendsFromArgs, type DemoBookends } from '../utils/demoBookends.js';
 import { DEMO_SPECIFICATION_TOOLS, demoSpecificationForm, renderDemoSpecification } from './demoSpecification.js';
 export { textToBlocks } from './markdownToNoteBlocks.js';
 import { FoundryClient, getFoundryClient, type LlmToolDefinition } from './foundryClient.js';
@@ -694,6 +695,30 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
     {
       type: 'function',
       function: {
+        name: 'create_demo_bookends',
+        description:
+          'Shows an intro page and an exit page for a solution demo in your reply, rendered in the same style as the script ' +
+          "visuals (the typographic opening title and the end page with the IBM eight-bar logo), each with a 1920x1080 PNG " +
+          'download for video editing. Use it when Richard asks for intro/exit, opening/closing or bookend pages for a demo. ' +
+          'FIRST draft the wording in your reply and get his approval; call this only with approved wording (or to show a ' +
+          'revision he asked for). Distil his actual demo; never invent claims or slogans. Nothing is saved; the pages ' +
+          'appear in this chat reply. After calling it, reply in one short line.',
+        parameters: {
+          type: 'object',
+          properties: {
+            intro_label: { type: 'string', description: 'Optional small eyebrow above the intro title, at most 4 words (e.g. "Solution demo"). Empty for none.' },
+            intro_title: { type: 'string', description: 'Intro headline, at most 8 words; states what the demo shows.' },
+            intro_subtitle: { type: 'string', description: 'Optional intro lede, at most 20 words. Empty for none.' },
+            exit_setup: { type: 'string', description: 'Optional muted setup line on the exit page, at most 10 words. Empty for none.' },
+            exit_statement: { type: 'string', description: 'Exit page closing statement, at most 8 words. Never "Thank you"; the page adds it.' },
+          },
+          required: ['intro_title', 'exit_statement'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'propose_map_changes',
         description:
           "Proposes changes to the canvas open next to this chat (outline under 'Canvas in view'). A canvas is a set of " +
@@ -979,6 +1004,8 @@ export async function executeToolCall(
     mapAliases?: Map<string, string> | undefined; mapCanvas?: CanvasFull | undefined; mapChanges?: MapChangeProposal[];
     /** Folders on his PC (Athena Desktop) and a collector for proposed file writes. */
     localFolders?: LocalFolder[]; localFileWrites?: LocalFileWriteProposal[];
+    /** Intro/exit demo pages to append to this reply (create_demo_bookends). */
+    demoBookends?: DemoBookends[];
   } = {},
 ): Promise<unknown> {
   let args: Record<string, unknown> = {};
@@ -1380,6 +1407,16 @@ export async function executeToolCall(
         return { saved: true, output_id: saved.id, title: saved.title, version: saved.version, note: 'Shown in the Outputs panel. Reply briefly with what you produced or changed.' };
       } catch (err) {
         return { error: err instanceof Error ? err.message : 'Could not save the output.' };
+      }
+    }
+    case 'create_demo_bookends': {
+      if (turn.demoBookends === undefined) return { error: 'Demo pages can only be shown in a chat reply.' };
+      try {
+        const bookends = demoBookendsFromArgs(args);
+        turn.demoBookends.splice(0, turn.demoBookends.length, bookends);
+        return { shown: true, bookends, note: 'Both pages appear under your reply with PNG downloads. Reply in one short line; do not repeat the wording.' };
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : 'The demo pages could not be made.' };
       }
     }
       case 'read_script_visuals':
