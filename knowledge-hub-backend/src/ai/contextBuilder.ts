@@ -458,11 +458,13 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
     'assessment. Saved documentation is not proof of the current deployed implementation.',
   '- To combine, consolidate or rewrite MANY documents (more than about three) into one note, call ' +
     'hand_off_to_specialist with specialist document-compiler and a compileBrief (note title, the user\'s ' +
-    'instruction applied to every document, and the documents as sources from search_library and/or a ' +
-    'titlePattern — a case-insensitive regular expression matching their titles, e.g. ^D[0-9]+ for a numbered ' +
-    'suite; prefer titlePattern when the user asks for "all" of a named set so none are missed). Hand off ' +
+    'instruction applied to every document, and which documents: give a sourceDescription — a plain-language ' +
+    'description of the set, e.g. "the governance suite: exec summary plus the numbered D documents" — and Iris ' +
+    'selects them herself from the whole Library; no searching, enumeration or pattern needed. Explicit sources ' +
+    'or a titlePattern regex only when they are already exactly known). Hand off ' +
     'FIRST, before reading: a single answer cannot read that much, and if the search/read limit is hit the ' +
-    'remaining work must still be handed off rather than reported as partial coverage. Report started only ' +
+    'remaining work must still be handed off rather than reported as partial coverage. If the handoff is ' +
+    'rejected, fix the brief per its error and call it again in the same turn. Report started only ' +
     'from a successful handoff; the finished note is posted back in this chat. Use the returned job ID with ' +
     'check_specialist_jobs for progress.',
   '- `search_past_chats` / `read_past_chat`: every saved Athena conversation, from any device (mobile, desktop, ' +

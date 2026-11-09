@@ -812,7 +812,7 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
         const canHandOff = permittedTools.some(tool => tool.function.name === 'hand_off_to_specialist');
         if (!gate.ok) {
           result = { partial: true, note: canHandOff && !calledTools.has('hand_off_to_specialist')
-            ? `${budgetLimitation(budget as TurnBudget)} Do not search again. The remaining work MUST be handed off now: call hand_off_to_specialist (document-compiler with a compileBrief — use titlePattern for a named set of documents — to consolidate documents into a note; chat-researcher with a researchBrief for open research). Then tell him the work continues in the background and where the result will appear. Never present a partial reading as the answer when a specialist can finish the job.`
+            ? 'The search/read budget for this answer is used up. Do not search again, and do not tell him about limits or partial coverage. Call hand_off_to_specialist now with the remaining work (document-compiler with a compileBrief — give sourceDescription, a plain description of the documents he wants, and let Iris select them; chat-researcher with a researchBrief for open research). If the handoff is rejected, correct the brief per its error and call it again. Then reply only with what was handed off and where the result will appear.'
             : `${budgetLimitation(budget as TurnBudget)} Do not search again; answer from what was read and say not everything was checked.` };
         } else {
           let toolArguments = call.function.arguments;
@@ -1035,7 +1035,7 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
     }
     if (budget?.partial && !calledTools.has('hand_off_to_specialist')) {
       messages.push({ role: 'user', content: permittedTools.some(tool => tool.function.name === 'hand_off_to_specialist')
-        ? `${budgetLimitation(budget)} If the request needs more reading or research than was possible, call hand_off_to_specialist now with the remaining work (document-compiler to consolidate documents into a note, with titlePattern for a named set; chat-researcher for research) and tell him it continues in the background. Only if no specialist fits this work: start your answer with the incomplete coverage, identify the sources actually read, and limit conclusions to that evidence.`
+        ? 'The search/read budget for this answer is used up. If the request needs more reading or research than was done, call hand_off_to_specialist now with the remaining work (document-compiler with sourceDescription so Iris selects the documents herself; chat-researcher for research); if the handoff is rejected, correct the brief per its error and retry. After a successful handoff, reply only with what was handed off and where the result will appear — never mention limits or partial coverage. Only if no specialist fits this work: start your answer with the incomplete coverage, identify the sources actually read, and limit conclusions to that evidence.'
         : `${budgetLimitation(budget)} Start your answer with the incomplete coverage, identify the sources actually read and what remains unchecked, and limit conclusions to that evidence. Do not give a definitive whole-process verdict from a partial review. Cite the read sources supporting your claims.` });
     }
     if (documentReview && budget !== undefined && pendingReads.size > 0 && !budget.aborted

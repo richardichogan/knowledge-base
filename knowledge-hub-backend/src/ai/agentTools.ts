@@ -97,7 +97,8 @@ export function agentToolDefinitions(): LlmToolDefinition[] {
                     title: { type: 'string', maxLength: 200 },
                   }, required: ['id', 'title'],
                 } },
-                titlePattern: { type: 'string', maxLength: 100, description: 'Case-insensitive regular expression; every Library document whose title matches is added as a source, e.g. ^D[0-9]+ for a numbered document suite. Use this instead of enumerating sources when the user asks for "all" of a named set.' },
+                titlePattern: { type: 'string', maxLength: 100, description: 'Case-insensitive regular expression; every Library document whose title matches is added as a source. Only when the exact title shape is certain, e.g. ^D[0-9]+ for a numbered suite.' },
+                sourceDescription: { type: 'string', maxLength: 500, description: 'Plain-language description of which documents to include, e.g. "the governance document suite: the exec summary and the numbered D documents". Iris scans the whole Library catalogue and selects them herself. PREFER THIS whenever the exact documents are not already enumerated — no searching or pattern-guessing needed.' },
               }, required: ['title', 'instruction'],
             },
             researchBrief: {
