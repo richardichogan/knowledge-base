@@ -3365,6 +3365,8 @@ p, h1, h2, h3, h4, h5, h6, dl, dt, dd, blockquote {
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
   padding-bottom: 0.5rem;
+  // Keeps the vertical scrollbar clear of the cards and column controls.
+  padding-right: var(--cds-spacing-04);
 }
 
 .kb-workstreams__grid {
