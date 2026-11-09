@@ -1216,11 +1216,11 @@ export class KnowledgeHubApi {
    */
   async lookupImages(
     blobUrls: string[],
-  ): Promise<ApiResponse<{ items: Array<{ id: string; visionAnalysis?: string; ocrText?: string; caption?: string }> }>> {
+  ): Promise<ApiResponse<{ items: Array<{ id: string; position?: number; visionAnalysis?: string; ocrText?: string; caption?: string }> }>> {
     // The /api/images mount uses express.raw() for every content-type, so send
     // JSON as a raw buffer rather than relying on axios's default JSON headers.
     const r = await this.client.post<
-      ApiResponse<{ items: Array<{ id: string; visionAnalysis?: string; ocrText?: string; caption?: string }> }>
+      ApiResponse<{ items: Array<{ id: string; position?: number; visionAnalysis?: string; ocrText?: string; caption?: string }> }>
     >('/api/images/lookup', JSON.stringify({ blobUrls }), {
       headers: { 'Content-Type': 'application/json' },
     });

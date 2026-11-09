@@ -21,6 +21,7 @@ import { BlobStorageError, ValidationError, NotFoundError } from '../types/index
 import { analyzeImageWithVision } from '../services/visionAnalyzer.js';
 import type { ApiSuccess, PaginatedList, KnowledgeImage } from '../types/index.js';
 import { getAthenaStorage } from '../services/athenaStorage.js';
+import { blobIdFromUrl } from '../utils/noteContent.js';
 
 const router = Router();
 
@@ -268,15 +269,11 @@ router.post('/lookup', (req: Request, res: Response, next: NextFunction): void =
       throw new ValidationError('blobUrls must be an array of strings', { blobUrls: 'required' });
     }
 
-    // The blob name (== kb_images.id) is the last path segment before the
-    // SAS query string, e.g. https://acct.blob.core.windows.net/kb-images/<id>?sv=...
-    const ids = (blobUrls as string[])
-      .map((url) => {
-        const withoutQuery = url.split('?')[0] ?? '';
-        const segments = withoutQuery.split('/');
-        return segments[segments.length - 1] ?? '';
-      })
-      .filter((id) => id !== '');
+    // The blob name (== kb_images.id) is the last path segment before the SAS
+    // query string. Inline data: images have no stored analysis and must not
+    // reach the uuid query, or one of them fails the whole lookup.
+    const requestedIds = (blobUrls as string[]).map(blobIdFromUrl);
+    const ids = [...new Set(requestedIds.filter((id) => id !== ''))];
 
     if (ids.length === 0) {
       res.status(HTTP_STATUS.OK).json({ success: true, data: { items: [] } });
@@ -293,8 +290,14 @@ router.post('/lookup', (req: Request, res: Response, next: NextFunction): void =
       [ids],
     );
 
-    const items = result.rows.map((row) => ({
+    const byId = new Map(result.rows.map((row) => [row.id.toLowerCase(), row]));
+    // One item per requested URL, in document order, so position matches the note.
+    const items = requestedIds.flatMap((id, index) => {
+      const row = byId.get(id);
+      return row === undefined ? [] : [{ row, position: index + 1 }];
+    }).map(({ row, position }) => ({
       id: row.id,
+      position,
       ...(row.ocr_text !== '' && { ocrText: row.ocr_text }),
       ...(row.vision_analysis !== '' && { visionAnalysis: row.vision_analysis }),
       ...(row.caption !== '' && { caption: row.caption }),

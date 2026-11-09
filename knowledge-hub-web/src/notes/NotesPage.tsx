@@ -91,6 +91,8 @@ const NOTE_CONTEXT_MAX_CHARS = 150_000;
 // Per-image cap on the vision description passed to Athena. Was 600, which
 // cut most descriptions off before any of the slide/diagram detail.
 const IMAGE_DESCRIPTION_MAX_CHARS = 2_500;
+const IMAGE_LOOKUP_RETRIES = 4;
+const IMAGE_LOOKUP_RETRY_MS = 10_000;
 
 export const NotesPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -697,6 +699,7 @@ export const NotesPage: React.FC = () => {
 
       let cancelled = false;
       let selectionTimer: ReturnType<typeof setTimeout> | undefined;
+      let retryTimer: ReturnType<typeof setTimeout> | undefined;
       const refreshSelection = (): void => {
         clearTimeout(selectionTimer);
         selectionTimer = setTimeout(() => { if (!cancelled) publish(latestDescriptions); }, 150);
@@ -709,6 +712,7 @@ export const NotesPage: React.FC = () => {
       const cleanup = (): void => {
         cancelled = true;
         clearTimeout(selectionTimer);
+        clearTimeout(retryTimer);
         document.removeEventListener('selectionchange', refreshSelection);
         document.removeEventListener('focusin', refreshSelection);
         window.removeEventListener('athena:script-visual-context', refreshSelection);
@@ -724,21 +728,36 @@ export const NotesPage: React.FC = () => {
         return cleanup;
       }
 
-      void api.lookupImages(imageUrls).then((r) => {
-        if (!r.success) return;
+      const lookup = (attempt: number): void => { void api.lookupImages(imageUrls).then((r) => {
+        if (!r.success || cancelled && attempt > 0) return;
+        const total = imageUrls.length;
+        const described = new Set<number>();
         const descriptions = r.data.items
           .map((img, i) => {
+            const position = img.position ?? i + 1;
             const parts: string[] = [];
             if (img.visionAnalysis !== undefined) parts.push(img.visionAnalysis);
             else if (img.ocrText !== undefined) parts.push(`Text in image: ${img.ocrText}`);
             if (img.caption !== undefined) parts.push(`Caption: ${img.caption}`);
-            return parts.length > 0 ? `[Image ${(i + 1).toString()}] ${parts.join(' — ').slice(0, IMAGE_DESCRIPTION_MAX_CHARS)}` : null;
+            if (parts.length > 0) described.add(position);
+            return parts.length > 0 ? `[Image ${position.toString()} of ${total.toString()}${position === total ? ', last' : ''}] ${parts.join(' — ').slice(0, IMAGE_DESCRIPTION_MAX_CHARS)}` : null;
           })
           .filter((d): d is string => d !== null);
-        // Cache even if this run was superseded, so the next run uses it.
-        imageDescriptionsRef.current.set(imagesKey, descriptions);
+        const missing = imageUrls.map((_, i) => i + 1).filter((p) => !described.has(p));
+        if (missing.length > 0) {
+          descriptions.push(`[No stored description yet for image(s) ${missing.join(', ')} of ${total.toString()}; say so rather than guessing their contents.]`);
+        }
+        // A newly pasted image is analysed in the background: retry rather
+        // than caching an incomplete result for the rest of the session.
+        if (missing.length > 0 && attempt < IMAGE_LOOKUP_RETRIES) {
+          if (!cancelled) retryTimer = setTimeout(() => { lookup(attempt + 1); }, IMAGE_LOOKUP_RETRY_MS);
+        } else {
+          // Cache even if this run was superseded, so the next run uses it.
+          imageDescriptionsRef.current.set(imagesKey, descriptions);
+        }
         if (!cancelled) publish(descriptions);
-      }).catch(() => { /* context stays without image detail */ });
+      }).catch(() => { /* context stays without image detail */ }); };
+      lookup(0);
 
       return cleanup;
     }

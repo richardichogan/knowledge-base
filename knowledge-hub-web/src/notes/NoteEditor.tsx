@@ -313,6 +313,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
       initialContent: parsedInitial as any,
       schema: editorSchema,
       pasteHandler: ({ event, editor: ed, defaultPasteHandler }) => {
+        setTimeout(() => { uploadInlineImagesRef.current(); }, 0);
         const plain = event.clipboardData?.getData('text/plain');
         const html = event.clipboardData?.getData('text/html');
         const blockNoteHtml = event.clipboardData?.getData('blocknote/html');
@@ -399,6 +400,44 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   const [draftError, setDraftError] = useState<string | null>(null);
   const localDraftRef = useRef<{ draft: NoteDraft; raw: string } | null>(null);
   useEffect(() => { editorRef.current = editor; }, [editor]);
+
+  // Rich pastes (PowerPoint, Word, web pages) carry images as inline data:
+  // URLs, bypassing uploadFile. Upload them so they are stored and get the
+  // vision analysis Athena reads; existing inline images convert on open.
+  const inlineUploadsRef = useRef(new Set<string>());
+  const uploadInlineImages = useCallback((): void => {
+    const visit = (blocks: readonly unknown[]): void => {
+      for (const raw of blocks) {
+        const block = raw as { id: string; type: string; props?: { url?: unknown }; children?: unknown[] };
+        const url = block.props?.url;
+        if (block.type === 'image' && typeof url === 'string' && /^data:image\/(?:png|jpeg|gif|webp);base64,/i.test(url)
+          && !inlineUploadsRef.current.has(block.id)) {
+          inlineUploadsRef.current.add(block.id);
+          void (async (): Promise<void> => {
+            try {
+              const blob = await (await fetch(url)).blob();
+              const result = await api.uploadImage(new File([blob], 'pasted-image', { type: blob.type }));
+              if (!result.success) throw new Error(result.error.message);
+              const current = editor.getBlock(block.id) as { props?: { url?: unknown } } | undefined;
+              if (current?.props?.url !== url) return;
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              editor.updateBlock(block.id, { props: { url: result.data.blobUrl } } as any);
+            } catch (err) {
+              setNotification({ kind: 'error', msg: err instanceof Error ? `Image upload failed: ${err.message}` : 'Image upload failed' });
+              setTimeout(() => { setNotification(null); }, SAVED_BANNER_DURATION_MS * 2);
+            } finally {
+              inlineUploadsRef.current.delete(block.id);
+            }
+          })();
+        }
+        if (Array.isArray(block.children)) visit(block.children);
+      }
+    };
+    visit(editor.document);
+  }, [editor]);
+  const uploadInlineImagesRef = useRef(uploadInlineImages);
+  useEffect(() => { uploadInlineImagesRef.current = uploadInlineImages; }, [uploadInlineImages]);
+  useEffect(() => { uploadInlineImages(); }, [uploadInlineImages]);
 
   /**
    * Seeds the use-case heading skeleton when the note is switched to the
