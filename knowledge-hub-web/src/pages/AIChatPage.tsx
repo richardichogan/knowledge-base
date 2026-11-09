@@ -1975,10 +1975,27 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       return;
     }
     setVoiceError(null);
+    // Speaking over Athena interrupts her: stop the reply in progress, then send once the turn has ended.
+    if (chatMutation.isPending) {
+      if (queuedVoiceRef.current === null) { handleStopAthena(); chatAbortControllerRef.current?.abort(); }
+      queuedVoiceRef.current = queuedVoiceRef.current === null ? text : `${queuedVoiceRef.current} ${text}`;
+      setQueuedVoice(queuedVoiceRef.current);
+      return;
+    }
     void sendVoiceTranscript.current(text).catch((error: unknown) => {
       setVoiceError(describeApiError(error));
     });
   };
+  const [queuedVoice, setQueuedVoice] = useState<string | null>(null);
+  const queuedVoiceRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (queuedVoice === null || chatMutation.isPending) return;
+    queuedVoiceRef.current = null;
+    setQueuedVoice(null);
+    void sendVoiceTranscript.current(queuedVoice).catch((error: unknown) => {
+      setVoiceError(describeApiError(error));
+    });
+  }, [queuedVoice, chatMutation.isPending]);
   const desktopVoiceBusyRef = useRef(false);
   const desktopVoiceId = useRef(Symbol('desktop-voice'));
   const chatRootRef = useRef<HTMLDivElement>(null);
