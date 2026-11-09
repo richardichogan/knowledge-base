@@ -10,7 +10,7 @@ import type { NoteListItem } from '../src/notes/types';
 import { api } from '../src/services/api';
 import type { NoteSummary } from '../src/types/contentItem';
 import type { TaxonomyTag } from '../src/services/api';
-import { NoteTagFolders, tagFolderPath } from '../src/notes/NoteTagFolders';
+import { NoteFilters, tagFolderPath } from '../src/notes/NoteTagFolders';
 import { expandTagIds } from '../src/hooks/useTaxonomy';
 import { withThinkContext, type ThinkNavigationContext } from '../src/context/AthenaContext';
 
@@ -28,20 +28,26 @@ test('tag folders reuse taxonomy descendants without replacing tag editing', () 
   client.setQueryData(['note-tags', 'note-0'], [childTag]);
   try {
     const html = renderToStaticMarkup(<QueryClientProvider client={client}>
-      <NoteTagFolders selectedId={parentTag.id} onSelect={() => undefined} collapsed={false} onToggleCollapsed={() => undefined} />
+      <NoteFilters selectedTagId={parentTag.id} onSelectTag={() => undefined}
+        selectedContentType={null} onSelectContentType={() => undefined} collapsed={false} onToggleCollapsed={() => undefined} />
     </QueryClientProvider>);
-    assert.match(html, /aria-label="Browse notes by tag"/);
+    assert.match(html, /aria-label="Filter notes by content type and tag"/);
     assert.match(html, /aria-current="true"[^>]+title="Research \(includes child tags\)"/);
     assert.match(html, /aria-expanded="false"/);
     assert.match(html, /title="Research \/ AI"/);
     assert.doesNotMatch(html, /notes-tag-paths/);
     assert.match(html, /All notes/);
-    assert.match(html, /aria-label="Collapse tag section"/);
+    assert.match(html, /Content types/);
+    assert.match(html, /Tag folders/);
+    assert.match(html, /aria-label="Collapse filters"/);
     const collapsed = renderToStaticMarkup(<QueryClientProvider client={client}>
-      <NoteTagFolders selectedId={parentTag.id} onSelect={() => undefined} collapsed onToggleCollapsed={() => undefined} />
+      <NoteFilters selectedTagId={parentTag.id} onSelectTag={() => undefined}
+        selectedContentType="spec" onSelectContentType={() => undefined} collapsed onToggleCollapsed={() => undefined} />
     </QueryClientProvider>);
-    assert.match(collapsed, /aria-label="Expand tag section"/);
+    assert.match(collapsed, /aria-label="Expand filters"/);
     assert.match(collapsed, /class="notes-tag-folders__scroll" hidden=""/);
+    assert.match(collapsed, /notes-filters__active/);
+    assert.match(collapsed, /Technical spec · Research/);
     assert.match(collapsed, /aria-current="true"[^>]+title="Research \(includes child tags\)"/);
   } finally { client.clear(); }
 });
@@ -68,7 +74,8 @@ test('Think filing context preserves the active Design identity, body and revisi
   const navigation: ThinkNavigationContext = {
     selectedTag: { id: childTag.id, path: 'Research / AI', filterTagIds: [childTag.id] },
     folders: [parentTag, childTag], totalFolders: 2, foldersHasMore: false, folderStatus: 'ready',
-    listCollapsed: false, tagsCollapsed: false,
+    selectedContentType: null,
+    listCollapsed: false, filtersCollapsed: false,
     search: '', sort: 'modified', notes: [{ id: 'note-0', title: 'Evidence' }],
     loadedNotes: 1, totalNotes: 20, hasMore: true, listStatus: 'ready',
   };
