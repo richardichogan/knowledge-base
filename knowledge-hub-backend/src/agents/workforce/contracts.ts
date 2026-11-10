@@ -263,6 +263,7 @@ export const MANUAL_BLOG_STEPS = {
   research: { key: 'research', role: 'iris', profile: 'manual-blog-research', promptVersion: 1, outputType: 'blog-evidence' },
   draft: { key: 'draft', role: 'calliope', profile: 'manual-blog-draft', promptVersion: 1, outputType: 'blog-draft' },
   critique: { key: 'critique', role: 'momus', profile: 'manual-blog-critique', promptVersion: 1, outputType: 'blog-review' },
+  topup: { key: 'topup', role: 'iris', profile: 'manual-blog-research', promptVersion: 1, outputType: 'blog-evidence' },
   revision: { key: 'revision', role: 'calliope', profile: 'manual-blog-revision', promptVersion: 1, outputType: 'blog-draft' },
   recheck: { key: 'recheck', role: 'momus', profile: 'manual-blog-recheck', promptVersion: 1, outputType: 'blog-review' },
 } as const satisfies Record<string, StepDefinition>;

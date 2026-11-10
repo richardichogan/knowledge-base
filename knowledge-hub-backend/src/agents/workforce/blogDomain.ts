@@ -7,7 +7,10 @@ import { parseBlogReviewBody } from '../../services/blogPublisher.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../types/errors.js';
 import { currentAgentAttempt } from '../attempt.js';
 import { contentSignature, record, WORKFORCE_VERSION, type Assignment } from './contracts.js';
-import { authorManualBlog, critiqueManualBlog, researchManualBlog, reviseManualBlog, type BlogResearchPackage, type ScopedBlogResearch } from './blogTeam.js';
+import {
+  authorManualBlog, critiqueManualBlog, researchManualBlog, reviseManualBlog, supplementedEvidence, topUpManualBlogResearch,
+  type BlogResearchPackage, type ScopedBlogResearch, type SupplementaryResearch,
+} from './blogTeam.js';
 import type { ManualBlogExecutor } from './dispatcher.js';
 import type { ManualBlogStep, StepAcceptance } from './controller.js';
 import { lockAssignment, transitionAssignment, workforceTransaction } from './store.js';
@@ -26,6 +29,36 @@ interface BlogOutput {
   draft: BlogDraft | null;
   critique: BlogCritique | null;
   stages: Array<{ stage: string; result: unknown; at: string }>;
+  /** Iris's one-off public-web top-up; research.evidence itself is never rewritten. */
+  supplement?: SupplementaryResearch;
+}
+
+function evidenceOf(output: BlogOutput): string {
+  return supplementedEvidence(output.research.evidence, output.supplement);
+}
+
+function supplement(value: unknown): SupplementaryResearch {
+  const input = record(value, 'Evidence top-up');
+  if (!Array.isArray(input['claims'])) throw new ValidationError('Evidence top-up claims are required.');
+  const claims: unknown[] = input['claims'];
+  return {
+    at: text(input['at'], 'Top-up timestamp'), note: text(input['note'], 'Top-up note'),
+    claims: claims.map(value => {
+      const claim = record(value, 'Top-up claim');
+      const status = claim['status'];
+      if (status !== 'supported' && status !== 'contradicted' && status !== 'not-found') throw new ValidationError('A top-up claim has an invalid status.');
+      if (!Array.isArray(claim['sources'])) throw new ValidationError('Top-up claim sources are required.');
+      const sources: unknown[] = claim['sources'];
+      return {
+        findingId: text(claim['findingId'], 'Top-up finding'), claim: text(claim['claim'], 'Top-up claim text'), status,
+        summary: text(claim['summary'], 'Top-up summary'),
+        sources: sources.map(value => {
+          const source = record(value, 'Top-up source');
+          return { url: text(source['url'], 'Top-up source URL'), title: text(source['title'], 'Top-up source title'), quote: text(source['quote'], 'Top-up quote') };
+        }),
+      };
+    }),
+  };
 }
 
 interface BlogStepRow {
@@ -89,7 +122,7 @@ function research(value: unknown): BlogResearchPackage {
 function parseOutput(value: unknown): BlogOutput {
   const input = record(value, 'Blog step output');
   const step = input['step'];
-  if (step !== 'research' && step !== 'draft' && step !== 'critique' && step !== 'revision' && step !== 'recheck') throw new ValidationError('Unknown blog step.');
+  if (step !== 'research' && step !== 'draft' && step !== 'critique' && step !== 'topup' && step !== 'revision' && step !== 'recheck') throw new ValidationError('Unknown blog step.');
   if (!Array.isArray(input['stages'])) throw new ValidationError('Blog stage history is required.');
   const stages: unknown[] = input['stages'];
   const parsedStages = stages.map(value => {
@@ -134,6 +167,7 @@ function parseOutput(value: unknown): BlogOutput {
   const parsed: BlogOutput = {
     step, research: research(input['research']), original: input['original'] === null ? null : draft(input['original']),
     draft: input['draft'] === null ? null : draft(input['draft']), critique, stages: parsedStages,
+    ...(input['supplement'] === undefined ? {} : { supplement: supplement(input['supplement']) }),
   };
   if (contentSignature(parsed) !== contentSignature(input)) throw new ValidationError('The blog step output contains unsupported or altered contract fields.');
   return parsed;
@@ -185,7 +219,7 @@ async function predecessor(client: PoolClient, row: BlogStepRow, assignment: Ass
     const snapshot = parseOutput({ ...accepted, original: checkpoint['originalDraft'], draft: checkpoint['draft'],
       stages: checkpoint['stages'], critique: null });
     const { original, draft: sourceDraft } = requireCandidate(snapshot);
-    if (checkpoint['evidence'] !== accepted.research.evidence) throw new ConflictError('The source evidence changed before recheck.', 'ASSIGNMENT_SOURCE_CHANGED');
+    if (checkpoint['evidence'] !== evidenceOf(accepted)) throw new ConflictError('The source evidence changed before recheck.', 'ASSIGNMENT_SOURCE_CHANGED');
     const post = parseBlogReviewBody(row.input['workforceRecheckPost']);
     if (post.slug || post.sourceUrl) throw new ValidationError('Recheck cannot change the source or slug.');
     if (assignment.brief.instruction !== `[manual-blog:${post.postType === 'quick' ? 'short' : 'long'}] Independently recheck the exact owner-submitted candidate ${contentSignature(post)}. Do not edit or publish it.`) {
@@ -296,12 +330,19 @@ export function createManualBlogExecutor(db: Pool, capabilities: BlogDomainCapab
         return { ...previous, step: 'draft', original: candidate, draft: candidate } satisfies BlogOutput;
       }
       const candidate = requireCandidate(previous);
+      if (definition.key === 'topup') {
+        if (!previous.critique || previous.supplement) throw new ValidationError('The evidence top-up needs a fresh critique and runs only once.');
+        const found = await topUpManualBlogResearch(previous.critique, client, signal);
+        const count = (status: string): number => found.claims.filter(claim => claim.status === status).length;
+        return { ...previous, step: 'topup', supplement: found, stages: [...previous.stages, { stage: 'evidenceTopUp', at: found.at,
+          result: { claims: found.claims.length, supported: count('supported'), contradicted: count('contradicted'), notFound: count('not-found'), note: found.note } }] } satisfies BlogOutput;
+      }
       if (definition.key === 'revision') {
         if (!previous.critique) throw new ValidationError('The independent critique is required for revision.');
-        return { ...previous, step: 'revision', draft: await reviseManualBlog(previous.research, candidate.draft, previous.critique, client) } satisfies BlogOutput;
+        return { ...previous, step: 'revision', draft: await reviseManualBlog(previous.research, candidate.draft, previous.critique, client, previous.supplement) } satisfies BlogOutput;
       }
       if (definition.key !== 'critique' && definition.key !== 'recheck') throw new ValidationError('The manual blog step is not supported.');
-      const critique = await critiqueManualBlog(previous.research, candidate.original, candidate.draft, reviewedDraftSignature(candidate.draft), client);
+      const critique = await critiqueManualBlog({ ...previous.research, evidence: evidenceOf(previous) }, candidate.original, candidate.draft, reviewedDraftSignature(candidate.draft), client);
       return { ...previous, step: definition.key, critique, stages: [...previous.stages, ...critique.stages] } satisfies BlogOutput;
     },
     acceptance: {
@@ -316,15 +357,28 @@ export function createManualBlogExecutor(db: Pool, capabilities: BlogDomainCapab
         const previous = await predecessor(client, row, context.assignment);
         if (previous && contentSignature(output.research) !== contentSignature(previous.research)) throw new ValidationError('A downstream role cannot replace accepted research.');
         if (previous?.original && contentSignature(output.original) !== contentSignature(previous.original)) throw new ValidationError('A downstream role cannot replace the original draft.');
-        if ((context.step === 'critique' || context.step === 'recheck') && contentSignature(output.draft) !== contentSignature(previous?.draft)) throw new ValidationError('The independent critic cannot edit the candidate.');
-        if (context.step === 'revision' && contentSignature(output.critique) !== contentSignature(previous?.critique)) throw new ValidationError('The author cannot change the independent critique.');
-        if (context.step !== 'research' && context.step !== 'critique' && context.step !== 'recheck'
+        if ((context.step === 'critique' || context.step === 'recheck' || context.step === 'topup') && contentSignature(output.draft) !== contentSignature(previous?.draft)) throw new ValidationError('The independent critic cannot edit the candidate.');
+        if ((context.step === 'revision' || context.step === 'topup') && contentSignature(output.critique) !== contentSignature(previous?.critique)) throw new ValidationError('The author cannot change the independent critique.');
+        if (context.step === 'topup') {
+          const added = output.stages.slice(previous?.stages.length ?? 0);
+          if (!previous || previous.supplement || !output.supplement || added.length !== 1 || added[0]?.stage !== 'evidenceTopUp'
+            || contentSignature(output.stages.slice(0, previous.stages.length)) !== contentSignature(previous.stages)) throw new ValidationError('The evidence top-up can only add its own findings once.');
+        } else if (contentSignature(output.supplement ?? null) !== contentSignature(previous?.supplement ?? null)) {
+          throw new ValidationError('Only Iris\'s top-up step can add supplementary evidence.');
+        }
+        if (context.step !== 'research' && context.step !== 'critique' && context.step !== 'recheck' && context.step !== 'topup'
           && contentSignature(output.stages) !== contentSignature(previous?.stages ?? [])) throw new ValidationError('An author cannot change the independent stage history.');
         let disposition: StepAcceptance['disposition'] = { kind: 'continue' };
         let summary = context.step === 'research' ? 'Iris saved the scoped evidence and privacy-checked author context.' : 'Calliope saved the candidate.';
         if (context.step === 'research') {
           if (output.draft || output.original || output.critique
             || output.stages.some(stage => stage.stage !== 'sourceResearch' && stage.stage !== 'authorContext')) throw new ValidationError('Research cannot author or certify a draft.');
+        } else if (context.step === 'topup') {
+          const found = output.supplement!.claims;
+          const backed = found.filter(claim => claim.status !== 'not-found').length;
+          summary = backed
+            ? `Iris looked up ${found.length} unsupported claim${found.length === 1 ? '' : 's'} and found public sources for ${backed}. Calliope will use them in the revision.`
+            : `Iris looked up the unsupported claims but couldn't settle them. ${output.supplement!.note}`.trim();
         } else {
           const candidate = requireCandidate(output);
           if (candidate.draft.sourceUrl !== output.research.prepared.sourceUrl) throw new ValidationError('The author cannot change the commissioned source URL.');
@@ -334,7 +388,7 @@ export function createManualBlogExecutor(db: Pool, capabilities: BlogDomainCapab
           if (critic) {
             if (!output.critique) throw new ValidationError('The critic did not return an independent review.');
             const review = output.critique;
-            if (review.inputSignature !== critiqueInputSignature(candidate.draft, output.research.evidence)
+            if (review.inputSignature !== critiqueInputSignature(candidate.draft, evidenceOf(output))
               || contentSignature(output.stages) !== contentSignature([...(previous?.stages ?? []), ...review.stages])) {
               throw new ValidationError('The independent review does not match the exact current candidate, evidence and stage history.');
             }
@@ -350,6 +404,7 @@ export function createManualBlogExecutor(db: Pool, capabilities: BlogDomainCapab
               && hasCurrentBlogEditorialReview(candidate.draft, review.stages) && publicationIssue === null;
             disposition = review.complete && !coverage.length ? {
               kind: 'review', requiresRevision: context.step === 'critique' && review.findings.some(finding => finding.usable),
+              needsEvidence: context.step === 'critique' && review.findings.some(finding => finding.usable && finding.kind === 'unsupported' && finding.claim !== undefined),
               readiness: ready ? 'ready' : 'blocked', reason: ready ? null : publicationIssue ?? (review.verification.issues.join(' ') || 'The exact current draft needs further review.'),
             } : { kind: 'wait', reason: 'The independent review is incomplete. Saved work requires attention.' };
             summary = ready ? 'Momus completed the independent review. The draft is ready for your review, not published.' : 'Momus saved the independent findings; attention is required.';
@@ -371,7 +426,7 @@ export function createManualBlogExecutor(db: Pool, capabilities: BlogDomainCapab
             ...(ready ? { verifiedSignature: verifiedPost(candidate.draft) } : {}),
             workflow: { originalAvailable: true, stages: output.stages, remediationUsed: context.step === 'revision' || context.step === 'recheck' },
           };
-          const checkpointValue = { draft: candidate.draft, originalDraft: candidate.original, evidence: output.research.evidence,
+          const checkpointValue = { draft: candidate.draft, originalDraft: candidate.original, evidence: evidenceOf(output),
             voiceSamples: output.research.voiceSamples, stages: output.stages, remediationUsed: context.step === 'revision' || context.step === 'recheck' };
           await client.query(
             `UPDATE agent_jobs SET input=jsonb_set(jsonb_set(input,'{blogCheckpoint}',$2::jsonb),'{workforceBlogProjectionSignature}',to_jsonb($4::text)),
@@ -386,7 +441,7 @@ export function createManualBlogExecutor(db: Pool, capabilities: BlogDomainCapab
           [row.id, String(attempt.attempt), JSON.stringify(output)],
         );
         return {
-          reference: { id: row.id, type: context.step === 'research' ? 'blog-evidence' : context.step === 'critique' || context.step === 'recheck' ? 'blog-review' : 'blog-draft',
+          reference: { id: row.id, type: context.step === 'research' || context.step === 'topup' ? 'blog-evidence' : context.step === 'critique' || context.step === 'recheck' ? 'blog-review' : 'blog-draft',
             revision: String(attempt.attempt), signature: contentSignature(output) },
           schemaVersion: WORKFORCE_VERSION, summary, disposition,
         };

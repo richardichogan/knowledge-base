@@ -30,7 +30,7 @@ export interface StepAcceptance {
   summary: string;
   disposition:
     | { kind: 'continue' }
-    | { kind: 'review'; requiresRevision: boolean; readiness: 'ready' | 'blocked'; reason: string | null }
+    | { kind: 'review'; requiresRevision: boolean; readiness: 'ready' | 'blocked'; reason: string | null; needsEvidence?: boolean }
     | { kind: 'wait'; reason: string };
 }
 
@@ -107,7 +107,8 @@ function advancement(step: string, accepted: StepAcceptance): Advancement {
   if (disposition.kind === 'wait') return { kind: 'wait', reason: requiredReason(disposition.reason) };
   if (disposition.kind === 'continue') {
     const next = step === 'research' ? MANUAL_BLOG_STEPS.draft
-      : step === 'draft' ? MANUAL_BLOG_STEPS.critique : step === 'revision' ? MANUAL_BLOG_STEPS.recheck : undefined;
+      : step === 'draft' ? MANUAL_BLOG_STEPS.critique : step === 'topup' ? MANUAL_BLOG_STEPS.revision
+        : step === 'revision' ? MANUAL_BLOG_STEPS.recheck : undefined;
     if (!next) throw new ValidationError('A critic must return a validated review disposition, not an author continuation.');
     return { kind: 'next', step: next };
   }
@@ -120,7 +121,8 @@ function advancement(step: string, accepted: StepAcceptance): Advancement {
     : disposition.reason === null ? null : requiredReason(disposition.reason);
   if (disposition.requiresRevision) {
     if (step !== 'critique') throw new ConflictError('This assignment has already used its one automatic author revision.', 'ASSIGNMENT_REVISION_EXHAUSTED');
-    return { kind: 'next', step: MANUAL_BLOG_STEPS.revision };
+    // One bounded evidence top-up runs only before the single automatic revision.
+    return { kind: 'next', step: disposition.needsEvidence === true ? MANUAL_BLOG_STEPS.topup : MANUAL_BLOG_STEPS.revision };
   }
   return { kind: 'complete', readiness: disposition.readiness, reason };
 }
