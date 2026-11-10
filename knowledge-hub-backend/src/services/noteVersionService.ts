@@ -8,7 +8,12 @@ import { notePassageTags } from '../utils/notePassageTags.js';
 
 export const NOTE_HISTORY_INTERVAL_MS = 1_800_000;
 export const NOTE_HISTORY_LIMIT = 30;
-type Reason = 'automatic' | 'before_athena' | 'before_restore' | 'before_github';
+type Reason = 'automatic' | 'before_athena' | 'before_restore' | 'before_github' | 'before_athena_task';
+/** What a background Athena task did to a note, kept on the version saved before it ran. */
+export interface AthenaTaskAudit {
+  turnId: string; sessionId: string; messageId?: string; request: string; at: string;
+  edits: Array<{ summary: string; outcome: 'applied' | 'skipped'; reason?: string }>;
+}
 export interface Writing { title: string; contentType: string; contentJson: string }
 interface NoteRow {
   id: string; content: string; created_at: Date; updated_at: Date;
@@ -18,6 +23,7 @@ interface NoteRow {
 export interface VersionRow {
   id: string; note_id: string; writing: Writing; fingerprint: string;
   revision: number; writing_updated_at: Date; created_at: Date; reason: Reason; restored_from: string | null;
+  audit: AthenaTaskAudit | null;
 }
 
 function object(value: unknown): value is Record<string, unknown> {
@@ -67,15 +73,16 @@ function note(row: NoteRow): Note {
 function requireRevision(expected: number | undefined, row: NoteRow): void {
   if (!Number.isInteger(expected) || expected !== row.revision) throw new ConflictError('This note changed elsewhere. Keep your draft and reload the saved note before continuing.', 'NOTE_REVISION_CONFLICT', { revision: String(row.revision) });
 }
-async function checkpoint(client: PoolClient, row: NoteRow, writing: Writing, reason: Reason, restoredFrom?: string): Promise<void> {
+async function checkpoint(client: PoolClient, row: NoteRow, writing: Writing, reason: Reason, restoredFrom?: string, audit?: AthenaTaskAudit): Promise<void> {
   const fingerprint = writingFingerprint(writing);
   const latest = await client.query<{ fingerprint: string }>(
     'SELECT fingerprint FROM note_versions WHERE note_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1', [row.id]);
-  if (latest.rows[0]?.fingerprint === fingerprint) return;
+  // A task's audit is always kept, even when the writing matches the latest version.
+  if (latest.rows[0]?.fingerprint === fingerprint && audit === undefined) return;
   await client.query(
-    `INSERT INTO note_versions (note_id, writing, fingerprint, revision, writing_updated_at, reason, restored_from)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [row.id, JSON.stringify(writing), fingerprint, row.revision, row.updated_at, reason, restoredFrom ?? null]);
+    `INSERT INTO note_versions (note_id, writing, fingerprint, revision, writing_updated_at, reason, restored_from, audit)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [row.id, JSON.stringify(writing), fingerprint, row.revision, row.updated_at, reason, restoredFrom ?? null, audit === undefined ? null : JSON.stringify(audit)]);
   await client.query(
     `DELETE FROM note_versions WHERE note_id = $1 AND id NOT IN
      (SELECT id FROM note_versions WHERE note_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2)`, [row.id, NOTE_HISTORY_LIMIT]);
@@ -87,6 +94,8 @@ export interface NoteWrite {
   restoreWriting?: Writing;
   protectBefore?: boolean;
   passageTagsSupported?: boolean;
+  /** A background Athena task: keep the prior writing as a restorable version with this audit. */
+  athenaTask?: AthenaTaskAudit;
 }
 /** All note writing and checkpoint decisions share the locked note transaction. */
 export async function writeNote(db: Pool, id: string, input: NoteWrite): Promise<Note> {
@@ -159,6 +168,8 @@ export async function writeNoteInTransaction(client: PoolClient, id: string, inp
       await checkpoint(client, liveDraft ? { ...row, updated_at: time.rows[0]!.now } : row, before, reason, input.restoreId);
     } else if (input.importGitHub && changed) {
       await checkpoint(client, row, before, 'before_github');
+    } else if (input.athenaTask !== undefined && changed) {
+      await checkpoint(client, row, before, 'before_athena_task', undefined, input.athenaTask);
     } else if (input.protectBefore && changed) {
       await checkpoint(client, row, before, 'before_athena');
     } else if (input.protect) {
@@ -214,7 +225,7 @@ export async function listNoteVersions(db: Pool, id: string): Promise<Omit<Versi
   const existing = await db.query("SELECT id FROM notes WHERE id = $1 AND status = 'active'", [id]);
   if (!existing.rows[0]) throw new NotFoundError('Note not found or archived');
   const rows = await db.query<Omit<VersionRow, 'writing' | 'fingerprint' | 'note_id'>>(
-    `SELECT id, revision, writing_updated_at, created_at, reason, restored_from FROM note_versions
+    `SELECT id, revision, writing_updated_at, created_at, reason, restored_from, audit FROM note_versions
      WHERE note_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2`, [id, NOTE_HISTORY_LIMIT]);
   return rows.rows;
 }

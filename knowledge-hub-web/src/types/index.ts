@@ -34,6 +34,7 @@ export type {
   MapChange,
   LocalFileWrite,
   ChatTurnEvent,
+  BackgroundChatTask,
   SessionTurnState,
   OutputChange,
   ChatOutputSummary,

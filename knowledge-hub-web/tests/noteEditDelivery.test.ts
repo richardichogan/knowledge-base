@@ -71,7 +71,7 @@ test('a started delivery without a save receipt is not replayed after reconnect'
   receipts.set('athena-note-edit:test-account:note:reply', JSON.stringify({ state: 'applying' }));
   const result = await deliver('reply', 'note', edits);
   assert.equal(result.state, 'blocked');
-  assert.match(result.error ?? '', /not been applied again/);
+  assert.match(result.error ?? '', /haven’t applied it twice/);
   assert.equal(harness.applied, 0);
 });
 

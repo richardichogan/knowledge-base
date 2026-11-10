@@ -44,6 +44,7 @@ test('isolated PostgreSQL migration and full transactional policy', async () => 
   await db.exec(migration);
   await db.exec(migration); // Redeploy-safe.
   await db.exec(await readFile(new URL('../src/db/migrations/061_note_github_publications.sql', import.meta.url), 'utf8'));
+  await db.exec(await readFile(new URL('../src/db/migrations/158_note_version_task_audit.sql', import.meta.url), 'utf8'));
   const client = { query: (sql: string, values?: unknown[]) => db.query(sql, values), release() {} };
   const pool = { ...client, connect: async () => client } as unknown as Pool;
   const create = async (content: string) => (await db.query('INSERT INTO notes (content) VALUES ($1) RETURNING id', [content])).rows[0].id as string;

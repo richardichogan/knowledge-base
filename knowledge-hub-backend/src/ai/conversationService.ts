@@ -92,6 +92,9 @@ function parseToolArgs(argsJson: string): Record<string, unknown> {
 
 
 /** Live hooks for a background chat turn. */
+/** The editor card confirms what was saved, so the reply only needs to say the edits are on their way. */
+export const NOTE_EDITS_ON_THEIR_WAY = 'Changes are on their way into the note. The card below will show what landed.';
+
 export interface TurnHooks {
   onDelta?: (text: string) => void;
   /** The text streamed so far was a preamble to tool calls — clear it. */
@@ -134,6 +137,12 @@ export interface TurnHooks {
   noOutputsPanel?: boolean;
   /** Saved documents resolved from explicit @mentions, independently of automatic retrieval. */
   referenceBlock?: string;
+  /** Moves this turn to the background (it looks like a long job); the chat carries on. */
+  promoteToBackground?: () => void;
+  /** The note this turn's edits are for, so other turns wait before editing it. */
+  onTargetNote?: (noteId: string) => void;
+  /** The background job running this turn. */
+  turnId?: string;
 }
 
 const NO_OUTPUTS_PANEL_NOTE = [
@@ -233,6 +242,8 @@ async function conversationTurn(
     taskStatusChanges?: TaskStatusProposal[];
     localFolders?: LocalFolder[]; localFileWrites?: LocalFileWriteProposal[];
     demoBookends?: DemoBookends[];
+    /** Waits for background tasks still changing the open note before new edits are proposed. */
+    beforeNoteEdit?: () => Promise<boolean>;
   } = {},
   /** Live turn hooks (background turns): streamed text, activity lines, Stop, a longer time budget. */
   hooks: TurnHooks = {},
@@ -242,7 +253,7 @@ async function conversationTurn(
     model, persona, readOnly: hooks.readOnlyTools === true });
   hooks.signal?.throwIfAborted();
   if (isLightSmallTalk(userMessage, hooks)) return smallTalkTurn(db, history, userMessage, model, persona, sessionId, hooks);
-  startRoutingShadow({ userMessage, history, pageContext, persona });
+  startRoutingShadow({ userMessage, history, pageContext, persona, onLongTask: hooks.promoteToBackground });
   const workforceRequestId = randomUUID();
   hooks.signal?.throwIfAborted();
   hooks.onActivity?.('Loading context');
@@ -533,7 +544,7 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
   const incomplete = (reason: string): string => {
     if (!toolContext.noteEdits?.length) return reason;
     for (const edit of toolContext.noteEdits) edit.delivery = 'preview';
-    return `${reason} The unfinished note edit batch has not been applied automatically; it remains a manual preview.`;
+    return `${reason} I've left the unfinished edits as a preview below rather than putting them in the note.`;
   };
   if (hooks.maxToolRounds !== undefined) maxRounds = Math.min(maxRounds, Math.max(minimumToolRounds, Math.floor(hooks.maxToolRounds)));
   for (let i = 0; i < maxRounds; i++) {
@@ -579,7 +590,7 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
       : await client.chatWithTools(model, messages, tools, maxTokens, roundToolChoice, roundTimeoutMs);
 
     if (wrapUp && response.toolCalls.length > 0) {
-      return incomplete('I ran out of steps before I could finish. The recorded tool results show what completed; the remaining work is not complete.');
+      return incomplete('I ran out of road before I could finish this one. Some of it got done, but not all of it. Want me to pick up where I left off?');
     }
     if (response.toolCalls.length === 0) {
       const reply = response.content ?? '';
@@ -597,11 +608,11 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
         hooks.onReset?.();
         if (!noteClaimRepaired && !wrapUp && i < maxRounds - 1) {
           noteClaimRepaired = true;
-          messages.push({ role: 'user', content: '[Runtime edit receipt: the note edits are queued for the live editor, not confirmed saved. Correct the reply to distinguish prepared changes from persistence. Do not repeat or add edits. The editor will report saved, partial or blocked status.]' });
+          messages.push({ role: 'user', content: '[Runtime edit receipt: the note edits are queued for the live editor, not confirmed saved. Rewrite the reply in a relaxed, conversational sentence that says the changes are on their way rather than saved. Do not repeat or add edits. The editor will report saved, partial or blocked status.]' });
           nextRoundTool = 'none';
           continue;
         }
-        return 'The requested note edits are prepared for the live editor. Saving has not yet been confirmed; the editor will report whether they were saved, partially applied or blocked.';
+        return NOTE_EDITS_ON_THEIR_WAY;
       }
       const expectedNoteEdit = Boolean(toolContext.noteId)
         && !toolContext.noteId?.startsWith('doc:') && !toolContext.noteId?.startsWith('map:')
@@ -615,8 +626,8 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
         if (executionRepaired || wrapUp || i >= maxRounds - 1) {
           hooks.onReset?.();
           return incomplete(writeMissing
-            ? 'I did not put this into the note, so nothing was saved. Ask again and I will write it into the note.'
-            : 'I could not complete the agreed action in this turn. A promise is not a result; check the recorded tool results and saved content before repeating any edit.');
+            ? 'I didn\'t actually get this into the note, so nothing has changed there. Say the word and I\'ll have another go.'
+            : 'I didn\'t manage to finish that this time. Have a quick look at what\'s there before I try again, so we don\'t double anything up.');
         }
         executionRepaired = true;
         await recordTurnTrace('action.follow_through_repair', { calledTools: [...calledTools], expectedWriteTool });
@@ -1011,19 +1022,19 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
     if ((toolContext.noteEdits?.length ?? 0) > 0) {
       if (noteEditRejectedAfterQueue) {
         hooks.onReset?.();
-        return incomplete('Part of the requested note-edit work was rejected. The accepted portion is not confirmation that the complete request is ready.');
+        return incomplete('Some of those edits didn\'t pass the checks, so I haven\'t treated the job as done.');
       }
       if (Date.now() - turnStart - readingMs < turnBudgetMs) {
         hooks.onReset?.();
         return toolContext.noteEdits?.every(edit => edit.delivery === 'preview')
-          ? 'The requested edit preview is ready for review. It has not been applied or saved.'
-          : 'The requested note edits are prepared for the live editor. Saving has not yet been confirmed; the editor will report whether they were saved, partially applied or blocked.';
+          ? 'Here\'s a preview of the changes. Nothing goes into the note until you apply it.'
+          : NOTE_EDITS_ON_THEIR_WAY;
       }
-      messages.push({ role: 'user', content: '[Runtime edit delivery: a validated note-edit batch is queued. Return a short accurate acknowledgement now so the live editor can apply it. No further searches or duplicate edit batches. These are prepared edits, not a save receipt; the editor reports persistence. Do not claim all changes saved.]' });
+      messages.push({ role: 'user', content: '[Runtime edit delivery: a validated note-edit batch is queued. Return a short, relaxed acknowledgement now (one conversational sentence) so the live editor can apply it. No further searches or duplicate edit batches. These are prepared edits, not a save receipt; the editor reports persistence. Do not claim all changes saved.]' });
       nextRoundTool = 'none';
     } else if (noteEditFailures >= NOTE_EDIT_MAX_FAILURES) {
       hooks.onReset?.();
-      return 'The requested edits could not pass the note matching or consistency checks after three attempts. No note edits were queued or saved. The recorded tool errors identify the failed passages; I have stopped rather than repeating the same unsuccessful batches.';
+      return 'I couldn\'t get those edits to line up with the note after three goes, so I\'ve left it alone rather than keep guessing. Point me at the bit that\'s tripping me up and I\'ll try again.';
     }
     if (roundImages.length > 0) {
       messages.push({
@@ -1049,7 +1060,7 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
     }
   }
 
-  return incomplete('I ran out of steps before I could finish. The recorded tool results show what completed; the remaining work is not complete.');
+  return incomplete('I ran out of road before I could finish this one. Some of it got done, but not all of it. Want me to pick up where I left off?');
 }
 
 const WRAP_UP_INSTRUCTION = '[System: no more tool calls are available this turn.] Reply now. Say plainly what you actually completed (based only on the tool results above — successes and failures), and what is still left to do, if anything. Do not claim anything the tool results do not show, and do not apologise for running out of steps.';

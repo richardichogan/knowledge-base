@@ -187,6 +187,9 @@ export interface NoteEditReceipt {
   applied: number;
   failed: string[];
   error?: string;
+  /** Saved on the server by a background task, with a "Before Athena task" version kept. */
+  background?: boolean;
+  versionId?: string;
 }
 
 export function parseNoteEditReceipt(value: unknown): NoteEditReceipt | null {
@@ -198,6 +201,8 @@ export function parseNoteEditReceipt(value: unknown): NoteEditReceipt | null {
   return {
     state: v['state'], applied: v['applied'], failed,
     ...(typeof v['error'] === 'string' ? { error: v['error'].slice(0, 400) } : {}),
+    ...(v['background'] === true ? { background: true } : {}),
+    ...(typeof v['versionId'] === 'string' ? { versionId: v['versionId'].slice(0, 64) } : {}),
   };
 }
 
@@ -211,7 +216,10 @@ export function noteEditReceiptText(value: unknown): string {
     : receipt.state === 'partial'
       ? `${String(receipt.applied)} edit(s) applied, ${String(receipt.failed.length)} FAILED — the failed edits are NOT in the note`
       : 'NO edits were applied — the note is unchanged';
-  return `\n\n[Editor receipt for the note edits above: ${head}.${detail ? `\n${detail}` : ''}]`;
+  const where = receipt.background === true && receipt.state !== 'blocked'
+    ? ' (saved on the server by a background task; the previous writing is kept as a "Before Athena task" version he can restore)'
+    : '';
+  return `\n\n[Editor receipt for the note edits above: ${head}${where}.${detail ? `\n${detail}` : ''}]`;
 }
 
 /** Records what the live editor did with the edits attached to an assistant reply. */

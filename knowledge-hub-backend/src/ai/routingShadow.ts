@@ -10,6 +10,8 @@ import { deferredTurnTraceRecorder } from './turnTrace.js';
 const SHADOW_VERSION = 'decision-1-shadow-v3';
 const TIMEOUT_MS = 8_000;
 const PREDICT_THRESHOLD = 0.5;
+/** Confidence above which a turn is moved to the background straight away. */
+const LONG_TASK_THRESHOLD = 0.7;
 const MESSAGE_CHARS = 1_500;
 const HISTORY_CHARS = 500;
 
@@ -61,6 +63,8 @@ interface ShadowInput {
   history: ConversationMessage[];
   pageContext?: ChatPageContext | undefined;
   persona?: string | undefined;
+  /** Called when the turn looks like a long job, so it can run in the background at once. */
+  onLongTask?: (() => void) | undefined;
 }
 
 function clip(text: string, max: number): string {
@@ -90,6 +94,14 @@ function shadowQuestions(): Record<string, unknown> {
     instructions: 'Does the latest user message, read with the recent conversation, authorise creating or changing saved content?',
     criteria: { true: 'Explicitly asks for, or approves, a save, edit, creation or deletion', false: 'Discussion, a question, opinion or review only' },
   };
+  questions['long_task'] = {
+    type: 'noul',
+    instructions: 'Will doing what the latest user message asks take the assistant more than about 20 seconds, so it is better done as a background task while the chat carries on?',
+    criteria: {
+      true: 'Several edits across a long note or document, reading or comparing several documents, research, restructuring, or long writing',
+      false: 'A greeting, a quick question, a short answer, a single small edit or a lookup',
+    },
+  };
   questions['turn_mode'] = {
     type: 'choice',
     instructions: 'What kind of turn is the latest user message?',
@@ -114,7 +126,7 @@ export function startRoutingShadow(input: ShadowInput): void {
   const endpoint = env.DECISION1_ENDPOINT;
   const apiKey = env.DECISION1_API_KEY;
   if (!endpoint || !apiKey) return;
-  const record = deferredTurnTraceRecorder();
+  const record = deferredTurnTraceRecorder() ?? (input.onLongTask ? async () => undefined : null);
   if (!record) return;
   const startedAt = Date.now();
   void (async () => {
@@ -133,11 +145,13 @@ export function startRoutingShadow(input: ShadowInput): void {
       }
       const families = Object.fromEntries(Object.keys(ROUTING_FAMILIES)
         .map(family => [family, Number(body.answers?.[`needs_${family}`]?.noul ?? 0)]));
+      const longTask = Number(body.answers['long_task']?.noul ?? 0);
+      if (longTask >= LONG_TASK_THRESHOLD) input.onLongTask?.();
       const mode = body.answers['turn_mode'];
       await record('routing.shadow', {
         version: SHADOW_VERSION, status: 'ok', latencyMs: Date.now() - startedAt, threshold: PREDICT_THRESHOLD,
         families, authorisesEdit: Number(body.answers['authorises_edit']?.noul ?? 0),
-        turnMode: mode?.choice ?? null, turnModeConfidence: mode?.confidence ?? null, usage: body.usage ?? null,
+        longTask, turnMode: mode?.choice ?? null, turnModeConfidence: mode?.confidence ?? null, usage: body.usage ?? null,
       });
     } catch (error) {
       await record('routing.shadow', { version: SHADOW_VERSION, status: 'error', latencyMs: Date.now() - startedAt,

@@ -1059,6 +1059,8 @@ export async function executeToolCall(
     localFolders?: LocalFolder[]; localFileWrites?: LocalFileWriteProposal[];
     /** Intro/exit demo pages to append to this reply (create_demo_bookends). */
     demoBookends?: DemoBookends[];
+    /** Waits for background tasks still changing the open note (true if it waited). */
+    beforeNoteEdit?: () => Promise<boolean>;
   } = {},
 ): Promise<unknown> {
   let args: Record<string, unknown> = {};
@@ -1577,6 +1579,8 @@ export async function executeToolCall(
       if (!allowStructural && edits.some(edit => !additive.has(edit.action))) {
         return { error: 'No edits proposed. This is a wording/review correction, not permission to rewrite or reformat the note: replacing or deleting whole sections and full rewrites need editMode "structural". To ADD content use append, prepend or add_to_section (no structural mode needed); to change wording use exact replace_text edits. Preserve headings, title, rich formatting, links, lists, images and all untouched content.' };
       }
+      // Another task may still be changing this note: check the edits against its result, not the old text.
+      await turn.beforeNoteEdit?.();
       // Check every edit against the note as saved, so Apply can't fail on a heading or phrase that isn't there.
       const saved = await loadNoteBlocks(db, turn.noteId);
       if (saved === null) return { error: 'The current saved note could not be loaded. No edits were queued; restore access before retrying.' };

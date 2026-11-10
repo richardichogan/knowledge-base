@@ -14,6 +14,10 @@ export interface LiveTurnHandlers {
   onActivity: (line: string) => void;
   /** The answer streamed so far (replaces the previous value). */
   onText: (text: string) => void;
+  /** The turn became a background task: the chat can take new messages while it runs. */
+  onBackground?: () => void;
+  /** A background task is about to save edits to this note: save his typing in it first. */
+  onEditsReady?: (noteId: string) => Promise<void>;
 }
 
 /** Stop was pressed: the turn was stopped on the server. */
@@ -85,6 +89,12 @@ async function followTurnEvents<T>(
           handlers.onText('');
         } else if (e.type === 'activity') {
           handlers.onActivity(e.text);
+        } else if (e.type === 'background') {
+          handlers.onBackground?.();
+        } else if (e.type === 'edits-ready') {
+          void (handlers.onEditsReady?.(e.noteId) ?? Promise.resolve())
+            .catch(() => { /* the task saves anyway; the editor flags any clash */ })
+            .finally(() => { void api.ackNoteFlush(turnId).catch(() => { /* the task stops waiting on its own */ }); });
         } else {
           outcome = e;
         }

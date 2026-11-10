@@ -275,6 +275,9 @@ export interface NoteEditDeliveryResult {
   applied: number;
   failed: string[];
   error?: string;
+  /** Saved on the server by a background task, with a "Before Athena task" version kept. */
+  background?: boolean;
+  versionId?: string;
 }
 
 /** A standing instruction just saved via chat. */
@@ -345,6 +348,8 @@ export interface ChatResponse {
   contextUsed?: ContextUsedApi;
   nextSteps?: string[];
   pendingActions: WriteActionProposal[];
+  /** The turn finished as a background task (the chat moved on while it ran). */
+  background?: boolean;
 }
 
 /** A model offered for "Ask another model". */
@@ -373,7 +378,19 @@ export type ChatTurnEvent =
   | { type: 'reset' }
   | { type: 'done'; data: ChatResponse }
   | { type: 'error'; message: string; stopped: boolean }
-  | { type: 'gone' };
+  | { type: 'gone' }
+  /** The turn became a background task: the chat is free for new messages. */
+  | { type: 'background' }
+  /** A background task is about to save edits to this note: save any typing first, then ack. */
+  | { type: 'edits-ready'; noteId: string };
+
+/** A background task still running in a chat. */
+export interface BackgroundChatTask {
+  id: string;
+  message: string;
+  startedAt: string;
+  activity: string;
+}
 
 /** A chat's turn still running on the server, or one cut off by a restart. */
 export type SessionTurnState =

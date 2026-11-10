@@ -12,7 +12,7 @@ interface LiveReplyProps {
   thinkerRef: React.Ref<HTMLSpanElement>;
 }
 
-const progressLabel = (activity: string): string => {
+export const progressLabel = (activity: string): string => {
   if (activity === 'Sending') return 'Receiving your message';
   if (activity === 'Loading context') return 'Gathering your conversation and context';
   if (activity === 'Loading tools') return 'Preparing the available tools';

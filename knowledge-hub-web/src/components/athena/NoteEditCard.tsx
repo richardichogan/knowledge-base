@@ -57,20 +57,22 @@ export const NoteEditCard: React.FC<{ edits: NoteEdit[]; noteId: string; result?
       });
       setStatus({ state: 'applied', failed });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not confirm the note save. Check the note before repeating the edit.');
+      setError(err instanceof Error ? err.message : 'Couldn’t confirm that saved. Have a quick look at the note before trying again.');
     } finally { setApplying(false); }
   }
 
   if (result) return (
     <div className={`note-edit-card note-edit-card--${result.state === 'blocked' ? 'pending' : 'applied'}`}>
       <div className="note-edit-card__head">
-        <span className="note-edit-card__title">{result.state === 'saved' ? 'Note updated' : result.state === 'partial' ? 'Note partly updated' : 'Note update not confirmed'}</span>
-        {result.state !== 'blocked' && <span className="note-edit-card__done" role="status">Saved — Ctrl/⌘Z in the note to undo</span>}
+        <span className="note-edit-card__title">{result.state === 'saved' ? 'Note updated' : result.state === 'partial' ? 'Note partly updated' : 'Note not changed'}</span>
+        {result.state !== 'blocked' && <span className="note-edit-card__done" role="status">{result.background
+          ? 'Saved in the background — the earlier writing is kept as “Before Athena task” in the note’s history'
+          : 'Saved — Ctrl/⌘Z in the note to undo'}</span>}
       </div>
       <ol className="note-edit-card__list">
         {edits.map((edit, index) => <li key={index} className="note-edit-card__item"><p className="note-edit-card__summary">{edit.summary}</p></li>)}
       </ol>
-      {result.failed.length > 0 && <p className="note-edit-card__failed" role="alert">Couldn’t apply: {result.failed.join('; ')}</p>}
+      {result.failed.length > 0 && <p className="note-edit-card__failed" role="alert">Didn’t land: {result.failed.join('; ')}</p>}
       {result.error && <p className="note-edit-card__failed" role="alert">{result.error}</p>}
     </div>
   );
@@ -127,7 +129,7 @@ export const NoteEditCard: React.FC<{ edits: NoteEdit[]; noteId: string; result?
       </ol>
 
       {status.state === 'applied' && status.failed.length > 0 && (
-        <p className="note-edit-card__failed">Couldn’t apply: {status.failed.join('; ')}</p>
+        <p className="note-edit-card__failed">Didn’t land: {status.failed.join('; ')}</p>
       )}
 
       {status.state === 'pending' && (

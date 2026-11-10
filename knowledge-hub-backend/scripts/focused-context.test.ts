@@ -693,7 +693,7 @@ test('a repair after a formatting complaint uses exact edits instead of conversa
     assert.equal(noteEdits.length, 1);
     assert.equal(noteEdits[0]?.action, 'replace_text');
     assert.equal(calls, 2, 'accepted edits are delivered without another model round');
-    assert.match(reply, /Saving has not yet been confirmed/);
+    assert.match(reply, /on their way into the note/);
   } finally { completion.mock.restore(); query.mock.restore(); await db.end(); }
 });
 

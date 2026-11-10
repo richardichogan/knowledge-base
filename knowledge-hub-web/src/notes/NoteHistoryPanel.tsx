@@ -4,7 +4,7 @@ import { api } from '../services/api';
 import { confirmDialog } from '../services/appDialogs';
 import { NoteRecoveryPreview } from './NoteRecoveryPreview';
 
-const REASONS = { automatic: 'Automatic checkpoint', before_athena: 'Before Athena changes', before_restore: 'Before restore', before_github: 'Before accepting GitHub version' };
+const REASONS = { automatic: 'Automatic checkpoint', before_athena: 'Before Athena changes', before_athena_task: 'Before Athena task', before_restore: 'Before restore', before_github: 'Before accepting GitHub version' };
 function date(iso: string): string { return new Date(iso).toLocaleString('en-GB'); }
 
 export function NoteHistoryPanel({ noteId, refresh, onRestore }: {
@@ -52,7 +52,7 @@ export function NoteHistoryPanel({ noteId, refresh, onRestore }: {
     finally { setRestoring(false); }
   }
   return <section className="note-history" aria-label="Think recovery checkpoints">
-    <p className="note-history__intro">Current writing stays in the editor. Recovery checkpoints are not every save: at most one automatic checkpoint per 30 minutes, plus before Athena replacements and restores. Up to 30 retained.</p>
+    <p className="note-history__intro">Current writing stays in the editor. Recovery checkpoints are not every save: at most one automatic checkpoint per 30 minutes, plus before Athena replacements, background Athena tasks and restores. Up to 30 retained.</p>
     <p className="note-history__intro">Intermediate autosaves may not be recoverable. Image references are retained, not copies of the files.</p>
     <button type="button" className="note-history__button" disabled={history.isFetching || restoring} onClick={() => { void history.refetch(); }}>Refresh history</button>
     {history.isPending && <p className="note-history__status" role="status">Loading checkpoints...</p>}
@@ -68,6 +68,15 @@ export function NoteHistoryPanel({ noteId, refresh, onRestore }: {
           <time dateTime={item.created_at}>{date(item.created_at)}</time>
           <span>Writing saved {date(item.writing_updated_at)}</span>
         </button>
+        {item.audit && <details className="note-history__audit">
+          <summary>What the task changed ({item.audit.edits.filter(e => e.outcome === 'applied').length.toString()} of {item.audit.edits.length.toString()})</summary>
+          <p className="note-history__audit-request">Asked: {item.audit.request}</p>
+          <ul>
+            {item.audit.edits.map((edit, n) => <li key={n} className={`note-history__audit-edit note-history__audit-edit--${edit.outcome}`}>
+              <span>{edit.outcome === 'applied' ? 'Changed' : 'Skipped'}</span> {edit.summary}{edit.reason ? ` (${edit.reason})` : ''}
+            </li>)}
+          </ul>
+        </details>}
       </li>)}
     </ol>
     {selected && version.isPending && <p role="status" className="note-history__status">Loading preview...</p>}

@@ -207,7 +207,12 @@ export async function readChatTurnEvents(
 
 export interface NoteVersionSummary {
   id: string; revision: number; writing_updated_at: string; created_at: string;
-  reason: 'automatic' | 'before_athena' | 'before_restore' | 'before_github'; restored_from: string | null;
+  reason: 'automatic' | 'before_athena' | 'before_athena_task' | 'before_restore' | 'before_github'; restored_from: string | null;
+  /** What a background Athena task changed straight after this version. */
+  audit?: {
+    request: string; at: string;
+    edits: Array<{ summary: string; outcome: 'applied' | 'skipped'; reason?: string }>;
+  } | null;
 }
 export interface NoteVersion extends NoteVersionSummary {
   writing: { title: string; contentType: string; contentJson: string };
@@ -1250,6 +1255,17 @@ export class KnowledgeHubApi {
 
   async dismissSessionTurn(sessionId: string): Promise<void> {
     await this.client.delete(`/api/ai/session/${sessionId}/turn`);
+  }
+
+  /** Tells a background task the open note is saved, so it can save its edits. */
+  async ackNoteFlush(turnId: string): Promise<void> {
+    await this.client.post(`/api/ai/chat/turns/${turnId}/flushed`);
+  }
+
+  /** Background tasks still running in this chat. */
+  async listSessionTasks(sessionId: string): Promise<ApiResponse<import('../types/ai').BackgroundChatTask[]>> {
+    const r = await this.client.get<ApiResponse<import('../types/ai').BackgroundChatTask[]>>(`/api/ai/session/${sessionId}/tasks`);
+    return r.data;
   }
 
   async listChatTurnTraces(sessionId: string, offset = 0): Promise<ApiResponse<import('../types/ai').ChatTurnTraceList>> {

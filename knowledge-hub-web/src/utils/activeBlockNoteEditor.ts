@@ -199,6 +199,22 @@ export async function prepareUseCaseChat(owner: string): Promise<(changed: boole
   return useCaseChatBridge.prepare();
 }
 
+let noteReloadBridge: { noteId: string; reload: () => Promise<void> } | null = null;
+
+/** The open note's editor: reloads the saved note after a background task saved edits on the server. */
+export function setNoteReloadBridge(noteId: string, reload: () => Promise<void>): () => void {
+  const bridge = { noteId, reload };
+  noteReloadBridge = bridge;
+  return () => { if (noteReloadBridge === bridge) noteReloadBridge = null; };
+}
+
+/** Reloads the note if it's open in Think (false when it isn't open). */
+export async function reloadOpenNote(noteId: string): Promise<boolean> {
+  if (noteReloadBridge?.noteId !== noteId) return false;
+  await noteReloadBridge.reload();
+  return true;
+}
+
 export function setWorkChatBridge(owner: string, prepare: () => Promise<(changed: boolean) => Promise<void>>): () => void {
   const bridge = { owner, prepare };
   workChatBridge = bridge;

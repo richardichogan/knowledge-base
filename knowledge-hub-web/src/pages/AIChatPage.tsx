@@ -16,7 +16,7 @@ import {
 } from '@carbon/react';
 import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VoiceActivate, VolumeUp, VolumeMute, Attachment, Menu, Idea, Notebook, Copy, View, Document as DocumentIcon, Compare } from '@carbon/icons-react';
 import { api } from '../services/api';
-import { getActiveNoteId, runNoteAction, prepareBuildChat, prepareDesignChat, prepareDiagramChat, preparePodcastChat, prepareTaskChat, prepareUseCaseChat, prepareWorkChat } from '../utils/activeBlockNoteEditor';
+import { getActiveNoteId, runNoteAction, reloadOpenNote, prepareBuildChat, prepareDesignChat, prepareDiagramChat, preparePodcastChat, prepareTaskChat, prepareUseCaseChat, prepareWorkChat } from '../utils/activeBlockNoteEditor';
 import { deliverNoteEdits } from '../utils/noteEditDelivery';
 import { authSession } from '../services/authSession';
 import { describeApiError, requireApiData } from '../services/apiError';
@@ -26,6 +26,7 @@ import { ProjectOptions, type ProjectPickerItem } from '../components/ProjectOpt
 import { DataNotice } from '../components/DataNotice';
 import { renderAssistantMessage, handleCodeCopyClick } from '../components/athena/renderReply';
 import { LiveReply, ThinkingReply } from '../components/athena/LiveReply';
+import { BackgroundTaskCard } from '../components/athena/BackgroundTaskCard';
 import { AthenaPresence } from '../components/athena/AthenaPresence';
 import { AthenaRibbon } from '../components/athena/AthenaRibbon';
 import { ComposerSuggestion, composerSuggestions } from '../components/athena/ComposerSuggestion';
@@ -46,7 +47,7 @@ import { UsedLine } from '../components/athena/UsedLine';
 import { AtRiskChatCard } from '../features/plan/AtRiskChatCard';
 import type { PaneWidthOptions } from '../hooks/usePersistedState';
 import { useChatDraft } from '../hooks/useChatDraft';
-import { sendChatTurn, followChatTurn, TurnDetachedError, type LiveTurnHandlers } from '../services/chatTurns';
+import { sendChatTurn, followChatTurn, TurnDetachedError, TurnStoppedError, type LiveTurnHandlers } from '../services/chatTurns';
 import { readSession } from '../services/athenaReplies';
 import { StreamedSpeech, speechText } from '../components/athena/streamedSpeech';
 import { VoiceLiveSession, type VoiceLiveMode } from '../components/athena/voiceLive';
@@ -63,7 +64,7 @@ import {
   COMPOSER_ACTION_LABELS, stripActionDirective, conversationProjectId } from '../chat/composerIntent';
 import type { ComposerAction } from '../chat/composerIntent';
 import { stripContextPrefix, stripHistoryContextPrefixes } from '../chat/contextPrefix';
-import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona, SavedMemory, NoteEdit, MapChange, LocalFileWrite, OutputChange, ChatScreen, ChatRequest, ChatAlternate, ModelChoiceApi, ContextUsedApi } from '../types';
+import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPersona, SavedMemory, NoteEdit, MapChange, LocalFileWrite, OutputChange, ChatScreen, ChatRequest, ChatAlternate, ModelChoiceApi, ContextUsedApi, ApiResponse, ChatResponse, BackgroundChatTask } from '../types';
 import { JobChatConfirmations } from '../components/jobs/JobReview';
 
 import { useAthenaContext, type AthenaPageContext } from '../context/AthenaContext';
@@ -232,6 +233,17 @@ const LAST_SHARE_STORAGE_KEY = 'kh-athena-last-share';
 const REPEAT_SHARE_WINDOW_MS = 2 * 60_000;
 
 interface SharedLink { title: string; url: string; text: string }
+
+/** A request Athena carries on with in the background while the chat takes new messages. */
+interface BackgroundTask {
+  turnId: string;
+  sessionId: string;
+  /** The user message it sits under (the card shows at the bottom if that message isn't shown). */
+  anchor: string;
+  startedAt: number;
+  activity: string;
+  stopping: boolean;
+}
 
 function hasShareParams(params: URLSearchParams): boolean {
   return ['title', 'url', 'text'].some((key) => (params.get(key) ?? '').trim() !== '');
@@ -468,6 +480,15 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const [liveTurn, setLiveTurn] = useState<{ activity: string; startedAt: number } | null>(null);
   const liveTurnIdRef = useRef<string | null>(null);
   const turnRunRef = useRef(0);
+  const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
+  const backgroundFollowersRef = useRef(new Map<string, AbortController>());
+  const latestMessagesRef = useRef(messages);
+  latestMessagesRef.current = messages;
+  const backgroundSettledRef = useRef<(turnId: string, turnSessionId: string, owner: AbortController, outcome: { result: ApiResponse<ChatResponse> } | { error: unknown }) => void>(() => { /* set below */ });
+  useEffect(() => () => {
+    for (const controller of backgroundFollowersRef.current.values()) controller.abort();
+    backgroundFollowersRef.current.clear();
+  }, []);
   // Outputs / Decisions side panel: refresh after replies, open on a changed output.
   const [panelRefresh, setPanelRefresh] = useState(0);
   const [outputFocus, setOutputFocus] = useState<{ id: string; seq: number } | undefined>(() => {
@@ -962,6 +983,149 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     });
   }
 
+  /** Shows a finished turn's reply (live, or a background task that just finished) and refreshes what it touched. */
+  function acceptTurnResult(result: ApiResponse<ChatResponse>, text: string, background: boolean): void {
+    if (!result.success && result.error.code === 'TURN_GONE' && sessionId !== null) {
+      // Finished while we were reconnecting (it's in the saved history), or
+      // lost in a server restart (the interrupted notice offers a resend).
+      const id = sessionId;
+      void api.getSessionHistory(id).then((h) => {
+        if (h.success) setMessages(stripHistoryContextPrefixes(h.data.messages));
+        if (!background) resumeSessionTurn(id);
+      });
+      return;
+    }
+    if (!result.success) {
+      appendMessage('assistant', `Error: ${result.error.message}`);
+      return;
+    }
+    if (sessionId === null) persistSessionId(result.data.sessionId, true);
+    if (!result.data.reply.trim()) {
+      appendMessage('assistant', 'Error: Athena returned no answer. Please try again.');
+      return;
+    }
+    // A background reply lands quietly if he's waiting on another answer.
+    const quiet = background && chatMutation.isPending;
+    if (!quiet) {
+      setReplyArrival({ startedAt: Date.now(), complete: true });
+      setRevealingAnswer(true);
+    }
+    appendMessage('assistant', result.data.reply, {
+      persona: result.data.persona,
+      sources: result.data.sources,
+      memoriesCreated: result.data.memoriesCreated,
+      noteEdits: result.data.noteEdits,
+      noteEditsFor: result.data.noteEditsFor,
+      noteEditResult: result.data.noteEditResult,
+      mapChanges: result.data.mapChanges,
+      mapChangesFor: result.data.mapChangesFor,
+      localFileWrites: result.data.localFileWrites,
+      outputsChanged: result.data.outputsChanged,
+      id: result.data.assistantMessageId,
+      contextUsed: result.data.contextUsed,
+      nextSteps: result.data.nextSteps,
+    });
+    if (result.data.contextUsed?.warnings?.length) emote('unsure', ATHENA_ANSWER_MS);
+    else if (/^(thanks|thank you|cheers)[!.\s]*$/i.test(text.trim())) emote('happy', ATHENA_ANSWER_MS);
+    else if (result.data.outputsChanged?.length) emote('excited', ATHENA_ANSWER_MS);
+    else if (result.data.nextSteps?.length || result.data.pendingActions.length) emote('curious', ATHENA_ANSWER_MS);
+    // Athena saved or revised an output: refresh the panel and open it there.
+    const changed = result.data.outputsChanged ?? [];
+    setPanelRefresh((n) => n + 1);
+    if (changed.length > 0) openOutput(changed[changed.length - 1]!.id);
+    // The Decisions list is updated just after the reply — pick that up.
+    window.setTimeout(() => { setPanelRefresh((n) => n + 1); }, 5_000);
+    window.setTimeout(() => { setPanelRefresh((n) => n + 1); }, 12_000);
+    if (!quiet) playReply(result.data.reply, result.data.pendingActions.length);
+    refreshSessionList();
+    if (result.data.pendingActions.length > 0) {
+      setPendingActions((prev) => [...prev, ...result.data.pendingActions]);
+    }
+    if (result.data.taskStatusChanges?.length) {
+      void api.reviewTaskStatusChanges(result.data.taskStatusChanges.map(change => ({
+        taskId: change.taskId, status: change.to, reason: change.note, expectedStatus: change.from,
+        ...(change.waitingOn !== undefined ? { waitingOn: change.waitingOn } : {}),
+      }))).then(() => {
+        appendMessage('assistant', 'Task status change saved with your timestamped note.');
+      }).catch((error: unknown) => {
+        console.error('[Athena status proposal]', error);
+        appendMessage('assistant', describeApiError(error));
+      }).finally(() => {
+        void queryClient.invalidateQueries({ queryKey: ['tasks'] });
+        void queryClient.invalidateQueries({ queryKey: ['task-assistance'] });
+        void queryClient.invalidateQueries({ queryKey: ['task-notes'] });
+      });
+    }
+    // The AI may have created/updated tasks, notes or Sparks via tool calls this turn —
+    // refresh the relevant lists so they show up without a manual reload.
+    void queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    void queryClient.invalidateQueries({ queryKey: ['notes-list'] });
+    void queryClient.invalidateQueries({ queryKey: ['note-tags'] });
+    void queryClient.invalidateQueries({ queryKey: ['taxonomy'] });
+    void queryClient.invalidateQueries({ queryKey: ['graph'] });
+    void queryClient.invalidateQueries({ queryKey: ['sparks'] });
+    void queryClient.invalidateQueries({ queryKey: ['discovery-feeds'] });
+    void queryClient.invalidateQueries({ queryKey: ['spark-clusters'] });
+    void queryClient.invalidateQueries({ queryKey: ['unsurfaced-count'] });
+    void queryClient.invalidateQueries({ queryKey: ['today-sparks-recent'] });
+    void queryClient.invalidateQueries({ queryKey: ['today', 'clusters'] });
+    // No scroll here: his prompt stays at the top of the view with the reply beneath it.
+  }
+
+  /** A background task is about to save edits to this note: save his typing in it first. */
+  async function flushOpenNote(noteId: string): Promise<void> {
+    if (getActiveNoteId() === noteId) await runNoteAction(noteId, false, () => {});
+  }
+
+  // Latest closure each render: a background task can finish long after it started.
+  backgroundSettledRef.current = (turnId, turnSessionId, owner, outcome) => {
+    if (backgroundFollowersRef.current.get(turnId) !== owner) return;
+    backgroundFollowersRef.current.delete(turnId);
+    setBackgroundTasks((prev) => prev.filter((t) => t.turnId !== turnId));
+    if ('error' in outcome && outcome.error instanceof TurnDetachedError) return;
+    if ('result' in outcome && outcome.result.success) {
+      const noteId = outcome.result.data.noteEditResult?.background ? outcome.result.data.noteEditsFor : null;
+      if (noteId) {
+        void reloadOpenNote(noteId).catch((error: unknown) => {
+          console.error('[Athena] Could not show the background task\'s note changes', error);
+        });
+      }
+    }
+    // Another chat is open: the reply is saved in its own chat.
+    if (turnSessionId !== sessionId) { refreshSessionList(); return; }
+    if ('result' in outcome) { acceptTurnResult(outcome.result, '', true); return; }
+    const err = outcome.error;
+    if (err instanceof TurnStoppedError) appendMessage('assistant', '⏹️ Stopped that one.');
+    else appendMessage('assistant', `⚠️ That background task didn't finish: ${describeApiError(err)}`);
+  };
+
+  /** Follows a background task found when a chat opens (e.g. after a page reload). */
+  function followBackgroundTask(id: string, task: BackgroundChatTask): void {
+    if (backgroundFollowersRef.current.has(task.id)) return;
+    const controller = new AbortController();
+    backgroundFollowersRef.current.set(task.id, controller);
+    const message = stripActionDirective(task.message);
+    setBackgroundTasks((prev) => [...prev.filter((t) => t.turnId !== task.id), {
+      turnId: task.id, sessionId: id, anchor: message, startedAt: Date.parse(task.startedAt), activity: task.activity, stopping: false,
+    }]);
+    void followChatTurn(task.id, {
+      onActivity: (activity) => { setBackgroundTasks((prev) => prev.map((t) => (t.turnId === task.id ? { ...t, activity } : t))); },
+      onText: () => { /* the reply shows when the task finishes */ },
+      onEditsReady: flushOpenNote,
+    }, controller.signal).then(
+      (result) => { backgroundSettledRef.current(task.id, id, controller, { result }); },
+      (error: unknown) => { backgroundSettledRef.current(task.id, id, controller, { error }); },
+    );
+  }
+
+  function cancelBackgroundTask(turnId: string): void {
+    setBackgroundTasks((prev) => prev.map((t) => (t.turnId === turnId ? { ...t, stopping: true } : t)));
+    void api.cancelChatTurn(turnId).catch(() => {
+      setBackgroundTasks((prev) => prev.map((t) => (t.turnId === turnId ? { ...t, stopping: false } : t)));
+      appendMessage('assistant', 'Couldn\'t stop that task on the server, so it may still finish.');
+    });
+  }
+
   const chatMutation = useMutation({
     onMutate: ({ resumeTurnId }) => {
       if (resumeTurnId === undefined) requestCompletionNotifications();
@@ -970,13 +1134,14 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       setReplyArrival(null);
       clearEmotion();
     },
-    mutationFn: async ({ text, composerDraft, pageContext: ctx, resumeTurnId, resumeStartedAt, screenReview }: { text: string; composerDraft?: string; pageContext?: AthenaPageContext; resumeTurnId?: string; resumeStartedAt?: string; screenReview?: ChatRequest['screenReview'] }) => {
+    mutationFn: async ({ text, composerDraft, pageContext: ctx, resumeTurnId, resumeStartedAt, screenReview }: { text: string; composerDraft?: string; pageContext?: AthenaPageContext; resumeTurnId?: string; resumeStartedAt?: string; screenReview?: ChatRequest['screenReview'] }): Promise<ApiResponse<ChatResponse> | 'background'> => {
       const uiContext = captureUiContext();
       const background = isContextDismissed ? null : backgroundWork;
       // Runs on the server in the background; this view follows it live and
       // can let go (switching chats) without losing the answer.
       const run = ++turnRunRef.current;
-      const signal = (chatAbortControllerRef.current ?? new AbortController()).signal;
+      const turnController = chatAbortControllerRef.current ?? new AbortController();
+      const signal = turnController.signal;
       const startedAt = resumeStartedAt !== undefined ? Date.parse(resumeStartedAt) : Date.now();
       let notificationTurnId = resumeTurnId;
       // Remember the destination before token renewal/network I/O, not only
@@ -988,20 +1153,54 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       const streamedSpeech = resumeTurnId === undefined && speaksReplies() ? startStreamedSpeech() : null;
       // Connect the read-aloud voice while Athena thinks; errors surface when she speaks.
       if (streamedSpeech) void speechTarget()?.catch(() => undefined);
+      // Set once the server moves this turn to the background: the chat is free again and
+      // this follower carries on behind a task card (see backgroundSettledRef).
+      let promoted = false;
+      let turnSessionId = requestSessionId;
+      let latestActivity = 'Sending';
+      let moveToBackground: () => void = () => { /* set below */ };
+      const movedToBackground = new Promise<'background'>((resolve) => { moveToBackground = () => { resolve('background'); }; });
       const handlers: LiveTurnHandlers = {
         onStarted: (turnId, newSessionId) => {
           notificationTurnId = turnId;
+          turnSessionId = newSessionId;
           if (turnRunRef.current !== run) return;
           liveTurnIdRef.current = turnId;
           if (sessionId === null) persistSessionId(newSessionId, true);
           if (composerDraft !== undefined) setInput((current) => current === composerDraft ? '' : current);
         },
-        onActivity: (activity) => { if (turnRunRef.current === run) setLiveTurn((t) => (t === null ? t : { ...t, activity })); },
+        onActivity: (activity) => {
+          latestActivity = activity;
+          if (promoted) setBackgroundTasks((prev) => prev.map((t) => (t.turnId === notificationTurnId ? { ...t, activity } : t)));
+          else if (turnRunRef.current === run) setLiveTurn((t) => (t === null ? t : { ...t, activity }));
+        },
+        onEditsReady: flushOpenNote,
+        onBackground: () => {
+          const turnId = notificationTurnId;
+          if (promoted || turnId === undefined) return;
+          promoted = true;
+          if (chatAbortControllerRef.current === turnController) chatAbortControllerRef.current = null;
+          if (backgroundFollowersRef.current.has(turnId)) {
+            // Already followed (restored after a reload): let that card carry it.
+            turnController.abort();
+          } else {
+            backgroundFollowersRef.current.set(turnId, turnController);
+            const lastUser = [...latestMessagesRef.current].reverse().find((m) => m.role === 'user');
+            setBackgroundTasks((prev) => [...prev, {
+              turnId, sessionId: turnSessionId, anchor: lastUser?.content ?? stripActionDirective(text),
+              startedAt, activity: latestActivity, stopping: false,
+            }]);
+          }
+          if (turnRunRef.current === run) liveTurnIdRef.current = null;
+          streamedSpeech?.cancel();
+          moveToBackground();
+        },
         // Deltas are provisional: tool rounds and evidence repairs can reset them.
         // Only the successful turn result is an accepted answer to reveal; speech
         // starts early and corrects itself if the final reply differs.
-        onText: (text) => { if (turnRunRef.current === run) streamedSpeech?.update(text); },
+        onText: (text) => { if (!promoted && turnRunRef.current === run) streamedSpeech?.update(text); },
       };
+      const work = (async (): Promise<ApiResponse<ChatResponse>> => {
       let finishDesign: ((changed: boolean) => Promise<void>) | undefined;
       let designChanged = true;
       try {
@@ -1054,8 +1253,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           if (remaining > 0) await new Promise<void>(resolve => { window.setTimeout(resolve, remaining); });
           if (signal.aborted) throw new axios.CanceledError('Stopped');
         }
-        if (turnRunRef.current !== run) throw new TurnDetachedError();
-        if (result.success && result.data.noteEdits?.length && result.data.noteEditsFor
+        if (!promoted && turnRunRef.current !== run) throw new TurnDetachedError();
+        // A background task saved its edits on the server (noteEditResult is already set).
+        if (result.success && !result.data.noteEditResult && result.data.noteEdits?.length && result.data.noteEditsFor
           && result.data.noteEdits.every(edit => edit.delivery !== 'preview')) {
           result.data.noteEditResult = await deliverNoteEdits(result.data.assistantMessageId, result.data.noteEditsFor, result.data.noteEdits);
           const receiptFor = result.data.assistantMessageId;
@@ -1069,7 +1269,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
             isNoteLinkedPanel ? currentNoteId : undefined);
         }
         // He switched chats while it finished: it's saved in its own chat — never show it in this one.
-        if (turnRunRef.current !== run) throw new TurnDetachedError();
+        if (!promoted && turnRunRef.current !== run) throw new TurnDetachedError();
         return result;
       } finally {
         try {
@@ -1079,96 +1279,28 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           void alertDialog(`Could not refresh the open editor: ${describeApiError(error)}. This does not undo saved changes or establish that Athena's action failed. Check the saved results and resolve any editor conflict before repeating an edit.`,
             { title: 'Editor refresh failed', tone: 'danger' });
         }
-        if (turnRunRef.current === run) {
+        if (!promoted && turnRunRef.current === run) {
           liveTurnIdRef.current = null;
         }
       }
+      })();
+      work.then(
+        (result) => { if (promoted && notificationTurnId !== undefined) backgroundSettledRef.current(notificationTurnId, turnSessionId, turnController, { result }); },
+        (error: unknown) => { if (promoted && notificationTurnId !== undefined) backgroundSettledRef.current(notificationTurnId, turnSessionId, turnController, { error }); },
+      );
+      return Promise.race([work, movedToBackground]);
     },
     onSuccess: (result, { text }) => {
       setLiveTurn(null);
+      if (result === 'background') {
+        // Still running as a task card; the chat is free for the next message.
+        setReplyArrival(null);
+        setPromptArrivalAt(null);
+        return;
+      }
       if (!result.success || !result.data.reply.trim()) cancelStreamedSpeech();
       if (!result.success) setReplyArrival(null);
-      if (!result.success && result.error.code === 'TURN_GONE' && sessionId !== null) {
-        // Finished while we were reconnecting (it's in the saved history), or
-        // lost in a server restart (the interrupted notice offers a resend).
-        const id = sessionId;
-        void api.getSessionHistory(id).then((h) => {
-          if (h.success) setMessages(stripHistoryContextPrefixes(h.data.messages));
-          resumeSessionTurn(id);
-        });
-        return;
-      }
-      if (!result.success) {
-        appendMessage('assistant', `Error: ${result.error.message}`);
-        return;
-      }
-      if (sessionId === null) persistSessionId(result.data.sessionId, true);
-      if (!result.data.reply.trim()) {
-        appendMessage('assistant', 'Error: Athena returned no answer. Please try again.');
-        return;
-      }
-      setReplyArrival({ startedAt: Date.now(), complete: true });
-      setRevealingAnswer(true);
-      appendMessage('assistant', result.data.reply, {
-        persona: result.data.persona,
-        sources: result.data.sources,
-        memoriesCreated: result.data.memoriesCreated,
-        noteEdits: result.data.noteEdits,
-        noteEditsFor: result.data.noteEditsFor,
-        noteEditResult: result.data.noteEditResult,
-        mapChanges: result.data.mapChanges,
-        mapChangesFor: result.data.mapChangesFor,
-        localFileWrites: result.data.localFileWrites,
-        outputsChanged: result.data.outputsChanged,
-        id: result.data.assistantMessageId,
-        contextUsed: result.data.contextUsed,
-        nextSteps: result.data.nextSteps,
-      });
-      if (result.data.contextUsed?.warnings?.length) emote('unsure', ATHENA_ANSWER_MS);
-      else if (/^(thanks|thank you|cheers)[!.\s]*$/i.test(text.trim())) emote('happy', ATHENA_ANSWER_MS);
-      else if (result.data.outputsChanged?.length) emote('excited', ATHENA_ANSWER_MS);
-      else if (result.data.nextSteps?.length || result.data.pendingActions.length) emote('curious', ATHENA_ANSWER_MS);
-      // Athena saved or revised an output: refresh the panel and open it there.
-      const changed = result.data.outputsChanged ?? [];
-      setPanelRefresh((n) => n + 1);
-      if (changed.length > 0) openOutput(changed[changed.length - 1]!.id);
-      // The Decisions list is updated just after the reply — pick that up.
-      window.setTimeout(() => { setPanelRefresh((n) => n + 1); }, 5_000);
-      window.setTimeout(() => { setPanelRefresh((n) => n + 1); }, 12_000);
-      playReply(result.data.reply, result.data.pendingActions.length);
-      refreshSessionList();
-      if (result.data.pendingActions.length > 0) {
-        setPendingActions((prev) => [...prev, ...result.data.pendingActions]);
-      }
-      if (result.data.taskStatusChanges?.length) {
-        void api.reviewTaskStatusChanges(result.data.taskStatusChanges.map(change => ({
-          taskId: change.taskId, status: change.to, reason: change.note, expectedStatus: change.from,
-          ...(change.waitingOn !== undefined ? { waitingOn: change.waitingOn } : {}),
-        }))).then(() => {
-          appendMessage('assistant', 'Task status change saved with your timestamped note.');
-        }).catch((error: unknown) => {
-          console.error('[Athena status proposal]', error);
-          appendMessage('assistant', describeApiError(error));
-        }).finally(() => {
-          void queryClient.invalidateQueries({ queryKey: ['tasks'] });
-          void queryClient.invalidateQueries({ queryKey: ['task-assistance'] });
-          void queryClient.invalidateQueries({ queryKey: ['task-notes'] });
-        });
-      }
-      // The AI may have created/updated tasks, notes or Sparks via tool calls this turn —
-      // refresh the relevant lists so they show up without a manual reload.
-      void queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      void queryClient.invalidateQueries({ queryKey: ['notes-list'] });
-      void queryClient.invalidateQueries({ queryKey: ['note-tags'] });
-      void queryClient.invalidateQueries({ queryKey: ['taxonomy'] });
-      void queryClient.invalidateQueries({ queryKey: ['graph'] });
-      void queryClient.invalidateQueries({ queryKey: ['sparks'] });
-      void queryClient.invalidateQueries({ queryKey: ['discovery-feeds'] });
-      void queryClient.invalidateQueries({ queryKey: ['spark-clusters'] });
-      void queryClient.invalidateQueries({ queryKey: ['unsurfaced-count'] });
-      void queryClient.invalidateQueries({ queryKey: ['today-sparks-recent'] });
-      void queryClient.invalidateQueries({ queryKey: ['today', 'clusters'] });
-      // No scroll here: his prompt stays at the top of the view with the reply beneath it.
+      acceptTurnResult(result, text, false);
     },
     onError: (err: unknown) => {
       cancelStreamedSpeech();
@@ -1347,6 +1479,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   /** After opening a chat: reattach to a turn still running there, or offer to resend one cut off by a restart. */
   function resumeSessionTurn(id: string): void {
     loadAlternates(id);
+    void api.listSessionTasks(id).then((r) => {
+      if (r.success) for (const task of r.data) followBackgroundTask(id, task);
+    }).catch(() => { /* no tasks to show */ });
     setExcludedIds(new Set());
     void api.listExclusions(id).then((r) => { if (r.success) setExcludedIds(new Set(r.data.map((x) => x.id))); }).catch(() => { /* none */ });
     void api.getSessionTurn(id).then((r) => {
@@ -1542,6 +1677,22 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const promptCount = messages.filter((m) => m.role === 'user').length;
   const lastAssistantIndex = messages.reduce((last, m, idx) => (m.role === 'assistant' ? idx : last), -1);
   const lastUserIndex = messages.reduce((last, m, idx) => (m.role === 'user' ? idx : last), -1);
+  // Each background task's card sits under the message that asked for it.
+  const tasksByMessage = new Map<number, BackgroundTask[]>();
+  const unanchoredTasks: BackgroundTask[] = [];
+  for (const task of backgroundTasks) {
+    if (task.sessionId !== sessionId) continue;
+    let at = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i]!.role === 'user' && messages[i]!.content === task.anchor) { at = i; break; }
+    }
+    if (at < 0) unanchoredTasks.push(task);
+    else tasksByMessage.set(at, [...(tasksByMessage.get(at) ?? []), task]);
+  }
+  const renderTaskCard = (task: BackgroundTask): React.ReactElement => (
+    <BackgroundTaskCard key={task.turnId} activity={task.activity} startedAt={task.startedAt} stopping={task.stopping}
+      onCancel={() => { cancelBackgroundTask(task.turnId); }} />
+  );
 
   // Size the room below the thread to just what keeps his last prompt at the top of
   // the view — it shrinks to nothing as the reply fills the screen.
@@ -2508,8 +2659,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
             </div>
           )}
           {messages.map((msg, i) => (
+            <React.Fragment key={i}>
             <ChatBubble
-              key={i}
               role={msg.role}
               arrivalAt={msg.role === 'user' ? i === lastUserIndex ? promptArrivalAt : null
                 : i === lastAssistantIndex && replyArrival?.complete ? replyArrival.startedAt : null}
@@ -2646,7 +2797,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               </div>
               {msg.role === 'assistant' && i === lastAssistantIndex && !chatMutation.isPending && responsePresence}
             </ChatBubble>
+            {tasksByMessage.get(i)?.map(renderTaskCard)}
+            </React.Fragment>
           ))}
+          {unanchoredTasks.map(renderTaskCard)}
           {chatMutation.isPending && replyArrival?.complete !== true && (liveTurn !== null ? (
             <LiveReply activity={liveTurn.activity} startedAt={liveTurn.startedAt} thinkerRef={setPresenceThinker} />
           ) : (

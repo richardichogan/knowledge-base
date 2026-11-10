@@ -50,6 +50,8 @@ function fixture(document: Block[]) {
   return { editor, apply };
 }
 
+const counts = ({ applied, failed }: { applied: number; failed: unknown[] }) => ({ applied, failed });
+
 test('visual-only edits preserve the section, rich spoken blocks and unrelated metadata, and reject concurrent changes', () => {
   const section: Block = { id: 'section', type: 'heading', props: { level: 2, scriptSection: true, scriptVisuals: '', textColor: 'default' },
     content: [text('Opening')], children: [{ id: 'spoken', type: 'paragraph', content: [text('Explain this idea.', { bold: true })] }] };
@@ -60,7 +62,7 @@ test('visual-only edits preserve the section, rich spoken blocks and unrelated m
   }] };
   const { editor, apply } = fixture([section]);
   const edit: NoteEdit = { action: 'set_script_visuals', sectionId: section.id, expectedVisuals: '', visuals, summary: 'Explain the idea visually' };
-  assert.deepEqual(apply([edit], true), { applied: 1, failed: [] });
+  assert.deepEqual(apply([edit], true), { applied: 1, failed: [], outcomes: [{ outcome: 'applied', summary: 'Explain the idea visually' }] });
   assert.deepEqual(editor.document[0]?.children, original.children);
   assert.deepEqual(editor.document[0]?.content, original.content);
   assert.equal(editor.document[0]?.props?.['textColor'], 'default');
@@ -94,7 +96,7 @@ test('pending visual results survive serialization without editing the script an
   editor.document[0]!.children![0]!.content[0]!.styles = { bold: true, italic: true };
   const retainedBody = structuredClone(editor.document[0]!.children);
   const edits = scriptVisualJobEdits(result, editor.document);
-  assert.deepEqual(apply(edits, true), { applied: 1, failed: [] });
+  assert.deepEqual(counts(apply(edits, true)), { applied: 1, failed: [] });
   assert.deepEqual(editor.document[0]!.children, retainedBody);
   assert.deepEqual(editor.document[1], other);
   assert.deepEqual(scriptVisualJobEdits(result, editor.document), []);
@@ -275,7 +277,7 @@ test('wording corrections preserve rich inline styles, links, block identity, li
     { action: 'replace_text', find: 'Tunr', markdown: 'Turn', summary: 'Correct typo' },
     { action: 'replace_text', find: 'ligts', markdown: 'lights', summary: 'Correct linked wording' },
   ]);
-  assert.deepEqual(result, { applied: 2, failed: [] });
+  assert.deepEqual(counts(result), { applied: 2, failed: [] });
   assert.deepEqual(editor.document[1], { ...paragraph, content: [
     text('Turn', { bold: true }), text(' the '),
     { type: 'link', href: 'https://example.com/help', content: [text('lights', { italic: true })] },

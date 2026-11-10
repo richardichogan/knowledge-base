@@ -14,7 +14,7 @@ import { BlockNoteViewWrapper } from './BlockNoteViewWrapper';
 import { GitHubModal, GitHubConflictModal } from './GitHubModal';
 import { ShareEmailModal } from '../components/ShareEmailModal';
 import type { ShareEmailContent } from '../types/shareEmail';
-import { setActiveBlockNoteEditor, getActiveBlockNoteEditor, setNoteActionBridge, setWorkChatBridge } from '../utils/activeBlockNoteEditor';
+import { setActiveBlockNoteEditor, getActiveBlockNoteEditor, setNoteActionBridge, setNoteReloadBridge, setWorkChatBridge } from '../utils/activeBlockNoteEditor';
 import { EmailDraftFields, useWorkContent, WorkContentProperties } from './WorkContent';
 import { TrashCan, ChevronDown, DocumentExport, DocumentImport, Idea, Renew, Image as ImageIcon, LogoGithub, Diagram, Code, Copy, Launch, PresentationFile, TextBold, TextItalic, ListChecked, ListBulleted, ListNumbered, Quotes } from '@carbon/icons-react';
 import { SendToBuildDialog } from '../features/build/buildShared';
@@ -669,6 +669,31 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
     return ok;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   workSaveNote.current = doSave;
+
+  // A background Athena task saved edits on the server: show them, unless he's typing.
+  useEffect(() => setNoteReloadBridge(doc.id, async () => {
+    if (!mountedRef.current || getActiveBlockNoteEditor() !== editorRef.current) return;
+    const result = await api.getNote(doc.id);
+    if (!result.success) throw new Error(result.error.message);
+    const accepted = fromApiNote(result.data);
+    if ((accepted.revision ?? 0) <= (savedDocRef.current.revision ?? 0)) return;
+    if (isDirtyRef.current || saveInFlightRef.current || historyBusyRef.current) {
+      conflictRef.current = true;
+      setSaveConflict(true);
+      setNotification({ kind: 'error', msg: 'Athena saved changes to this note while you were typing. Your writing is kept; resolve it before carrying on.' });
+      return;
+    }
+    suppressChangesRef.current = true;
+    try {
+      const blocks = JSON.parse(accepted.contentJson) as PartialBlock[];
+      editorRef.current.replaceBlocks(editorRef.current.document, blocks.length ? blocks : [{ type: 'paragraph', content: '' }]);
+      savedDocRef.current = accepted;
+      restoredBodyRef.current = JSON.stringify(editorRef.current.document);
+      isDirtyRef.current = false;
+      onSavedRef.current(accepted);
+      setHistoryRefresh(value => value + 1);
+    } finally { suppressChangesRef.current = false; }
+  }), [doc.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!workEnabled) return;

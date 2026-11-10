@@ -23,7 +23,10 @@ import { findModelChoice, PERSONA_MODELS } from '../ai/modelChoices.js';
 import { deleteSessionScreenBlobs, reviewScreens, screensToShow } from '../ai/chatScreens.js';
 import { listChatFiles, ensureModelFiles, deleteSessionModelFiles } from '../ai/chatFiles.js';
 import { isTrackingDecisions, updateDecisionsFromExchange } from '../ai/chatDecisions.js';
-import { startTurnJob, subscribeTurnJob, cancelTurnJob, getSessionTurnJob, type TurnEvent } from '../ai/turnJobs.js';
+import { startTurnJob, subscribeTurnJob, cancelTurnJob, getSessionTurnJob, claimDelivery, requestNoteFlush, ackNoteFlush, waitForNoteTasks, listBackgroundJobs, describeBackgroundJobs, type TurnEvent } from '../ai/turnJobs.js';
+import { applyBackgroundNoteEdits } from '../services/backgroundNoteEdits.js';
+import { scheduleNoteIndexing } from './notes.js';
+import type { NoteEditReceipt } from '../ai/chatSessionStore.js';
 import { memoriesCreatedSince } from '../ai/athenaMemory.js';
 import type { NoteEditProposal } from '../ai/noteEdits.js';
 import type { WorkTurnState } from '../ai/workContentTools.js';
@@ -100,6 +103,10 @@ export interface ChatTurnResult {
   contextUsed: ContextUsed;
   /** Suggested next steps (buttons). */
   nextSteps: string[];
+  /** Set when a background task saved the note edits on the server (the browser doesn't apply them). */
+  noteEditResult?: NoteEditReceipt;
+  /** The turn finished as a background task. */
+  background?: boolean;
 }
 
 /** Runs one chat turn from a /chat request body: saves it to the session and returns the reply payload. */
@@ -256,7 +263,16 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
     ...fullHistory.filter(item => item.role === 'user').map(item => item.content),
     message,
   ], new Set((await getExcludedSources(db, effectiveSessionId)).map(source => source.id)));
-  hooks = { ...hooks, referenceBlock: [hooks.referenceBlock, referenced.block, backgroundWorkContextBlock(reqBody['backgroundWork'])].filter(Boolean).join('\n\n') };
+  hooks = { ...hooks, referenceBlock: [hooks.referenceBlock, referenced.block, backgroundWorkContextBlock(reqBody['backgroundWork']),
+    describeBackgroundJobs(effectiveSessionId, hooks.turnId)].filter(Boolean).join('\n\n') };
+  const editTarget = openNoteId !== undefined && /^[0-9a-f-]{36}$/i.test(openNoteId) ? openNoteId : undefined;
+  const beforeNoteEdit = async (): Promise<boolean> => {
+    if (editTarget === undefined) return false;
+    const waited = await waitForNoteTasks(editTarget, hooks.turnId, hooks.signal,
+      () => { hooks.onActivity?.('Waiting for the background task on this note'); });
+    hooks.onTargetNote?.(editTarget);
+    return waited;
+  };
   contextUsed.found.push(...referenced.sources);
   // Show Notes works from a whole transcript over several turns (and revisions afterwards), so the document it
   // is shown is kept in the chat once; every other persona stores only a marker (see below). When the chat
@@ -270,7 +286,7 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
     db, modelHistory, message, effectiveModel, persona, effectiveSessionId, alreadyHeld ? undefined : pageContext,
     (toolName) => { toolsUsed.add(toolName); },
     { userId, noteId: openNoteId, designOwner, designState, podcastOwner, podcastState, workState,
-      buildSpecId, buildState, useCaseId, useCaseState, taskStatusChanges, noteEdits, mapChanges, localFolders, localFileWrites, demoBookends },
+      buildSpecId, buildState, useCaseId, useCaseState, taskStatusChanges, noteEdits, mapChanges, localFolders, localFileWrites, demoBookends, beforeNoteEdit },
     { ...hooks, contextUsed, onAudit: (row) => { audit.row = row; } },
   );
   hooks.signal?.throwIfAborted();
@@ -450,11 +466,34 @@ router.post('/chat/turns', (req: Request, res: Response, next: NextFunction): vo
       const db = getDb();
       const shown = message.length > 2_000 ? `${message.slice(0, 2_000)}…` : message;
       await setPendingTurn(db, sessionId, { turnId, message: shown, startedAt: new Date().toISOString() });
+      const clearPending = (): void => { void setPendingTurn(db, sessionId, null, turnId).catch((err: unknown) => { console.error('[turn] could not clear pending turn:', err); }); };
       startTurnJob(
         turnId, sessionId, shown,
-        (hooks) => runChatTurn({ ...reqBody, sessionId }, { ...hooks, budgetMs: AI_BACKGROUND_TURN_BUDGET_MS },
-          'userId' in req && typeof req.userId === 'string' ? req.userId : undefined),
-        () => { void setPendingTurn(db, sessionId, null, turnId).catch((err: unknown) => { console.error('[turn] could not clear pending turn:', err); }); },
+        async (hooks) => {
+          const result = await runChatTurn({ ...reqBody, sessionId }, { ...hooks, budgetMs: AI_BACKGROUND_TURN_BUDGET_MS },
+            'userId' in req && typeof req.userId === 'string' ? req.userId : undefined);
+          if (claimDelivery(turnId) === 'foreground') return result;
+          const noteId = result.noteEditsFor;
+          // A background task saves its own edits: the chat that asked may have moved on or closed.
+          if (result.noteEdits.length === 0 || noteId === null || !/^[0-9a-f-]{36}$/i.test(noteId)
+            || result.noteEdits.some(edit => edit.delivery === 'preview')) return { ...result, background: true };
+          hooks.onActivity?.('Saving the changes to the note');
+          await requestNoteFlush(turnId, noteId);
+          hooks.signal?.throwIfAborted();
+          const saved = await applyBackgroundNoteEdits(db, noteId, result.noteEdits, {
+            turnId, sessionId, request: shown, ...(result.assistantMessageId !== '' && { messageId: result.assistantMessageId }),
+          });
+          if (result.assistantMessageId !== '') {
+            await setNoteEditReceipt(db, result.assistantMessageId, saved.receipt)
+              .catch((err: unknown) => { console.error('[turn] could not store the background edit receipt:', err); });
+          }
+          if (saved.note !== null) scheduleNoteIndexing(db, saved.note);
+          return { ...result, background: true, noteEditResult: saved.receipt };
+        },
+        clearPending,
+        true,
+        AI_BACKGROUND_TURN_BUDGET_MS,
+        clearPending,
       );
       const body: ApiSuccess<{ turnId: string; sessionId: string }> = { success: true, data: { turnId, sessionId } };
       res.status(HTTP_STATUS.OK).json(body);
@@ -494,6 +533,18 @@ router.get('/chat/turns/:turnId/events', (req: Request, res: Response): void => 
     clearInterval(heartbeat);
     unsubscribe?.();
   });
+});
+
+/** POST /api/ai/chat/turns/:turnId/flushed — the chat saved the open note; the background task can save its edits. */
+router.post('/chat/turns/:turnId/flushed', (req: Request, res: Response): void => {
+  const body: ApiSuccess<{ acknowledged: boolean }> = { success: true, data: { acknowledged: ackNoteFlush(req.params['turnId'] ?? '') } };
+  res.status(HTTP_STATUS.OK).json(body);
+});
+
+/** GET /api/ai/session/:sessionId/tasks — background tasks still running in this chat. */
+router.get('/session/:sessionId/tasks', (req: Request, res: Response): void => {
+  const body: ApiSuccess<ReturnType<typeof listBackgroundJobs>> = { success: true, data: listBackgroundJobs(req.params['sessionId'] ?? '') };
+  res.status(HTTP_STATUS.OK).json(body);
 });
 
 /** POST /api/ai/chat/turns/:turnId/cancel — the Stop button. */

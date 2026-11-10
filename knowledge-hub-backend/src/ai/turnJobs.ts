@@ -17,7 +17,11 @@ export type TurnEvent =
   | { type: 'delta'; text: string }
   | { type: 'reset' }
   | { type: 'done'; data: unknown }
-  | { type: 'error'; message: string; stopped: boolean };
+  | { type: 'error'; message: string; stopped: boolean }
+  /** The turn became a background task: the chat is free for new messages. */
+  | { type: 'background' }
+  /** A background task is about to save edits to this note: save any typing first, then ack. */
+  | { type: 'edits-ready'; noteId: string };
 
 interface TurnJob {
   id: string;
@@ -29,7 +33,17 @@ interface TurnJob {
   outcome: TurnEvent | null;
   listeners: Set<(e: TurnEvent) => void>;
   controller: AbortController;
+  background: boolean;
+  /** Set once the reply is ready: after this the turn can no longer move to the background. */
+  claimed: boolean;
+  noteId: string | null;
+  finished: Promise<void>;
+  flushAck: (() => void) | null;
 }
+
+/** A turn still running this long moves to the background so the chat isn't held up. */
+export const BACKGROUND_AFTER_MS = 15_000;
+const FLUSH_WAIT_MS = 8_000;
 
 const KEEP_FINISHED_MS = 10 * 60_000;
 const jobs = new Map<string, TurnJob>();
@@ -48,6 +62,7 @@ function emit(job: TurnJob, e: TurnEvent): void {
   if (e.type === 'delta') job.text += e.text;
   if (e.type === 'reset') job.text = '';
   if (e.type === 'done' || e.type === 'error') job.outcome = e;
+  if (e.type === 'background') job.background = true;
   for (const listener of job.listeners) listener(e);
 }
 
@@ -64,13 +79,25 @@ export function startTurnJob(
   /** false for side jobs (e.g. "Ask another model") that aren't the chat's current turn. */
   trackForSession = true,
   budgetMs = AI_BACKGROUND_TURN_BUDGET_MS,
+  /** Called when the turn moves to the background (frees the chat for the next message). */
+  onBackground?: () => void,
 ): { id: string; startedAt: string } {
+  let finish: () => void = () => undefined;
   const job: TurnJob = {
     id, sessionId, message, startedAt: new Date().toISOString(),
     activity: 'Thinking', text: '', outcome: null, listeners: new Set(), controller: new AbortController(),
+    background: false, claimed: false, noteId: null, finished: new Promise<void>(resolve => { finish = resolve; }), flushAck: null,
   };
   jobs.set(job.id, job);
   if (trackForSession) jobBySession.set(sessionId, job.id);
+  const promote = (): void => {
+    if (!trackForSession || job.background || job.claimed || job.outcome !== null || job.controller.signal.aborted) return;
+    emit(job, { type: 'background' });
+    if (jobBySession.get(sessionId) === job.id) jobBySession.delete(sessionId);
+    onBackground?.();
+  };
+  const backgroundTimer = trackForSession ? setTimeout(promote, BACKGROUND_AFTER_MS) : undefined;
+  backgroundTimer?.unref();
 
   let deadline: ReturnType<typeof setTimeout>;
   const refreshDeadline = (): void => {
@@ -85,6 +112,9 @@ export function startTurnJob(
     onActivity: (text) => { if (!job.controller.signal.aborted) emit(job, { type: 'activity', text }); },
     onReadingProgress: refreshDeadline,
     signal: job.controller.signal,
+    promoteToBackground: promote,
+    onTargetNote: (noteId) => { job.noteId = noteId; },
+    turnId: job.id,
   };
   refreshDeadline();
   void abortable(Promise.resolve().then(() => {
@@ -99,6 +129,8 @@ export function startTurnJob(
     })
     .finally(() => {
       clearTimeout(deadline);
+      clearTimeout(backgroundTimer);
+      finish();
       if (!stopping) onFinished();
       if (jobBySession.get(sessionId) === job.id) jobBySession.delete(sessionId);
       setTimeout(() => { jobs.delete(job.id); }, KEEP_FINISHED_MS).unref();
@@ -122,12 +154,73 @@ export function subscribeTurnJob(id: string, listener: (e: TurnEvent) => void): 
   const job = jobs.get(id);
   if (job === undefined) return null;
   listener({ type: 'snapshot', message: job.message, activity: job.activity, text: job.text });
+  if (job.background) listener({ type: 'background' });
   if (job.outcome !== null) {
     listener(job.outcome);
     return () => { /* finished */ };
   }
   job.listeners.add(listener);
   return () => { job.listeners.delete(listener); };
+}
+
+/**
+ * Called when the reply is ready. Fixes where the turn's note edits are saved:
+ * on the server for a background task, otherwise by the open editor (and the
+ * turn can no longer move to the background).
+ */
+export function claimDelivery(id: string): 'background' | 'foreground' {
+  const job = jobs.get(id);
+  if (job === undefined) return 'foreground';
+  job.claimed = true;
+  return job.background ? 'background' : 'foreground';
+}
+
+/**
+ * A background task is about to save edits to a note: asks any open chat to
+ * save his typing in that note first, waiting a few seconds for the reply.
+ */
+export async function requestNoteFlush(id: string, noteId: string): Promise<void> {
+  const job = jobs.get(id);
+  if (job === undefined || job.listeners.size === 0) return;
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => { job.flushAck = null; resolve(); }, FLUSH_WAIT_MS);
+    job.flushAck = () => { clearTimeout(timer); job.flushAck = null; resolve(); };
+    emit(job, { type: 'edits-ready', noteId });
+  });
+}
+
+/** The chat saved the open note: the background task can save its edits now. */
+export function ackNoteFlush(id: string): boolean {
+  const ack = jobs.get(id)?.flushAck;
+  if (!ack) return false;
+  ack();
+  return true;
+}
+
+/** Waits for background tasks still changing this note (so edits don't overlap). */
+export async function waitForNoteTasks(noteId: string, exceptId: string | undefined, signal?: AbortSignal, onWait?: () => void): Promise<boolean> {
+  const busy = [...jobs.values()].filter(job => job.background && job.outcome === null && job.noteId === noteId && job.id !== exceptId);
+  if (busy.length === 0) return false;
+  onWait?.();
+  const aborted = new Promise<void>((resolve) => { signal?.addEventListener('abort', () => { resolve(); }, { once: true }); });
+  await Promise.race([Promise.all(busy.map(job => job.finished)), aborted]);
+  signal?.throwIfAborted();
+  return true;
+}
+
+/** Background tasks for a chat that are still running (task cards after a reload). */
+export function listBackgroundJobs(sessionId: string): Array<{ id: string; message: string; startedAt: string; activity: string }> {
+  return [...jobs.values()]
+    .filter(job => job.sessionId === sessionId && job.background && job.outcome === null)
+    .map(job => ({ id: job.id, message: job.message, startedAt: job.startedAt, activity: job.activity }));
+}
+
+/** Background tasks for a chat, for Athena's own context. */
+export function describeBackgroundJobs(sessionId: string, exceptId?: string): string {
+  const running = listBackgroundJobs(sessionId).filter(job => job.id !== exceptId);
+  if (running.length === 0) return '';
+  return `## Background tasks still running in this chat\nThese earlier requests are still being worked on separately; their replies will appear when they finish. Don't redo them. If he asks about one, say it's still going and what it's doing.\n${
+    running.map(job => `- "${job.message.slice(0, 300)}" (started ${job.startedAt}; now: ${job.activity})`).join('\n')}`;
 }
 
 /** Stops a running job (the Stop button). */
