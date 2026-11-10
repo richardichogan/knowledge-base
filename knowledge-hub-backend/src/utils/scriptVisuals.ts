@@ -75,6 +75,8 @@ export interface ScriptVisualScene {
   composition?: VisualComposition;
   presenterLayout?: boolean;
   brandMark?: 'ibm-8bar';
+  /** Renderer skin. Absent = Carbon dark; 'keynote' = navy gradient with gold accents. */
+  theme?: 'keynote';
 }
 export interface ScriptVisuals { version: 1; source: string; scenes: ScriptVisualScene[] }
 export interface VisualScriptBlock {
@@ -363,6 +365,7 @@ export function parseScriptVisuals(value: unknown, section?: VisualScriptBlock):
     const imageUrl = text(scene.imageUrl, LIMITS.imageUrl, 'image URL', true);
     if (scene.layout !== undefined && !['hero', 'split', 'diagram'].includes(String(scene.layout))) throw new Error('Invalid visual layout.');
     if (scene.presenterLayout !== undefined && typeof scene.presenterLayout !== 'boolean') throw new Error('Invalid presenter layout.');
+    if (scene.theme !== undefined && scene.theme !== 'keynote') throw new Error('Invalid visual theme.');
     if (scene.brandMark !== undefined && (scene.brandMark !== 'ibm-8bar' || template !== 'close')) throw new Error('Invalid closing brand mark.');
     if (imageUrl && !/^https:\/\//i.test(imageUrl)) throw new Error('Visual images require an HTTPS URL.');
     if (template === 'image' && !imageUrl && !scene.composition) throw new Error('An image scene requires an existing image.');
@@ -394,6 +397,7 @@ export function parseScriptVisuals(value: unknown, section?: VisualScriptBlock):
       ...(composition === undefined ? {} : { composition }),
       ...(scene.layout === undefined ? {} : { layout: scene.layout as NonNullable<ScriptVisualScene['layout']> }),
       ...(scene.presenterLayout === undefined ? {} : { presenterLayout: scene.presenterLayout }),
+      ...(scene.theme === undefined ? {} : { theme: scene.theme }),
       ...(scene.brandMark === undefined ? {} : { brandMark: scene.brandMark }),
       items };
   });

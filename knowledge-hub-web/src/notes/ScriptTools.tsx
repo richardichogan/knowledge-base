@@ -36,6 +36,7 @@ export function ScriptTools({ editor, disabled, noteId, save, onPresent, onOpenV
   const [sectionError, setSectionError] = useState<string | null>(null);
   const [openingVisuals, setOpeningVisuals] = useState(false);
   const [presenterLayout, setPresenterLayout] = useState(false);
+  const [keynoteTheme, setKeynoteTheme] = useState(false);
   const [hasVisuals, setHasVisuals] = useState(false);
   const video = useScriptVideoState();
   const [videoBusy, setVideoBusy] = useState(false);
@@ -54,6 +55,7 @@ export function ScriptTools({ editor, disabled, noteId, save, onPresent, onOpenV
           .flatMap(block => readSectionVisuals(block)?.scenes ?? []);
         setHasVisuals(scenes.length > 0);
         setPresenterLayout(scenes.length > 0 && scenes.every(scene => scene.presenterLayout));
+        setKeynoteTheme(scenes.length > 0 && scenes.every(scene => scene.theme === 'keynote'));
       } catch (error) {
         setHasVisuals(false);
         setSectionError(error instanceof Error ? error.message : 'Could not read the visual layout.');
@@ -149,6 +151,39 @@ export function ScriptTools({ editor, disabled, noteId, save, onPresent, onOpenV
           setSectionError(error instanceof Error ? error.message : 'Could not change the visual layout.');
         }
       }}><UserAvatar size={18} aria-hidden="true" /></ScriptToolButton>
+    <label className="kh-script-tools__style kh-script-tools__theme">Theme
+      <select aria-label="Visual theme" value={keynoteTheme ? 'keynote' : 'carbon'} disabled={disabled || !hasVisuals}
+        onChange={event => {
+          const theme = event.target.value === 'keynote' ? ('keynote' as const) : undefined;
+          try {
+            const edits = editor.document.flatMap(block => {
+              if (block.type !== 'heading' || !block.props.scriptSection) return [];
+              const visuals = readSectionVisuals(block);
+              if (visuals?.scenes.length) {
+                parseScriptVisuals(visuals, block);
+                if (!visualSourceCurrent(visuals.source, block)) throw new Error('Update the stale section visuals before changing the visual theme.');
+              }
+              return visuals?.scenes.length ? [{
+                action: 'set_script_visuals' as const, sectionId: block.id,
+                expectedVisuals: block.props.scriptVisuals,
+                visuals: { ...visuals, scenes: visuals.scenes.map(scene => {
+                  const { theme: _previous, ...rest } = scene;
+                  return theme ? { ...rest, theme } : rest;
+                }) },
+                summary: theme ? 'Use the Keynote visual theme' : 'Use the Carbon visual theme',
+              }] : [];
+            });
+            const result = applyNoteEdits(editor, edits, { script: true });
+            if (result.failed.length) throw new Error(result.failed.join('; '));
+            setSectionError(null);
+          } catch (error) {
+            setSectionError(error instanceof Error ? error.message : 'Could not change the visual theme.');
+          }
+        }}>
+        <option value="carbon">Carbon</option>
+        <option value="keynote">Keynote</option>
+      </select>
+    </label>
     <label className="kh-script-tools__style kh-script-tools__video">Video
       <select aria-label="Presenter video mode" value={video.mode}
         disabled={videoBusy || video.loading || (!presenterLayout && video.mode !== 'camera')}

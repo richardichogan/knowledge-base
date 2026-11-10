@@ -17,7 +17,7 @@ export function visualAssetsIssue(scenes: PresentationVisualScene[] | undefined,
 export function desktopVisualIssue(scenes: PresentationVisualScene[] | undefined,
   desktop: {
     scriptVisuals?: boolean; scriptVisualCompositions?: boolean; scriptVisualMotion?: boolean; scriptVisualCraft?: boolean;
-    scriptVisualBranding?: boolean; scriptVisualAssets?: boolean;
+    scriptVisualBranding?: boolean; scriptVisualAssets?: boolean; scriptVisualThemes?: boolean;
   } | undefined): string | null {
   if (!scenes?.length) return null;
   return visualBrandingIssue(scenes, desktop?.scriptVisualBranding)
@@ -28,7 +28,9 @@ export function desktopVisualIssue(scenes: PresentationVisualScene[] | undefined
     ?? (requiresVisualMotion(scenes) && !desktop?.scriptVisualMotion
       ? 'Update Athena Desktop to present the new visual animations and presenter layout. Web preview remains available.' : null)
     ?? (requiresVisualCraft(scenes) && !desktop?.scriptVisualCraft
-      ? 'Update Athena Desktop to present the corrected connectors, image headers and video guide. Web preview remains available.' : null);
+      ? 'Update Athena Desktop to present the corrected connectors, image headers and video guide. Web preview remains available.' : null)
+    ?? (scenes.some(scene => scene.theme) && !desktop?.scriptVisualThemes
+      ? 'Update Athena Desktop to present the Keynote visual theme. Web preview remains available.' : null);
 }
 
 export function recordPresentedVisuals(noteId: string, issue: string | null): void {

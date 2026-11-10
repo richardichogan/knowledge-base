@@ -16,6 +16,7 @@ export interface DesktopPresentation {
   scriptVisualCraft?: boolean;
   scriptVisualBranding?: boolean;
   scriptVisualAssets?: boolean;
+  scriptVisualThemes?: boolean;
   scriptVisualVideo?: boolean;
   videoState?(): Promise<PresentationVideoState>;
   setVideoMode?(mode: VisualVideoMode, noteId: string): Promise<PresentationVideoState>;

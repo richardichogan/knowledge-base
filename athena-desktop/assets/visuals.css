@@ -302,6 +302,46 @@ body, .visual-root { margin: 0; height: 100vh; overflow: hidden; background: #16
 .scene--split.scene--concept .item::before { display: none; }
 .scene-image { position: absolute; inset: 0; z-index: -2; width: 100%; height: 100%; object-fit: cover; }
 
+/* Keynote theme — per-scene theme: 'keynote'. Navy radial-gradient stage, gold accent,
+   rounded translucent cards with subtle full borders, softer glows. Layout, tone meanings,
+   typography scale and motion are unchanged from the Carbon default. */
+.visual-slide--keynote {
+  --visual-interactive: #f2c04d;
+  --keynote-gold: #f2c04d;
+  --keynote-ink: #0c1430;
+  --keynote-line: rgba(163, 184, 238, 0.24);
+  background: radial-gradient(ellipse 130% 95% at 50% -15%, #24407e 0%, #15224e 46%, #0c1434 74%, #070c22 100%); }
+.visual-slide--keynote .slide-backdrop { background-image: none; }
+.visual-slide--keynote .slide-backdrop::after {
+  background: radial-gradient(ellipse 110% 70% at 50% 118%, rgba(3, 6, 18, 0.55), transparent 62%); }
+.visual-slide--keynote .slide-backdrop__glow { right: auto; left: 200px; top: -760px;
+  background: radial-gradient(circle, rgba(99, 139, 255, 0.18), rgba(99, 139, 255, 0.05) 45%, rgba(99, 139, 255, 0) 66%); }
+.visual-slide--keynote .slide-eyebrow { color: var(--keynote-gold); }
+.visual-slide--keynote .slide-eyebrow__number { border-right-color: var(--keynote-line); }
+.visual-slide--keynote .visual-emphasis--highlight { color: var(--keynote-ink); }
+.visual-slide--keynote .slide-close { --node-tone: var(--keynote-gold); }
+.visual-slide--keynote .visual-node--panel { border-left-width: 0; border-radius: 18px;
+  background: color-mix(in srgb, var(--node-tone) 7%, rgba(15, 24, 54, 0.62));
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--node-tone) 32%, var(--keynote-line)),
+    0 18px 40px rgba(3, 6, 18, 0.35); }
+.visual-slide--keynote .visual-node--panel.visual-node--focus {
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--node-tone) 60%, var(--keynote-line)),
+    0 0 0 2px color-mix(in srgb, var(--node-tone) 70%, transparent),
+    0 0 44px color-mix(in srgb, var(--node-tone) 28%, transparent); }
+.visual-slide--keynote .visual-node--block { border-radius: 18px; }
+.visual-slide--keynote .visual-node__disc { background: color-mix(in srgb, var(--node-tone) 13%, #111b40); }
+.visual-slide--keynote .visual-node--icon.visual-node--focus .visual-node__disc {
+  box-shadow: 0 0 0 4px #0c1434, 0 0 0 7px var(--node-tone),
+    0 0 36px color-mix(in srgb, var(--node-tone) 30%, transparent); }
+.visual-slide--keynote .slide-layer--image-full::after {
+  background: linear-gradient(90deg, #0a1130 0%, rgba(12, 20, 52, 0.9) 34%, rgba(12, 20, 52, 0.3) 72%, rgba(12, 20, 52, 0.12)),
+    linear-gradient(0deg, rgba(10, 17, 48, 0.9), rgba(10, 17, 48, 0) 32%); }
+.visual-slide--keynote .scene--concept .item, .visual-slide--keynote .scene--comparison .item {
+  background: rgba(15, 24, 54, 0.62); border-radius: 18px;
+  box-shadow: inset 0 0 0 1.5px var(--keynote-line); }
+.visual-slide--keynote .scene--illustrated::after, .visual-slide--keynote .scene--image::after {
+  background: linear-gradient(90deg, #0a1130 8%, rgba(12, 20, 52, 0.94) 32%, rgba(12, 20, 52, 0.35) 70%, rgba(12, 20, 52, 0.15)); }
+
 #status { position: fixed; bottom: 0; left: 0; z-index: 4; width: 100%; margin: 0; padding: 10px 16px; background: #262626; color: var(--visual-warning); font-size: 14px; }
 #status[hidden] { display: none; }
 

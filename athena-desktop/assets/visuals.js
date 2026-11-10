@@ -966,6 +966,7 @@ function arrowHead(end, tip) {
     const presenter = !!scene?.presenterLayout && scene.template !== 'close';
     presenterVideo.update(presenter, packet.video);
     slide.classList.toggle('visual-slide--presenter', presenter);
+    slide.classList.toggle('visual-slide--keynote', scene?.theme === 'keynote');
     presentationTitle.textContent = packet.presentationTitle || '';
     pageNumber.textContent = total && page ? `${pad(page)} / ${pad(total)}` : '';
     footer.hidden = !scene;
