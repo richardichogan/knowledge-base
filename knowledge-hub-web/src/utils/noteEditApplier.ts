@@ -144,6 +144,39 @@ function flatten(blocks: Block[]): Block[] {
   return blocks.flatMap((b) => [b, ...flatten(Array.isArray(b.children) ? b.children : [])]);
 }
 
+type TableCell = { content?: Block[] } | Block[];
+
+function tableRows(block: Block): Array<{ cells: TableCell[] }> | null {
+  const content: unknown = block?.content;
+  if (typeof content !== 'object' || content === null || Array.isArray(content)) return null;
+  const table = content as { type?: string; rows?: Array<{ cells: TableCell[] }> };
+  return table.type === 'tableContent' && Array.isArray(table.rows) ? table.rows : null;
+}
+
+const cellInline = (cell: TableCell): Block[] => Array.isArray(cell) ? cell : cell.content ?? [];
+
+/** Number of times `find` occurs in table cells, which hold their text outside a block's inline content. */
+function cellOccurrences(blocks: Block[], find: string): number {
+  if (!find) return 0;
+  return flatten(blocks).reduce((sum, block) => sum + (tableRows(block) ?? []).reduce((rowSum, row) =>
+    rowSum + row.cells.reduce((cellSum, cell) => cellSum + inlineText({ content: cellInline(cell) }).split(find).length - 1, 0), 0), 0);
+}
+
+/** Rewrites table cells for which `change` returns new inline content; returns how many cells changed. */
+function updateTableCells(editor: Editor, block: Block, change: (content: Block[]) => Block[] | undefined): number {
+  const rows = tableRows(block);
+  if (!rows) return 0;
+  let changed = 0;
+  const next = rows.map(row => ({ ...row, cells: row.cells.map(cell => {
+    const updated = change(cellInline(cell));
+    if (!updated) return cell;
+    changed++;
+    return Array.isArray(cell) ? updated : { ...cell, content: updated };
+  }) }));
+  if (changed > 0) editor.updateBlock(block, { content: { ...(block.content as object), rows: next } } as Parameters<Editor['updateBlock']>[1]);
+  return changed;
+}
+
 /**
  * Models often repeat the section heading as the first line of a section's
  * new content ("Background\nThe team…" or "## Background"). The heading is
@@ -360,6 +393,20 @@ function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined,
           editor.updateBlock(block, { content });
         } catch { skipped++; }
       }
+      for (const table of flatten(editor.document as Block[]).filter(block => tableRows(block) !== null)) {
+        changed += updateTableCells(editor, table, content => {
+          try {
+            let at = nextMatch(inlineText({ content }), find, wholeWord);
+            if (at < 0) return undefined;
+            let next = content;
+            while (at >= 0) {
+              next = replaceInlineText(next, find, md, script, at, wholeWord);
+              at = nextMatch(inlineText({ content: next }), find, wholeWord, at + md.length);
+            }
+            return next;
+          } catch { skipped++; return undefined; }
+        });
+      }
       if (skipped > 0) throw new Error(`Changed ${String(changed)}, but left ${String(skipped)} paragraph${skipped === 1 ? '' : 's'} untouched because the text runs across a link or a tagged passage. Edit those by hand.`);
       return;
     }
@@ -367,7 +414,13 @@ function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined,
       const find = edit.find ?? '';
       const matches = flatten(blocks).filter(b => inlineText(b).includes(find));
       const target = matches[0];
-      if (!find || matches.length !== 1 || inlineText(target).split(find).length !== 2) throw new Error('The passage is missing or no longer unique. Ask Athena for a current, exact text edit.');
+      const inCells = cellOccurrences(blocks, find);
+      if (matches.length === 0 && inCells === 1) {
+        for (const table of flatten(blocks).filter(block => tableRows(block) !== null)) {
+          if (updateTableCells(editor, table, cell => inlineText({ content: cell }).includes(find) ? replaceInlineText(cell, find, md, script) : undefined) > 0) return;
+        }
+      }
+      if (!find || matches.length !== 1 || inCells > 0 || inlineText(target).split(find).length !== 2) throw new Error('The passage is missing or no longer unique. Ask Athena for a current, exact text edit.');
       if (target.id === titleId) throw new Error('Athena body edits cannot rename the note. Edit its title directly.');
       if (/[\r\n]/.test(md)) throw new Error('Text edits must stay within the existing paragraph or list item.');
       const content = replaceInlineText(target.content, find, md, script);

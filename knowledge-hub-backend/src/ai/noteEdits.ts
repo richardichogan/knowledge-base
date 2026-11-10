@@ -157,6 +157,21 @@ function flattenBlocks(blocks: NoteBlock[]): NoteBlock[] {
   return blocks.flatMap((b) => [b, ...flattenBlocks(Array.isArray(b.children) ? b.children : [])]);
 }
 
+/** Text of every table cell: tables hold their text outside `content` arrays, so find/replace must look here too. */
+function tableCellTexts(blocks: NoteBlock[]): string[] {
+  return flattenBlocks(blocks).flatMap((b) => {
+    const content = b.content as { type?: string; rows?: Array<{ cells?: unknown[] }> } | undefined;
+    if (!content || Array.isArray(content) || content.type !== 'tableContent' || !Array.isArray(content.rows)) return [];
+    return content.rows.flatMap((row) => (row.cells ?? []).map((cell) =>
+      blockText({ content: Array.isArray(cell) ? cell : (cell as { content?: unknown }).content })));
+  });
+}
+
+/** Every text unit a find/replace edit can match: block text first (indices match flattenBlocks), then table cells. */
+function searchableTexts(blocks: NoteBlock[]): string[] {
+  return [...flattenBlocks(blocks).map(blockText), ...tableCellTexts(blocks)];
+}
+
 const FORMATTABLE_TYPES = new Set(['paragraph', 'heading', 'bulletListItem', 'numberedListItem', 'checkListItem', 'quote']);
 const LAYOUT_CODES: Record<string, string> = { paragraph: 'p', bulletListItem: 'ul', numberedListItem: 'ol', checkListItem: 'chk', quote: 'q' };
 const STYLE_OF_TYPE = (block: NoteBlock): NoteFormatStyle | null => {
@@ -258,7 +273,7 @@ export function noteHeadings(blocks: NoteBlock[]): string[] {
 }
 
 export function noteEditRepairContext(blocks: NoteBlock[], edits: NoteEditProposal[]): { paragraphs: string[]; partial: boolean } {
-  const texts = flattenBlocks(blocks).map(blockText).filter(text => text.trim());
+  const texts = searchableTexts(blocks).filter(text => text.trim());
   if (texts.reduce((sum, text) => sum + text.length, 0) <= REPAIR_CONTEXT_CHARS) return { paragraphs: texts, partial: false };
   const terms = edits.flatMap(edit => (edit.find ?? edit.heading ?? '').toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) ?? []);
   const ranked = texts.map((text, index) => ({ index, score: terms.reduce((sum, term) => sum + Number(text.toLowerCase().includes(term)), 0) }))
@@ -294,7 +309,7 @@ function markdownHeadings(markdown: string | undefined): string[] {
  */
 export function checkEditsAgainstNote(edits: NoteEditProposal[], blocks: NoteBlock[], alreadyProposed = 0, script = false): string[] {
   let headings = noteHeadings(blocks).map((h) => norm(h));
-  let texts = flattenBlocks(blocks).map(blockText);
+  let texts = searchableTexts(blocks);
   const problems: string[] = [];
   const title = blocks.find(block => block.type === 'heading' && blockText(block).trim());
   const titleIndex = title === undefined ? -1 : flattenBlocks(blocks).indexOf(title);
@@ -372,7 +387,7 @@ export function checkEditsAgainstNote(edits: NoteEditProposal[], blocks: NoteBlo
 /** How many places each replace_every edit will change, applying the edits in order. */
 export function countReplaceEvery(edits: NoteEditProposal[], blocks: NoteBlock[]): Array<{ find: string; count: number }> {
   const title = blocks.find(block => block.type === 'heading' && blockText(block).trim());
-  let texts = flattenBlocks(blocks).filter(block => block !== title).map(blockText);
+  let texts = [...flattenBlocks(blocks).filter(block => block !== title).map(blockText), ...tableCellTexts(blocks)];
   const counts: Array<{ find: string; count: number }> = [];
   for (const edit of edits) {
     if (edit.action !== 'replace_every') continue;
