@@ -300,7 +300,11 @@ export const NotesPage: React.FC = () => {
       if (doc === null) throw new Error('The document is unavailable. Your current document has been kept open.');
       if (doc.contentType === 'design') { setOpenDoc(doc); selectDesign(doc.id); return; }
       if (doc.contentType === 'podcast-episode') { setOpenDoc(doc); selectEpisode(doc.id, 'prep'); return; }
-      const parents = requireApiData(await api.designMembership('note', id));
+      // Design membership only redirects into a parent Design; a lookup failure must not stop the note opening.
+      const parents = await api.designMembership('note', id).then(requireApiData).catch((membershipError: unknown) => {
+        console.error('[Think] Design membership lookup failed:', describeApiError(membershipError));
+        return [];
+      });
       if (latestSelectRef.current !== id) return;
       if (parents.length === 1) { selectDesign(parents[0]!.parentNoteId, parents[0]!.role, id); return; }
       if (parents.length > 1) { setChoiceSourceId(id); setParentChoices(parents); return; }
@@ -316,7 +320,7 @@ export const NotesPage: React.FC = () => {
       if (latestSelectRef.current !== id) return;
       latestSelectRef.current = openDoc?.id ?? null;
       setSelectedId(openDoc?.id ?? null);
-      await alertDialog(err instanceof Error ? err.message : 'Could not open the note. Its saved content has not been changed.', { title: 'Could not open note', tone: 'danger' });
+      await alertDialog(describeApiError(err) || 'Could not open the note. Its saved content has not been changed.', { title: 'Could not open note', tone: 'danger' });
     } finally {
       setLoadingNoteId(current => current === id ? null : current);
     }
