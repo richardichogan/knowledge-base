@@ -28,7 +28,7 @@ export interface TurnMeasurementHealth {
   actionReliability: { measuredTurns: number; capabilityLoads: number; capabilityDenials: number; blockedCapabilities: number;
     receipts: number; warnings: number; contradictions: number; unconfirmedClaims: number };
   correctness: 'unreviewed';
-  evaluated: { deterministic: number; model: number; human: { up: number; down: number }; unreviewed: number };
+  evaluated: { deterministic: number; deterministicFailed: number; model: number; human: { up: number; down: number }; unreviewed: number };
   daily: Array<{ day: string; accepted: number; complete: number; failed: number }>;
   note: string;
 }
@@ -73,8 +73,10 @@ export async function readTurnMeasurements(
     GROUP BY "day" ORDER BY "day"`, [start, end, filters.environment, filters.persona]);
   const sum = (name: string): number => rows.reduce((total, row) => total + Number(row[name]), 0);
   const first = rows[0]?.first_at;
-  const evaluations = await db.query<{ deterministic: number; model: number }>(`SELECT
+  const evaluations = await db.query<{ deterministic: number; deterministic_failed: number; model: number }>(`SELECT
     COUNT(DISTINCT m.id) FILTER(WHERE e.method='deterministic')::int deterministic,
+    COUNT(DISTINCT m.id) FILTER(WHERE e.method='deterministic' AND EXISTS(
+      SELECT 1 FROM jsonb_array_elements(e.report->'checks') c WHERE c->>'verdict'='fail'))::int deterministic_failed,
     COUNT(DISTINCT m.id) FILTER(WHERE e.method='model')::int model
     FROM ai_turn_measurements m JOIN ai_trace_evaluations e ON e.trace_id=m.id AND e.status='completed'
     WHERE m.expires_at>NOW() AND m.started_at>=$1::timestamptz AND m.started_at<$2::timestamptz
@@ -108,7 +110,8 @@ export async function readTurnMeasurements(
       receipts: sum('action_receipts'), warnings: sum('action_warnings'), contradictions: sum('action_contradictions'),
       unconfirmedClaims: sum('action_unconfirmed') },
     correctness: 'unreviewed',
-    evaluated: { deterministic: Number(evaluations.rows[0]?.deterministic ?? 0), model: Number(evaluations.rows[0]?.model ?? 0),
+    evaluated: { deterministic: Number(evaluations.rows[0]?.deterministic ?? 0),
+      deterministicFailed: Number(evaluations.rows[0]?.deterministic_failed ?? 0), model: Number(evaluations.rows[0]?.model ?? 0),
       human: { up: ratedUp, down: ratedDown }, unreviewed: sum('finished') - reviewed },
     daily: rows.map(row => ({ day: String(row.day), accepted: Number(row.accepted), complete: Number(row.complete), failed: Number(row.failed) })),
     note: 'Seven-day, post-instrumentation chat turns only, including failures and interruptions. Recorded accepted turns are the denominator; telemetry database failures can leave uncounted turns and are logged. Active turns have unfinished capture. Signals count structured observations, not proof of correct intent or full source extraction. Page content, reads and errors overlap. No observed source is not proof retrieval was needed or no evidence existed in history/search. Completed after errors means the turn returned, not that the failed operation recovered. Reply saved means chat history persisted, not a requested edit or delivery. Correctness comes only from his 👍/👎 on replies and optional model reviews; no automated accuracy score is inferred.',

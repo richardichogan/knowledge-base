@@ -262,7 +262,7 @@ export interface HealthTurnMeasurements {
   transportRetries: number; modelErrors: number; toolErrors: number; correctness: 'unreviewed';
   actionReliability?: { measuredTurns: number; capabilityLoads: number; capabilityDenials: number; blockedCapabilities: number;
     receipts: number; warnings: number; contradictions: number; unconfirmedClaims: number };
-  evaluated: { deterministic: number; model: number; human: { up: number; down: number }; unreviewed: number };
+  evaluated: { deterministic: number; deterministicFailed: number; model: number; human: { up: number; down: number }; unreviewed: number };
   daily: Array<{ day: string; accepted: number; complete: number; failed: number }>; note: string;
 }
 export interface HealthTrace {
