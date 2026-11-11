@@ -70,6 +70,26 @@ test('a CMS request timeout remains uncertain rather than enabling a duplicate r
   assert.equal(result.payload.success, false);
 });
 
+test('a post with a dead link is not sent, and the verified replacement is named', async t => {
+  const sends = t.mock.method(globalThis, 'fetch', async () => new Response('{}', { status: 201 }));
+  const dead = 'https://partner.microsoft.com/en-us/training/advanced-specialization-made-up';
+  const good = 'https://learn.microsoft.com/partner-center/membership/ms-learn-associate';
+  const deps = {
+    check: async (url: string) => url === dead ? { url, status: 'broken' as const, reason: 'Page Not Found' } : { url, status: 'ok' as const, reason: 'ok' },
+    search: async () => [{ url: good, title: 'Link your Microsoft Learn account', snippet: '' }],
+    choose: async () => good,
+  };
+  const result = await sendToBlog(parsePublishBody({ ...fields, content: `<p>Read the <a href="${dead}">training guide</a>.</p>` }), deps);
+  assert.equal(result.httpStatus, 422);
+  assert.equal(sends.mock.callCount(), 0);
+  if (!result.payload.success) {
+    assert.equal(result.payload.error.code, 'DEAD_LINKS');
+    assert.ok(result.payload.error.message.includes(good));
+  }
+  const fine = await sendToBlog(parsePublishBody({ ...fields, content: `<p>Read the <a href="${good}">guide</a>.</p>` }), deps);
+  assert.equal(fine.payload.success, true);
+});
+
 test('generated drafts enforce canonical categories instead of returning an unpublishable package', () => {
   const parsed = parseBlogDraft(JSON.stringify({ ...fields, categories: [' ai ', 'AI', 'copilot', 'Quick Take'] }), null);
   assert.deepEqual(parsed.categories, ['AI', 'Copilot']);

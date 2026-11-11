@@ -409,6 +409,29 @@ export function linkBlockedMessage(problems: LinkProblem[]): string {
   return `I've held this back rather than give you a link I couldn't verify. I opened every link, and ${problems.length === 1 ? 'this one doesn\'t' : 'these don\'t'} lead to a working page, and I couldn't find a verified replacement:\n${lines.join('\n')}\n\nIf you know the right page, paste it in and I'll use it; otherwise I can redo this without ${problems.length === 1 ? 'that link' : 'those links'}.`;
 }
 
+export interface DeadLink extends LinkProblem { suggestion?: string }
+
+/**
+ * Links in content about to be published that definitely lead nowhere, each with a verified page
+ * to use instead when one exists. Pages that refuse checkers are not counted: they cannot be proven dead.
+ */
+export async function findDeadLinks(texts: string[], options: { signal?: AbortSignal | undefined; deps?: Partial<LinkFinderDeps> | undefined } = {}): Promise<DeadLink[]> {
+  const deps: LinkFinderDeps = { ...defaultDeps, ...options.deps };
+  const targets = extractLinks(texts.join('\n')).slice(0, MAX_LINKS);
+  const checks = await inBatches(targets, CHECK_CONCURRENCY, async target => ({ target, check: await deps.check(target.url, options.signal) }));
+  const dead = checks.filter(({ check }) => check.status === 'broken');
+  return Promise.all(dead.map(async ({ target, check }) => {
+    const replacement = await findReplacement(target, [], deps, options.signal).catch(() => null);
+    return { url: target.url, reason: check.reason, ...(replacement !== null && { suggestion: replacement.url }) };
+  }));
+}
+
+/** Why a post was not sent: each dead link, and the verified page to use in its place when one was found. */
+export function deadLinksMessage(dead: DeadLink[]): string {
+  const lines = dead.map(link => `- \`${shown(link.url)}\`: ${unlinked(link.reason)}${link.suggestion !== undefined ? `. A working page for it: ${link.suggestion}` : '. No verified replacement was found'}`);
+  return `Not sent: I opened every link in the post and ${dead.length === 1 ? 'this one doesn\'t' : 'these don\'t'} lead to a working page. Fix ${dead.length === 1 ? 'it' : 'them'} in the draft, then publish again:\n${lines.join('\n')}`;
+}
+
 export interface ToolExchange {
   role: string;
   content?: unknown;

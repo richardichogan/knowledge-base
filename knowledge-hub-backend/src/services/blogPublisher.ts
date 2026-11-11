@@ -10,6 +10,7 @@ import { BLOG_CATEGORIES, MAX_BLOG_TAGS, resolveBlogCategory } from '../ai/blogH
 export { MAX_BLOG_TAGS } from '../ai/blogHouseStyle.js';
 import { findBlogTropes, fixDashes } from '../ai/styleCheck.js';
 import { resolvePostUrl } from '../types/cmsPost.js';
+import { deadLinksMessage, findDeadLinks, type LinkFinderDeps } from '../ai/linkFinder.js';
 
 export interface BlogPublishBody { slug?: string; sourceUrl?: string; excerpt: string; status: 'draft' | 'published'; postType: PostType; title: string; content: string; summary: string; keyTakeaways: string[]; categories: string[]; tags: string[] }
 
@@ -88,10 +89,14 @@ function parseBlogBody(body: unknown, preservePodcastCopy: boolean, reviewOnly: 
 }
 
 /** Sends a post to the blog API and returns the HTTP status + JSON payload to relay to the client. */
-export async function sendToBlog(post: BlogPublishBody): Promise<BlogSendResult> {
+export async function sendToBlog(post: BlogPublishBody, linkDeps?: Partial<LinkFinderDeps>): Promise<BlogSendResult> {
   const key = env.BLOG_POSTS_API_KEY;
   if (!key) {
     return { httpStatus: HTTP_STATUS.SERVICE_UNAVAILABLE, payload: { success: false, error: { code: 'NOT_CONFIGURED', message: 'Blog publishing is not configured (BLOG_POSTS_API_KEY).' } } };
+  }
+  const dead = await findDeadLinks([post.content, post.summary, post.excerpt, ...post.keyTakeaways, post.sourceUrl ?? ''], { deps: linkDeps });
+  if (dead.length > 0) {
+    return { httpStatus: HTTP_STATUS.UNPROCESSABLE, payload: { success: false, error: { code: 'DEAD_LINKS', message: deadLinksMessage(dead) } } };
   }
   const response = await fetch(env.BLOG_POSTS_URL, {
     method: 'POST',
