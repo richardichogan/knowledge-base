@@ -429,6 +429,25 @@ test('budget calls share durable limits and unknown usage never replenishes rese
   assert.equal(Number(counters.rows[0]!.tokens_reserved), 1000);
 });
 
+test('known usage releases the unused conservative reservation so later steps keep their allowance', async t => {
+  const { pg, db, profileId, options } = await fixture(t);
+  await pg.query('UPDATE agent_budget_profiles SET enabled=TRUE WHERE id=$1', [profileId]);
+  const created = (await commissionAssignment(db, brief(), options)).assignment;
+  await workforceTransaction(db, client => transitionAssignment(client, created.id, created.revision, 'queued', 'running', { readiness: 'pending', reason: null }));
+  const owner = randomUUID();
+  const job = await pg.query<{ id: string }>(`UPDATE agent_jobs SET status='running',attempts=1,lease_owner=$2,
+    lease_until=clock_timestamp()+INTERVAL '1 minute' WHERE assignment_id=$1 RETURNING id`, [created.id, owner]);
+  const identity = { assignmentId: created.id, jobId: job.rows[0]!.id, attempt: 1, leaseOwner: owner };
+  const first = await workforceTransaction(db, client => reserveAssignmentCall(client, identity, 600));
+  await recordReservationUsage(db, first.id, 100);
+  await workforceTransaction(db, client => reserveAssignmentCall(client, identity, 900));
+  const counters = await pg.query<{ calls_reserved: number; tokens_reserved: string }>(
+    'SELECT calls_reserved,tokens_reserved FROM agent_assignments WHERE id=$1', [created.id],
+  );
+  assert.equal(Number(counters.rows[0]!.calls_reserved), 2);
+  assert.equal(Number(counters.rows[0]!.tokens_reserved), 1000);
+});
+
 test('underestimated provider usage is charged and blocks further work rather than silently passing', async t => {
   const { pg, db, profileId, options } = await fixture(t);
   await pg.query('UPDATE agent_budget_profiles SET enabled=TRUE WHERE id=$1', [profileId]);

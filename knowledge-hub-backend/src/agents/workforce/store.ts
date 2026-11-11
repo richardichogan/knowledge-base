@@ -297,7 +297,15 @@ export async function recordReservationUsage(db: Pool, reservationId: string, to
     );
     if (!saved.rowCount) throw new ConflictError('This usage reservation was already reconciled or is unavailable.', 'ASSIGNMENT_USAGE_CONFLICT');
     const overrun = tokens === null ? BigInt(0) : BigInt(tokens) - BigInt(row.tokens_reserved);
-    if (overrun <= BigInt(0)) return false;
+    if (overrun < BigInt(0)) {
+      // Known usage settles the conservative reservation down to the actual charge so later steps keep their allowance.
+      await client.query(
+        'UPDATE agent_assignments SET tokens_reserved=GREATEST(tokens_reserved+$2,0) WHERE id=$1',
+        [row.assignment_id, overrun.toString()],
+      );
+      return false;
+    }
+    if (overrun === BigInt(0)) return false;
     const changed = await client.query<{ revision: number }>(
       `UPDATE agent_assignments SET tokens_reserved=tokens_reserved+$2,readiness='blocked',revision=revision+1,
         status=CASE WHEN status='running' THEN 'waiting' ELSE status END,
