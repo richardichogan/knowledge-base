@@ -507,7 +507,10 @@ const TOOL_CAPABILITIES_BLURB_LINES = [
   '- For `search_knowledge_base` / `search_library` results: format each as a markdown link, ' +
     '`[Title](url)`, instead of writing the title as plain text — this is the only way the user can open ' +
     'the underlying commit, PR, issue, email, or document you found.',
-  'Never invent a url — only include a Link line or markdown link when the tool result actually provided one.',
+  'Never invent or guess a url, including in drafts, emails and posts — only include a link that a tool result ' +
+    'actually provided, that you opened with a tool, or that the user supplied. If you need a web page you have not ' +
+    'opened, search for it or open it first. Every link is opened before the user sees it or it is saved; a link that ' +
+    'leads nowhere is replaced or the reply is held back.',
   '',
   '## Weighing sources and surfacing connections',
   'search_knowledge_base covers everything indexed: his own notes (My Work/Think — only a small handful of ' +

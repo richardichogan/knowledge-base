@@ -54,7 +54,8 @@ import type { MapChangeProposal } from './mapEdits.js';
 import { LOCAL_FILE_TOOLS, localFilesPrompt, type LocalFileWriteProposal, type LocalFolder } from './localFiles.js';
 import type { DemoBookends } from '../utils/demoBookends.js';
 import { ukClock } from '../sync/ukClock.js';
-import { recordTurnTrace, setTraceProject, withTurnTrace, withTurnSpan } from './turnTrace.js';
+import { deferredTurnTraceRecorder, recordTurnTrace, setTraceProject, withTurnTrace, withTurnSpan } from './turnTrace.js';
+import { guardArgumentLinks, guardLinks, linkBlockedMessage, linkFixNote, linkRepairInstruction, toolEvidence, type LinkFix } from './linkFinder.js';
 import { startRoutingShadow } from './routingShadow.js';
 import { chatDraftNoteAction, executionFollowThroughRepair, isConversationalTurn, requestsOpenNoteEdit, unconfirmedNoteEditClaim } from './dialoguePolicy.js';
 
@@ -139,6 +140,8 @@ export interface TurnHooks {
   referenceBlock?: string;
   /** Moves this turn to the background (it looks like a long job); the chat carries on. */
   promoteToBackground?: () => void;
+  /** Registers where to record the turn moving to the background (timer fallback or predicted long task). */
+  traceBackground?: (record: (event: { reason: 'timer' | 'predicted'; afterMs: number }) => void) => void;
   /** The note this turn's edits are for, so other turns wait before editing it. */
   onTargetNote?: (noteId: string) => void;
   /** The background job running this turn. */
@@ -165,6 +168,27 @@ const WRITE_TOOLS = new Set([...WORK_WRITE_TOOLS, ...BUILD_WRITE_TOOLS, ...USE_C
 WRITE_TOOLS.add('design_script_visuals');
 WRITE_TOOLS.add('apply_script_visuals');
 
+/** Writes whose saved text can carry web links to people: every link in them is opened before saving. */
+const LINK_UNCHECKED_WRITES = new Set(['propose_local_file_write', 'forget_memory', 'apply_diagram_candidate', 'manage_scheduled_jobs', 'manage_publishing_feeds', 'manage_goals', 'manage_proactive', 'manage_decide_queue', 'refresh_discover_picks', 'import_meeting_list', 'hand_off_to_specialist']);
+const LINK_CHECKED_TOOLS = new Set([...WRITE_TOOLS].filter(name => !LINK_UNCHECKED_WRITES.has(name)));
+
+function userLinkText(userMessage: string, history: ConversationMessage[]): string[] {
+  return [userMessage, ...history.filter(m => m.role === 'user').map(m => m.content)];
+}
+
+/**
+ * Last line of defence: whatever route produced the reply, no link reaches the
+ * user unopened. Links already verified in the turn are cached, so this is cheap.
+ */
+async function finalLinkCheck(reply: string, userMessage: string, history: ConversationMessage[], hooks: TurnHooks | undefined): Promise<string> {
+  const guard = await guardLinks(reply, { userText: userLinkText(userMessage, history), signal: hooks?.signal });
+  if (guard.fixed.length === 0 && guard.unresolved.length === 0) return reply;
+  await recordTurnTrace('links.final_check', { checked: guard.checked, fixed: guard.fixed, unresolved: guard.unresolved });
+  hooks?.onReset?.();
+  if (guard.unresolved.length > 0) return linkBlockedMessage(guard.unresolved);
+  return `${guard.text}\n\n${linkFixNote(guard.fixed)}`;
+}
+
 function isStopped(hooks: TurnHooks): boolean {
   return hooks.signal?.aborted === true;
 }
@@ -181,10 +205,11 @@ function isStopped(hooks: TurnHooks): boolean {
  * AI_MAX_TOOL_ITERATIONS) until the model produces a final text reply.
  */
 export async function handleConversationTurn(...args: Parameters<typeof conversationTurn>): Promise<string> {
-  const [db, , userMessage, model, persona, sessionId, pageContext, , toolContext, hooks] = args;
+  const [db, history, userMessage, model, persona, sessionId, pageContext, , toolContext, hooks] = args;
   return withTurnTrace(db, sessionId, { message: userMessage, model, persona, pageContext,
     target: { noteId: toolContext?.noteId, designOwner: toolContext?.designOwner, podcastOwner: toolContext?.podcastOwner },
-    readOnly: hooks?.readOnlyTools === true }, hooks?.signal, () => conversationTurn(...args));
+    readOnly: hooks?.readOnlyTools === true }, hooks?.signal,
+    async () => finalLinkCheck(await conversationTurn(...args), userMessage, history, hooks));
 }
 
 function isLightSmallTalk(userMessage: string, hooks: TurnHooks): boolean {
@@ -251,6 +276,8 @@ async function conversationTurn(
   await recordTurnTrace('context.resolved', { pageContext,
     target: { noteId: toolContext.noteId, designOwner: toolContext.designOwner, podcastOwner: toolContext.podcastOwner },
     model, persona, readOnly: hooks.readOnlyTools === true });
+  const recordDeferred = deferredTurnTraceRecorder();
+  if (recordDeferred) hooks.traceBackground?.(event => { void recordDeferred('turn.background', event); });
   hooks.signal?.throwIfAborted();
   if (isLightSmallTalk(userMessage, hooks)) return smallTalkTurn(db, history, userMessage, model, persona, sessionId, hooks);
   startRoutingShadow({ userMessage, history, pageContext, persona, onLongTask: hooks.promoteToBackground });
@@ -547,6 +574,37 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
     return `${reason} I've left the unfinished edits as a preview below rather than putting them in the note.`;
   };
   if (hooks.maxToolRounds !== undefined) maxRounds = Math.min(maxRounds, Math.max(minimumToolRounds, Math.floor(hooks.maxToolRounds)));
+  // Link Finder: every link in a reply or a save is opened first; broken ones are swapped for a verified page.
+  let linkRepairUsed = false;
+  const toolLinkFixes: LinkFix[] = [];
+  const linkOptions = () => ({ userText: userLinkText(userMessage, history), signal: hooks.signal,
+    evidenceText: toolEvidence(messages) });
+  const checkReplyLinks = async (text: string, canRepair: boolean): Promise<{ repair: string } | { text: string }> => {
+    const guard = await guardLinks(text, linkOptions());
+    if (guard.checked > 0) await recordTurnTrace('links.checked', { checked: guard.checked, fixed: guard.fixed, unresolved: guard.unresolved, toolFixes: toolLinkFixes });
+    const note = linkFixNote([...toolLinkFixes, ...guard.fixed]);
+    if (guard.unresolved.length === 0) {
+      if (guard.fixed.length > 0) hooks.onReset?.();
+      return { text: note === '' ? guard.text : `${guard.text}\n\n${note}` };
+    }
+    hooks.onReset?.();
+    if (canRepair && !linkRepairUsed) {
+      linkRepairUsed = true;
+      return { repair: linkRepairInstruction(guard.unresolved) };
+    }
+    return { text: [linkBlockedMessage(guard.unresolved), note].filter(Boolean).join('\n\n') };
+  };
+  const checkToolLinks = async (name: string, argumentsJson: string): Promise<string> => {
+    const guard = await guardArgumentLinks(parseToolArgs(argumentsJson), linkOptions());
+    if (guard.checked === 0) return argumentsJson;
+    await recordTurnTrace('links.tool_checked', { name, checked: guard.checked, fixed: guard.fixed, unresolved: guard.unresolved });
+    if (guard.unresolved.length > 0) {
+      throw new Error(`Nothing was saved. Every link was opened and these do not lead to a working page, with no verified replacement found: ${guard.unresolved.map(p => `${p.url} (${p.reason})`).join('; ')}. Never invent or guess a web address: remove these links, or search/open the right page first and use only an address you have opened.`);
+    }
+    if (guard.fixed.length === 0) return argumentsJson;
+    toolLinkFixes.push(...guard.fixed);
+    return JSON.stringify(guard.args);
+  };
   for (let i = 0; i < maxRounds; i++) {
     if (isStopped(hooks)) throw new AiStoppedError();
     hooks.onActivity?.(i === 0 ? 'Thinking' : 'Reading what I found');
@@ -719,6 +777,12 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
           const seenIds = collectIds(userMessage, ...history.map((m) => m.content), ...[...ledger.entries.values()].map((e) => e.ref.id), ...(used?.auto ?? []).map((s) => s.id), ...(used?.found ?? []).map((s) => s.id));
           const idsBeforeStrip = collectIds(answerText).size;
           answerText = stripUnseenIds(answerText, seenIds);
+          const linked = await checkReplyLinks(answerText, !wrapUp && i < maxRounds - 1);
+          if ('repair' in linked) {
+            messages.push({ role: 'user', content: linked.repair });
+            continue;
+          }
+          answerText = linked.text;
           const counts = ledgerCounts(ledger);
           const entries = [...ledger.entries.values()];
           // Counts and categories only: the answer text is inspected in memory and never stored.
@@ -744,7 +808,12 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
             : '';
           return finalizeEvidenceAnswer([answerText, unreadNote].filter(Boolean).join('\n\n'), { budget, counts, retrievalUsed: retrievalRan, deterministicPath: deterministicRan, deterministicComplete: deterministicComplete && !budget.partial });
         }
-        return response.content;
+        const linked = await checkReplyLinks(response.content, !wrapUp && i < maxRounds - 1);
+        if ('repair' in linked) {
+          messages.push({ role: 'user', content: linked.repair });
+          continue;
+        }
+        return linked.text;
       }
       // A reasoning model (or a content filter) can return an empty visible
       // reply — surfacing that as a blank chat bubble looks like the app is
@@ -871,6 +940,9 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
               args['maxChars'] = Math.min(typeof requested === 'number' ? requested : documentReview ? MAX_PAGE_CHARS : DEFAULT_PAGE_CHARS, room);
               toolArguments = JSON.stringify(args);
             }
+          }
+          if (LINK_CHECKED_TOOLS.has(call.function.name) && hooks.readOnlyTools !== true) {
+            toolArguments = await checkToolLinks(call.function.name, toolArguments);
           }
           const execute = async (argumentsJson: string): Promise<unknown> => {
             return withTurnSpan(call.function.name, 'tool', async () => {

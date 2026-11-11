@@ -5,7 +5,9 @@
 import { XMLParser } from 'fast-xml-parser';
 import { lookup } from 'node:dns/promises';
 import { isIPv4, isIPv6 } from 'node:net';
+import { fetch as undiciFetch } from 'undici';
 import { rethrowAssignmentControl, withAssignmentResearch } from '../../agents/workforce/modelBudget.js';
+import { agentForHost, isMissingIssuerError } from '../../utils/aiaTls.js';
 
 export interface FeedArticle {
   title: string;
@@ -126,7 +128,7 @@ function isPrivateAddress(address: string): boolean {
   return true;
 }
 
-async function assertPublicUrl(raw: string): Promise<URL> {
+export async function assertPublicUrl(raw: string): Promise<URL> {
   let url: URL;
   try { url = new URL(raw); } catch { throw new Error('not a valid address'); }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('only http and https addresses are allowed');
@@ -143,12 +145,24 @@ const MAX_REDIRECTS = 5;
 export async function fetchPublic(raw: string, init: { headers: Record<string, string>; timeoutMs: number }): Promise<Response> {
   let url = await assertPublicUrl(raw);
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    const response = await withAssignmentResearch(signal => fetch(url, {
-      headers: init.headers, redirect: 'manual',
-      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(init.timeoutMs)]) : AbortSignal.timeout(init.timeoutMs),
-    }));
+    const target = url;
+    const response = await withAssignmentResearch(async signal => {
+      const options = {
+        headers: init.headers, redirect: 'manual' as const,
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(init.timeoutMs)]) : AbortSignal.timeout(init.timeoutMs),
+      };
+      try {
+        return await fetch(target, options);
+      } catch (err) {
+        if (target.protocol !== 'https:' || !isMissingIssuerError(err)) throw err;
+        const agent = await agentForHost(target.hostname, Number(target.port || 443), assertPublicUrl);
+        if (agent === null) throw err;
+        return await undiciFetch(target, { ...options, dispatcher: agent }) as unknown as Response;
+      }
+    });
     const location = response.headers.get('location');
     if (response.status >= 300 && response.status < 400 && location !== null) {
+      await response.body?.cancel().catch(() => undefined);
       url = await assertPublicUrl(new URL(location, url).toString());
       continue;
     }

@@ -90,13 +90,18 @@ export function startTurnJob(
   };
   jobs.set(job.id, job);
   if (trackForSession) jobBySession.set(sessionId, job.id);
-  const promote = (): void => {
+  type BackgroundEvent = { reason: 'timer' | 'predicted'; afterMs: number };
+  let promoted: BackgroundEvent | null = null;
+  let recordBackground: ((event: BackgroundEvent) => void) | null = null;
+  const promote = (reason: BackgroundEvent['reason']): void => {
     if (!trackForSession || job.background || job.claimed || job.outcome !== null || job.controller.signal.aborted) return;
     emit(job, { type: 'background' });
     if (jobBySession.get(sessionId) === job.id) jobBySession.delete(sessionId);
     onBackground?.();
+    promoted = { reason, afterMs: Date.now() - Date.parse(job.startedAt) };
+    recordBackground?.(promoted);
   };
-  const backgroundTimer = trackForSession ? setTimeout(promote, BACKGROUND_AFTER_MS) : undefined;
+  const backgroundTimer = trackForSession ? setTimeout(() => promote('timer'), BACKGROUND_AFTER_MS) : undefined;
   backgroundTimer?.unref();
 
   let deadline: ReturnType<typeof setTimeout>;
@@ -112,7 +117,8 @@ export function startTurnJob(
     onActivity: (text) => { if (!job.controller.signal.aborted) emit(job, { type: 'activity', text }); },
     onReadingProgress: refreshDeadline,
     signal: job.controller.signal,
-    promoteToBackground: promote,
+    promoteToBackground: () => promote('predicted'),
+    traceBackground: (record) => { recordBackground = record; if (promoted) record(promoted); },
     onTargetNote: (noteId) => { job.noteId = noteId; },
     turnId: job.id,
   };

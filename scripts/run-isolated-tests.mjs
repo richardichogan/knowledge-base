@@ -167,6 +167,7 @@ const tests = frontend ? [
   'scripts/semantic-rules.test.ts',
   'scripts/semantic-decisions.test.ts',
   'scripts/semantic-routes.test.ts',
+  'scripts/link-finder.test.ts',
 ];
 // Do not inherit local integration credentials or let dotenv load application settings.
 const allowed = new Set(['PATH', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'HOME', 'USERPROFILE', 'COMSPEC', 'PATHEXT']);
