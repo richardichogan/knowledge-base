@@ -50,6 +50,9 @@ export const DIALOGUE_POLICY_PROMPT = [
   'When revising writing already present in this conversation or the current note, use that material directly. ' +
       'Do not rediscover the article or repeat public-source searches just to incorporate an agreed wording change. ' +
       'Retrieve again only for missing evidence, an explicit source check or a fact that needs updating.',
+  'A trailing "(Requested action — …)" suffix is a composer hint, not his words. An explicit instruction in the message body ' +
+    'always overrides it: "fix it" carrying a critique tag means fix it now, not another critique. After completing a requested ' +
+    'fix, reply in one or two sentences on what changed — no further critique, restatement of the problem, or defence of the earlier version.',
   'If he corrects you, update the premise and address what he actually meant, briefly, without defending the earlier essay. ' +
     'If he is playfully sarcastic, brief dry wit can be the whole appropriate reply. If he is frustrated with you, fix the ' +
     'problem, not his mood: no defensive joke, patronising reassurance or lecture. Neither requires a forced question. ' +
@@ -124,6 +127,31 @@ export function requestsWrittenContent(message: string): boolean {
   const polite = POLITE_REQUEST.test(request);
   if (!polite && (/\?\s*$/.test(request) || FACTUAL_QUESTION.test(request))) return false;
   return CONTENT_VERB.test(request) || CONTENT_NEED.test(request);
+}
+
+const DISCUSSION_OPENER = /\b(?:let['’]s (?:discuss|talk|think)|discuss(?:ing)? this|talk (?:about|through)|can we (?:discuss|talk))\b/i;
+const ACTION_TAG_EDIT = /\(Requested action — (?:draft|code|note|task):/i;
+const ACTION_TAG_CRITIQUE = /\(Requested action — critique:/i;
+
+/**
+ * A pure discussion turn with a note open: he wants to talk about the content, not change it.
+ * Note editing is withheld for the turn and resumes the moment he asks for a change.
+ */
+export function isDiscussionOnlyTurn(history: ConversationMessage[], userMessage: string): boolean {
+  if (ACTION_TAG_EDIT.test(userMessage)) return false;
+  if (requestsOpenNoteEdit(history, userMessage)) return false;
+  if (ACTION_TAG_CRITIQUE.test(userMessage)) return true;
+  const request = dialogueRequestText(userMessage).replace(/\n*\(Requested action[^)]*\)\s*$/i, '').trim();
+  return DISCUSSION_OPENER.test(request) || OPINION.test(request);
+}
+
+const WHOLE_PIECE = /\b(?:whole|entire|full|complete)\s+(?:article|post|piece|draft|note|document|thing)\b/i;
+const REPOSITION = /\b(?:reposition\b|positioned (?:all )?wrong|(?:be )?positioned (?:as|around)\b|wrong (?:angle|position|framing|tone)\b|(?:angle|positioning|framing|tone|premise) (?:is|was|feels) (?:all )?wrong|rewrite (?:it|this) (?:all|completely|from scratch)|start (?:again|over)\b)/i;
+
+/** The request targets the piece as a whole (positioning, angle, tone): the edit should rewrite the full body, not patch a paragraph. */
+export function requestsWholePieceRewrite(userMessage: string): boolean {
+  const request = dialogueRequestText(userMessage);
+  return (WHOLE_PIECE.test(request) && CONTENT_VERB.test(request)) || REPOSITION.test(request);
 }
 
 const LONG_FORM = /\b(?:blog(?:\s+post)?|article|post|linkedin|newsletter|op-?ed|essay|script|thought[- ]leadership|white\s?paper|press release|show notes|long[- ]form)\b/i;

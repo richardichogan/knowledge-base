@@ -71,7 +71,7 @@ const ACTION_DIRECTIVES: Record<ComposerAction, string> = {
 /** Ordered most-specific first — the first pattern to match wins. */
 const ACTION_PATTERNS: Array<{ action: ComposerAction; pattern: RegExp }> = [
   { action: 'task', pattern: /\b(add a task|action item|to-?do|remind me to|task board|taskboard)\b/i },
-  { action: 'critique', pattern: /\b(critique|poke holes|tear apart|sanity check|challenge this|weak points|feedback on)\b/i },
+  { action: 'critique', pattern: /\b(critique (?:this|that|it|my|the|our|of)|poke holes|tear apart|sanity check|challenge this|weak points|feedback on)\b/i },
   { action: 'code', pattern: /\b(refactor|stack trace|typescript|javascript|regex|compile error|unit test|this function|code sample)\b/i },
   {
     action: 'note',
@@ -87,6 +87,13 @@ const ACTION_PATTERNS: Array<{ action: ComposerAction; pattern: RegExp }> = [
  * is a question, never a request to produce something, whatever else it mentions.
  */
 const QUESTION_INTENT = /\b(review|assess|evaluate|analy[sz]e|summari[sz]e|explain|compare|what do you think|does (this|it|that)|is (this|it|that)|am i|are (we|they)|should (i|we)|why|how (does|do|would|can))\b/i;
+
+/**
+ * A complaint or correction about the assistant's behaviour. Inferring an action
+ * from one ("you've gone from doing a critique to…") re-attaches the very
+ * directive being complained about, so no action is inferred at all.
+ */
+const CORRECTION_INTENT = /\b(?:you(?:'ve|’ve| have)? (?:now )?(?:gone|turned|changed|drifted)|that(?:'s|’s| is) not what|not what I (?:asked|meant|wanted)|you (?:are|'re|’re) (?:still )?(?:missing|wrong)|stop (?:doing|explaining|critiquing)|I did(?:n'?t| not) ask)\b/i;
 
 const SLASH_COMMAND_RE = /^\/([a-z]+)(?=\s|$)/i;
 const MENTION_RE = /(^|\s)@([a-z0-9][a-z0-9-]*)/gi;
@@ -123,6 +130,7 @@ function inferProject(text: string, projects: ComposerProject[]): ComposerProjec
 }
 
 function inferAction(text: string): ComposerAction | undefined {
+  if (CORRECTION_INTENT.test(text)) return undefined;
   const found = ACTION_PATTERNS.find(({ pattern }) => pattern.test(text))?.action;
   // A draft is never inferred for a question or review; an explicit "critique" or "task" still is.
   if (found === 'draft' && QUESTION_INTENT.test(text)) return undefined;

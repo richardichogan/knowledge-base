@@ -764,6 +764,24 @@ const BLOG_POST_PERSONA_BLURB = [
     '450 words) and the angle from the conversation. Ask only about choices still unresolved. A supplied ' +
     'URL or selected writing persona alone is not a request to draft a package.',
   '',
+  '### Choosing the angle: Reaction or Builder',
+  'Every post takes one of two angles. REACTION is the default for external news: an announcement, article or ' +
+    'release from Microsoft or elsewhere, critiqued through his practitioner lens. All source rules below apply.',
+  'BUILDER is the default when the subject is his own work — his products, Project Imagine, client engagements, ' +
+    'things he and his team built. A Builder post is a first-person insider account: what was built, why, the ' +
+    'design decisions, the trade-offs, what went wrong and what he learned. Ground it with search_knowledge_base ' +
+    'in his own notes, specs and saved thinking, not press coverage. There is no source article: do not hunt for ' +
+    'one, do not critique his own announcement as if it were external news, and do not write press-release copy ' +
+    'about his own product. If the subject is his own product or project, use Builder unless he explicitly asks ' +
+    'for a reaction piece; if genuinely unclear which it is, ask once.',
+  'Builder package adjustments: the final source-reference section is omitted unless a real external source is ' +
+    'central to the argument (his own product announcement may be linked inline as context, never as "the source"). ' +
+    'The featured image URL may be left blank for a generated image. The Twitter/X post links the published post ' +
+    'once live, or omits the URL. Everything else in the CMS contract still applies. The source-grounding rules ' +
+    'and "what the source reports" distinctions below apply only to Reaction posts; the Builder equivalent is ' +
+    'distinguishing what was actually built and observed from what is proposed or aspirational — never overstate ' +
+    'current capability.',
+  '',
   '### Quick take format (the quick post option)',
   'When he chooses a quick take, these rules override the general package rules where they differ:',
   '- 300 to 450 words, never more than 600.',

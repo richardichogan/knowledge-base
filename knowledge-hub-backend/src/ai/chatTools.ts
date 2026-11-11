@@ -89,6 +89,8 @@ const NOTE_EDIT_REVIEW_TIMEOUT_MS = 25_000;
 const rejectedRewrites = new WeakSet<object>();
 const NOTE_EDIT_REVIEW_TOKENS = 1800;
 import { prepareAutomaticTaskAssistance } from '../work/taskAssistanceQueue.js';
+import { loadNoteBlogPackage } from '../services/noteBlogPackage.js';
+import { parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
 import { TRACE_TOOLS, TRACE_TOOL_NAMES, executeTraceTool } from './traceTools.js';
 import { LEDGER_TOOLS, LEDGER_TOOL_NAMES, executeLedgerTool } from './ledgerTools.js';
 import { HEALTH_TOOL, executeHealthTool } from './healthTools.js';
@@ -159,6 +161,21 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
       },
     },
     REVIEW_DECISIONS_DEFINITION,
+    {
+      type: 'function',
+      function: {
+        name: 'publish_blog_note',
+        description: 'Publishes the open Blog draft note directly to The Microsoft Cloud Blog. Use ONLY when the user explicitly asks to publish this note — never on your own initiative, never to "save" or back up work. status must match his words: "published" only when he clearly asked to put it live; "draft" sends it to the CMS as a draft for him to review in the blog admin. The saved note body is parsed as the CMS package (Title, Slug, Content, Excerpt, Summary TL;DR, Key takeaways, Categories, Tags); if required fields are missing the blog rejects it — fix the note first via propose_note_edit rather than inventing values. Report the returned live/edit URL back to him; if the call fails, say so plainly — nothing was published.',
+        parameters: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            noteId: { type: 'string', description: 'The open Blog draft note UUID.' },
+            status: { type: 'string', enum: ['draft', 'published'], description: '"published" puts the post live; "draft" creates a CMS draft for review.' },
+          },
+          required: ['noteId', 'status'],
+        },
+      },
+    },
     {
       type: 'function',
       function: {
@@ -1203,6 +1220,27 @@ export async function executeToolCall(
   if (LOCAL_FILE_TOOL_NAMES.has(name)) return executeLocalFileTool(db, name, args, turn.localFolders ?? [], turn.localFileWrites);
 
   switch (name) {
+    case 'publish_blog_note': {
+      if (turn.readOnly) return { error: 'This turn is read-only. Nothing was published.' };
+      const noteId = typeof args['noteId'] === 'string' ? args['noteId'] : '';
+      if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(noteId)) return { error: 'Provide the open Blog draft note UUID. Nothing was published.' };
+      if (turn.excludedIds?.has(noteId.toLowerCase()) || turn.exclusionsFailed) return { error: 'This note is unavailable in this conversation. Nothing was published.' };
+      try {
+        await turn.beforeNoteEdit?.();
+        const pkg = await loadNoteBlogPackage(db, noteId);
+        const status = args['status'] === 'published' ? 'published' : 'draft';
+        const post = parsePublishBody({ ...pkg, status });
+        const sent = await sendToBlog(post);
+        if (!sent.payload.success) return { error: sent.payload.error.message, code: sent.payload.error.code };
+        return {
+          status: sent.payload.data.status, url: sent.payload.data.url, editUrl: sent.payload.data.editUrl,
+          ...(pkg.missing.length > 0 ? { missingFields: pkg.missing } : {}),
+        };
+      } catch (error) {
+        console.error('[Blog note publish] Failed:', error);
+        return { error: error instanceof Error ? error.message : 'Publishing failed. Nothing was published.' };
+      }
+    }
     case 'create_design': {
       const sourceId = args['sourceNoteId'];
       const title = typeof args['title'] === 'string' ? args['title'].trim().slice(0, 200) : '';

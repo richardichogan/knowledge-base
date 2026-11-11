@@ -60,6 +60,7 @@ import { applyReviewedNoteText } from '../utils/noteEditApplier';
 import { runNoteAction } from '../utils/activeBlockNoteEditor';
 import { PassageTagManager } from './PassageTagManager';
 import { ScriptTools } from './ScriptTools';
+import { BlogTools } from './BlogTools';
 import { consumePassageNavigation, passageNavigationSnapshot, subscribePassageNavigation } from './passageNavigation';
 import { prepareTaggedPaste } from './passageTags';
 import { passageTagKeys } from './passageTagModel';
@@ -1503,6 +1504,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
           {!showingHtml && contentType === 'email-draft' && <EmailDraftFields work={work} disabled={historyBusy || externalBusy || work.busy || work.recoveryConflict} />}
           <div className={`notes-editor-inner${contentType === 'script' ? ' notes-editor-inner--script' : ''}`} hidden={showingHtml || bodyContent !== undefined}>
             {contentType === 'script' && <ScriptTools editor={editor} disabled={historyBusy || externalBusy} noteId={doc.id} save={doSave} onPresent={onPresent} onOpenVisuals={onOpenVisuals} onStopPresenting={onStopPresenting} />}
+            {contentType === 'blog' && <BlogTools noteId={doc.id} title={doc.title} disabled={historyBusy || externalBusy} save={doSave} />}
             <BlockNoteViewWrapper
               editor={editor}
               theme={BLOCKNOTE_G100_THEME}

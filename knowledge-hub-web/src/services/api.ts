@@ -786,6 +786,13 @@ export interface BlogDraft {
   postType: 'article' | 'weekly' | 'newsletter' | 'podcast' | 'quick'; sourceUrl: string | null;
 }
 
+/** CMS draft fields parsed from a Blog draft note, ready for direct publishing. */
+export interface NoteBlogPackage extends Omit<BlogDraft, 'sourceUrl'> {
+  slug?: string;
+  /** CMS fields the note did not supply. */
+  missing: string[];
+}
+
 export interface BlogJobResult {
   workforceAssignmentId?: string;
   url: string;
@@ -2256,6 +2263,14 @@ export class KnowledgeHubApi {
 
   async publishBlogPost(id: string, post: Omit<BlogDraft, 'sourceUrl'> & { status: 'draft' | 'published'; jobId: string }): Promise<ApiResponse<{ editUrl: string | null; url: string | null; status: 'draft' | 'published' }>> {
     return (await this.client.post<ApiResponse<{ editUrl: string | null; url: string | null; status: 'draft' | 'published' }>>(`/api/discover/${id}/blog-publish`, post, { timeout: CHAT_TIMEOUT_MS })).data;
+  }
+
+  async getNoteBlogPackage(noteId: string): Promise<ApiResponse<NoteBlogPackage>> {
+    return (await this.client.get<ApiResponse<NoteBlogPackage>>(`/api/notes/${noteId}/blog-package`, { timeout: CHAT_TIMEOUT_MS })).data;
+  }
+
+  async publishNoteBlogPost(noteId: string, post: Omit<BlogDraft, 'sourceUrl'> & { slug?: string; status: 'draft' | 'published' }): Promise<ApiResponse<{ editUrl: string | null; url: string | null; status: 'draft' | 'published' }>> {
+    return (await this.client.post<ApiResponse<{ editUrl: string | null; url: string | null; status: 'draft' | 'published' }>>(`/api/notes/${noteId}/blog-publish`, post, { timeout: CHAT_TIMEOUT_MS })).data;
   }
 
   async getDiscoverFeed(

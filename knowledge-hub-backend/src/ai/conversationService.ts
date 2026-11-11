@@ -57,7 +57,7 @@ import { ukClock } from '../sync/ukClock.js';
 import { deferredTurnTraceRecorder, recordTurnTrace, setTraceProject, withTurnTrace, withTurnSpan } from './turnTrace.js';
 import { guardArgumentLinks, guardLinks, linkBlockedMessage, linkFixNote, linkRepairInstruction, toolEvidence, type LinkFix } from './linkFinder.js';
 import { startRoutingShadow } from './routingShadow.js';
-import { chatDraftNoteAction, executionFollowThroughRepair, isConversationalTurn, requestsOpenNoteEdit, unconfirmedNoteEditClaim } from './dialoguePolicy.js';
+import { chatDraftNoteAction, executionFollowThroughRepair, isConversationalTurn, isDiscussionOnlyTurn, requestsOpenNoteEdit, requestsWholePieceRewrite, unconfirmedNoteEditClaim } from './dialoguePolicy.js';
 
 const RAG_USED_LIMIT = 10;
 const TOOL_ERROR_LOG_CHARS = 400;
@@ -167,6 +167,7 @@ const NOTE_EDIT_MAX_TOKENS = 14_000;
 const WRITE_TOOLS = new Set([...WORK_WRITE_TOOLS, ...BUILD_WRITE_TOOLS, ...USE_CASE_WRITE_TOOLS, ...DESIGN_READINESS_WRITE_TOOLS, 'apply_diagram_candidate', 'generate_project_progress_review', 'update_podcast_script', 'replace_podcast_youtube_link', 'save_design_documents', 'set_content_plan', 'create_task', 'update_task', 'create_note_draft', 'create_spark', 'propose_note_edit', 'propose_map_changes', 'propose_local_file_write', 'remember', 'forget_memory', 'save_output', 'manage_scheduled_jobs', 'manage_publishing_feeds', 'manage_goals', 'manage_proactive', 'manage_decide_queue', 'refresh_discover_picks', 'hand_off_to_specialist', 'import_meeting_list', 'create_design', ...ASSET_WRITE_TOOLS]);
 WRITE_TOOLS.add('design_script_visuals');
 WRITE_TOOLS.add('apply_script_visuals');
+WRITE_TOOLS.add('publish_blog_note');
 
 /** Writes whose saved text can carry web links to people: every link in them is opened before saving. */
 const LINK_UNCHECKED_WRITES = new Set(['propose_local_file_write', 'forget_memory', 'apply_diagram_candidate', 'manage_scheduled_jobs', 'manage_publishing_feeds', 'manage_goals', 'manage_proactive', 'manage_decide_queue', 'refresh_discover_picks', 'import_meeting_list', 'hand_off_to_specialist']);
@@ -448,6 +449,7 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
     ...(toolContext.podcastOwner ? PODCAST_CHAT_TOOLS : []), ...(localFolders.length > 0 ? LOCAL_FILE_TOOLS : [])];
   hooks.signal?.throwIfAborted();
   const noteOpen = toolContext.noteId !== undefined && toolContext.noteId !== '' && !toolContext.noteId.startsWith('doc:') && mapId === undefined;
+  const discussionOnly = noteOpen && isDiscussionOnlyTurn(safeHistory, userMessage);
   const permittedTools = (hooks.readOnlyTools === true ? allTools.filter((t) => !WRITE_TOOLS.has(t.function.name)) : allTools)
     .filter(t => hooks.allowedTools === undefined || hooks.allowedTools.includes(t.function.name))
     .filter(t => hooks.allowedWriteTools === undefined || !WRITE_TOOLS.has(t.function.name) || hooks.allowedWriteTools.includes(t.function.name))
@@ -455,6 +457,8 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
     .filter(t => !toolContext.podcastOwner || !['create_note_draft', 'update_note', 'save_output'].includes(t.function.name))
     .filter((t) => hooks.noOutputsPanel !== true || t.function.name !== 'save_output')
     .filter((t) => !['propose_note_edit', 'read_note_layout'].includes(t.function.name) || noteOpen)
+    .filter((t) => t.function.name !== 'publish_blog_note' || noteOpen && !design && !toolContext.podcastOwner)
+    .filter((t) => !discussionOnly || t.function.name !== 'propose_note_edit')
     .filter((t) => !['read_script_visuals', 'design_script_visuals', 'apply_script_visuals'].includes(t.function.name) || noteOpen && !design && !toolContext.podcastOwner)
     .filter((t) => t.function.name !== 'propose_map_changes' || mapOutlineResult !== null);
   const catalog = new ToolCatalog(permittedTools);
@@ -497,8 +501,11 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
     `Persona: ${persona ?? 'general'}. ${hooks.readOnlyTools === true ? 'Read-only turn: mutation tools are withheld.' : 'Only the supplied tools can perform actions.'}`,
     `Protected live-note editing: ${permittedTools.some(tool => tool.function.name === 'propose_note_edit') ? 'available; explicitly requested edits apply and save automatically through the live editor. delivery=preview only for an explicitly requested preview. The tool acceptance is not a save receipt: the editor reports save success or failure. Do not tell Richard to click Apply for ordinary edits.' : 'unavailable in this turn'}.`,
     `Canvas change preview: ${permittedTools.some(tool => tool.function.name === 'propose_map_changes') ? 'available; requires user application' : 'unavailable in this turn'}.`,
-    noteOpen && permittedTools.some(tool => tool.function.name === 'propose_note_edit')
+    discussionOnly
+      ? 'Writing destination: none this turn. He asked to discuss or critique, not to change anything. Reply conversationally in chat; do not edit the note or create documents. Note editing resumes the moment he asks for a change.'
+      : noteOpen && permittedTools.some(tool => tool.function.name === 'propose_note_edit')
       ? 'Writing destination: the open note. Any request to draft, write, add, include, incorporate or change content goes into that note with propose_note_edit, integrated into the full piece — never a standalone fragment in chat. Only an explicit "in chat" or "don\'t change the note" keeps writing out of the note. Questions and opinions are answered in chat.'
+        + (requestsWholePieceRewrite(userMessage) ? ' This request targets the piece as a whole (positioning, angle or tone): rewrite the complete body in one propose_note_edit so every section reflects the new direction; do not patch only the opening paragraph.' : '')
       : chatDraft?.tool === 'update_note'
         ? `Writing destination: this conversation is drafting into Think note ${chatDraft.noteId}. Apply requested additions or changes with update_note (noteId ${chatDraft.noteId}, mode "replace") carrying the complete revised piece, then give the Link line. Do not reply with a standalone fragment.`
         : 'Writing destination: with no note open, a requested blog post, article, LinkedIn post, script or similar long-form piece goes into a new Think note with create_note_draft (the complete piece; not save_output), then give the Link line. Later revisions in this conversation update that note with update_note (mode "replace", complete revised piece).',

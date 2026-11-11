@@ -16738,6 +16738,42 @@ fieldset.proj-modal-body {
   font-size: var(--kh-text-meta);
   line-height: 1.5;
 }
+.kh-blog-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cds-spacing-04);
+  margin-bottom: var(--cds-spacing-04);
+  &--sticky {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    padding-block: var(--cds-spacing-03);
+    border-bottom: 1px solid var(--cds-border-subtle-01);
+    background: var(--cds-background);
+  }
+  &__publish {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--cds-spacing-03);
+    min-height: var(--kh-control-height-compact);
+    white-space: nowrap;
+    svg { flex-shrink: 0; }
+    &:hover:not(:disabled) { background: var(--cds-layer-hover-01); }
+    &:disabled { opacity: 0.5; cursor: not-allowed; }
+    &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
+  }
+  &__hint {
+    color: var(--cds-text-helper);
+    font-size: var(--kh-text-meta);
+    line-height: 1.5;
+  }
+  &__error {
+    color: var(--cds-support-error);
+    font-size: var(--kh-text-meta);
+    line-height: 1.5;
+  }
+}
 .notes-editor-inner--script {
   --kh-script-editor-gutter: var(--cds-spacing-06);
   > .kh-script-tools, > .kh-script-tools__hint, > .kh-script-section__error {

@@ -39,6 +39,8 @@ import { getFoundryClient } from '../ai/foundryClient.js';
 import { prepareAutomaticTaskAssistance } from '../work/taskAssistanceQueue.js';
 import { queueScriptVisuals } from '../services/scriptVisualJobs.js';
 import { ensureNoteInsights, dismissNoteInsight } from '../ai/noteInsights.js';
+import { assertBlogNote, loadNoteBlogPackage } from '../services/noteBlogPackage.js';
+import { parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
 
 const router = Router();
 // Any note write can add, edit or remove a definition Athena relies on.
@@ -60,6 +62,29 @@ function parseTagIds(value: unknown, name = 'tagIds'): string[] {
   }
   return [...new Set(ids)];
 }
+
+// Blog draft notes publish directly to The Microsoft Cloud Blog (no background job involved).
+router.get('/:id/blog-package', (req, res, next) => {
+  void (async (): Promise<void> => {
+    try {
+      if (!req.params['id']) throw new ValidationError('Invalid note identifier');
+      const data = await loadNoteBlogPackage(getDb(), req.params['id']);
+      res.json({ success: true, data });
+    } catch (error) { next(error); }
+  })();
+});
+
+router.post('/:id/blog-publish', (req, res, next) => {
+  void (async (): Promise<void> => {
+    try {
+      if (!req.params['id']) throw new ValidationError('Invalid note identifier');
+      await assertBlogNote(getDb(), req.params['id']);
+      const post = parsePublishBody(req.body);
+      const sent = await sendToBlog(post);
+      res.status(sent.httpStatus).json(sent.payload);
+    } catch (error) { next(error); }
+  })();
+});
 
 router.post('/:id/script-visuals/jobs', (req, res, next) => {
   void (async (): Promise<void> => {

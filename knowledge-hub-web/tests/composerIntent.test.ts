@@ -23,6 +23,28 @@ test('explicitly capturing material as a Think note still infers note creation',
   assert.equal(intent.effectiveAction, 'note');
 });
 
+test('complaints and corrections never infer an action, even when they mention critique', () => {
+  for (const input of [
+    "you've now gone from doing a critique to explaining what a good post looks like",
+    'That is not what I asked for, stop critiquing',
+    "I didn't ask for a critique of my complaint",
+  ]) {
+    const intent = buildComposerIntent({ input, projects: [], activeProjectId: '' });
+    assert.equal(intent.effectiveAction, undefined, input);
+  }
+});
+
+test('imperative critique requests still infer the critique action', () => {
+  for (const input of ['Critique this draft for me', 'Can you poke holes in my argument?']) {
+    const intent = buildComposerIntent({ input, projects: [], activeProjectId: '' });
+    assert.equal(intent.effectiveAction, 'critique', input);
+  }
+  assert.equal(
+    buildComposerIntent({ input: 'The critique section needs work', projects: [], activeProjectId: '' }).effectiveAction,
+    undefined,
+  );
+});
+
 test('Spec is an explicit per-message action with bounded, grounded agent handoff requirements', () => {
     const intent = buildComposerIntent({ input: '/spec Add document mentions', projects: [], activeProjectId: '' });
     assert.equal(intent.effectiveAction, 'spec');
