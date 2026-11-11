@@ -16,7 +16,7 @@ const EVAL_OUTPUT_TOKENS = 4000;
 const EVAL_TIMEOUT_MS = 120_000;
 const MAX_PAGE_OFFSET = 100_000;
 const MAX_CHECK_REASON_CHARS = 2000;
-const EVALUATOR_VERSION = 'saved-trace-v2';
+export const EVALUATOR_VERSION = 'saved-trace-v2';
 const VERDICTS = ['pass', 'fail', 'uncertain'] as const;
 const CRITERIA = ['relevance', 'groundedness', 'context_selection', 'action_claims'] as const;
 export function reviewActionEvidence(events: Array<{ sequence: number; kind: string; payload: unknown }>): EvaluationCheck[] {

@@ -11,6 +11,7 @@ import { tickPodcastCampaigns } from '../publishing/podcastCampaignWorker.js';
 import { runInferredEdgeJob } from '../jobs/inferredEdgeJob.js';
 import { runFoundryIqBackfillJob } from '../jobs/foundryIqBackfillJob.js';
 import { runTaggingSweepJob } from '../jobs/taggingSweepJob.js';
+import { runTraceEvaluationSweepJob } from '../jobs/traceEvaluationSweepJob.js';
 import { runKnowledgeNightlyReviewJob } from '../jobs/knowledgeNightlyReviewJob.js';
 import { runNoteReindexJob } from '../jobs/noteReindexJob.js';
 import { briefingDue, generateMorningBriefing, workHour } from '../ai/morningBriefing.js';
@@ -53,6 +54,8 @@ const BRIEFING_LATEST_HOUR = 18;
 let lastFoundryBackfillAt = 0; // Track the last time we ran the Foundry IQ backfill sweep
 const TAGGING_SWEEP_INTERVAL_MS = MS_PER_HOUR; // Tag never-attempted items and retry failures hourly
 let lastTaggingSweepAt = 0;
+const TRACE_EVAL_SWEEP_INTERVAL_MS = MS_PER_HOUR; // Deterministic trace evaluations (health + Decision-1 shadow agreement) hourly
+let lastTraceEvalSweepAt = 0;
 const KNOWLEDGE_REVIEW_UTC_HOUR = 2;
 const ISO_DATE_LENGTH = 10;
 let lastKnowledgeReviewDay = ''; // UTC date of the last nightly knowledge review attempt
@@ -196,6 +199,15 @@ export function startSyncScheduler(): void {
         lastTaggingSweepAt = Date.now();
         void runClaimedJob(db, 'tagging-sweep', String(Math.floor(Date.now() / TAGGING_SWEEP_INTERVAL_MS)), () => runTaggingSweepJob(db)).catch((err: unknown) => {
           console.error('[Scheduler] Tagging sweep failed:', err instanceof Error ? err.message : String(err));
+        });
+      }
+      // Deterministic trace-evaluation sweep — production only, hourly, bounded batch, model-free:
+      // grades new finished turn traces (capture, persistence, action evidence, Decision-1 shadow
+      // agreement) so health verdicts accumulate without manual Evaluate requests.
+      if (!env.isDevelopment && Date.now() - lastTraceEvalSweepAt >= TRACE_EVAL_SWEEP_INTERVAL_MS) {
+        lastTraceEvalSweepAt = Date.now();
+        void runClaimedJob(db, 'trace-eval-sweep', String(Math.floor(Date.now() / TRACE_EVAL_SWEEP_INTERVAL_MS)), () => runTraceEvaluationSweepJob(db)).catch((err: unknown) => {
+          console.error('[Scheduler] Trace evaluation sweep failed:', err instanceof Error ? err.message : String(err));
         });
       }
       // Nightly knowledge-turn review — production only, from 02:00 UTC, once per day (claimed). Model-free aggregation.
