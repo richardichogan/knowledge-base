@@ -1007,7 +1007,15 @@ test('explicit edited-draft recheck is independently budgeted, owner-bound, immu
   const savedRecheck = await commissionManualBlogRecheck(db, options.workerPool, root.jobId, context.ownerId, actionId, post);
   assert.equal(savedRecheck.assignment.id, rechecked.assignment.id);
   await assert.rejects(commissionManualBlogRecheck(db, options.workerPool, critic.identity.jobId, context.ownerId, actionId, post), /different blog recheck/);
-  await assert.rejects(commissionManualBlogRecheck(db, options.workerPool, root.jobId, context.ownerId, randomUUID(), post), /will not silently refresh/);
+  await pg.query('UPDATE agent_budget_profiles SET enabled=TRUE WHERE id=$1', [profileId]);
+  const live = await getAssignment(db, third.assignment.id, context.ownerId);
+  await cancelAssignment(db, third.assignment.id, context.ownerId, live.revision);
+  const refreshed = await commissionManualBlogRecheck(db, options.workerPool, root.jobId, context.ownerId, randomUUID(), post);
+  assert.notEqual(refreshed.assignment.id, rechecked.assignment.id);
+  const originalSource = original.assignment.brief.scope.sources.find(source => source.type === 'discover');
+  const refreshedSource = refreshed.assignment.brief.scope.sources.find(source => source.type === 'discover');
+  assert.ok(originalSource && refreshedSource, 'both commissions pin the primary source');
+  assert.notEqual(refreshedSource.version, originalSource.version, 'an explicit recheck re-pins the current evidence version');
 });
 
 test('a chat commission snapshots live exclusions/project but ordinary chat progress does not invalidate its sources', async t => {

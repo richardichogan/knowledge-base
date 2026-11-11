@@ -150,11 +150,8 @@ export async function commissionManualBlogRecheck(
   if (!captured.sources.some(source => source.type === 'blog-checkpoint' && source.id === jobId && source.version === seedSignature)) {
     throw new ConflictError('The original checkpoint changed while saving the recheck request. Your submitted text was not replaced.', 'ASSIGNMENT_SOURCE_CHANGED');
   }
-  for (const inherited of previous.brief.scope.sources) {
-    if (!captured.sources.some(current => contentSignature(current) === contentSignature(inherited))) {
-      throw new ConflictError('The original source or authority changed. Recheck will not silently refresh evidence.', 'ASSIGNMENT_SOURCE_CHANGED');
-    }
-  }
+  // An explicit owner recheck re-pins the current evidence versions; removed sources, tightened
+  // exclusions and checkpoint lineage changes still fail closed inside capture and authorise.
   const exact = { ...brief, scope: { ...brief.scope, sources: captured.sources } };
   return commissionAssignment(db, exact, {
     budgetProfileId: previous.budgetProfileId, workerPool, firstStep: MANUAL_BLOG_STEPS.recheck,
