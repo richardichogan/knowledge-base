@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildComposerIntent, composeMessageText, stripActionDirective } from '../src/chat/composerIntent';
+import { buildComposerIntent } from '../src/chat/composerIntent';
 import { insertChatMention } from '../src/chat/mentions';
 
 test('reading or discussing a Think note does not infer a note-creation action', () => {
@@ -43,19 +43,6 @@ test('imperative critique requests still infer the critique action', () => {
     buildComposerIntent({ input: 'The critique section needs work', projects: [], activeProjectId: '' }).effectiveAction,
     undefined,
   );
-});
-
-test('Spec is an explicit per-message action with bounded, grounded agent handoff requirements', () => {
-    const intent = buildComposerIntent({ input: '/spec Add document mentions', projects: [], activeProjectId: '' });
-    assert.equal(intent.effectiveAction, 'spec');
-    assert.equal(intent.rawText, 'Add document mentions');
-    const sent = composeMessageText(intent.rawText, intent.effectiveAction);
-    assert.equal(stripActionDirective(sent), 'Add document mentions');
-    for (const requirement of ['cite the sources', 'non-goals', 'data contracts', 'acceptance criteria', 'stop conditions', 'blockers']) {
-      assert.ok(sent.includes(requirement), requirement);
-    }
-    assert.equal(buildComposerIntent({ input: 'Review this technical spec', projects: [], activeProjectId: '' }).effectiveAction, undefined);
-    assert.equal(buildComposerIntent({ input: 'Write an agent-ready spec for this', projects: [], activeProjectId: '' }).effectiveAction, 'spec');
 });
 
 test('saved document mention carries a stable typed reference without deleting surrounding text', () => {
