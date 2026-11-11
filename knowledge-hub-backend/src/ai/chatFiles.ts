@@ -7,9 +7,12 @@
 import type { Pool } from 'pg';
 import { env } from '../config/env.js';
 import { getAthenaStorage } from '../services/athenaStorage.js';
+import { allianceDownload } from '../integrations/alliance/allianceGraph.js';
 
 const DOCUMENTS_CONTAINER = 'kb-documents';
 export const SPREADSHEET_EXTENSIONS = new Set(['xlsx', 'csv']);
+/** blob_path prefix for a chat file kept in OneDrive; the rest is the drive item id. */
+export const ONEDRIVE_FILE_PREFIX = 'onedrive:';
 
 export interface ChatFile {
   id: string;
@@ -44,7 +47,8 @@ function filesEndpoint(): { url: string; key: string } | null {
   return { url: `${env.AZURE_OPENAI_ENDPOINT_GPT54}/openai/v1/files`, key: env.AZURE_OPENAI_API_KEY_GPT54 };
 }
 
-async function downloadDocument(blobPath: string): Promise<Buffer> {
+async function downloadDocument(db: Pool, blobPath: string): Promise<Buffer> {
+  if (blobPath.startsWith(ONEDRIVE_FILE_PREFIX)) return allianceDownload(db, blobPath.slice(ONEDRIVE_FILE_PREFIX.length));
   const { service } = getAthenaStorage();
   return service.getContainerClient(DOCUMENTS_CONTAINER).getBlockBlobClient(blobPath).downloadToBuffer();
 }
@@ -66,7 +70,7 @@ export async function ensureModelFiles(db: Pool, files: ChatFile[]): Promise<str
     try {
       const form = new FormData();
       form.append('purpose', 'assistants');
-      form.append('file', new Blob([new Uint8Array(await downloadDocument(f.blobPath))], { type: f.contentType || 'application/octet-stream' }), f.filename);
+      form.append('file', new Blob([new Uint8Array(await downloadDocument(db, f.blobPath))], { type: f.contentType || 'application/octet-stream' }), f.filename);
       const response = await fetch(endpoint.url, { method: 'POST', headers: { 'api-key': endpoint.key }, body: form, signal: AbortSignal.timeout(60_000) });
       if (!response.ok) throw new Error(`${response.status.toString()} ${await response.text()}`);
       const { id } = (await response.json()) as { id: string };

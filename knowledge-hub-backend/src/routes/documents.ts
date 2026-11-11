@@ -24,7 +24,8 @@ import type { ApiSuccess } from '../types/apiResponse.js';
 import { loadConceptTags, invalidateConceptTagCache } from '../services/taxonomyService.js';
 import { FoundryClient } from '../ai/foundryClient.js';
 import { extractDocumentText } from '../integrations/github/documentExtractor.js';
-import { addChatFile, SPREADSHEET_EXTENSIONS } from '../ai/chatFiles.js';
+import { addChatFile, ONEDRIVE_FILE_PREFIX, SPREADSHEET_EXTENSIONS } from '../ai/chatFiles.js';
+import { OneDriveUnavailableError, uploadChatFileToOneDrive } from '../integrations/alliance/oneDriveUpload.js';
 import { upsertContentItem } from '../db/queries.js';
 import { indexContentItem } from '../ai/foundryIqIndexer.js';
 import { findLocalDocument, listLocalIndex, localSourceId, parseLocalUploadFields, removeLocalDocuments } from '../services/localDocuments.js';
@@ -862,6 +863,67 @@ router.post('/upload', (req: Request, res: Response, next: NextFunction): void =
       const body: ApiSuccess<{ contentItemId: string; filename: string; text: string; truncated: boolean; blobUrl: string; projectId: string; projectName: string }> = {
         success: true,
         data: { contentItemId, filename, text, truncated, blobUrl, projectId: project.id, projectName: project.name },
+      };
+      res.status(HTTP_STATUS.OK).json(body);
+    } catch (err) {
+      next(err);
+    }
+  })();
+});
+
+const CHAT_UPLOAD_EXTS = new Set(['pdf', 'docx', 'pptx', 'xlsx', 'csv']);
+
+/**
+ * POST /api/documents/chat-upload
+ * Body: multipart/form-data — file, projectId, projectName?, sessionId?
+ *
+ * A document attached in chat is saved to OneDrive (<root>/Chat uploads/<Project>/)
+ * and indexed immediately as a OneDrive document. A spreadsheet is also linked to
+ * the chat for the calculator. 503 ONEDRIVE_UNAVAILABLE when OneDrive can't take
+ * it (signed out, or connected without upload permission); nothing is stored then.
+ */
+router.post('/chat-upload', (req: Request, res: Response, next: NextFunction): void => {
+  void (async (): Promise<void> => {
+    try {
+      const file = (req as any).file as { buffer: Buffer; originalname: string; mimetype?: string } | undefined;
+      if (!file || !file.buffer) throw new ValidationError('No file provided');
+      const filename = file.originalname || 'document';
+      const ext = filename.toLowerCase().split('.').pop() || '';
+      if (!CHAT_UPLOAD_EXTS.has(ext)) throw new ValidationError(`Unsupported file type: .${ext}. Supported: PDF, DOCX, PPTX, XLSX, CSV`);
+      const db = getDb();
+      const project = await resolveProject(db, req.body['projectId'], req.body['projectName']);
+      let saved;
+      try {
+        saved = await uploadChatFileToOneDrive(db, { buffer: file.buffer, filename }, project);
+      } catch (err) {
+        if (!(err instanceof OneDriveUnavailableError)) throw err;
+        res.status(HTTP_STATUS.SERVICE_UNAVAILABLE).json({ success: false, error: { code: 'ONEDRIVE_UNAVAILABLE', message: err.message } });
+        return;
+      }
+
+      void indexContentItem({
+        id: saved.contentItemId, source: 'onedrive-document', sourceId: saved.driveItemId, title: saved.filename.replace(/\.[^.]+$/, ''),
+        summary: saved.text.slice(0, 500), body: saved.text, publishedAt: new Date().toISOString(), indexedAt: new Date().toISOString(),
+        url: saved.url, projectContext: project.id, metadata: { projectName: project.name }, tags: ['onedrive'],
+      }).catch((err: unknown) => {
+        console.error('[documents] Foundry IQ index push failed for chat upload', err instanceof Error ? err.message : err);
+      });
+
+      const chatSessionId = typeof req.body['sessionId'] === 'string' ? req.body['sessionId'].trim() : '';
+      if (chatSessionId !== '' && SPREADSHEET_EXTENSIONS.has(ext)) {
+        await addChatFile(db, chatSessionId, {
+          contentItemId: saved.contentItemId, filename: saved.filename, blobPath: `${ONEDRIVE_FILE_PREFIX}${saved.driveItemId}`, contentType: file.mimetype ?? '',
+        }).catch((err: unknown) => { console.error('[documents] could not link spreadsheet to chat:', err); });
+      }
+
+      const truncated = saved.text.length > EXTRACTED_TEXT_MAX_CHARS;
+      const body: ApiSuccess<{ contentItemId: string; filename: string; text: string; truncated: boolean; url: string; path: string; projectId: string; projectName: string; warning?: string }> = {
+        success: true,
+        data: {
+          contentItemId: saved.contentItemId, filename: saved.filename, text: truncated ? saved.text.slice(0, EXTRACTED_TEXT_MAX_CHARS) : saved.text,
+          truncated, url: saved.url, path: saved.path, projectId: project.id, projectName: project.name,
+          ...(saved.warning !== undefined && { warning: saved.warning }),
+        },
       };
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) {

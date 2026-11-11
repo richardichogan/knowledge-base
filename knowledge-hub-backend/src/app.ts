@@ -98,6 +98,7 @@ export function createApp(readiness: () => RuntimePhase = () => 'starting'): exp
   // Document uploads — multipart/form-data for PDF/DOCX/PPTX/XLSX
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
   app.use('/api/documents/upload', upload.single('file'));
+  app.use('/api/documents/chat-upload', upload.single('file'));
   app.use(/^\/api\/podcast-episodes\/[^/]+\/transcript\/?$/, upload.single('file'));
   // Large notes: BlockNote's JSON is several times the size of the text, so a long note (or a big
   // edit applied to one) is well past 1mb. Chat turns carry the open note's text too.

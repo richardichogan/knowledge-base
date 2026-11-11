@@ -1927,13 +1927,27 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
       } else {
         // Spreadsheets are linked to the chat, so Athena can calculate with them.
         const isSheet = /\.(xlsx|csv)$/i.test(file.name);
-        const res = await api.uploadDocument(file, uploadProjectId, undefined, uploadProjectName, (percent) => {
-          setUploadProgress({ filename: file.name, percent });
-        }, isSheet ? chatIdForUploads() : undefined);
-        if (!res.success) throw new Error(res.error?.message ?? 'upload failed');
-        fileText = res.data.text;
-        storedIn = `the Documents library under ${res.data.projectName}${isSheet ? ' (and loaded into the calculator for this chat)' : ''}`;
-        if (res.data.truncated) extraNote = ' The extract below is truncated because the file is large.';
+        const onProgress = (percent: number): void => { setUploadProgress({ filename: file.name, percent }); };
+        const sheetChat = isSheet ? chatIdForUploads() : undefined;
+        const calc = isSheet ? ' (and loaded into the calculator for this chat)' : '';
+        // OneDrive first (Athena/Chat uploads/<Project>); the Documents library only
+        // when OneDrive can't take it, saying so rather than hiding it.
+        const drive = /\.(pdf|docx|pptx|xlsx|csv)$/i.test(file.name)
+          ? await api.uploadChatDocument(file, uploadProjectId, uploadProjectName, onProgress, sheetChat)
+          : null;
+        if (drive?.success === true) {
+          fileText = drive.data.text;
+          storedIn = `OneDrive at ${drive.data.path}, filed under ${drive.data.projectName}${calc}`;
+          if (drive.data.truncated) extraNote = ' The extract below is truncated because the file is large.';
+        } else {
+          if (drive !== null && drive.error?.code !== 'ONEDRIVE_UNAVAILABLE') throw new Error(drive.error?.message ?? 'upload failed');
+          const res = await api.uploadDocument(file, uploadProjectId, undefined, uploadProjectName, onProgress, sheetChat);
+          if (!res.success) throw new Error(res.error?.message ?? 'upload failed');
+          fileText = res.data.text;
+          storedIn = `the Documents library under ${res.data.projectName}${calc}`;
+          if (drive !== null) extraNote = ` It was not saved to OneDrive: ${drive.error?.message ?? 'OneDrive is unavailable.'} Tell the user this.`;
+          if (res.data.truncated) extraNote += ' The extract below is truncated because the file is large.';
+        }
       }
 
       setUploadProgress({ filename: file.name, percent: 100 });

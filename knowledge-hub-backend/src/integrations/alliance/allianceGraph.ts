@@ -1,6 +1,7 @@
 /**
  * integrations/alliance/allianceGraph.ts — Microsoft Graph access to the IBM
- * Alliance tenant, as the signed-in user (delegated Files.Read(.All)).
+ * Alliance tenant, as the signed-in user (delegated Files.Read.All, plus
+ * Files.ReadWrite so chat uploads can be saved to the user's own OneDrive).
  *
  * Separate from integrations/graph (themicrosoftcloudblog tenant: calendar,
  * mail, To Do). The refresh token is stored in the database — encrypted with
@@ -13,7 +14,7 @@ import type { Pool } from 'pg';
 import { env } from '../../config/env.js';
 import { getSyncState, upsertSyncState } from '../../db/queries.js';
 
-export const ALLIANCE_SCOPES = ['offline_access', 'openid', 'profile', 'User.Read', 'Files.Read.All'].join(' ');
+export const ALLIANCE_SCOPES = ['offline_access', 'openid', 'profile', 'User.Read', 'Files.Read.All', 'Files.ReadWrite'].join(' ');
 
 /** Scopes to request at sign-in; Mail.Read is delegated and user-consentable. */
 export function allianceScopes(mailEnabled: boolean = env.ALLIANCE_MAIL_ENABLED): string {
@@ -23,6 +24,11 @@ export function allianceScopes(mailEnabled: boolean = env.ALLIANCE_MAIL_ENABLED)
 /** True when a granted-scope string from the token endpoint includes delegated Mail.Read. */
 export function scopesIncludeMailRead(granted: string | undefined): boolean {
   return (granted ?? '').split(/\s+/).some((scope) => scope.replace(/^https:\/\/graph\.microsoft\.com\//i, '').toLowerCase() === 'mail.read');
+}
+
+/** True when a granted-scope string allows writing to the user's OneDrive. */
+export function scopesIncludeFileWrite(granted: string | undefined): boolean {
+  return (granted ?? '').split(/\s+/).some((scope) => /^files\.readwrite(?:\.all)?$/i.test(scope.replace(/^https:\/\/graph\.microsoft\.com\//i, '')));
 }
 
 const TOKEN_STATE_KEY = 'alliance-graph-auth';
@@ -198,6 +204,54 @@ export async function allianceDownload(db: Pool, itemId: string): Promise<Buffer
   return Buffer.from(await res.arrayBuffer());
 }
 
+export interface UploadedDriveItem {
+  id: string;
+  name: string;
+  size?: number;
+  cTag?: string;
+  webUrl?: string;
+  lastModifiedDateTime?: string;
+}
+
+// Upload-session chunks must be multiples of 320 KiB; 10 MiB keeps each request well inside Graph's limits.
+const UPLOAD_CHUNK_BYTES = 320 * 1024 * 32;
+const UPLOAD_CHUNK_TIMEOUT_MS = 120_000;
+
+/**
+ * Uploads a file to a path under the user's OneDrive root (folders are created as needed).
+ * An existing file with the same name is kept: the upload is renamed (e.g. "Plan 1.docx").
+ */
+export async function allianceUploadFile(db: Pool, path: string, buffer: Buffer): Promise<UploadedDriveItem> {
+  const token = await getAllianceAccessToken(db);
+  const encoded = path.split('/').map(encodeURIComponent).join('/');
+  const created = await fetch(`${GRAPH_BASE}/me/drive/root:/${encoded}:/createUploadSession`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ item: { '@microsoft.graph.conflictBehavior': 'rename' } }),
+  });
+  if (!created.ok) throw new Error(`OneDrive upload of ${path} could not start: ${created.status} ${(await created.text()).slice(0, 300)}`);
+  const { uploadUrl } = (await created.json()) as { uploadUrl: string };
+  let uploaded: UploadedDriveItem | null = null;
+  for (let start = 0; start < buffer.length; start += UPLOAD_CHUNK_BYTES) {
+    const end = Math.min(start + UPLOAD_CHUNK_BYTES, buffer.length);
+    // The upload URL is pre-authorised; Graph rejects a bearer token on it.
+    const res = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Range': `bytes ${start.toString()}-${(end - 1).toString()}/${buffer.length.toString()}` },
+      body: new Uint8Array(buffer.subarray(start, end)),
+      signal: AbortSignal.timeout(UPLOAD_CHUNK_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      await fetch(uploadUrl, { method: 'DELETE' }).catch(() => undefined);
+      throw new Error(`OneDrive upload of ${path} failed: ${res.status} ${(await res.text()).slice(0, 300)}`);
+    }
+    if (res.status === 200 || res.status === 201) uploaded = (await res.json()) as UploadedDriveItem;
+  }
+  if (uploaded === null) throw new Error(`OneDrive did not confirm the upload of ${path}.`);
+  // Re-read so the cTag matches what the sync will see, and the next sync skips the file.
+  return allianceGraphGet<UploadedDriveItem>(db, `/me/drive/items/${encodeURIComponent(uploaded.id)}?$select=id,name,size,cTag,webUrl,lastModifiedDateTime`);
+}
+
 export interface AllianceStatus {
   configured: boolean;
   connected: boolean;
@@ -206,12 +260,14 @@ export interface AllianceStatus {
   lastError: string | null;
   /** True when the stored sign-in was granted delegated Mail.Read. */
   mailAccess: boolean;
+  /** True when the stored sign-in can save files to OneDrive (chat uploads). */
+  fileWrite: boolean;
 }
 
 /** Connection status for the UI health indicator. */
 export async function getAllianceStatus(db: Pool): Promise<AllianceStatus> {
   if (!isAllianceConfigured()) {
-    return { configured: false, connected: false, account: null, connectedAt: null, lastError: null, mailAccess: false };
+    return { configured: false, connected: false, account: null, connectedAt: null, lastError: null, mailAccess: false, fileWrite: false };
   }
   const auth = await loadAuth(db);
   const row = await db.query<{ last_error: string | null }>(`SELECT last_error FROM sync_state WHERE source = $1`, [TOKEN_STATE_KEY]);
@@ -222,5 +278,6 @@ export async function getAllianceStatus(db: Pool): Promise<AllianceStatus> {
     connectedAt: auth?.connectedAt ?? null,
     lastError: row.rows[0]?.last_error ?? null,
     mailAccess: scopesIncludeMailRead(auth?.grantedScopes),
+    fileWrite: scopesIncludeFileWrite(auth?.grantedScopes),
   };
 }

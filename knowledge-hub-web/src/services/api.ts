@@ -419,6 +419,8 @@ export interface AllianceStatus {
   lastError: string | null;
   root: string;
   syncRunning: boolean;
+  /** Sign-in allows saving files (needed for chat uploads to OneDrive). */
+  fileWrite: boolean;
   sync: { lastSyncAt: string | null; fileCount: number; documentCount: number; lastError: string | null };
 }
 
@@ -2137,6 +2139,41 @@ export class KnowledgeHubApi {
       },
     });
     return r.data;
+  }
+
+  /**
+   * Save a document attached in chat to OneDrive (Athena/Chat uploads/<Project>/)
+   * and index it. A failed response is returned rather than thrown, so the
+   * caller can see ONEDRIVE_UNAVAILABLE and fall back to the Documents library.
+   */
+  async uploadChatDocument(
+    file: File,
+    projectId: string,
+    projectName: string | undefined,
+    onProgress?: (percent: number) => void,
+    chatSessionId?: string,
+  ): Promise<ApiResponse<{ contentItemId: string; filename: string; text: string; truncated: boolean; url: string; path: string; projectId: string; projectName: string; warning?: string }>> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('projectId', projectId);
+    if (projectName !== undefined && projectName.trim() !== '') formData.append('projectName', projectName.trim());
+    if (chatSessionId !== undefined) formData.append('sessionId', chatSessionId);
+    try {
+      const r = await this.client.post('/api/documents/chat-upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        // Text extraction (including slide and PDF visuals) happens before the response.
+        timeout: 3 * IMAGE_UPLOAD_TIMEOUT_MS,
+        onUploadProgress: (evt) => {
+          if (!onProgress || !evt.total) return;
+          onProgress(Math.round((evt.loaded / evt.total) * 100));
+        },
+      });
+      return r.data;
+    } catch (error: unknown) {
+      const data = (error as { response?: { data?: unknown } }).response?.data;
+      if (data !== null && typeof data === 'object' && 'success' in data) return data as ApiResponse<never>;
+      throw error;
+    }
   }
 
   // ─── Athena Desktop: local folders ───────────────────────────────────────

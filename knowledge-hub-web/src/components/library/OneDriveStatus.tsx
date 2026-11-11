@@ -79,6 +79,10 @@ export const OneDriveStatus: React.FC = () => {
       {!data.connected && (
         <a className="kb-import-btn" href={connectHref}>{data.account !== null || data.lastError !== null ? 'Reconnect' : 'Connect OneDrive'}</a>
       )}
+      {/* Signed in before chat uploads existed: one more sign-in grants permission to save files. */}
+      {data.connected && !data.fileWrite && (
+        <a className="kb-import-btn" href={connectHref} title="Reconnect to let documents attached in chat be saved to OneDrive">Allow chat uploads</a>
+      )}
     </div>
   );
 };

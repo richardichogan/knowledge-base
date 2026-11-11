@@ -6,7 +6,9 @@
  * Layout: <ALLIANCE_ONEDRIVE_ROOT>/<Project>/…  (default root "Athena").
  * The first folder under the root maps to an Athena project by id or name
  * (e.g. Athena/IMAGINE → project "imagine"); files directly in the root, or
- * in an unmatched folder, go to "personal".
+ * in an unmatched folder, go to "personal". Files Athena saves from chat go
+ * under <root>/Chat uploads/<Project>/…, and the folder below "Chat uploads"
+ * maps to the project the same way.
  *
  * Incremental: a file is only downloaded when its cTag (content version)
  * changes. Text comes from the shared document extractor; images — standalone
@@ -25,9 +27,13 @@ import { allianceGraphGet, allianceDownload, getAllianceStatus, isAllianceConfig
 import type { ContentItem } from '../../types/contentItem.js';
 import { reconcileDeliverables } from '../../work/workContent.js';
 
-const SOURCE = 'onedrive-document';
+export const ONEDRIVE_SOURCE = 'onedrive-document';
+const SOURCE = ONEDRIVE_SOURCE;
 const SYNC_STATE_KEY = 'onedrive-documents';
-const MAX_FILE_BYTES = 40 * 1024 * 1024;
+export const ONEDRIVE_MAX_FILE_BYTES = 40 * 1024 * 1024;
+const MAX_FILE_BYTES = ONEDRIVE_MAX_FILE_BYTES;
+/** Folder under the root that chat uploads are saved to; the next folder down names the project. */
+export const CHAT_UPLOADS_FOLDER = 'Chat uploads';
 const MAX_BODY_CHARS = 250_000;
 const MAX_SUMMARY_CHARS = 300;
 // Pictures inside a deck: skip icons/logos, cap the number described per file.
@@ -37,7 +43,7 @@ const DECK_IMAGES_MAX = 12;
 /** Bump to re-extract every PDF once (e.g. when extraction improves). */
 const PDF_EXTRACTOR_VERSION = 'pdf-visual-1';
 
-const TEXT_TYPES = new Set(['pdf', 'docx', 'pptx', 'xlsx', 'md', 'markdown', 'txt']);
+const TEXT_TYPES = new Set(['pdf', 'docx', 'pptx', 'xlsx', 'csv', 'md', 'markdown', 'txt']);
 const IMAGE_TYPES: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
 
 interface DriveItem {
@@ -73,7 +79,8 @@ async function listFiles(db: Pool, folderPath: string, relPrefix: string, topFol
     for (const item of page.value) {
       const relPath = relPrefix === '' ? item.name : `${relPrefix}/${item.name}`;
       if (item.folder) {
-        await listFiles(db, `${folderPath}/${item.name}`, relPath, topFolder === '' ? item.name : topFolder, out);
+        const chatUploads = relPrefix === '' && item.name.toLowerCase() === CHAT_UPLOADS_FOLDER.toLowerCase();
+        await listFiles(db, `${folderPath}/${item.name}`, relPath, chatUploads || topFolder !== '' ? topFolder : item.name, out);
       } else if (item.file) {
         out.push({ item, relPath, topFolder });
       }
@@ -83,7 +90,7 @@ async function listFiles(db: Pool, folderPath: string, relPrefix: string, topFol
 }
 
 /** Maps a top-level folder name to a project id (by id or name, ignoring case/spaces). */
-async function projectResolver(db: Pool): Promise<(folder: string) => string> {
+export async function projectResolver(db: Pool): Promise<(folder: string) => string> {
   const { rows } = await db.query<{ id: string; name: string }>(`SELECT id, name FROM projects`);
   const norm = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '');
   const byKey = new Map<string, string>();
@@ -111,7 +118,7 @@ async function describeDeckImages(buffer: Buffer): Promise<string[]> {
 }
 
 /** Extracts searchable text (plus image descriptions) from one file. */
-async function extractFileText(name: string, buffer: Buffer): Promise<{ text: string; warning?: string }> {
+export async function extractFileText(name: string, buffer: Buffer): Promise<{ text: string; warning?: string }> {
   const ext = name.toLowerCase().split('.').pop() ?? '';
   const imageMime = IMAGE_TYPES[ext];
   if (imageMime !== undefined) {
@@ -141,6 +148,38 @@ async function extractFileText(name: string, buffer: Buffer): Promise<{ text: st
   return result.error !== undefined ? { text, warning: result.error } : { text };
 }
 
+/** Stores one OneDrive file's extracted text as an Athena document (shared by the sync and chat uploads). */
+export async function saveDriveDocument(
+  db: Pool,
+  item: Pick<DriveItem, 'id' | 'name' | 'size' | 'cTag' | 'webUrl' | 'lastModifiedDateTime'>,
+  relPath: string,
+  projectId: string,
+  text: string,
+): Promise<{ id: string; body: string }> {
+  const ext = item.name.toLowerCase().split('.').pop() ?? '';
+  const body = text.slice(0, MAX_BODY_CHARS);
+  const title = item.name.replace(/\.[^.]+$/, '');
+  const doc: Omit<ContentItem, 'id' | 'indexedAt'> = {
+    source: SOURCE,
+    sourceId: item.id,
+    title,
+    summary: body.replace(/\s+/g, ' ').trim().slice(0, MAX_SUMMARY_CHARS),
+    body,
+    publishedAt: item.lastModifiedDateTime ?? new Date().toISOString(),
+    url: item.webUrl ?? '',
+    projectContext: projectId,
+    // No cTag when extraction produced nothing, so the next sync retries it.
+    metadata: {
+      driveItemId: item.id, path: relPath, filename: item.name,
+      cTag: body.trim() === '' ? null : item.cTag ?? null, fileType: ext, size: item.size ?? 0,
+      ...(ext === 'pdf' && { extractor: PDF_EXTRACTOR_VERSION }),
+    },
+    tags: ['onedrive'],
+  };
+  const { id } = await upsertContentItem(db, doc);
+  return { id, body };
+}
+
 /** Syncs OneDrive (Alliance) documents. No-op until the connection is set up. */
 export async function syncOneDriveDocuments(db: Pool): Promise<{ indexed: number; errors: number }> {
   if (!isAllianceConfigured()) return { indexed: 0, errors: 0 };
@@ -152,6 +191,8 @@ export async function syncOneDriveDocuments(db: Pool): Promise<{ indexed: number
 
   const root = env.ALLIANCE_ONEDRIVE_ROOT.replace(/^\/+|\/+$/g, '');
   const files: FoundFile[] = [];
+  // A chat upload saved while this sync runs isn't in its listing; it must not be removed as deleted.
+  const { rows: [started] } = await db.query<{ now: Date }>(`SELECT NOW() AS now`);
   try {
     await listFiles(db, root, '', '', files);
   } catch (err) {
@@ -196,26 +237,7 @@ export async function syncOneDriveDocuments(db: Pool): Promise<{ indexed: number
       const buffer = await allianceDownload(db, item.id);
       const { text, warning } = await extractFileText(item.name, buffer);
       if (warning !== undefined) warnings.push(`${relPath}: ${warning}`);
-      const body = text.slice(0, MAX_BODY_CHARS);
-      const title = item.name.replace(/\.[^.]+$/, '');
-      const doc: Omit<ContentItem, 'id' | 'indexedAt'> = {
-        source: SOURCE,
-        sourceId: item.id,
-        title,
-        summary: body.replace(/\s+/g, ' ').trim().slice(0, MAX_SUMMARY_CHARS),
-        body,
-        publishedAt: item.lastModifiedDateTime ?? new Date().toISOString(),
-        url: item.webUrl ?? '',
-        projectContext: resolveProject(topFolder),
-        // No cTag when extraction produced nothing, so the next sync retries it.
-        metadata: {
-          driveItemId: item.id, path: relPath, filename: item.name,
-          cTag: body.trim() === '' ? null : item.cTag ?? null, fileType: ext, size: item.size ?? 0,
-          ...(ext === 'pdf' && { extractor: PDF_EXTRACTOR_VERSION }),
-        },
-        tags: ['onedrive'],
-      };
-      await upsertContentItem(db, doc);
+      await saveDriveDocument(db, item, relPath, resolveProject(topFolder), text);
       indexed++;
     } catch (err) {
       errors++;
@@ -227,8 +249,8 @@ export async function syncOneDriveDocuments(db: Pool): Promise<{ indexed: number
   // after a complete listing, so a partial failure never deletes content.
   const seen = files.map((f) => f.item.id);
   const removed = await db.query(
-    `DELETE FROM content_items WHERE source = $1 AND NOT (source_id = ANY($2::text[]))`,
-    [SOURCE, seen],
+    `DELETE FROM content_items WHERE source = $1 AND NOT (source_id = ANY($2::text[])) AND indexed_at < $3`,
+    [SOURCE, seen, started?.now ?? new Date(0)],
   );
   try {
     await reconcileDeliverables(db, root);
