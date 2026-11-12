@@ -1,7 +1,9 @@
 {
   "routes": [
     { "route": "/version.json", "headers": { "cache-control": "no-store" } },
-    { "route": "/index.html", "headers": { "cache-control": "no-cache" } }
+    { "route": "/index.html", "headers": { "cache-control": "no-cache" } },
+    { "route": "/manifest.json", "headers": { "cache-control": "no-cache" } },
+    { "route": "/sw.js", "headers": { "cache-control": "no-cache" } }
   ],
   "navigationFallback": {
     "rewrite": "/index.html",
