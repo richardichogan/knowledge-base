@@ -87,14 +87,20 @@ export async function readPodcastSource(url: string): Promise<string> {
   }
 }
 
-export function selectEpisodeDocuments(rows: ContextRow[]): Map<string, ContextRow[]> {
+/**
+ * Groups documents by episode, newest first. The episode being recorded is never prior coverage, and an uploaded
+ * transcript is the full record of an episode, so it replaces that episode's show notes and other documents.
+ */
+export function selectEpisodeDocuments(rows: ContextRow[], exclude: string | null = null, transcripts: Array<{ episode: string; row: ContextRow }> = []): Map<string, ContextRow[]> {
   const groups = new Map<string, ContextRow[]>();
   for (const r of rows) {
     const episode = r.metadata['podcastEpisode'] ?? /\b(?:EP|episode)\s*(\d+)/i.exec(r.title)?.[1];
     if (episode == null || !/^\d+$/.test(String(episode))) continue;
     const key = String(episode);
+    if (key === exclude) continue;
     groups.set(key, [...(groups.get(key) ?? []), r]);
   }
+  for (const { episode, row } of transcripts) if (episode !== exclude) groups.set(episode, [row]);
   return new Map([...groups].sort(([a], [b]) => Number(b) - Number(a)).slice(0, MAX_EPISODE_GROUPS));
 }
 
@@ -305,13 +311,24 @@ export async function summarisePodcastCoverage(
 }
 
 /** Summarise complete documents in chunks, rather than judging coverage from opening excerpts. */
-async function coverage(db: Pool, signal?: AbortSignal): Promise<{ text: string; warnings: string[] }> {
+async function coverage(db: Pool, recording: string, signal?: AbortSignal): Promise<{ text: string; warnings: string[] }> {
   const { rows } = await db.query<ContextRow>(`SELECT id::text, title, body, url, metadata,
     COALESCE(published_at,indexed_at)::text AS date FROM content_items
     WHERE source = 'cms-podcast-show-notes' OR
       (source IN ('note','user-upload') AND (title ILIKE '%Cloudy%' OR title ILIKE '%podcast%'))
     ORDER BY COALESCE(published_at,indexed_at) DESC LIMIT 20`);
-  const groups = selectEpisodeDocuments(rows);
+  const current = await db.query<{ episode_number: number | null }>('SELECT episode_number FROM podcast_episodes WHERE recording_date=$1::date', [recording]);
+  const currentEpisode = current.rows[0]?.episode_number;
+  // Transcripts uploaded to an episode live on its record, not in the content index.
+  const uploaded = await db.query<{ episode_number: number; date: string; filename: string | null; transcript: string }>(`
+    SELECT e.episode_number, to_char(e.recording_date,'YYYY-MM-DD') AS date, e.transcript_filename AS filename, e.transcript
+    FROM podcast_episodes e JOIN notes n ON n.id=e.note_id AND n.status='active'
+    WHERE e.recording_date < $1::date AND e.episode_number IS NOT NULL AND btrim(COALESCE(e.transcript,'')) <> ''
+    ORDER BY e.recording_date DESC LIMIT ${MAX_EPISODE_GROUPS}`, [recording]);
+  const groups = selectEpisodeDocuments(rows, currentEpisode == null ? null : String(currentEpisode), uploaded.rows.map((t) => ({
+    episode: String(t.episode_number),
+    row: { id: `transcript-${t.episode_number}`, title: `Episode ${t.episode_number} transcript${t.filename ? ` (${t.filename})` : ''}`, body: t.transcript, url: null, date: t.date, metadata: {} },
+  })));
   const warnings: string[] = [];
   if (groups.size < MIN_COVERAGE_EPISODES) warnings.push('Fewer than two identifiable recent episodes were available; prior episode coverage may be incomplete.');
   const chunks: Array<{ episode: string; doc: ContextRow; body: string }> = [];
@@ -345,7 +362,7 @@ export async function researchPodcast(db: Pool, recording: string, previous: str
 Promise<{ proposal: PodcastProposal; evidence: PodcastEvidence[]; warnings: string[]; archive: ShowEpisode[] }> {
   const archive = await showArchive(db, now);
   if (archive.length === 0) throw new Error('No published Cloudy show notes were found; the lead topic cannot be anchored to what the show discusses.');
-  const covered = await coverage(db, signal);
+  const covered = await coverage(db, recording, signal);
   signal?.throwIfAborted();
   const warnings = [...covered.warnings];
   const latest = await db.query<{ date: string }>(`SELECT published_at::text AS date FROM content_items

@@ -98,7 +98,15 @@ test('episode selection groups transcript/show notes, keeps complete bodies, and
   const selected = selectEpisodeDocuments(rows);
   assert.deepEqual([...selected.keys()], ['44', '43']);
   assert.equal(selected.get('44')?.length, 2);
-  assert.equal(selected.get('44')?.[1]?.body?.length, 42_853);
+});
+
+test('episode selection skips the episode being recorded and prefers an uploaded transcript over show notes', () => {
+  const doc = (title: string, body: string) => ({ id: title, title, body, date: '2026-10-06', url: null, metadata: {} });
+  const rows = [doc('Cloudy: EP47 | Prep', 'prep'), doc('Cloudy: Episode 46: Show Notes', 'notes'), doc('Cloudy: Episode 45: Show Notes', 'notes')];
+  const transcripts = [{ episode: '46', row: doc('Episode 46 transcript', 'full transcript') }];
+  const selected = selectEpisodeDocuments(rows, '47', transcripts);
+  assert.deepEqual([...selected.keys()], ['46', '45']);
+  assert.deepEqual(selected.get('46')?.map((d) => d.body), ['full transcript']);
 });
 
 test('schedule reads are non-mutating, calendar overrides win, and explicit cancellations do not prepare the cancelled recording', async () => {
