@@ -22,6 +22,7 @@ import { api } from '../services/api';
 import { resumeWorkspacePath, useWorkspaceContinuity } from '../navigation/workspaceContinuity';
 import { BackgroundWork } from './athena/BackgroundWork';
 import { AthenaLauncher } from './athena/AthenaLauncher';
+import { AppUpdateBar } from './AppUpdateBar';
 
 const DISCOVER_SEEN_KEY = 'kh-discover-seen';
 
@@ -162,6 +163,7 @@ export const AppShell: React.FC = () => {
       </Header>
       <div className="kh-shell">
         <div className="kh-content kh-content--shell">
+          <AppUpdateBar />
           <DayCheckinBanner />
           <PodcastPrepNotification />
           <div className="kh-shell__page" id="kh-main-content" tabIndex={-1}><Outlet /></div>

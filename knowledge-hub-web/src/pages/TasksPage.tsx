@@ -422,24 +422,28 @@ const FocusRow: React.FC<{
   );
 };
 
+const FOCUS_SINGLE_COLUMN: FocusGroupId[][] = [FOCUS_GROUPS.map((group) => group.id)];
+
 const FocusView: React.FC<{
   tasks: Task[];
   busyIds: Set<string>;
   selectedTaskId?: string | null;
   projects: ProjectRecord[];
+  singleColumn?: boolean;
   onComplete: (task: Task) => void;
   onEdit: (task: Task) => void;
   onAskAthena?: ((task: Task) => void) | undefined;
-}> = ({ tasks, busyIds, selectedTaskId, projects, onComplete, onEdit, onAskAthena }) => {
+}> = ({ tasks, busyIds, selectedTaskId, projects, singleColumn = false, onComplete, onEdit, onAskAthena }) => {
   const groups = groupForFocus(tasks, localDateKey(new Date()));
   return (
-    <div className="kb-focus">
-      {FOCUS_COLUMNS.map((column, index) => {
+    <div className={`kb-focus${singleColumn ? ' kb-focus--single' : ''}`}>
+      {(singleColumn ? FOCUS_SINGLE_COLUMN : FOCUS_COLUMNS).map((column, index) => {
         const sections = FOCUS_GROUPS.filter((g) => column.includes(g.id) && groups[g.id].length > 0);
         return (
           <div key={column.join('-')} className="kb-focus__col">
             {sections.length === 0 && (
-              <p className="kb-focus__empty">{index === 0 ? 'Nothing due or in flight. Pick something from Someday.' : 'Nothing blocked or waiting, and no backlog.'}</p>
+              <p className="kb-focus__empty">{singleColumn ? 'No open tasks. Add one to get started.'
+                : index === 0 ? 'Nothing due or in flight. Pick something from Someday.' : 'Nothing blocked or waiting, and no backlog.'}</p>
             )}
             {sections.map((group) => (
               <section key={group.id} className={`kb-focus__group kb-focus__group--${group.id}`} aria-label={group.label}>
@@ -892,12 +896,19 @@ interface TaskEditorProps {
   onSave: (data: TaskEditorInput) => void;
   saving: boolean;
   error: string | null;
+  /** Phone Tasks tab: the editor dialog fills the screen. */
+  fullScreen?: boolean;
 }
 
 export const TaskEditor: React.FC<TaskEditorProps & { inline?: boolean; actionsTarget?: HTMLElement | null }> = ({
-  open, initial, defaultStatus, defaultProjectId = 'personal', projects, onClose, onSave, saving, error, inline = false, actionsTarget,
+  open, initial, defaultStatus, defaultProjectId = 'personal', projects, onClose, onSave, saving, error, inline = false, actionsTarget, fullScreen = false,
 }) => {
   const formId = React.useId();
+  const errorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // The full-screen phone editor puts the error above the fold; bring it into view.
+    if (error != null && window.matchMedia('(max-width: 640px)').matches) errorRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [error]);
   const [title,       setTitle]       = useState('');
   const [body,        setBody]        = useState('');
   const [status,      setStatus]      = useState<TaskStatus>(defaultStatus);
@@ -954,7 +965,9 @@ export const TaskEditor: React.FC<TaskEditorProps & { inline?: boolean; actionsT
   const fields = (
       <fieldset className="kb-modal-form" disabled={saving} aria-label="Task fields">
         {error != null && (
-          <InlineNotification kind="error" title="Save failed" subtitle={error} lowContrast hideCloseButton />
+          <div ref={errorRef}>
+            <InlineNotification kind="error" title="Save failed" subtitle={error} lowContrast hideCloseButton />
+          </div>
         )}
 
         {/* Title — full width */}
@@ -1052,6 +1065,7 @@ export const TaskEditor: React.FC<TaskEditorProps & { inline?: boolean; actionsT
   return (
     <Modal
       open={open}
+      {...(fullScreen ? { className: 'kh-dialog--task-mobile' } : {})}
       modalHeading={initial != null ? 'Edit Task' : 'New Task'}
       primaryButtonText={saving ? 'Saving…' : 'Save'}
       secondaryButtonText="Cancel"
@@ -1106,7 +1120,11 @@ export const TasksPage: React.FC<{
   filterTag: string;
   view?: TasksView;
   onAskAthena?: (prompt: string) => void;
-}> = ({ importOpen, onImportClose, filterProject, filterTag, view = 'board' }) => {
+  /** Mobile chat app: single-column Focus, tap opens the editor, Ask Athena hands the task to chat. */
+  mobile?: boolean;
+  onAskAthenaAboutTask?: (task: Task) => void;
+}> = ({ importOpen, onImportClose, filterProject, filterTag, view: requestedView = 'board', mobile = false, onAskAthenaAboutTask }) => {
+  const view: TasksView = mobile ? 'focus' : requestedView;
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [modalOpen,      setModalOpen]      = useState(false);
@@ -1160,7 +1178,7 @@ export const TasksPage: React.FC<{
   // View-task links open the shared details; editing remains an explicit action.
   useEffect(() => {
     const linkedId = searchParams.get('taskId');
-    if (linkedId === null) return;
+    if (linkedId === null || mobile) return;
     setSelectedTaskId(linkedId);
     searchParams.delete('taskId');
     setSearchParams(searchParams, { replace: true });
@@ -1263,9 +1281,19 @@ export const TasksPage: React.FC<{
   });
 
   const moveTask = (id: string, status: TaskStatus): void => { if (beginTaskAction(id)) moveTaskMutation.mutate({ id, status }); };
+  const [completedUndo, setCompletedUndo] = useState<{ task: Task; previousStatus: TaskStatus } | null>(null);
+  useEffect(() => {
+    if (completedUndo === null) return undefined;
+    const timer = window.setTimeout(() => { setCompletedUndo(null); }, 6000);
+    return () => { window.clearTimeout(timer); };
+  }, [completedUndo]);
+  const completeTask = (task: Task): void => {
+    moveTask(task.id, 'completed');
+    if (mobile) setCompletedUndo({ task, previousStatus: task.status });
+  };
   const openEditor = (task: Task): void => { setEditTask(task); setModalOpen(true); };
-  const selectTask = (task: Task): void => { setSelectedTaskId(task.id); };
-  const askAthenaAbout = selectTask;
+  const selectTask = (task: Task): void => { if (mobile) openEditor(task); else setSelectedTaskId(task.id); };
+  const askAthenaAbout = mobile && onAskAthenaAboutTask ? onAskAthenaAboutTask : selectTask;
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -1377,7 +1405,8 @@ export const TasksPage: React.FC<{
           busyIds={busyTaskIds}
           selectedTaskId={selectedTaskId}
           projects={projects}
-          onComplete={(task) => { moveTask(task.id, 'completed'); }}
+          singleColumn={mobile}
+          onComplete={completeTask}
           onEdit={selectTask}
           onAskAthena={askAthenaAbout}
         />
@@ -1490,8 +1519,15 @@ export const TasksPage: React.FC<{
       </section>}
       </>;
   return (
-    <div className="kb-page">
-      {selectedTaskId ? <ReviewWorkspace storageKey="plan-task" label="Plan tasks"
+    <div className={mobile ? 'kb-page kb-mobile-tasks' : 'kb-page'}>
+      {mobile && <div className="kb-mobile-tasks__toast-region" role="status" aria-live="polite">
+        {completedUndo !== null && <div className="kb-mobile-tasks__toast">
+          <span className="kb-mobile-tasks__toast-text">Completed “{completedUndo.task.title}”</span>
+          <button type="button" className="kb-mobile-tasks__undo"
+            onClick={() => { moveTask(completedUndo.task.id, completedUndo.previousStatus); setCompletedUndo(null); }}>Undo</button>
+        </div>}
+      </div>}
+      {selectedTaskId && !mobile ? <ReviewWorkspace storageKey="plan-task" label="Plan tasks"
         context={{ type: 'task', id: selectedTaskId, title: selectedTask?.title ?? 'Task',
           ...(selectedTask?.projectId ? { projectId: selectedTask.projectId } : {}),
           detail: `${JSON.stringify(selectedTask)}\nVisible ${view === 'board' ? 'workstream swim lanes across status columns' : `${view} task groups`}, with the same workstream/tag and completed-task filters as the normal Plan view:\n${JSON.stringify({
@@ -1537,6 +1573,7 @@ export const TasksPage: React.FC<{
 
       {modalOpen && <TaskModal
         open={modalOpen}
+        fullScreen={mobile}
         initial={editTask}
         defaultStatus={addStatus}
         defaultProjectId={addProjectId}

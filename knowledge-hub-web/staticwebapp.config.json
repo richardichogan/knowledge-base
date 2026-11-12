@@ -1,4 +1,8 @@
 {
+  "routes": [
+    { "route": "/version.json", "headers": { "cache-control": "no-store" } },
+    { "route": "/index.html", "headers": { "cache-control": "no-cache" } }
+  ],
   "navigationFallback": {
     "rewrite": "/index.html",
     "exclude": ["/assets/*", "/*.ico", "/*.png", "/*.svg", "/*.json"]

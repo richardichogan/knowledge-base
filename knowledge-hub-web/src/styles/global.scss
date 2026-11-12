@@ -2773,6 +2773,50 @@ p, h1, h2, h3, h4, h5, h6, dl, dt, dd, blockquote {
   margin-right: auto;
 }
 
+// Mobile chat app: Chat | Tasks switch in the top bar (DESIGN.md: teal selected state).
+.ai-chat-standalone__switch {
+  display: inline-flex;
+  flex-shrink: 0;
+  border: 1px solid var(--cds-border-subtle-01);
+  border-radius: var(--kh-radius-md);
+  background: var(--cds-layer-01);
+  overflow: hidden;
+}
+
+.ai-chat-standalone__switch-btn {
+  min-height: 2.25rem;
+  min-width: 4.5rem;
+  padding: 0 0.75rem;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--cds-text-secondary);
+  font: inherit;
+  font-size: var(--kh-text-body);
+  cursor: pointer;
+  transition: background 80ms, color 80ms;
+
+  & + & { border-left: 1px solid var(--cds-border-subtle-01); }
+  &:hover { background: var(--cds-layer-hover-01); color: var(--cds-text-primary); }
+  &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: -2px; }
+
+  &--active {
+    border-bottom-color: var(--kh-accent);
+    background: var(--kh-accent-bg);
+    color: var(--cds-text-primary);
+    font-weight: 600;
+  }
+}
+
+.ai-chat-standalone__main--tasks .ai-chat-standalone__body { display: none; }
+
+.ai-chat-standalone__tasks {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.75rem 0.75rem calc(1rem + env(safe-area-inset-bottom));
+}
+
 @media (max-width: 640px) {
   .ai-chat-standalone__topbar--minimal {
     justify-content: space-between;
@@ -2780,6 +2824,181 @@ p, h1, h2, h3, h4, h5, h6, dl, dt, dd, blockquote {
 
   .ai-chat-standalone__menu-toggle {
     display: inline-flex;
+  }
+}
+
+.ai-chat-standalone__more-toggle { display: none; }
+
+// Phone chat app (standalone /chat): one fixed top bar — menu, Chat|Tasks, settings — with
+// every 44px touch target, a keyboard-safe dynamic viewport and composer settings in a sheet.
+@media (max-width: 640px) {
+  .ai-chat-standalone { width: 100%; height: 100dvh; }
+
+  .ai-chat-standalone__topbar--minimal {
+    gap: 0.5rem;
+    padding: calc(0.375rem + env(safe-area-inset-top)) 0.5rem 0.375rem;
+  }
+
+  .ai-chat-standalone__menu-toggle.cds--btn--icon-only {
+    margin-right: 0;
+    width: 2.75rem;
+    min-width: 2.75rem;
+    height: 2.75rem;
+    min-height: 2.75rem;
+    justify-content: center;
+    align-items: center;
+    padding: 0;
+  }
+
+  .ai-chat-standalone__switch { margin-right: auto; }
+  .ai-chat-standalone__switch-btn { min-height: 2.75rem; }
+
+  .ai-chat-standalone__more-toggle {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    padding: 0;
+    border: none;
+    border-radius: var(--kh-radius-md);
+    background: transparent;
+    color: var(--cds-icon-secondary);
+    cursor: pointer;
+
+    &:hover { background: var(--cds-layer-hover-01); color: var(--cds-icon-primary); }
+    &[aria-expanded='true'] { background: var(--kh-accent-bg); color: var(--kh-accent); }
+    &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: -2px; }
+  }
+
+  .ai-chat-standalone__more {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    max-height: 60dvh;
+    overflow-y: auto;
+    padding: 0.5rem 0.75rem 0.75rem;
+    border-bottom: 1px solid var(--cds-border-subtle-01);
+    background: var(--cds-layer-01);
+
+    .kh-composer-chips { flex-direction: column; align-items: stretch; gap: 0.25rem; }
+
+    .kh-composer-control--flat {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      min-height: 2.75rem;
+    }
+
+    .kh-composer-control__caption {
+      flex: 0 0 6.5rem;
+      font-size: var(--kh-text-meta);
+      color: var(--cds-text-secondary);
+    }
+
+    .kh-composer-control--flat .kh-composer-chip {
+      flex: 1;
+      min-width: 0;
+      max-width: none;
+      min-height: 2.75rem;
+      border-radius: var(--kh-radius-md);
+    }
+
+    .kh-composer-control--flat .kh-composer-chip__value { max-width: none; flex: 1; }
+    .kh-composer-chip__remove { width: 2.75rem; height: 2.75rem; }
+
+    .ai-move { display: flex; }
+    .ai-move__button { flex: 1; justify-content: flex-start; height: 2.75rem; padding: 0 0.75rem; border-radius: var(--kh-radius-md); }
+    .ai-move__label { display: inline; }
+
+    .ai-voice-volume__inline { display: block; }
+    .ai-voice-volume__compact { display: none; }
+  }
+
+  .ai-chat-standalone__more-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 2.75rem;
+    padding: 0 0.75rem;
+    border: 1px solid var(--cds-border-subtle-01);
+    border-radius: var(--kh-radius-md);
+    background: transparent;
+    color: var(--cds-text-primary);
+    font: inherit;
+    font-size: var(--kh-text-body);
+    text-align: left;
+    cursor: pointer;
+
+    &:hover { background: var(--cds-layer-hover-01); }
+    &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 2px; }
+    &[aria-pressed='true'] { border-color: var(--kh-accent-border); color: var(--kh-accent); }
+  }
+
+  .ai-chat-standalone__more-state { margin-left: auto; color: var(--cds-text-secondary); }
+
+  .ai-mobile-context {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    margin-bottom: 0.5rem;
+    padding-left: 0.75rem;
+    border: 1px solid var(--kh-accent-border);
+    border-radius: var(--kh-radius-md);
+    background: var(--kh-accent-bg);
+    font-size: var(--kh-text-body);
+  }
+
+  .ai-mobile-context__icon { flex-shrink: 0; color: var(--kh-accent); }
+  .ai-mobile-context__text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ai-mobile-context__label { color: var(--cds-text-secondary); }
+
+  .ai-mobile-context__remove {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    border: none;
+    background: transparent;
+    color: var(--cds-icon-secondary);
+    cursor: pointer;
+
+    &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: -2px; }
+  }
+
+  .ai-chat-standalone .ai-composer__hint { display: none; }
+
+  .ai-chat-standalone .ai-input-row {
+    .cds--btn--icon-only.ai-attach-button,
+    .cds--btn--icon-only.ai-mic-button,
+    .cds--btn--icon-only.ai-voice-chat-button,
+    .cds--btn--icon-only.ai-send-button {
+      width: 2.75rem;
+      min-width: 2.75rem;
+      height: 2.75rem;
+      min-height: 2.75rem;
+      justify-content: center;
+      align-items: center;
+      padding: 0;
+    }
+  }
+}
+
+// Phone drawer rows have no hover: keep pin/rename/delete visible and finger-sized.
+@media (max-width: 640px) and (hover: none) {
+  .kh-chat-sidebar--open .kh-chat-sidebar__item-actions { opacity: 1; }
+
+  .kh-chat-sidebar--open .kh-chat-sidebar__item-action.cds--btn--icon-only {
+    width: 2.75rem;
+    min-width: 2.75rem;
+    height: 2.75rem;
+    min-height: 2.75rem;
+    padding: 0.875rem;
   }
 }
 
@@ -18843,6 +19062,164 @@ a.ai-used__title { color: var(--kh-accent); text-decoration: none; &:hover { tex
 
   .kb-focus__col { overflow: visible; min-height: auto; }
   .kb-focus__hint { display: none; }
+}
+
+// Mobile Tasks tab (inside the standalone chat): single-column Focus with touch-sized controls.
+.kb-page.kb-mobile-tasks {
+  height: auto;
+  overflow: visible;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+
+  .kb-inbox { margin-bottom: 0; }
+  .kb-inbox__hint { display: none; }
+
+  .kb-focus--single { display: flex; flex-direction: column; overflow: visible; }
+  .kb-focus__col { overflow: visible; min-height: auto; gap: 0.75rem; padding-bottom: 0; }
+  .kb-focus__hint { display: none; }
+  .kb-focus__actions { display: flex; justify-content: flex-end; }
+  .kb-focus-row { min-height: 3rem; }
+  .kb-focus-row__check { position: relative; width: 1.75rem; height: 1.75rem; }
+  // Visual check stays 28px; its touch area grows to 44px.
+  .kb-focus-row__check::before { content: ''; position: absolute; inset: -8px; }
+  .kb-focus-row__check svg { width: 14px; height: 14px; }
+  .kb-focus-row__title { font-size: 1rem; white-space: normal; }
+  .kb-focus-row__athena { width: 2.75rem; height: 2.75rem; opacity: 1; }
+  .kb-focus__actions .kb-import-btn { min-height: 2.75rem; padding: 0 1rem; }
+
+  .kb-inbox__toggle { min-height: 2.75rem; }
+  .kb-inbox__list { max-height: none; overflow: visible; grid-template-columns: 1fr; }
+  .kb-inbox-card__btn { min-height: 2.75rem; padding: 0 0.875rem; }
+
+  .kb-inbox-card__btn--primary {
+    border-color: var(--kh-accent);
+    background: var(--kh-accent);
+    color: #161616;
+
+    &:hover:not(:disabled) { border-color: #6be5e3; background: #6be5e3; }
+  }
+
+}
+
+// Task editor opened from the phone Tasks tab fills the screen: one column, 44px controls,
+// actions clear of the gesture bar. The dialog is portalled to <body>, so it carries its own class.
+.kh-dialog.kh-dialog--task-mobile {
+  width: 100vw;
+  max-width: 100vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+
+  .kb-modal-form__row { grid-template-columns: 1fr; }
+  .kb-modal-form__row--half-left { max-width: none; }
+  .kh-dialog__actions { padding-bottom: calc(1rem + env(safe-area-inset-bottom)); }
+  .kh-dialog__button { min-height: 2.75rem; }
+  .kh-dialog__close { min-width: 2.75rem; min-height: 2.75rem; align-items: center; justify-content: center; }
+  .notes-tag-picker-trigger { min-height: 2.75rem; padding: 0 0.75rem; }
+}
+
+.kb-mobile-tasks__toast-region {
+  position: fixed;
+  left: 0.75rem;
+  right: 0.75rem;
+  bottom: calc(0.75rem + env(safe-area-inset-bottom));
+  z-index: 50;
+  pointer-events: none;
+}
+
+.kb-mobile-tasks__toast {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.25rem 0.25rem 0.25rem 1rem;
+  border: 1px solid var(--cds-border-subtle-01);
+  border-radius: var(--kh-radius-md);
+  background: var(--cds-layer-02);
+  color: var(--cds-text-primary);
+  font-size: var(--kh-text-body);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  pointer-events: auto;
+}
+
+.kb-mobile-tasks__toast-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.kb-mobile-tasks__undo {
+  flex-shrink: 0;
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  border: none;
+  border-radius: var(--kh-radius-sm);
+  background: transparent;
+  color: var(--kh-accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover { background: var(--cds-layer-hover-02); }
+  &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: -2px; }
+}
+
+/* ── App update notice ──────────────────────────────────────────── */
+.kh-update-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 2.5rem;
+  padding: 0.25rem 0.5rem 0.25rem 1rem;
+  border-bottom: 1px solid var(--kh-accent-border);
+  border-left: 3px solid var(--kh-accent);
+  background: var(--kh-accent-bg);
+  color: var(--cds-text-primary);
+  font-size: var(--kh-text-body);
+}
+
+.kh-update-bar__icon { flex-shrink: 0; color: var(--kh-accent); }
+.kh-update-bar__text { flex: 1; min-width: 0; line-height: 1.4; }
+
+.kh-update-bar__reload,
+.kh-update-bar__dismiss {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  border: 1px solid transparent;
+  border-radius: var(--kh-radius-sm);
+  font: inherit;
+  cursor: pointer;
+  transition: background 80ms, border-color 80ms;
+
+  &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 1px; }
+}
+
+.kh-update-bar__reload {
+  padding: 0 0.75rem;
+  border-color: var(--kh-accent);
+  background: var(--kh-accent);
+  color: #161616;
+  font-weight: 600;
+
+  &:hover { background: #6be5e3; border-color: #6be5e3; }
+}
+
+.kh-update-bar__dismiss {
+  width: 2rem;
+  padding: 0;
+  background: transparent;
+  color: var(--cds-icon-secondary);
+
+  &:hover { background: var(--cds-layer-hover-01); color: var(--cds-icon-primary); }
+}
+
+@media (max-width: 640px) {
+  .kh-update-bar { gap: 0.5rem; padding-left: 0.75rem; }
+  .kh-update-bar__reload, .kh-update-bar__dismiss { min-height: 2.75rem; }
+  .kh-update-bar__dismiss { width: 2.75rem; }
 }
 
 /* ── End-of-day check-in + at-risk nudges ───────────────────────── */

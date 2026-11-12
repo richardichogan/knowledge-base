@@ -11,11 +11,15 @@ import './styles/workspaces.scss';
 import './styles/scrollbars.scss';
 import './styles/controls.scss';
 
-// Unregister any stale service workers — they cause blank-page / fetch-fail issues
-// when the dev server port changes between sessions.
+// Unregister stale service workers — they cause blank-page / fetch-fail issues
+// when the dev server port changes between sessions. Production keeps the
+// pass-through /sw.js that index.html registers, which Android needs to install the app.
 if ('serviceWorker' in navigator) {
   void navigator.serviceWorker.getRegistrations().then((regs) => {
-    for (const reg of regs) void reg.unregister();
+    for (const reg of regs) {
+      const keep = !import.meta.env.DEV && (reg.active?.scriptURL.includes('/sw.js') ?? false);
+      if (!keep) void reg.unregister();
+    }
   });
 }
 

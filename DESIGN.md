@@ -225,6 +225,27 @@ icon-only controls where the existing UI does so. Do not wrap the persona row
 or introduce a horizontal scrollbar. Standalone mobile chat must retain a
 usable composer, readable replies and keyboard-safe height.
 
+The standalone mobile chat has a **Chat | Tasks** switch in its top bar, beside
+the history button, using the teal selected state. Tasks is part of the chat app,
+not a separate mobile product screen: a single-column Plan Focus view (Inbox,
+Add task, then Overdue, This week, Next, Waiting, Someday) with touch-sized
+controls. Tapping a task opens the existing task editor full-screen; Ask Athena
+returns to Chat with that task attached as context, without sending. Completing a
+task shows a short toast with **Undo**.
+
+On a phone the top bar is fixed to three controls — history, Chat | Tasks, and a
+**settings** button. Settings opens a sheet below the top bar with the composer
+settings as labelled rows (persona, context, action, workstream), Save to Think,
+Voice replies and the volume slider. The attached context shows above the message
+box as a removable "Viewing …" strip. Every touch target is at least 44px, the
+layout uses the dynamic viewport so the keyboard never covers the composer, and
+Android Back closes the open layer (Tasks, history drawer or settings sheet)
+before leaving the app.
+
+When a newer build is deployed, a slim teal-edged **update bar** ("A new version
+of Athena is available" with a teal Reload and dismiss) sits below the header on
+desktop and below the top bar in standalone chat. It never reloads on its own.
+
 ## Elevation & Depth
 
 Depth comes mainly from neutral tonal layers and borders. Routine lists and

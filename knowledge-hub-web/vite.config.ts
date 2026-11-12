@@ -2,9 +2,19 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath, URL } from 'node:url';
 
+// Each production build gets an id; the app compares it with the deployed /version.json to offer an update.
+const BUILD_ID = Date.now().toString(36);
+
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), {
+    name: 'athena-build-version',
+    apply: 'build',
+    generateBundle() {
+      this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ build: BUILD_ID }) });
+    },
+  }],
+  define: { __APP_BUILD_ID__: JSON.stringify(BUILD_ID) },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

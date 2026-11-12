@@ -162,7 +162,9 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
   ].filter(Boolean).join(' ');
 
   return (
-    <aside className={className} aria-label="Chat history">
+    <aside className={className} aria-label="Chat history"
+      // A closed phone drawer stays in the DOM off-screen; keep it out of focus order and the accessibility tree.
+      {...(isMobile && !mobileOpen ? { inert: '' } as Record<string, string> : {})}>
       <div className="kh-chat-sidebar__header">
         <Link to="/" className="kh-chat-sidebar__brand" title="Back to Athena home">
           <img src="/favicon.svg" alt="" className="kh-chat-sidebar__logo" />

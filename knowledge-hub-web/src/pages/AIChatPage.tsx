@@ -14,7 +14,7 @@ import {
   Button,
   Tile,
 } from '@carbon/react';
-import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VoiceActivate, VolumeUp, VolumeMute, Attachment, Menu, Idea, Notebook, Copy, View, Document as DocumentIcon, Compare } from '@carbon/icons-react';
+import { Send, Checkmark, Close, Renew, Microphone, StopFilled, VoiceActivate, VolumeUp, VolumeMute, Attachment, Menu, Idea, Notebook, Copy, View, Document as DocumentIcon, Compare, OverflowMenuVertical } from '@carbon/icons-react';
 import { api } from '../services/api';
 import { getActiveNoteId, runNoteAction, reloadOpenNote, prepareBuildChat, prepareDesignChat, prepareDiagramChat, preparePodcastChat, prepareTaskChat, prepareUseCaseChat, prepareWorkChat } from '../utils/activeBlockNoteEditor';
 import { deliverNoteEdits } from '../utils/noteEditDelivery';
@@ -30,7 +30,8 @@ import { BackgroundTaskCard } from '../components/athena/BackgroundTaskCard';
 import { AthenaPresence } from '../components/athena/AthenaPresence';
 import { AthenaRibbon } from '../components/athena/AthenaRibbon';
 import { ComposerSuggestion, composerSuggestions } from '../components/athena/ComposerSuggestion';
-import { ComposerControl } from '../components/athena/ComposerControl';
+import { ComposerControl, ComposerControlFlat } from '../components/athena/ComposerControl';
+import { useBackDismiss } from '../hooks/useBackDismiss';
 import { useAthenaMood } from '../chat/athenaMood';
 import { ChatBubble } from '../components/athena/ChatBubble';
 import { NoteInsightsStrip } from '../components/athena/NoteInsightsStrip';
@@ -68,6 +69,9 @@ import type { ChatMessage, ChatSessionSummary, WriteActionProposal, AthenaPerson
 import { JobChatConfirmations } from '../components/jobs/JobReview';
 
 import { useAthenaContext, type AthenaPageContext } from '../context/AthenaContext';
+import { TasksPage } from './TasksPage';
+import type { PlanTask } from '../types/task';
+import { AppUpdateBar } from '../components/AppUpdateBar';
 import { ChatSidebar } from '../components/athena/ChatSidebar';
 import { ReplyMeta } from '../components/athena/ReplyMeta';
 import { RememberedNotice } from '../components/athena/RememberedNotice';
@@ -302,7 +306,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   compact = false,
   compactVariant = 'default',
   standalone = false,
-  pageContext,
+  pageContext: pageContextProp,
   initialPersona,
   promptRequest,
   title,
@@ -312,6 +316,10 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   hideToolbar = false,
 }) => {
   const { backgroundWork } = useAthenaContext();
+  // Mobile chat app: a Tasks tab beside Chat. Ask Athena on a task attaches it as this chat's context.
+  const [mobileView, setMobileView] = useState<'chat' | 'tasks'>('chat');
+  const [mobileTaskContext, setMobileTaskContext] = useState<AthenaPageContext | undefined>(undefined);
+  const pageContext = pageContextProp ?? mobileTaskContext;
   // The Think-embedded panel manages its own per-note session (see the
   // note-linking effect below) instead of sharing localStorage-persisted
   // session state with the floating widget / full-page chat.
@@ -343,7 +351,36 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
         ? SESSION_STORAGE_KEY_WIDGET
         : `${SESSION_STORAGE_KEY_PAGE}-${initialPersona ?? 'general'}`;
   const isMobile = useIsMobile();
+  const hasMobileTasks = standalone && isMobile;
+  const showMobileTasks = hasMobileTasks && mobileView === 'tasks';
+  const askAthenaAboutTask = (task: PlanTask): void => {
+    setMobileTaskContext({
+      type: 'task', id: task.id, title: task.title,
+      ...(task.projectId && task.projectId !== 'personal' ? { projectId: task.projectId } : {}),
+      detail: `Task opened from the Tasks tab of the mobile Athena app (Focus view). Current saved task:\n${JSON.stringify(task)}`,
+    });
+    setDismissedContextKey(null);
+    setMobileView('chat');
+    // Only raise the keyboard on an empty chat; otherwise let the user see the attached task first.
+    if (messages.length === 0) window.requestAnimationFrame(() => { textareaRef.current?.focus(); });
+  };
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
+  const mobileMoreRef = useRef<HTMLDivElement>(null);
+  const showMobileMore = hasMobileTasks && !showMobileTasks && isMobileMoreOpen;
+  useBackDismiss(showMobileTasks, () => { setMobileView('chat'); });
+  useBackDismiss(hasMobileTasks && isMobileSidebarOpen, () => { setIsMobileSidebarOpen(false); });
+  useBackDismiss(showMobileMore, () => { setIsMobileMoreOpen(false); });
+  useEffect(() => {
+    if (!showMobileMore) return undefined;
+    const dismiss = (event: PointerEvent): void => {
+      if (!mobileMoreRef.current?.contains(event.target as Node)) setIsMobileMoreOpen(false);
+    };
+    const escape = (event: KeyboardEvent): void => { if (event.key === 'Escape') setIsMobileMoreOpen(false); };
+    document.addEventListener('pointerdown', dismiss);
+    document.addEventListener('keydown', escape);
+    return () => { document.removeEventListener('pointerdown', dismiss); document.removeEventListener('keydown', escape); };
+  }, [showMobileMore]);
   const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
@@ -819,6 +856,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
 
   function handleSelectSession(id: string, retry = false): void {
     setIsMobileSidebarOpen(false);
+    setMobileView('chat');
+    if (id !== sessionId) setMobileTaskContext(undefined);
     if (id === sessionId && !retry) return;
     stopTts();
     detachLiveTurn();
@@ -1991,6 +2030,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     stopTts();
     setHistoryError(null);
     setIsMobileSidebarOpen(false);
+    setMobileView('chat');
+    setMobileTaskContext(undefined);
     detachLiveTurn();
     pendingSessionIdRef.current = null;
     setCompareOpen(false);
@@ -2552,7 +2593,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           onClick={() => setIsMobileSidebarOpen(false)}
         />
       )}
-      <div className={standalone ? 'ai-chat-standalone__main' : compact ? 'ai-chat-compact__wrap' : ''}>
+      <div className={standalone ? `ai-chat-standalone__main${showMobileTasks ? ' ai-chat-standalone__main--tasks' : ''}` : compact ? 'ai-chat-compact__wrap' : ''}>
       {!compact && !standalone && (
         <div className="page-header">
           <div className="page-title-group">
@@ -2570,12 +2611,70 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
             iconDescription="Chat history"
             tooltipPosition="bottom"
             className="ai-chat-standalone__menu-toggle"
+            aria-expanded={isMobile ? isMobileSidebarOpen : undefined}
             onClick={() => setIsMobileSidebarOpen((open) => !open)}
           />
-          <div className="ai-new-chat-row ai-chat-standalone__actions">
-            {promptNavigation}
-            {actionButtons}
-          </div>
+          {hasMobileTasks && (
+            <div className="ai-chat-standalone__switch" role="tablist" aria-label="Athena view"
+              onKeyDown={(event) => {
+                if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+                event.preventDefault();
+                const next = mobileView === 'chat' ? 'tasks' : 'chat';
+                setMobileView(next);
+                document.getElementById(`ai-mobile-tab-${next}`)?.focus();
+              }}>
+              {(['chat', 'tasks'] as const).map((id) => (
+                <button key={id} type="button" role="tab" id={`ai-mobile-tab-${id}`}
+                  aria-selected={mobileView === id} aria-controls={id === 'tasks' ? 'ai-mobile-tasks' : 'ai-mobile-chat'}
+                  tabIndex={mobileView === id ? 0 : -1}
+                  className={`ai-chat-standalone__switch-btn${mobileView === id ? ' ai-chat-standalone__switch-btn--active' : ''}`}
+                  onClick={() => { setMobileView(id); setIsMobileSidebarOpen(false); setIsMobileMoreOpen(false); }}>
+                  {id === 'chat' ? 'Chat' : 'Tasks'}
+                </button>
+              ))}
+            </div>
+          )}
+          {hasMobileTasks ? !showMobileTasks && (
+            <button type="button" className="ai-chat-standalone__more-toggle" aria-label="Chat settings"
+              aria-expanded={showMobileMore} aria-controls="ai-mobile-more"
+              onPointerDown={(event) => { if (showMobileMore) event.stopPropagation(); }}
+              onClick={() => { setIsMobileMoreOpen((open) => !open); }}>
+              <OverflowMenuVertical size={20} aria-hidden="true" />
+            </button>
+          ) : (
+            <div className="ai-new-chat-row ai-chat-standalone__actions">
+              {promptNavigation}
+              {actionButtons}
+            </div>
+          )}
+        </div>
+      )}
+      {showMobileMore && (
+        <div ref={mobileMoreRef} id="ai-mobile-more" className="ai-chat-standalone__more" role="group" aria-label="Chat settings">
+          <ComposerControlFlat.Provider value>{composerChipBar}</ComposerControlFlat.Provider>
+          {messages.length > 0 && sessionId !== null && (
+            <MoveToThink
+              sessionId={sessionId}
+              projectId={activeProjectId}
+              disabled={isExporting || chatMutation.isPending}
+              onExportSummary={() => { setIsMobileMoreOpen(false); handleExportToThink(); }}
+              linkConversation={!isNoteLinkedPanel}
+            />
+          )}
+          <button type="button" className="ai-chat-standalone__more-row" aria-pressed={voiceOutputOn}
+            onClick={() => { stopTts(); if (voiceOutputOn) closeSpeakSession(); setVoiceOutputOn((v) => !v); }}>
+            {voiceOutputOn ? <VolumeUp size={20} aria-hidden="true" /> : <VolumeMute size={20} aria-hidden="true" />}
+            <span>Voice replies</span>
+            <span className="ai-chat-standalone__more-state">{voiceOutputOn ? 'On' : 'Off'}</span>
+          </button>
+          <VoiceVolumeControl value={voiceVolume} onChange={setVoiceVolume} />
+        </div>
+      )}
+      {standalone && <AppUpdateBar className="kh-update-bar--chat" />}
+      {showMobileTasks && (
+        <div id="ai-mobile-tasks" className="ai-chat-standalone__tasks" role="tabpanel" aria-labelledby="ai-mobile-tab-tasks">
+          <TasksPage mobile importOpen={false} onImportClose={() => {}} filterProject="" filterTag=""
+            onAskAthenaAboutTask={askAthenaAboutTask} />
         </div>
       )}
       {!standalone && !hideToolbar && (
@@ -2586,7 +2685,8 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
           </div>
         </div>
       )}
-      <div ref={conversationRef} className={`ai-conversation${standalone ? ' ai-chat-standalone__body' : compact ? ' ai-chat-compact__body' : ''}`}>
+      <div ref={conversationRef} className={`ai-conversation${standalone ? ' ai-chat-standalone__body' : compact ? ' ai-chat-compact__body' : ''}`}
+        {...(hasMobileTasks ? { id: 'ai-mobile-chat', role: 'tabpanel', 'aria-labelledby': 'ai-mobile-tab-chat' } : {})}>
         <AthenaPresence mood={mood} phase={motionPhase} pending={chatMutation.isPending}
           dock={presenceDock} thinker={presenceThinker} voiceLevel={voiceLevelRef} />
         <JobChatConfirmations sessionId={sessionId} />
@@ -2906,6 +3006,16 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
 
         {projectsQuery.error !== null && <DataNotice title="Workstream choices could not be refreshed." error={projectsQuery.error}
           onRetry={() => { void projectsQuery.refetch(); }} />}
+        {hasMobileTasks && pageContext !== undefined && !isContextDismissed && (
+          <div className="ai-mobile-context">
+            <View size={16} aria-hidden="true" className="ai-mobile-context__icon" />
+            <span className="ai-mobile-context__text"><span className="ai-mobile-context__label">Viewing</span> {pageContext.title}</span>
+            <button type="button" className="ai-mobile-context__remove" aria-label={`Stop using ${pageContext.title} as context`}
+              onClick={() => { setDismissedContextKey(pageContextKey); }}>
+              <Close size={16} />
+            </button>
+          </div>
+        )}
         <form onSubmit={handleSend} className="ai-input-row">
           <input
             ref={fileInputRef}
@@ -2954,7 +3064,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               onBlur={() => { setInputFocused(false); }}
               onKeyDown={handleInputKeyDown}
               onPaste={handleInputPaste}
-              disabled={chatMutation.isPending}
+              // On a phone, disabling the box while Athena replies would drop the keyboard after every send.
+              disabled={chatMutation.isPending && !hasMobileTasks}
+              readOnly={chatMutation.isPending}
               autoFocus
             />
             <Button

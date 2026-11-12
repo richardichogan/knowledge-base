@@ -1,7 +1,23 @@
-import React, { useEffect, useId, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useId, useRef, useState } from 'react';
 import { useAnchoredPopovers } from '../../hooks/useAnchoredPopovers';
 
-export function ComposerControl({ label, icon, active = false, closeOnChange = true, children }: {
+/** Inside the mobile chat settings sheet, controls render as labelled rows instead of icon popovers. */
+export const ComposerControlFlat = createContext(false);
+
+export function ComposerControl(props: {
+  label: string; icon: React.ReactNode; active?: boolean; closeOnChange?: boolean; children: React.ReactNode;
+}): React.ReactElement {
+  const flat = useContext(ComposerControlFlat);
+  if (flat) {
+    return <div className="kh-composer-control kh-composer-control--flat" role="group" aria-label={props.label}>
+      <span className="kh-composer-control__caption" aria-hidden="true">{props.label.split(':')[0]}</span>
+      {props.children}
+    </div>;
+  }
+  return <ComposerControlPopover {...props} />;
+}
+
+function ComposerControlPopover({ label, icon, active = false, closeOnChange = true, children }: {
   label: string; icon: React.ReactNode; active?: boolean; closeOnChange?: boolean; children: React.ReactNode;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
