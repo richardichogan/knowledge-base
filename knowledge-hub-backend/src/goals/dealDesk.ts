@@ -73,8 +73,11 @@ export function opportunity(projectId: unknown): Opportunity {
   return found;
 }
 
+/** The editor titles a note from its first heading, so the brief must open with its own H1 rather than its first section. */
+function noteTitle(opp: Opportunity): string { return `Deal desk — ${opp.name}`; }
+
 function template(opp: Opportunity): string {
-  return [`Deal brief for ${opp.name}, kept current by Athena from the Daily Briefing, watchlists and Plan. Every change is logged on Today and can be undone.`, '',
+  return [`# ${noteTitle(opp)}`, '', `Deal brief for ${opp.name}, kept current by Athena from the Daily Briefing, watchlists and Plan. Every change is logged on Today and can be undone.`, '',
     ...SECTIONS.flatMap(s => [`## ${s.heading}`, '', '- Not yet known.', ''])].join('\n');
 }
 
@@ -87,6 +90,7 @@ function sections(content: string): { values: Record<SectionKey, string>; intro:
   let current: SectionKey | 'intro' | 'extra' = 'intro';
   const buffers: Partial<Record<SectionKey, string[]>> = {};
   for (const line of lines) {
+    if (/^# Deal desk — /.test(line)) continue;
     const h = /^#{1,3} (.+)$/.exec(line);
     if (h) {
       const match = SECTIONS.find(s => s.heading.toLowerCase() === h[1]!.trim().toLowerCase());
@@ -102,8 +106,21 @@ function sections(content: string): { values: Record<SectionKey, string>; intro:
   return { values, intro: intro.join('\n').trim(), extra: extra.join('\n').trim() };
 }
 
-function render(intro: string, values: Record<SectionKey, string>, extra: string): string {
-  return [intro, '', ...SECTIONS.flatMap(s => [`## ${s.heading}`, '', values[s.key] || '- Not yet known.', '']), extra].join('\n').trim();
+function render(opp: Opportunity, intro: string, values: Record<SectionKey, string>, extra: string): string {
+  return [`# ${noteTitle(opp)}`, '', intro, '',  ...SECTIONS.flatMap(s => [`## ${s.heading}`, '', values[s.key] || '- Not yet known.', '']), extra].join('\n').trim();
+}
+
+/** Repairs a brief the editor retitled after its first section (e.g. "Stage") by restoring the H1 and title. */
+async function restoreTitle(db: Pool, opp: Opportunity, noteId: string): Promise<void> {
+  const row = (await db.query<{ content: string; revision: number }>(`SELECT content, revision FROM notes WHERE id=$1 AND status='active'`, [noteId])).rows[0];
+  if (!row) return;
+  const previous = parseWriting(row.content);
+  const blocks = JSON.parse(previous.contentJson) as { type?: string; props?: { level?: number } }[];
+  if (previous.title === noteTitle(opp) && blocks[0]?.type === 'heading' && blocks[0].props?.level === 1) return;
+  const current = sections(row.content);
+  const writing: Writing = { ...previous, title: noteTitle(opp), contentJson: JSON.stringify(textToBlocks(render(opp, current.intro, current.values, current.extra))) };
+  await writeNote(db, noteId, { content: JSON.stringify({ ...JSON.parse(row.content) as object, ...writing }), expectedRevision: row.revision, protectBefore: true })
+    .catch(() => { /* an open editor holds a newer revision; the next run repairs it */ });
 }
 
 async function ensureNote(db: Pool, opp: Opportunity): Promise<string> {
@@ -111,10 +128,10 @@ async function ensureNote(db: Pool, opp: Opportunity): Promise<string> {
   const existing = state?.notes[opp.projectId];
   if (existing) {
     const live = (await db.query<{ status: string }>('SELECT status FROM notes WHERE id=$1', [existing])).rows[0];
-    if (live?.status === 'active') return existing;
+    if (live?.status === 'active') { await restoreTitle(db, opp, existing); return existing; }
   }
   const note = await createNoteRecord(db, { projectId: opp.projectId, tags: ['deal-desk'],
-    content: JSON.stringify({ title: `Deal desk — ${opp.name}`, contentType: 'note', contentJson: JSON.stringify(textToBlocks(template(opp))) }) });
+    content: JSON.stringify({ title: noteTitle(opp), contentType: 'note', contentJson: JSON.stringify(textToBlocks(template(opp))) }) });
   await mutateState<DeskState, void>(db, STATE_KEY, { notes: {}, lastRun: null }, s => { s.notes[opp.projectId] = note.id; });
   return note.id;
 }
@@ -183,7 +200,7 @@ async function updateOne(db: Pool, opp: Opportunity, trigger: string, since: Dat
   }
   if (!changes.length) return 'unchanged';
   const previous: Writing = parseWriting(row.content);
-  const writing: Writing = { ...previous, contentJson: JSON.stringify(textToBlocks(render(current.intro, next, current.extra))) };
+  const writing: Writing = { ...previous, title: noteTitle(opp), contentJson: JSON.stringify(textToBlocks(render(opp, current.intro, next, current.extra))) };
   const saved = await writeNote(db, noteId, { content: JSON.stringify({ ...JSON.parse(row.content) as object, ...writing }), expectedRevision: row.revision, protectBefore: true });
   let followUp: DealFollowUp | null = null;
   const f = parsed.followUp;
