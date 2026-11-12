@@ -6,7 +6,7 @@
 import type { Pool } from 'pg';
 import { ValidationError } from '../types/errors.js';
 import type { TaskActivityActor } from '../work/taskEditActivity.js';
-import { createDealDraft, dealDeskHistory, dealDeskRunning, dealDeskStatus, runDealDesk, undoDealUpdate, updateDealFromNotes } from './dealDesk.js';
+import { createDealDraft, dealDeskHistory, dealDeskRunning, dealDeskStatus, dealNoteId, runDealDesk, setDealStage, undoDealUpdate, updateDealFromNotes } from './dealDesk.js';
 import { acceptChase, decideCadence, decidePromise, dismissChase, getMeetingPrep, meetingPrepRunning, refreshMeetingPrep } from './meetingPrep.js';
 import { cfpShortlist, decideCfp } from './cfpShortlist.js';
 import { gateProposals, proposalReport, proposalType, setProposalTypeEnabled } from './proposals.js';
@@ -41,7 +41,7 @@ export async function proactiveOverview(db: Pool) {
 export type ProactiveOverview = Awaited<ReturnType<typeof proactiveOverview>>;
 
 export const PROACTIVE_ACTIONS = [
-  'run-deal-desk', 'update-deal-from-notes', 'deal-history', 'undo-deal-update', 'create-deal-draft',
+  'run-deal-desk', 'update-deal-from-notes', 'deal-history', 'undo-deal-update', 'create-deal-draft', 'set-deal-stage',
   'refresh-meeting-prep', 'accept-promise', 'dismiss-promise', 'accept-cadence', 'dismiss-cadence', 'accept-chase', 'dismiss-chase',
   'confirm-cfp', 'dismiss-cfp', 'enable-proposal-type', 'disable-proposal-type',
   'resume-paused', 'stop-paused',
@@ -70,6 +70,7 @@ export async function proactiveAction(db: Pool, action: unknown, args: Record<st
     case 'accept-chase': return acceptChase(db, args.id);
     case 'dismiss-chase': return dismissChase(db, args.id);
     case 'create-deal-draft': return createDealDraft(db, args.updateId ?? args.id);
+    case 'set-deal-stage': return setDealStage(db, await dealNoteId(db, args), args.stage);
     case 'confirm-cfp': return decideCfp(db, str(args.id, 'the CFP id'), true, actor);
     case 'dismiss-cfp': return decideCfp(db, str(args.id, 'the CFP id'), false, actor);
     case 'enable-proposal-type': await setProposalTypeEnabled(db, proposalType(args.type), true); return proposalReport(db);

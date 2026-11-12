@@ -62,19 +62,21 @@ export async function executeGoalsTool(db: Pool, args: Record<string, unknown>):
 export const PROACTIVE_TOOL: LlmToolDefinition = {
   type: 'function', function: {
     name: 'manage_proactive',
-    description: 'Athena\'s proactive work towards Richard\'s goals. status returns: deal desk (one Think note per Imagine opportunity — ADNOC turnaround, Royal London complaints, IKEA, Reckitt — with the latest logged change and canUndo), '
+    description: 'Athena\'s proactive work towards Richard\'s goals. status returns: deal desk (one Deal desk note per Imagine opportunity — ADNOC turnaround, Royal London complaints, IKEA, Reckitt — with its stage and the latest logged change and canUndo), '
       + 'meeting prep (prep cards from the latest Daily Briefing with attendees, last exchange, promises both ways, talking points and deal-brief link; proposed promises; chases on Waiting-on tasks; cadence nudges for Miha, Chad and Josh), '
       + 'the CFP shortlist and scheduled abstracts, and Athena\'s self-report (proposed/accepted/ignored/rejected per proposal type and which types are switched off). Read status before any change and cite only what it returns. '
-      + 'run-deal-desk and refresh-meeting-prep start in the background; read status later. update-deal-from-notes (projectId, notes) updates one deal brief from pasted meeting notes now. deal-history (projectId); undo-deal-update (updateId) restores the previous writing if the note has not been edited since. '
+      + 'run-deal-desk and refresh-meeting-prep start in the background; read status later. A Deal desk note holds its Next step and Who matters tables (Action/Owner/Due/Done; Name/Role/Stance) and bullet sections; the job only adds rows and bullets and never changes a heading or anything Richard wrote. Read the note itself for its content and edit it with the note-edit tools. set-deal-stage (noteId or projectId, stage: Qualify, Shape, Propose, Negotiate, Won, Lost) sets the stage shown in the note\'s properties. update-deal-from-notes (projectId, notes) adds to one deal brief from pasted meeting notes now. deal-history (projectId); undo-deal-update (updateId) restores the previous writing if the note has not been edited since. '
       + 'accept-promise creates a task (Richard\'s promise) or a Waiting-on task (someone else\'s) plus a draft; accept-cadence creates a task and a draft; accept-chase creates the chase draft (chases carry suggested wording only until accepted); dismiss-promise/dismiss-cadence/dismiss-chase decline. '
       + 'Deal desk updates may carry a suggested follow-up (followUp) with no draft; create-deal-draft (updateId) creates it as a draft. No draft exists until Richard accepts. paused lists jobs or specialist agents Athena stopped after repeated failures, each with its question; resume-paused (id) tries again, stop-paused (id) leaves it stopped. timing shows peak-hour gating: proposals surface Mon–Fri 09:00–11:00 and 16:00–18:00 UK, at most three at a time; items marked held are waiting for the next window. confirm-cfp saves the CFP and schedules an abstract note and submission task at deadline minus 21 days; dismiss-cfp archives it. '
       + 'enable-proposal-type/disable-proposal-type (type) switch a kind of proposal on or off. Use decisions only when Richard asks in this chat. Drafts are never sent and CFPs are never submitted by Athena.',
     parameters: { type: 'object', properties: {
-      action: { type: 'string', enum: ['status', 'run-deal-desk', 'update-deal-from-notes', 'deal-history', 'undo-deal-update', 'refresh-meeting-prep', 'accept-promise', 'dismiss-promise',
+      action: { type: 'string', enum: ['status', 'run-deal-desk', 'update-deal-from-notes', 'deal-history', 'undo-deal-update', 'set-deal-stage', 'refresh-meeting-prep', 'accept-promise', 'dismiss-promise',
         'accept-cadence', 'dismiss-cadence', 'accept-chase', 'dismiss-chase', 'create-deal-draft', 'resume-paused', 'stop-paused', 'confirm-cfp', 'dismiss-cfp', 'enable-proposal-type', 'disable-proposal-type'] },
       id: { type: 'string', description: 'Promise, cadence, chase, CFP or pause id from status.' },
       projectId: { type: 'string', enum: ['imagine-turnaround', 'imagine-complaints-process', 'ikea', 'reckitt'] },
       notes: { type: 'string', description: 'Pasted meeting notes for update-deal-from-notes.' },
+      noteId: { type: 'string', description: 'Deal desk note id, for set-deal-stage (or give projectId).' },
+      stage: { type: 'string', enum: ['Qualify', 'Shape', 'Propose', 'Negotiate', 'Won', 'Lost'] },
       updateId: { type: 'string' },
       type: { type: 'string', enum: ['goal-move', 'date-proposal', 'deal-followup', 'promise', 'chase', 'cadence', 'cfp', 'chat-next-step', 'goal-adjustment'] },
     }, required: ['action'] },

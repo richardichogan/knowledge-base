@@ -154,9 +154,10 @@ async function load(db: Pool, c: Canonical, args: ReadArgs, sessionId: string): 
       const raw = String(row.content);
       const parsed = parseNoteContent(raw);
       const text = parsed.blocks.length === 0 ? '' : sanitizeText(await renderNoteAsText(db, raw));
+      const dealStage = parsed.contentType === 'deal-desk' ? (await (await import('../../goals/dealDesk.js')).dealStages(db))[c.id] : undefined;
       return {
         title: sanitizeText(parsed.title ?? 'Untitled note'), text, projectId: row.project_id ?? null,
-        fields: { status: String(row.status ?? 'active'), contentType: parsed.contentType ?? null },
+        fields: { status: String(row.status ?? 'active'), contentType: parsed.contentType ?? null, ...(dealStage ? { dealStage } : {}) },
         origin: 'human', createdAt: iso(row.created_at), updatedAt: iso(row.updated_at),
         locator: { internalPath: `/think?noteId=${c.id}` }, extractionState: text.trim() ? 'complete' : 'metadata-only', issues,
       };

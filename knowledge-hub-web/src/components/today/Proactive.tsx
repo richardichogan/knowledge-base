@@ -9,6 +9,7 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, Renew } from '@carbon/icons-react';
 import { api } from '../../services/api';
+import { DealStageBadge } from '../../notes/DealStage';
 import { describeApiError, requireApiData } from '../../services/apiError';
 import type { CadenceNudge, ChaseProposal, LoopPause, PrepCard, ProactiveAction, ProactiveOverview, PromiseProposal } from '../../types/goals';
 
@@ -44,7 +45,7 @@ function useProactiveAction() {
 /** Compact summary for Athena's page context; manage_proactive status returns the full records. */
 export function proactiveContext(data: ProactiveOverview | undefined): string {
   if (!data) return 'Proactive work: not loaded yet; use manage_proactive status.';
-  const deals = data.deals.rows.map(d => `- ${d.name} [${d.projectId}]${d.noteId ? ` brief note ${d.noteId}` : ' no brief yet'}${d.latest ? `; latest change ${when(d.latest.createdAt, true)}: ${d.latest.summary}${d.latest.undoneAt ? ' (undone)' : ''}${d.latest.draftId ? ` follow-up draft ${d.latest.draftId}` : d.latest.followUp && !d.latest.undoneAt ? ` suggested follow-up to ${d.latest.followUp.to || 'recipient'} (no draft yet; create-deal-draft)` : ''} [update ${d.latest.id}]` : ''}`);
+  const deals = data.deals.rows.map(d => `- ${d.name} [${d.projectId}]${d.noteId ? ` brief note ${d.noteId}` : ' no brief yet'}${d.stage ? `, stage ${d.stage}` : ''}${d.latest ? `; latest change ${when(d.latest.createdAt, true)}: ${d.latest.summary}${d.latest.undoneAt ? ' (undone)' : ''}${d.latest.draftId ? ` follow-up draft ${d.latest.draftId}` : d.latest.followUp && !d.latest.undoneAt ? ` suggested follow-up to ${d.latest.followUp.to || 'recipient'} (no draft yet; create-deal-draft)` : ''} [update ${d.latest.id}]` : ''}`);
   const prep = data.meetingPrep;
   const open = <T extends { status: string }>(xs: T[]): T[] => xs.filter(x => x.status === 'proposed');
   const held = (x: { held?: boolean }): string => (x.held ? ' (held for the next peak window)' : '');
@@ -87,7 +88,7 @@ export function DealDesk(): React.ReactElement {
       {data && <ul className="today-proactive__rows">{data.rows.map(row => {
         const u = row.latest;
         return <li key={row.projectId} className="today-proactive__row">
-          <div className="today-goals__measure-top"><span className="today-goals__measure-label">{row.name}</span>
+          <div className="today-goals__measure-top"><span className="today-goals__measure-label">{row.name}{row.stage && <> <DealStageBadge stage={row.stage} /></>}</span>
             {u && <span className="today-brief__meta">{when(u.createdAt, true)}</span>}</div>
           <p className="today-brief__reason">{u ? (u.undoneAt ? `Undone: ${u.summary}` : u.summary) : row.noteId ? 'No changes logged yet.' : 'No brief yet. Athena creates it on the next run.'}</p>
           {u && u.changes.length > 0 && !u.undoneAt && <p className="today-brief__meta">Changed: {u.changes.map(c => c.section).join(', ')}</p>}

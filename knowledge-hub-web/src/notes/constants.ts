@@ -12,6 +12,7 @@ export const UNTITLED_DOCUMENT = 'Untitled';
 export type ContentType =
   | 'deliverable-brief'
   | 'email-draft'
+  | 'deal-desk'
   | 'design'
   | 'blog'
   | 'podcast'
@@ -42,6 +43,7 @@ export interface ContentTypeOption {
 export const CONTENT_TYPE_OPTIONS: ContentTypeOption[] = [
   { id: 'deliverable-brief', label: 'Deliverable brief', group: 'Work' },
   { id: 'email-draft', label: 'Email draft', group: 'Work' },
+  { id: 'deal-desk', label: 'Deal desk', group: 'Work' },
   { id: 'design',               label: 'Design',             group: 'Work' },
   { id: 'meeting',              label: 'Meeting notes',      group: 'Work' },
   { id: 'project',              label: 'Workstream note',       group: 'Work' },
@@ -70,6 +72,7 @@ export const CONTENT_TYPE_GROUPS: { label: ContentTypeGroup; options: ContentTyp
 export const CONTENT_TYPE_TAG: Record<ContentType, 'green' | 'teal' | 'purple' | 'blue' | 'gray' | 'red' | 'cyan' | 'magenta' | 'orange'> = {
   'deliverable-brief': 'teal',
   'email-draft': 'blue',
+  'deal-desk': 'magenta',
   design:              'teal',
   blog:                'green',
   podcast:             'teal',
@@ -118,6 +121,41 @@ export const DELIVERABLE_BRIEF_HEADINGS = [
   'Outcome & definition of done', 'Sources & evidence', 'Decisions only Richard can make',
   'Deliverable specification (format, audience, structure, template)', 'Target OneDrive path',
 ];
+
+// ── Deal desk ─────────────────────────────────────────────────────────────────
+
+/** Must match the backend (goals/dealDeskNote.ts): the weekly job finds these tables by heading. */
+export const DEAL_STAGES = ['Qualify', 'Shape', 'Propose', 'Negotiate', 'Won', 'Lost'] as const;
+export type DealStage = typeof DEAL_STAGES[number];
+
+const DEAL_NEXT_STEP_COLUMNS = ['Action', 'Owner', 'Due', 'Done'];
+const DEAL_PEOPLE_COLUMNS = ['Name', 'Role', 'Stance'];
+const DEAL_BULLET_HEADINGS = ['Objections heard', 'Proof points', 'Competitor moves'];
+
+const dealTable = (columns: string[]) => ({
+  type: 'table' as const,
+  content: {
+    type: 'tableContent' as const,
+    headerRows: 1,
+    rows: [{ cells: columns }, { cells: columns.map(() => '') }],
+  },
+});
+
+/** Skeleton for an empty note switched to "Deal desk": title, intro, two tables, then bulleted sections. */
+export function dealDeskTemplate(title: string) {
+  return [
+    { type: 'heading' as const, props: { level: 1 as const }, content: title },
+    { type: 'paragraph' as const, content: '' },
+    { type: 'heading' as const, props: { level: 2 as const }, content: 'Next step' },
+    dealTable(DEAL_NEXT_STEP_COLUMNS),
+    { type: 'heading' as const, props: { level: 2 as const }, content: 'Who matters' },
+    dealTable(DEAL_PEOPLE_COLUMNS),
+    ...DEAL_BULLET_HEADINGS.flatMap(heading => [
+      { type: 'heading' as const, props: { level: 2 as const }, content: heading },
+      { type: 'bulletListItem' as const, content: '' },
+    ]),
+  ];
+}
 
 // ── BlockNote g100 theme override ─────────────────────────────────────────────
 

@@ -2595,6 +2595,13 @@ export class KnowledgeHubApi {
   async proactiveAction(action: ProactiveAction, args: Record<string, unknown> = {}): Promise<ApiResponse<{ result: unknown; overview: ProactiveOverview }>> {
     return (await this.client.post<ApiResponse<{ result: unknown; overview: ProactiveOverview }>>(`/api/today/proactive/${action}`, args)).data;
   }
+  async getDealStages(): Promise<ApiResponse<Record<string, string>>> {
+    return (await this.client.get<ApiResponse<Record<string, string>>>('/api/notes/deal-stages')).data;
+  }
+  async setDealStage(noteId: string, stage: string): Promise<ApiResponse<{ noteId: string; stage: string; previous: string | null }>> {
+    return (await this.client.put<ApiResponse<{ noteId: string; stage: string; previous: string | null }>>(
+      `/api/notes/${encodeURIComponent(noteId)}/deal-stage`, { stage })).data;
+  }
   async getDecideQueue(): Promise<ApiResponse<DecideItem[]>> {
     return (await this.client.get<ApiResponse<DecideItem[]>>('/api/today/decide')).data;
   }

@@ -16,6 +16,7 @@ import { listShortcut, moveListFocus } from '../hooks/listKeyboard';
 import { contentTypeIcon, ctxTags, identitiesFor, useIdentity } from '../identity';
 import { activateNoteOnKeyDown, NOTE_SORT_OPTIONS, NOTE_BUCKET_STORAGE_KEY, noteDateBuckets, noteListDate, parseCollapsedNoteBuckets, type NoteSortKey, type NoteListQuery } from './noteListState';
 import './noteList.scss';
+import { DealStageBadge, useDealStages } from './DealStage';
 import { api } from '../services/api';
 import { describeApiError, requireApiData } from '../services/apiError';
 
@@ -400,6 +401,7 @@ const NoteCard: React.FC<{
   }, [isActive]);
 
   const TypeIcon = contentTypeIcon(note.contentType);
+  const { data: dealStages } = useDealStages(note.contentType === 'deal-desk');
   const preview = note.body ?? '';
   const snippet = preview.replace(/[#*_`>[\]\n]+/g, ' ').trim().slice(0, 120);
   // Encoded as "name|colour" so the canvas renderer can use the correct colour
@@ -446,6 +448,7 @@ const NoteCard: React.FC<{
           <TypeIcon size={12} aria-hidden="true" />
           {note.contentType.replace(/-/g, ' ')}
         </span>
+        {note.contentType === 'deal-desk' && <DealStageBadge stage={dealStages?.[note.id]} />}
       </div>
     </div>
   );

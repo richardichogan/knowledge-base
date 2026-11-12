@@ -19969,6 +19969,33 @@ select optgroup {
     &:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: 2px; }
   }
 }
+.kh-deal-properties {
+  margin-bottom: 24px;
+  color: var(--cds-text-primary);
+  font-size: var(--kh-text-body);
+  text-align: left;
+  h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: var(--kh-section-title); font-weight: 600; }
+  p { margin: 8px 0 12px; color: var(--cds-text-secondary); }
+  &__field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  &__error { color: var(--cds-support-error) !important; }
+}
+
+.kh-deal-stage {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border: 1px solid var(--cds-border-subtle-01);
+  border-radius: var(--kh-radius-sm);
+  background: var(--cds-layer-01);
+  color: var(--cds-text-secondary);
+  font-size: var(--kh-text-meta);
+  font-weight: 600;
+  white-space: nowrap;
+  &--shape, &--propose, &--negotiate { color: var(--cds-text-primary); border-color: var(--cds-border-strong-01); }
+  &--won { color: var(--cds-support-success); border-color: var(--cds-support-success); }
+  &--lost { color: var(--cds-support-error); border-color: var(--cds-support-error); }
+}
+
 .kh-task-status-note {
   display: grid;
   gap: var(--cds-spacing-05);

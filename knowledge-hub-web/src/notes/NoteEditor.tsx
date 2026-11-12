@@ -16,6 +16,7 @@ import { ShareEmailModal } from '../components/ShareEmailModal';
 import type { ShareEmailContent } from '../types/shareEmail';
 import { setActiveBlockNoteEditor, getActiveBlockNoteEditor, setNoteActionBridge, setNoteReloadBridge, setWorkChatBridge } from '../utils/activeBlockNoteEditor';
 import { EmailDraftFields, useWorkContent, WorkContentProperties } from './WorkContent';
+import { DealStageProperties } from './DealStage';
 import { TrashCan, ChevronDown, DocumentExport, DocumentImport, Idea, Renew, Image as ImageIcon, LogoGithub, Diagram, Code, Copy, Launch, PresentationFile, TextBold, TextItalic, ListChecked, ListBulleted, ListNumbered, Quotes } from '@carbon/icons-react';
 import { SendToBuildDialog } from '../features/build/buildShared';
 import { pushToGitHub } from './githubSync';
@@ -33,6 +34,7 @@ import {
   UNTITLED_DOCUMENT,
   USE_CASE_TEMPLATE_HEADINGS,
   DELIVERABLE_BRIEF_HEADINGS,
+  dealDeskTemplate,
 } from './constants';
 import type { ContentType } from './constants';
 import type { NoteDocument, GitHubPublication } from './types';
@@ -1193,7 +1195,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   const identity = useIdentity();
   const metadata: MetadataPanelProps = {
     workContext: work.data,
-    ...(workEnabled ? { workProperties: <WorkContentProperties work={work} disabled={historyBusy || externalBusy} /> } : {}),
+    ...(workEnabled ? { workProperties: <WorkContentProperties work={work} disabled={historyBusy || externalBusy} /> }
+      : contentType === 'deal-desk' ? { workProperties: <DealStageProperties noteId={doc.id} disabled={historyBusy || externalBusy} /> } : {}),
     designPanel,
     ...(designPanelLabel !== undefined && { designPanelLabel }),
     onSaveBeforeCampaign: doSave,
@@ -1212,6 +1215,13 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
               { type: 'paragraph' as const, content: '' },
             ]),
           ]);
+        }
+      }
+      if (value === 'deal-desk') {
+        const blocks = editorRef.current.document;
+        if (extractPlainText(blocks).trim() === '') {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          editorRef.current.replaceBlocks(blocks, dealDeskTemplate(savedDocRef.current.title) as any);
         }
       }
       persistDraft(); void doSave();

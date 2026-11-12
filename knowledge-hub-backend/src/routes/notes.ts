@@ -41,6 +41,7 @@ import { queueScriptVisuals } from '../services/scriptVisualJobs.js';
 import { ensureNoteInsights, dismissNoteInsight } from '../ai/noteInsights.js';
 import { assertBlogNote, loadNoteBlogPackage } from '../services/noteBlogPackage.js';
 import { parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
+import { dealStages, setDealStage } from '../goals/dealDesk.js';
 
 const router = Router();
 // Any note write can add, edit or remove a definition Athena relies on.
@@ -116,6 +117,21 @@ router.post('/:id/insights/dismiss', (req, res, next) => {
         throw new ValidationError('Provide the insight version signature and finding to dismiss');
       }
       res.json({ success: true, data: await dismissNoteInsight(getDb(), req.params['id'], body.signature, body.findingId) });
+    } catch (error) { next(error); }
+  })();
+});
+
+router.get('/deal-stages', (_req, res, next) => {
+  void (async (): Promise<void> => {
+    try { res.json({ success: true, data: await dealStages(getDb()) }); } catch (error) { next(error); }
+  })();
+});
+
+router.put('/:id/deal-stage', (req, res, next) => {
+  void (async (): Promise<void> => {
+    try {
+      const body = (req.body ?? {}) as { stage?: unknown };
+      res.json({ success: true, data: await setDealStage(getDb(), req.params['id'], body.stage) });
     } catch (error) { next(error); }
   })();
 });

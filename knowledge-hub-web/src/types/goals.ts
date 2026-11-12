@@ -65,7 +65,7 @@ export interface DealUpdate {
   id: string; projectId: string; noteId: string; trigger: string; summary: string; changes: DealChange[];
   followUp: DealFollowUp | null; draftId: string | null; createdAt: string; undoneAt: string | null; canUndo: boolean;
 }
-export interface DealDeskRow { projectId: string; name: string; noteId: string | null; latest: DealUpdate | null }
+export interface DealDeskRow { projectId: string; name: string; noteId: string | null; stage: string | null; latest: DealUpdate | null }
 export interface DraftText { channel: 'email' | 'slack' | 'teams'; to: string; subject: string; body: string }
 export interface PrepCard {
   id: string; time: string; meeting: string; attendees: string[]; lastExchange: string;
@@ -113,7 +113,7 @@ export interface ProactiveOverview {
   cfps: { shortlist: CfpCard[]; scheduled: CfpSchedule[] };
   ledger: ProposalReport;
 }
-export type ProactiveAction = 'run-deal-desk' | 'update-deal-from-notes' | 'deal-history' | 'undo-deal-update' | 'create-deal-draft' | 'refresh-meeting-prep'
+export type ProactiveAction = 'run-deal-desk' | 'set-deal-stage' | 'update-deal-from-notes' | 'deal-history' | 'undo-deal-update' | 'create-deal-draft' | 'refresh-meeting-prep'
   | 'accept-promise' | 'dismiss-promise' | 'accept-cadence' | 'dismiss-cadence' | 'accept-chase' | 'dismiss-chase' | 'resume-paused' | 'stop-paused'
   | 'confirm-cfp' | 'dismiss-cfp' | 'enable-proposal-type' | 'disable-proposal-type';
 

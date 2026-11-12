@@ -15,6 +15,7 @@ import { manualBlogSourceCapabilities } from './agents/workforce/blogSources.js'
 import { assertWorkforceSchemaReady } from './agents/workforce/readiness.js';
 import { startTraceRetention } from './ai/turnTrace.js';
 import { attachVoiceLiveRelay } from './services/voice/voiceLiveRelay.js';
+import { conformDealNotes } from './goals/dealDesk.js';
 
 assertSafeDatabase(env.DATABASE_MODE, env.DATABASE_URL, env.NODE_ENV);
 const sharedProductionDatabase = env.NODE_ENV === 'development' && env.DATABASE_MODE === 'production';
@@ -53,7 +54,10 @@ const runtime = createRuntime({
     }, CREDENTIAL_REFRESH_INTERVAL_MS);
     credentialTimer.unref();
     void startAgentWorker(getDb()).catch((error: unknown) => { console.error('[agents] Specialist worker did not start:', error); });
-    if (env.NODE_ENV === 'production') startSyncScheduler();
+    if (env.NODE_ENV === 'production') {
+      startSyncScheduler();
+      void conformDealNotes(getDb()).catch((error: unknown) => { console.error('[DealDesk] Conversion failed:', error); });
+    }
     else console.warn('[Scheduler] Non-production mode: scheduled jobs disabled.');
   },
   stopJobs: () => { clearInterval(credentialTimer); stopTraceRetention?.(); stopSyncScheduler(); stopTurnJobs(); void stopAgentWorker(); },

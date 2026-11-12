@@ -105,7 +105,7 @@ const DIAGRAM_VERSION_PAGE_CHARS = 12_000;
 const TASK_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 const NOTE_CONTENT_TYPES = [
   'blog', 'podcast', 'podcast-show-notes', 'newsletter', 'project', 'note', 'script', 'architecture', 'meeting', 'research', 'spec', 'use-case',
-  'deliverable-brief', 'email-draft',
+  'deliverable-brief', 'email-draft', 'deal-desk',
 ] as const;
 const DEFAULT_ATHENA_NOTE_PROJECT_ID = 'ibm-thought-leadership';
 
