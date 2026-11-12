@@ -135,7 +135,11 @@ async function capture(db: Pool, filename: string, text: string, sourcePath: str
           });
           owned = true;
           result.tasksCreated++;
-        } else result.tasksPreserved++;
+        } else {
+          result.tasksPreserved++;
+          const saved = matchingTasks.find(candidate => candidate.id === taskId);
+          result.warnings.push(`Not imported; already covered by "${saved?.title ?? taskId}"${task.duplicateReason ? ` (${task.duplicateReason})` : ''}: ${task.title}`);
+        }
       } else if (prior.snapshot != null && prior.task_id !== null && prior.last_report_date <= parsed.date) {
         // A full-row snapshot detects every user edit, including status, tags and scheduling.
         const updated = await client.query<Record<string, unknown>>(`UPDATE tasks SET title=$1, body=$2, project_id=$3, due_date=$4, updated_at=NOW()
