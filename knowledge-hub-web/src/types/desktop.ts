@@ -19,7 +19,9 @@ export interface DesktopPresentation {
   scriptVisualThemes?: boolean;
   scriptVisualVideo?: boolean;
   scriptDemo?: boolean;
-  openDemo?(displayId: number | null, noteId: string): Promise<void>;
+  scriptDemoInspection?: boolean;
+  scriptDemoWorkforce?: boolean;
+  openDemo?(value: PresentationScript & { displayId: number; demoDisplayId: number }): Promise<void>;
   videoState?(): Promise<PresentationVideoState>;
   setVideoMode?(mode: VisualVideoMode, noteId: string): Promise<PresentationVideoState>;
   onVideoState?(listener: (value: PresentationVideoState) => void): () => void;

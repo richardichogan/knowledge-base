@@ -1,6 +1,9 @@
 import { BrowserWindow, screen, type WebContents } from 'electron';
 import { classifyUrl } from './navigation';
-import type { PresentationDemoAction, PresentationTurnaroundRoute } from './elgatoProtocol';
+import { isWorkforceDemo, type PresentationDemoAction, type PresentationTurnaroundRoute } from './elgatoProtocol';
+import { locateInspection, type DemoPair, type InspectionTarget } from './demoInspection';
+import type { DemoStep } from './demoSteps';
+import { locateWorkforceElement } from './workforceInspection';
 
 const ORIGIN = 'http://localhost:5173';
 const START = `${ORIGIN}/turnaround/overview`;
@@ -8,16 +11,18 @@ const PARTITION = 'persist:athena-turnaround-demo';
 const ROUTES: Record<PresentationTurnaroundRoute, { path: string; view?: string }> = {
   overview: { path: '/turnaround/overview' },
   plan: { path: '/turnaround/plan' },
-  scopeList: { path: '/turnaround/queue', view: 'work-orders' },
+  scopeList: { path: '/turnaround/queue' },
   challenge: { path: '/turnaround/challenge' },
   finalScope: { path: '/turnaround/final-scope' },
   scenarioPlanner: { path: '/turnaround/twin' },
   productionImpact: { path: '/turnaround/production-impact' },
   gate: { path: '/turnaround/gate' },
   audit: { path: '/turnaround/audit' },
+  workforce: { path: '/agents', view: 'wf_turnaround' },
 };
 
 function routeMatches(url: URL, route: { path: string; view?: string }): boolean {
+  if (route.path === '/agents') return url.pathname === route.path && url.searchParams.get('workforce') === route.view;
   const view = url.searchParams.get('view');
   return url.pathname === route.path && (route.view === undefined || view === route.view
     || (route.path === '/turnaround/queue' && route.view === 'work-orders' && view === null));
@@ -53,21 +58,32 @@ export class DemoOutput {
   private completed = 0;
   private position = 0;
   private playing = false;
+  private opening = false;
   private draining = false;
   private busy = false;
   private generation = 0;
   private displayId: number | null = null;
+  private pair: DemoPair = {};
+  private workforce = false;
 
   constructor(private readonly failed: (message: string) => void) {}
 
+  get isOpening(): boolean { return this.opening; }
+  get isReady(): boolean { return !!this.win && !this.opening && !this.win.isDestroyed(); }
+
   async open(displayId: number, prompterId: number | null, actions: PresentationDemoAction[]): Promise<void> {
+    const workforce = isWorkforceDemo(actions);
     const display = screen.getAllDisplays().find(item => item.id === displayId);
     if (!display || display.id === screen.getPrimaryDisplay().id || display.id === prompterId) {
       throw new Error('Choose a demo display separate from the presenter and prompter.');
     }
     this.close();
+    this.opening = true;
+    const generation = this.generation;
     this.actions = actions;
+    this.workforce = workforce;
     this.completed = 0;
+    this.pair = {};
     const win = new BrowserWindow({ ...display.bounds, frame: false, show: false, autoHideMenuBar: true,
       webPreferences: { partition: PARTITION, contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false } });
     this.win = win;
@@ -76,20 +92,79 @@ export class DemoOutput {
     win.on('closed', () => {
       if (this.win !== win) return;
       this.win = null; this.displayId = null; this.generation++; this.playing = false;
+      this.opening = false;
       this.failed('The Turnaround demo window closed. Reopen it before continuing.');
     });
-    try { await win.loadURL(START); if (this.win !== win) throw new Error('Demo window was closed.'); win.show(); }
-    catch (error) { if (!win.isDestroyed()) win.close(); throw error; }
+    try {
+      await win.loadURL(workforce ? `${ORIGIN}/agents?workforce=wf_turnaround` : START);
+      if (this.win !== win) throw new Error('Demo window was closed.');
+      win.show();
+      await this.waitUntilReady(win, generation);
+      this.opening = false;
+    } catch (error) {
+      this.opening = false;
+      if (!win.isDestroyed()) win.close();
+      throw error;
+    }
+  }
+
+  async reset(prompterId: number | null): Promise<void> {
+    if (!this.isReady || this.displayId === null) return;
+    await this.open(this.displayId, prompterId, this.actions);
   }
 
   close(): void {
     this.generation++;
     this.playing = false;
+    this.opening = false;
     this.draining = false;
     const win = this.win;
     this.win = null;
     this.displayId = null;
     if (win && !win.isDestroyed()) win.close();
+  }
+
+  private async waitUntilReady(win: BrowserWindow, generation: number): Promise<void> {
+    const deadline = Date.now() + 60_000;
+    while (this.win === win && generation === this.generation && !win.isDestroyed() && Date.now() < deadline) {
+      const currentUrl = win.webContents.getURL();
+      if (currentUrl.startsWith(`${ORIGIN}/`)) {
+        const url = new URL(currentUrl);
+        if (this.workforce && routeMatches(url, ROUTES.workforce)) {
+          const ready = await win.webContents.executeJavaScript(`(() => {
+            const title = document.querySelector('.workforce-summary h3');
+            return !!title && /Turnaround.*Workforce/.test(title.textContent ?? '')
+              && !!document.querySelector('[data-demo-id="workforce-tab-composition"]');
+          })()`, true) as boolean;
+          if (ready) return;
+        }
+        if (!this.workforce && url.pathname === '/turnaround/overview') {
+          const status = await win.webContents.executeJavaScript(`(() => {
+            const overview = document.querySelector('[data-demo-id="turnaround-overview"]');
+            const event = document.querySelector('#turnaround-event');
+            if (!overview || !(event instanceof HTMLSelectElement)) return 'loading';
+            const selected = event.selectedOptions[0]?.textContent ?? '';
+            if (!selected.includes('NPT2-TA-2027')) return 'wrong-event';
+            return document.querySelector('[data-demo-id="turnaround-standing"]') ? 'ready' : 'loading';
+          })()`, true) as 'loading' | 'ready' | 'wrong-event';
+          if (status === 'ready') return;
+          if (status === 'wrong-event') {
+            throw new Error('Select NPT2-TA-2027 in the demo before starting. The script remains paused.');
+          }
+        }
+      }
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+    if (this.win !== win || generation !== this.generation || win.isDestroyed()) {
+      throw new Error('The Turnaround demo window closed before it was ready. The script remains paused.');
+    }
+    throw new Error('The demo did not finish loading within 60 seconds. The script remains paused; sign in if prompted and reopen the demo.');
+  }
+
+  private expectedPage(url: URL): boolean {
+    return url.origin === ORIGIN && (this.workforce
+      ? routeMatches(url, ROUTES.workforce) || url.pathname === '/agents/agent_turnaround_challenge'
+      : url.pathname.startsWith('/turnaround/'));
   }
 
   displayChanged(display: Electron.Display, removed: boolean, prompterId: number | null): void {
@@ -108,6 +183,93 @@ export class DemoOutput {
       && this.actions[this.completed]!.at <= position) void this.run();
   }
 
+  private async inspect(win: BrowserWindow, target: DemoStep, generation: number): Promise<boolean> {
+    const active = (): boolean => this.playing && this.win === win && generation === this.generation;
+    if (!active()) return false;
+    win.webContents.sendInputEvent({ type: 'mouseMove', x: Math.floor(win.getContentBounds().width / 2), y: 24 });
+    await new Promise(resolve => setTimeout(resolve, 250));
+    if (!active()) return false;
+    if (target === 'historical-back') {
+      const current = new URL(win.webContents.getURL());
+      if (!current.pathname.startsWith('/turnaround/precedent/')) return true;
+      const history = win.webContents.navigationHistory;
+      const previous = history.getEntryAtIndex(history.getActiveIndex() - 1);
+      if (!this.pair.historicalReturn || current.origin !== ORIGIN || !previous
+        || previous.url !== ORIGIN + this.pair.historicalReturn) throw new Error('The historical source return context changed. No unrelated page was opened.');
+      if (!active()) return false;
+      history.goBack();
+      const deadline = Date.now() + 10_000;
+      while (active() && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+        if (win.webContents.getURL() === ORIGIN + this.pair.historicalReturn) return true;
+      }
+      if (!active()) return false;
+      throw new Error('Could not restore the selected job’s challenge context.');
+    }
+    const locate = async (scroll: boolean): Promise<InspectionTarget | null> => {
+      const url = new URL(win.webContents.getURL());
+      if (!this.expectedPage(url)) throw new Error('The demo left its approved application screens.');
+      return win.webContents.executeJavaScript(`(${locateInspection.toString()})(${JSON.stringify(target)},${JSON.stringify(this.pair)},${scroll},${locateWorkforceElement.toString()})`, true);
+    };
+    const deadline = Date.now() + 10_000;
+    let advanced = false;
+    while (active() && Date.now() < deadline) {
+      const item = await locate(true);
+      if (!item) { await new Promise(resolve => setTimeout(resolve, 200)); continue; }
+      if (!active()) return false;
+      this.pair = item.pair;
+      if (item.mode === 'done') return true;
+      await new Promise(resolve => setTimeout(resolve, 550));
+      if (!active()) return false;
+      const check = await locate(false);
+      if (!active()) return false;
+      if (!check || check.key !== item.key || check.mode !== item.mode || check.x !== item.x || check.y !== item.y || check.value !== item.value) {
+        if (target.startsWith('workforce-') && check?.key === item.key && check.mode === item.mode && check.value === item.value) {
+          continue;
+        }
+        throw new Error(`The ${target} target changed. No click was sent.`);
+      }
+      win.webContents.sendInputEvent({ type: 'mouseMove', x: item.x, y: item.y });
+      if (item.mode !== 'click' && item.mode !== 'fill') return true;
+      win.webContents.sendInputEvent({ type: 'mouseDown', x: item.x, y: item.y, button: 'left', clickCount: 1 });
+      win.webContents.sendInputEvent({ type: 'mouseUp', x: item.x, y: item.y, button: 'left', clickCount: 1 });
+      if (item.mode === 'fill') {
+        if (!this.workforce || item.value === undefined || !['', 'Scope Challenge', 'Scope Challenge Specialist'].includes(item.value)) {
+          throw new Error('The workforce search value was not approved. Nothing was typed.');
+        }
+        const focused = await win.webContents.executeJavaScript(`(() => {
+          const target = (${locateWorkforceElement.toString()})(${JSON.stringify(target)});
+          return target.el instanceof HTMLInputElement && target.el === document.activeElement
+            && !target.el.disabled && !target.el.readOnly;
+        })()`, true) as boolean;
+        if (!active()) return false;
+        if (!focused) throw new Error('The workforce search field did not receive focus. Nothing was typed.');
+        win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'A', modifiers: ['control'] });
+        win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'A', modifiers: ['control'] });
+        win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Backspace' });
+        win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Backspace' });
+        if (item.value) await win.webContents.insertText(item.value);
+      }
+      await new Promise(resolve => setTimeout(resolve, 250));
+      // Re-resolve the named target to confirm the new page/expanded state; never blindly repeat a click.
+      while (active() && Date.now() < deadline) {
+        const current = new URL(win.webContents.getURL());
+        if (current.origin !== ORIGIN) throw new Error('The demo left the approved local application.');
+        if (item.destination && current.pathname + current.search === item.destination) return true;
+        const result = await locate(false);
+        if (!active()) return false;
+        if (result && (result.mode === 'point' || result.mode === 'done')) return true;
+        if (result?.mode === 'click' && result.key !== item.key) { advanced = true; break; }
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+      if (!active()) return false;
+      if (advanced) continue;
+      throw new Error(`The demo did not confirm ${target}. No further actions will run.`);
+    }
+    if (!active()) return false;
+    throw new Error(`Could not find ${target}. The demo has paused; no replacement record was selected.`);
+  }
+
   private async run(): Promise<void> {
     const win = this.win;
     if (!win || win.isDestroyed()) return;
@@ -117,20 +279,38 @@ export class DemoOutput {
       while (this.playing && this.win === win && generation === this.generation) {
         const action = this.actions[this.completed];
         if (!action || action.at > this.position) break;
+        if (action.action === 'inspect') {
+          if (action.selection) {
+            const jobPath = `/turnaround/items/${encodeURIComponent(action.selection.jobId)}`;
+            if (this.pair.jobPath && (this.pair.jobPath !== jobPath || this.pair.orderId !== action.selection.workOrderId)) {
+              throw new Error('The walkthrough pair changed. No different record was substituted.');
+            }
+            this.pair = { ...this.pair, jobPath, orderId: action.selection.workOrderId };
+          }
+          if (!await this.inspect(win, action.target, generation) || this.win !== win || generation !== this.generation) break;
+          this.completed++;
+          continue;
+        }
         const deadline = Date.now() + 10_000;
         let target: { x: number; y: number } | null = null;
         const route = action.action === 'navigate' ? ROUTES[action.route] : null;
         if (route) {
           const current = new URL(win.webContents.getURL());
-          if (current.origin !== ORIGIN || !current.pathname.startsWith('/turnaround/')) {
+          if (!this.expectedPage(current)) {
             throw new Error('The demo is not on an approved Turnaround screen. Sign in and reopen the demo.');
           }
-          if (await routeReached(win.webContents, route)) { this.completed++; continue; }
+          const reached = await routeReached(win.webContents, route);
+          if (this.win !== win || generation !== this.generation) break;
+          if (reached) { this.completed++; continue; }
+          win.webContents.sendInputEvent({ type: 'mouseMove',
+            x: Math.floor(win.getContentBounds().width / 2), y: 24 });
+          await new Promise(resolve => setTimeout(resolve, 250));
+          if (!this.playing || this.win !== win || generation !== this.generation) break;
         }
         while (!target && Date.now() < deadline && this.playing && this.win === win && generation === this.generation) {
           const current = new URL(win.webContents.getURL());
           if (current.origin !== ORIGIN || (route
-            ? !current.pathname.startsWith('/turnaround/')
+            ? !this.expectedPage(current)
             : !['/turnaround/overview', '/turnaround/queue'].includes(current.pathname))) {
             throw new Error('The demo is not on the expected Turnaround page. Sign in and reopen the demo.');
           }
@@ -144,7 +324,7 @@ export class DemoOutput {
             const route = ${JSON.stringify(route)};
             const candidates = action === 'navigate' ? [...document.querySelectorAll('a[href]')].filter(a => {
                 const url = new URL(a.href, location.href);
-                const view = url.searchParams.get('view');
+                const view = url.searchParams.get(route.path === '/agents' ? 'workforce' : 'view');
                 return url.origin === location.origin && url.pathname === route.path
                   && (!route.view || view === route.view || (route.path === '/turnaround/queue' && route.view === 'work-orders' && view === null));
               })
@@ -189,7 +369,7 @@ export class DemoOutput {
           if (action === 'navigate') {
             const link = hit.closest('a[href]'); if (!link || !route) return false;
             const url = new URL(link.href, location.href);
-            const view = url.searchParams.get('view');
+            const view = url.searchParams.get(route.path === '/agents' ? 'workforce' : 'view');
             return url.origin === location.origin && url.pathname === route.path
               && (!route.view || view === route.view || (route.path === '/turnaround/queue' && route.view === 'work-orders' && view === null));
           }

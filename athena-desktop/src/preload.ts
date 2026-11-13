@@ -3,7 +3,7 @@
  * can only use `electron`; every call is checked again in the main process.
  */
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
-import type { CommandRequest } from './elgatoProtocol';
+import type { CommandRequest, PresentationScript } from './elgatoProtocol';
 
 const originArg = process.argv.find((a) => a.startsWith('--athena-origin='));
 const athenaOrigin = originArg?.slice('--athena-origin='.length) ?? '';
@@ -23,7 +23,9 @@ if (process.isMainFrame && athenaOrigin !== '' && window.location.origin === ath
       scriptVisualThemes: true,
       scriptVisualVideo: true,
       scriptDemo: true,
-      openDemo: (displayId: number | null, noteId: string) => ipcRenderer.invoke('presentation:demo', { displayId, noteId }),
+      scriptDemoInspection: true,
+      scriptDemoWorkforce: true,
+      openDemo: (value: PresentationScript & { displayId: number; demoDisplayId: number }) => ipcRenderer.invoke('presentation:demo', value),
       videoState: () => ipcRenderer.invoke('presentation:video-state'),
       setVideoMode: (mode: unknown, noteId: string) => ipcRenderer.invoke('presentation:video-mode', { mode, noteId }),
       onVideoState: (listener: (value: unknown) => void) => {

@@ -1,3 +1,4 @@
+import { DEMO_STEPS, type DemoStep } from './demoSteps';
 export const ELGATO_PORT = 43129;
 export const COMMANDS = [
   'open-athena', 'new-note', 'new-diagram', 'speak', 'present-note',
@@ -53,32 +54,60 @@ export interface PresentationVisualScene {
 export interface PresentationPilotAction { action: 'scope-list' | 'jobs' | 'first-job'; at: number }
 export type PresentationTurnaroundRoute =
   | 'overview' | 'plan' | 'scopeList' | 'challenge' | 'finalScope'
-  | 'scenarioPlanner' | 'productionImpact' | 'gate' | 'audit';
+  | 'scenarioPlanner' | 'productionImpact' | 'gate' | 'audit' | 'workforce';
 export interface PresentationNavigationAction { action: 'navigate'; route: PresentationTurnaroundRoute; at: number }
-export type PresentationDemoAction = PresentationPilotAction | PresentationNavigationAction;
+export interface PresentationInspectionAction {
+  action: 'inspect'; target: DemoStep; at: number;
+  selection?: { jobId: string; workOrderId: string };
+}
+export type PresentationDemoAction = PresentationPilotAction | PresentationNavigationAction | PresentationInspectionAction;
+export function isWorkforceDemo(actions: PresentationDemoAction[]): boolean {
+  return actions.some(action => action.action === 'navigate' && action.route === 'workforce'
+    || action.action === 'inspect' && action.target.startsWith('workforce-'));
+}
 export interface PresentationScript { noteId: string; title: string; text: string; runs?: PresentationRun[]; visuals?: PresentationVisualScene[]; demo?: PresentationDemoAction[] }
 
 export function parsePresentationDemo(value: unknown, length: number): PresentationDemoAction[] | undefined {
   if (value === undefined) return undefined;
-  if (!Array.isArray(value) || value.length < 1 || value.length > 12) throw new Error('Invalid Turnaround demo cues.');
+  if (!Array.isArray(value) || value.length < 1 || value.length > 96) throw new Error('Invalid Turnaround demo cues.');
   const pilot = value.length === 3 && value.every((item, index) => {
     const entry = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : null;
     return entry?.action === (['scope-list', 'jobs', 'first-job'] as const)[index];
   });
-  const routes = ['overview', 'plan', 'scopeList', 'challenge', 'finalScope', 'scenarioPlanner', 'productionImpact', 'gate', 'audit'];
+  const routes = ['overview', 'plan', 'scopeList', 'challenge', 'finalScope', 'scenarioPlanner', 'productionImpact', 'gate', 'audit', 'workforce'];
+  const walkthrough = value.some(item => item && typeof item === 'object' && item.action === 'inspect');
   let previous = -1;
-  return value.map((item, index) => {
+  const actions = value.map((item, index): PresentationDemoAction => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('Invalid Turnaround demo action.');
     const entry = item as Record<string, unknown>;
     if (typeof entry.at !== 'number' || !Number.isSafeInteger(entry.at)
-      || entry.at <= previous || entry.at > length) throw new Error('Invalid Turnaround demo action order or position.');
+      || entry.at < 0 || entry.at < previous || (!walkthrough && entry.at === previous) || entry.at > length) throw new Error('Invalid Turnaround demo action order or position.');
     previous = entry.at;
     if (pilot) return { action: (['scope-list', 'jobs', 'first-job'] as const)[index]!, at: entry.at };
+    if (entry.action === 'inspect') {
+      if (typeof entry.target !== 'string' || !DEMO_STEPS.some(step => step === entry.target)) throw new Error('Invalid Turnaround inspection target.');
+      let selection: PresentationInspectionAction['selection'];
+      if (entry.selection !== undefined) {
+        const value = entry.selection as Record<string, unknown> | null;
+        if (entry.target !== 'plan-job-expand' || !value || Array.isArray(value)
+          || typeof value.jobId !== 'string' || !/^NPT2-TA-2027_[a-zA-Z0-9_-]{1,80}$/.test(value.jobId)
+          || typeof value.workOrderId !== 'string' || !/^WO-[0-9]{1,12}$/.test(value.workOrderId)) {
+          throw new Error('Invalid Turnaround job/work-order selection.');
+        }
+        selection = { jobId: value.jobId, workOrderId: value.workOrderId };
+      }
+      return { action: 'inspect', target: entry.target as DemoStep, at: entry.at, ...(selection ? { selection } : {}) };
+    }
     if (entry.action !== 'navigate' || typeof entry.route !== 'string' || !routes.includes(entry.route)) {
       throw new Error('Invalid Turnaround navigation action.');
     }
     return { action: 'navigate', route: entry.route as PresentationTurnaroundRoute, at: entry.at };
   });
+  if (isWorkforceDemo(actions) && actions.some(action => action.action === 'navigate' ? action.route !== 'workforce'
+    : action.action !== 'inspect' || !action.target.startsWith('workforce-'))) {
+    throw new Error('Workforce and business walkthrough actions must use separate scripts.');
+  }
+  return actions;
 }
 
 export const PRESENTATION_ASSET_IDS = ['foundation', 'workforce-pair', 'copilot', 'agent', 'automation', 'system', 'owner',

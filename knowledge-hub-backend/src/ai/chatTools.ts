@@ -22,7 +22,7 @@ import { queueScriptVisuals, readScriptVisualJob } from '../services/scriptVisua
 import { scriptVisualJobEdits, SCRIPT_VISUAL_SPECIALIST } from '../utils/scriptVisualJobs.js';
 import { listAgentJobs } from '../agents/engine.js';
 import { readSectionVisuals, scriptVisualSource, visualSourceBlocks, visualSourceCurrent, visualSpokenText, SCRIPT_VISUAL_SOURCE_BUDGET, SCRIPT_VISUAL_INSTRUCTION_LIMIT, VISUAL_GRAMMAR, type VisualScriptBlock } from '../utils/scriptVisuals.js';
-import { readScriptDemo, scriptDemoFromPhrases, scriptNavigationFromPhrase, TURNAROUND_ROUTES, type ScriptDemo } from '../utils/scriptDemo.js';
+import { readScriptDemo, scriptDemoFromPhrases, scriptNavigationFromPhrase, scriptWalkthroughFromPhrases, SCRIPT_DEMO_STEPS, TURNAROUND_ROUTES, type ScriptDemo } from '../utils/scriptDemo.js';
 import { parseScriptDirection } from '../utils/scriptDirections.js';
 import { getDiscoverPicks, refreshDiscoverPicks } from '../services/discoverPicks.js';
 import { PUBLISHING_TOOL, executePublishingTool } from './publishingTools.js';
@@ -807,7 +807,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
       type: 'function',
       function: {
         name: 'read_script_demo',
-        description: 'Read saved Turnaround pilot actions or screen-navigation routes, exact cue phrases and spoken blocks in the open Script. This is saved content, not a live playback receipt.',
+        description: 'Read saved Turnaround walkthrough actions (scrolling, pointing, expansion, record navigation), pilot actions, exact cue phrases and spoken blocks. This is saved content, not a live playback receipt.',
         parameters: { type: 'object', properties: { sectionId: { type: 'string' } } },
       },
     },
@@ -815,12 +815,21 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
       type: 'function',
       function: {
         name: 'set_script_demo',
-        description: 'On explicit request, either update the three pilot trigger phrases or link one exact spoken phrase to an approved Turnaround screen in this Script section. Do not change narration or visuals. Read the current plan first. Uses protected editor delivery; accepted is not a save receipt.',
+        description: 'On explicit request, update the ordered read-only walkthrough actions, three pilot phrases, or a screen cue. Walkthrough actions follow the supplied presenter instructions; never run agents, record decisions, change roles or invent scenario inputs. Keep narration/visuals unchanged. Read current cues first. Protected editor delivery; accepted is not a save receipt.',
         parameters: { type: 'object', properties: {
           sectionId: { type: 'string' },
           phrases: { type: 'array', items: { type: 'string' }, description: 'Pilot only: exactly three exact spoken phrases in action order: Scope list, Jobs, first job.' },
           route: { type: 'string', enum: Object.keys(TURNAROUND_ROUTES), description: 'For a full script, the allowlisted screen to open at the cue.' },
           phrase: { type: 'string', description: 'For a full script, an exact phrase appearing once in a spoken block of this section.' },
+          actions: { type: 'array', maxItems: 24, items: { type: 'object', properties: {
+            action: { type: 'string', enum: ['navigate', 'inspect'] },
+            route: { type: 'string', enum: Object.keys(TURNAROUND_ROUTES) },
+            target: { type: 'string', enum: [...SCRIPT_DEMO_STEPS] },
+            selection: { type: 'object', properties: {
+              jobId: { type: 'string' }, workOrderId: { type: 'string' },
+            }, required: ['jobId', 'workOrderId'], description: 'Only for plan-job-expand: the existing NPT2 job record id and linked work-order id chosen during rehearsal. Preserve this pair across later steps; never invent or silently substitute records.' },
+            phrase: { type: 'string', maxLength: 300 },
+          }, required: ['action', 'phrase'] }, description: 'Ordered read-only walkthrough steps. Use route for navigate, target for inspect. Several steps may share a phrase. Replaces this section’s full plan.' },
         }, required: ['sectionId'] },
       },
     },
@@ -1571,17 +1580,19 @@ export async function executeToolCall(
           if (!args['sectionId'] && name === 'read_script_demo') return { sections: sections.map(section => ({
             sectionId: section.id, title: section.content, hasDemo: !!section.props?.scriptDemo,
             ...(section.props?.scriptDemo ? { plan: readScriptDemo(section) } : {}),
-          })), routes: TURNAROUND_ROUTES };
+          })), routes: TURNAROUND_ROUTES, inspectionTargets: SCRIPT_DEMO_STEPS };
           const section = sections.find(block => block.id === args['sectionId']);
           if (!section?.id) throw new ValidationError('Choose an existing stable script section id.');
           const demo = readScriptDemo(section);
           if (name === 'read_script_demo') return { sectionId: section.id, actions: demo?.actions ?? [],
             cueBlocks: visualSourceBlocks(section), stale: !!demo && !visualSourceCurrent(demo.source, section),
-            note: 'These are saved cues, not evidence that the demo has run.' };
+            inspectionTargets: SCRIPT_DEMO_STEPS, note: 'These are saved cues, not evidence that the demo has run.' };
           const route = args['route'];
           const phrase = args['phrase'];
           let updated: ScriptDemo;
-          if (typeof route === 'string' || typeof phrase === 'string') {
+          if (args['actions'] !== undefined) {
+            updated = scriptWalkthroughFromPhrases(section, args['actions']);
+          } else if (typeof route === 'string' || typeof phrase === 'string') {
             if (typeof route !== 'string' || typeof phrase !== 'string') throw new ValidationError('Provide both an approved route and one exact spoken phrase.');
             updated = scriptNavigationFromPhrase(section, route as keyof typeof TURNAROUND_ROUTES, phrase);
           } else {
@@ -1591,7 +1602,7 @@ export async function executeToolCall(
           }
           turn.noteEdits!.push({ action: 'set_script_demo', sectionId: section.id, demo: updated,
             expectedDemo: typeof section.props?.scriptDemo === 'string' ? section.props.scriptDemo : '',
-            summary: updated.version === 2 ? 'Update screen navigation cue' : 'Adjust Turnaround demo phrases', delivery: 'apply' });
+            summary: updated.version === 3 ? 'Update read-only walkthrough actions' : updated.version === 2 ? 'Update screen navigation cue' : 'Adjust Turnaround demo phrases', delivery: 'apply' });
           return { proposed: true, note: 'Accepted for protected editor delivery. This is not a save receipt.' };
         } catch (error) {
           console.error('[Script demo] Athena operation failed:', error);

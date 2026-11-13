@@ -2,6 +2,69 @@
 
 **Status:** Validated
 
+**Workforce walkthrough and reset release (2026-11-13, current):**
+- User requested full operating/testing documentation, shutdown of the local
+  dev environment, merge/push and deployment. Publish compatible Desktop 0.1.25
+  for the locator/reset fixes; do not restart installed Athena automatically.
+- Retain the existing AZCLI application-only targets and subscription:
+  kh-prod-api-vnet, cad79107555facr, kh-prod-web / rg-knowledge-hub-prod /
+  Alliance Tenant Reporting. No IaC, region, RBAC, authentication or worker
+  configuration change. Use existing ACR remote Docker build.
+- User explicitly approved Node 20 -> 22 for both Docker stages and the backend
+  engine requirement. Assessment: local validation uses Node v22.21.0; the
+  multi-stage Linux container, npm lockfile, port 3000 and entrypoint remain.
+  Container Apps supports arbitrary Linux amd64 runtimes:
+  https://learn.microsoft.com/azure/container-apps/containers.
+- Preserve unrelated `.impeccable/hook.cache.json`. Local frontend ports 5173 /
+  5174, backend ports 3000 / 3001 and isolated Desktop 43222 were stopped;
+  installed Athena bridge 43129 remains. No live database reset was performed.
+- All validation checks pass:
+  - [x] Core validation: sync origin/main, CLI/auth, three typechecks and existing
+    full isolated release suites once; rerun failed/affected checks only.
+  - [x] Build verification: local backend/frontend builds and compatible Desktop
+    package. Docker is unavailable locally; the existing ACR remote Docker build
+    from pushed main remains a mandatory gate before updating Container Apps.
+  - [x] Azure Policy/static role validation: no new infrastructure or roles;
+    preserve registry-secret authentication, ingress port and existing targets.
+
+**Section 7: Validation Proof - Workforce/reset release:**
+- `git fetch origin` confirms HEAD is one commit ahead and zero behind main;
+  the pre-deploy `git merge origin/main` reported already up to date. CLI
+  authentication confirms subscription c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28.
+- Backend/frontend `npx tsc --noEmit` and Desktop `npm run typecheck` passed.
+  Existing full release gates ran once. Backend passed 1,090 checks; one file
+  failed to load with a transient Node filesystem UNKNOWN/read error.
+  Only `discover-watchlists.test.ts` was rerun: all 13 checks passed.
+- All frontend release groups passed except three presentation assertions.
+  Fixed sentence spacing to preserve authored blank lines when Intl.Segmenter
+  splits their whitespace across segments. Updated stale cue-offset expectations
+  for displayed whitespace and the fifth shared-phrase action. The affected
+  `presentation.test.ts` rerun passed all 43 checks; frontend typecheck passed.
+- Desktop release checks passed 40/42 initially. Both failures were test-fixture
+  defects: a readiness matcher also matched the serialized locator, and a VM
+  fixture used a different Error constructor. Narrow fixture corrections made
+  both failed reset/IPC checks pass. No product behavior was weakened.
+- Backend `npm run build` passed. Frontend `npm run build` passed again after
+  the spacing correction. Desktop compiled and electron-builder packaged
+  Athena Setup 0.1.25.exe, its blockmap and latest.yml in session artifacts.
+  The existing unsigned packaging configuration is unchanged. An initial
+  packaging attempt hit EPERM on the old output folder; a fresh artifact
+  directory succeeded without touching installed Athena.
+- Both backend Docker stages resolve to node:22-slim; engine >=22.0.0 and local
+  Node v22.21.0 agree. Dockerfile/lockfile context is present; no local Docker
+  command is installed. ACR must successfully build this Dockerfile from pushed
+  main before the image update. Container Apps' Linux amd64 runtime compatibility
+  evidence is recorded above.
+- Static roles/policy: no Bicep, Terraform, azure.yaml, RBAC or infrastructure
+  changes. Existing app uses registry-secret authentication and ingress 3000.
+  The azure MCP policy lookup failed with tenant-mismatch authentication; the
+  correctly authenticated Azure CLI returned no applicable policy assignments
+  for the production resource-group scope including inherited assignments.
+- Development remains closed; only installed Athena bridge 43129 is listening.
+  No new browser, physical-monitor rehearsal, saved-note mutation or installed
+  Desktop restart was performed. Deployment and publication evidence is pending;
+  historical release evidence below is not current-release proof.
+
 **Turnaround walkthrough release (2026-11-13):**
 - User approved deploying the existing web/backend changes and publishing
   Desktop 0.1.24. The hands-on walkthrough is deferred to the dev app.

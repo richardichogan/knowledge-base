@@ -4,12 +4,131 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createContext, runInContext } from 'node:vm';
 import { ElgatoBridge } from '../src/elgatoBridge';
-import { initialPresentation, parseCommand, parsePresentationRuns, parsePresentationVisuals, parseVisualVideoMode, playbackCommand } from '../src/elgatoProtocol';
+import { initialPresentation, parseCommand, parsePresentationRuns, parsePresentationVisuals, parseVisualVideoMode, playbackCommand, type PresentationDemoAction } from '../src/elgatoProtocol';
 import type { VisualVideoState } from '../assets/visualComposition';
 import { createServer } from 'node:net';
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 import { VisualOutput } from '../src/visualOutput';
+import { locateWorkforceElement } from '../src/workforceInspection';
+
+test('configuration cues find the real panel id and protect an unfinished request', () => {
+  class Element {
+    constructor(public textContent = '', private readonly children: Record<string, Element[]> = {}) {}
+    getClientRects(): number[] { return [1]; }
+    getAttribute(): null { return null; }
+    querySelectorAll(selector: string): Element[] { return this.children[selector] ?? []; }
+  }
+  class Input extends Element { value = ''; }
+  class Button extends Element { disabled = false; }
+  const header = new Element('Scope Challenge Specialist');
+  const input = new Input();
+  const intro = new Element('Hi! I can configure Scope Challenge Specialist.');
+  const close = new Button('Close configuration assistant');
+  const section = new Element('', { '#configure-chat-input': [input], '.configure-chat__messages': [intro], button: [close] });
+  const document = new Element('', { '[data-demo-id="member-header"]': [header], '#agent-configuration-assistant': [section] });
+  const context = createContext({
+    document, location: { pathname: '/agents/agent_turnaround_challenge' },
+    HTMLElement: Element, HTMLInputElement: Input, HTMLButtonElement: Button,
+    getComputedStyle: () => ({ visibility: 'visible' }),
+  });
+  const locate = runInContext(`(${locateWorkforceElement.toString()})`, context) as typeof locateWorkforceElement;
+  assert.equal(locate('workforce-configuration-open').el, close);
+  assert.equal(locate('workforce-configuration-intro').el, input);
+  assert.equal(locate('workforce-configuration-close').el, close);
+  assert.equal(locate('workforce-configuration-close').mode, 'click');
+  input.value = 'Unfinished request';
+  assert.throws(() => locate('workforce-configuration-intro'), /not empty/);
+});
+
+test('resetting the demo replays its cues and cancels an in-flight cue', async () => {
+  class Contents extends EventEmitter {
+    url = '';
+    moves = 0;
+    inspections = 0;
+    checkGate: Promise<void> | null = null;
+    setWindowOpenHandler(): void {}
+    getURL(): string { return this.url; }
+    sendInputEvent(event: { type: string }): void { if (event.type === 'mouseMove') this.moves++; }
+    async executeJavaScript(code: string): Promise<unknown> {
+      if (code.startsWith('(() => {') && code.includes('workforce-summary h3')) return true;
+      if (code.startsWith('(() => {') && code.includes('turnaround-overview')) return 'ready';
+      this.inspections++;
+      if (this.inspections === 2 && this.checkGate) await this.checkGate;
+      return { x: 10, y: 10, key: 'target', mode: 'point', pair: {} };
+    }
+  }
+  class Window extends EventEmitter {
+    static instances: Window[] = [];
+    webContents = new Contents();
+    destroyed = false;
+    constructor() { super(); Window.instances.push(this); }
+    isDestroyed(): boolean { return this.destroyed; }
+    getContentBounds(): { width: number; height: number } { return { width: 1200, height: 800 }; }
+    async loadURL(url: string): Promise<void> { this.webContents.url = url; }
+    show(): void {}
+    close(): void { this.destroyed = true; this.emit('closed'); }
+  }
+  const realRequire = createRequire(join(__dirname, '../src/demoOutput.js'));
+  const exported: { exports: unknown } = { exports: {} };
+  const context = createContext({
+    exports: exported.exports, module: exported, URL, setTimeout, clearTimeout,
+    require: (name: string): unknown => name === 'electron'
+      ? { BrowserWindow: Window, screen: {
+        getAllDisplays: () => [{ id: 2, bounds: { x: 0, y: 0, width: 1200, height: 800 } }],
+        getPrimaryDisplay: () => ({ id: 1 }),
+      } }
+      : realRequire(name),
+  });
+  runInContext(await readFile(join(__dirname, '../src/demoOutput.js'), 'utf8'), context);
+  const { DemoOutput } = exported.exports as {
+    DemoOutput: new (failed: (message: string) => void) => {
+      open(displayId: number, prompterId: number | null, actions: PresentationDemoAction[]): Promise<void>;
+      reset(prompterId: number | null): Promise<void>;
+      update(position: number, playing: boolean): void;
+      close(): void;
+    };
+  };
+  const failures: string[] = [];
+  const demo = new DemoOutput(message => { failures.push(message); });
+  const waitFor = async (condition: () => boolean): Promise<void> => {
+    const deadline = Date.now() + 3000;
+    while (!condition() && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.ok(condition(), 'Timed out waiting for the demo cue');
+  };
+  await demo.reset(3);
+  assert.equal(Window.instances.length, 0);
+  await demo.open(2, 3, [{ action: 'inspect', target: 'workforce-summary', at: 1 }]);
+  const first = Window.instances.at(-1)!;
+  assert.equal(first.webContents.url, 'http://localhost:5173/agents?workforce=wf_turnaround');
+  demo.update(1, true);
+  await waitFor(() => first.webContents.moves === 2);
+  demo.update(1, false);
+  await demo.reset(3);
+  const second = Window.instances.at(-1)!;
+  assert.equal(first.destroyed, true);
+  assert.equal(second.webContents.url, first.webContents.url);
+  assert.equal(second.webContents.moves, 0);
+  let release!: () => void;
+  second.webContents.checkGate = new Promise(resolve => { release = resolve; });
+  demo.update(1, true);
+  await waitFor(() => second.webContents.inspections === 2);
+  demo.update(1, false);
+  await demo.reset(3);
+  const third = Window.instances.at(-1)!;
+  release();
+  demo.update(1, true);
+  await waitFor(() => third.webContents.moves === 2);
+  assert.equal(second.webContents.moves, 1);
+  demo.close();
+  await demo.open(2, 3, [{ action: 'inspect', target: 'event', at: 1 }]);
+  const business = Window.instances.at(-1)!;
+  assert.equal(business.webContents.url, 'http://localhost:5173/turnaround/overview');
+  await demo.reset(3);
+  assert.equal(Window.instances.at(-1)!.webContents.url, business.webContents.url);
+  demo.close();
+  assert.deepEqual(failures, []);
+});
 
 test('visual output validates bounded templates, finite positions and reveal ordering', () => {
   const scene = { id: 'one', template: 'concept', title: 'The idea', subtitle: '', imageUrl: '', imageAlt: '', at: 2,
@@ -394,6 +513,23 @@ test('loopback bridge authenticates, rejects browser calls and deduplicates writ
 });
 
 test('presentation IPC confirms scaled negative-coordinate displays, protects ownership and stops on unplug', async () => {
+  class Demo {
+    static instances: Demo[] = [];
+    isReady = false;
+    resetCalls: (number | null)[] = [];
+    resetWait: Promise<void> | null = null;
+    resetError: Error | null = null;
+    constructor() { Demo.instances.push(this); }
+    async open(): Promise<void> { this.isReady = true; }
+    async reset(prompterId: number | null): Promise<void> {
+      this.resetCalls.push(prompterId);
+      if (this.resetWait) await this.resetWait;
+      if (this.resetError) throw this.resetError;
+    }
+    update(): void {}
+    close(): void { this.isReady = false; }
+    displayChanged(): void {}
+  }
   class Contents extends EventEmitter {
     static next = 0;
     id = ++Contents.next;
@@ -461,6 +597,7 @@ test('presentation IPC confirms scaled negative-coordinate displays, protects ow
     exports: exported.exports, module: exported, __dirname: join(__dirname, '../src'),
     require: (name: string): unknown => {
       if (name === 'electron') return electron;
+      if (name === './demoOutput') return { DemoOutput: Demo };
       if (name === './displayWake') return { wakePresentationDisplay: async () => {
         wakes++;
         if (failWake) throw new Error('Fixture Windows wake request failed');
@@ -475,7 +612,7 @@ test('presentation IPC confirms scaled negative-coordinate displays, protects ow
       return realRequire(name);
     },
     console: { ...console, warn: (...values: unknown[]) => { wakeWarnings.push(values); } },
-    Buffer, URL, setTimeout, clearTimeout, setInterval, clearInterval,
+    Buffer, URL, Error, setTimeout, clearTimeout, setInterval, clearInterval,
   });
   runInContext(await readFile(join(__dirname, '../src/elgato.js'), 'utf8'), context);
   const { installElgato } = exported.exports as {
@@ -611,4 +748,39 @@ test('presentation IPC confirms scaled negative-coordinate displays, protects ow
   await invoke('presentation:direct', { noteId: 'note-2', title: 'Direct', text: 'Direct words' }, workspace);
   await invoke('presentation:release', undefined, workspace);
   assert.equal(Window.instances.at(-1)!.destroyed, true);
+
+  const demo = Demo.instances.at(-1)!;
+  assert.deepEqual(demo.resetCalls, []);
+  available.push({ ...removed, id: 45, label: 'Demo' });
+  const walkthrough = { noteId: 'demo-1', title: 'Demo', text: 'Saved words', displayId: 44,
+    demo: [{ action: 'inspect', target: 'workforce-summary', at: 1 }] };
+  await invoke('presentation:start', walkthrough);
+  const demoOutput = Window.instances.at(-1)!;
+  await invoke('presentation:demo', { ...walkthrough, demoDisplayId: 45 });
+  await invoke('presentation:command', { id: 'demo-play', command: 'play', issuedAt: Date.now() });
+  const demoState = await invoke('presentation:state') as typeof current;
+  ipc.emit('presentation:progress', event(demoOutput.webContents), { sessionId: demoState.presentation.sessionId, progress: 0.5, position: 5 });
+  let release!: () => void;
+  demo.resetWait = new Promise(resolve => { release = resolve; });
+  const stopping = invoke('presentation:command', { id: 'demo-stop', command: 'stop', issuedAt: Date.now() });
+  await new Promise<void>(resolve => setImmediate(resolve));
+  assert.deepEqual(demo.resetCalls, [44]);
+  const stopped = await invoke('presentation:state') as typeof current;
+  assert.equal(stopped.presentation.status, 'ready');
+  assert.equal(stopped.presentation.progress, 0);
+  await assert.rejects(invoke('presentation:command', { id: 'demo-early-play', command: 'play', issuedAt: Date.now() }), /still loading/);
+  await assert.rejects(invoke('presentation:demo', { ...walkthrough, demoDisplayId: 45 }), /already opening or resetting/);
+  release();
+  await stopping;
+  demo.resetWait = null;
+  await invoke('presentation:command', { id: 'demo-play-again', command: 'play', issuedAt: Date.now() });
+  demo.resetError = new Error('Demo reset failed');
+  await assert.rejects(invoke('presentation:command', { id: 'demo-stop-failure', command: 'stop', issuedAt: Date.now() }), /Demo reset failed/);
+  const failed = await invoke('presentation:state') as { presentation: { status: string; progress: number }; error: string | null };
+  assert.equal(failed.presentation.status, 'ready');
+  assert.equal(failed.presentation.progress, 0);
+  assert.match(failed.error ?? '', /Demo reset failed/);
+  demo.close();
+  await invoke('presentation:command', { id: 'plain-stop', command: 'stop', issuedAt: Date.now() });
+  assert.deepEqual(demo.resetCalls, [44, 44]);
 });

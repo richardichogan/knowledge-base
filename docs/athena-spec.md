@@ -488,6 +488,36 @@ note types retain their existing heading presentation. Episode-field headings ar
 also excluded from autocue text and spoken-duration estimates; the existing compact
 numbered topic markers are unchanged. Collapsing or excluding whole chapters and
 chapter navigation are not added. No script content is deleted or moved by presentation.
+Spoken prose sentences have a full blank line between them in the autocue,
+including sentences already separated by a single hard break or stored as separate
+paragraphs. Existing blank lines are preserved, and visual/demo cue positions follow
+the spaced output without changing the saved narration.
+
+Turnaround walkthrough cues can also scroll to and point at specific content,
+expand read-only sections, open source evidence and follow the same linked work
+order/job pair through the demonstration. These actions live beside the existing
+section cues and remain readable/editable by Athena through protected script
+tools. Missing evidence is shown explicitly rather than replaced with invented
+results; a missing or changed click target pauses playback. The walkthrough does
+not run agents, change represented roles, save decisions or enter planner inputs.
+Desktop builds without inspection support can still present the narration;
+opening this walkthrough reports that a Desktop update is needed.
+
+Workforce Intelligence uses a separate read-only script and the same presenter
+controls. Its local entry is `/agents?workforce=wf_turnaround`, it inspects only
+the Scope Challenge Specialist profile, and it finishes back at Composition &
+Flow. Named tab changes, search filters, handoff disclosures and existing execution
+evidence are allowlisted; agent runs, edits, deployments and test-chat messages
+are not. Workforce and business actions cannot be mixed in one script. Athena's
+existing script tools expose the workforce targets and protected cue editing.
+Older Desktop builds require the workforce capability update to open this demo;
+the spoken script remains independently presentable.
+
+Desktop 0.1.25 resets an open demo and its cue sequence alongside the prompter
+when Stop & reset is used, cancels stale in-flight actions, and recognises the
+configuration assistant by its real panel ID. The complete UI workflow,
+ordinary-monitor substitutes and current single-screen/Stream Deck limitations
+are documented in [Scripted demo walkthroughs](presentation-walkthroughs.md).
 
 Inline linked names (including project and note references) are resolved before
 Present or Presenter prepares a snapshot and appear as spoken text, not URLs or

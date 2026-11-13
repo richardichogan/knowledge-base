@@ -1,4 +1,4 @@
-import { parsePresentationVisuals, type PresentationDemoAction, type PresentationRun, type PresentationStyle, type PresentationVisualScene } from '../../../../athena-desktop/src/elgatoProtocol';
+import { parsePresentationDemo, parsePresentationVisuals, type PresentationDemoAction, type PresentationRun, type PresentationStyle, type PresentationVisualScene } from '../../../../athena-desktop/src/elgatoProtocol';
 import { parseScriptVisuals, visualCueResolver, visualSourceCurrent, visualSpokenText, type VisualCue, type VisualScriptBlock } from '../../../../knowledge-hub-backend/src/utils/scriptVisuals';
 import { scriptTextColour } from '../../../../knowledge-hub-backend/src/podcasts/scriptAnnotations';
 import { parseScriptDemo } from '../../../../knowledge-hub-backend/src/utils/scriptDemo';
@@ -33,14 +33,15 @@ const LIST_LIKE_LINE = /^\s*(?:[•◦▪▫‣⁃∙·●○■□◆◇►▸�
 const ABBREVIATION_END = /(?:^|[\s("'‘“])(?:Mr|Mrs|Ms|Mx|Dr|Prof|Rev|Hon|St|Mt|Sgt|Capt|Lt|Col|Gen|Sen|Gov|Fr|Sr|Jr|vs|cf|approx|e\.g|i\.e|[A-Z])\.$/u;
 const SPLIT_BLOCKS = new Set(['paragraph', 'quote']);
 
-/** Starts each spoken sentence on a new line unless a line break is already there; bullet-like and decorative lines stay as written. */
+/** Separates spoken sentences with a blank line; bullet-like and decorative lines stay as written. */
 function sentenceLines(runs: PresentationRun[]): { runs: PresentationRun[]; source: string; map: (offset: number) => number } {
   const source = runs.map(run => run.text).join('');
   const edits: Array<{ start: number; end: number }> = [];
   for (const { segment, index } of SENTENCES.segment(source)) {
     const end = index + segment.length;
     const gap = /\s*$/.exec(segment)?.[0] ?? '';
-    if (!segment.trim() || gap.includes('\n') || !source.slice(end).trim()) continue;
+    const whitespace = gap + (/^\s*/.exec(source.slice(end))?.[0] ?? '');
+    if (!segment.trim() || /\n[^\S\n]*\n/.test(whitespace) || !source.slice(end).trim()) continue;
     const start = end - gap.length;
     if (ABBREVIATION_END.test(source.slice(index, start))) continue;
     const lineEnd = source.indexOf('\n', start);
@@ -58,7 +59,7 @@ function sentenceLines(runs: PresentationRun[]): { runs: PresentationRun[]; sour
       if (edits[next]?.start === offset) {
         if (text) result.push({ ...run, text });
         text = '';
-        result.push({ text: '\n', styles: [] });
+        result.push({ text: '\n\n', styles: [] });
         if (edits[next]!.end === offset) next++;
       }
       const edit = edits[next];
@@ -71,7 +72,7 @@ function sentenceLines(runs: PresentationRun[]): { runs: PresentationRun[]; sour
     if (text) result.push({ ...run, text });
   }
   return { runs: result, source,
-    map: offset => edits.reduce((value, edit) => edit.start > offset ? value : value + 1 - (Math.min(offset, edit.end) - edit.start), offset) };
+    map: offset => edits.reduce((value, edit) => edit.start > offset ? value : value + 2 - (Math.min(offset, edit.end) - edit.start), offset) };
 }
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -112,6 +113,7 @@ export function presentationScript(contentJson: string, options: PresentationOpt
   const anchors = new Map<string, { runs: PresentationRun[]; start: number; source?: string; map?: (offset: number) => number }>();
   const plain = (text: string): PresentationRun => ({ text, styles: [] });
   const sectionBreak: PresentationRun[] = [];
+  const spokenParagraphs = new Set<PresentationRun[]>();
   const normalize = (blocks: unknown[], depth: number): PresentationRun[][] => {
     if (depth > 50) throw new Error('This note is nested too deeply to present.');
     let number = 0;
@@ -136,6 +138,7 @@ export function presentationScript(contentJson: string, options: PresentationOpt
         if (options.script && SPLIT_BLOCKS.has(String(block.type))) {
           split = sentenceLines(runs.map(run => ({ ...run, text: run.text.replace(/\r\n?/g, '\n') })));
           runs = split.runs;
+          spokenParagraphs.add(runs);
         }
         if (block.type === 'numberedListItem') runs.unshift(plain(`${++number}. `));
         else {
@@ -167,8 +170,9 @@ export function presentationScript(contentJson: string, options: PresentationOpt
     if (line === sectionBreak) { pendingGap = lines.length > 0; continue; }
     const current = lineText(line);
     const previous = lineText(lines[lines.length - 1]);
-    // A blank line separates script sections unless the author already left one.
-    if (pendingGap && current.trim() && !/^\s*\n/.test(current) && previous.trim() && !/\n\s*$/.test(previous)) lines.push([]);
+    // Sentence-per-paragraph scripts need the same blank line as sentences within a paragraph.
+    const paragraphGap = spokenParagraphs.has(line) && spokenParagraphs.has(lines[lines.length - 1]!);
+    if ((pendingGap || paragraphGap) && current.trim() && !/^\s*\n/.test(current) && previous.trim() && !/\n\s*$/.test(previous)) lines.push([]);
     pendingGap = false;
     lines.push(line);
   }
@@ -220,13 +224,13 @@ export function presentationScript(contentJson: string, options: PresentationOpt
   }
   const demo: PresentationDemoAction[] = [];
   let demoIssue: string | null = null;
-  let demoKind: 1 | 2 | null = null;
+  let demoKind: 1 | 2 | 3 | null = null;
   let previousDemoPosition = -1;
   if (options.script) for (const section of raw as VisualScriptBlock[]) {
     if (!section.props?.scriptSection || !section.props.scriptDemo) continue;
     try {
       const plan = parseScriptDemo(section.props.scriptDemo, section);
-      if (demoKind !== null && demoKind !== plan.version) throw new Error('Pilot actions and screen-navigation cues cannot be mixed in one presentation.');
+      if (demoKind !== null && (demoKind === 1 || plan.version === 1) && demoKind !== plan.version) throw new Error('Pilot actions and walkthrough cues cannot be mixed in one presentation.');
       if (plan.version === 1 && demoKind === 1) throw new Error('Only one pilot demo section can be presented at a time.');
       demoKind = plan.version;
       const resolve = visualCueResolver(section);
@@ -238,10 +242,11 @@ export function presentationScript(contentJson: string, options: PresentationOpt
         const pos = content.indexOf(cue.quote);
         if (pos < 0 || pos !== content.lastIndexOf(cue.quote)) throw new Error('A demo phrase cannot be located uniquely.');
         const at = anchor.start + (anchor.map ? anchor.map(pos) : pos);
-        if (at <= previousDemoPosition) throw new Error('Demo actions must follow the script in cue order.');
+        if (at < previousDemoPosition || (at === previousDemoPosition && plan.version !== 3)) throw new Error('Demo actions must follow the script in cue order.');
         previousDemoPosition = at;
         demo.push(entry.action === 'navigate'
           ? { action: 'navigate', route: entry.route, at }
+          : entry.action === 'inspect' ? { action: 'inspect', target: entry.target, at, ...(entry.selection ? { selection: entry.selection } : {}) }
           : { action: entry.action, at });
       }
     } catch (error) {
@@ -249,6 +254,10 @@ export function presentationScript(contentJson: string, options: PresentationOpt
       demo.length = 0;
       break;
     }
+  }
+  if (!demoIssue && demo.length) {
+    try { parsePresentationDemo(demo, text.length); }
+    catch (error) { demoIssue = reason(error); demo.length = 0; }
   }
   return { text, runs, visuals: visualIssue ? [] : visuals, visualIssue,
     demo, demoIssue,

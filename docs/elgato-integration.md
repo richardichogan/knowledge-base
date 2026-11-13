@@ -4,6 +4,11 @@ Athena Desktop 0.1.8 provides a paired, local Stream Deck connection and a separ
 presentation output. The Prompter is treated as a Windows display, not an image
 sent to Camera Hub. Any saved Think note can be used as a text script.
 
+For the current scripted-demo UI, no-Prompter testing, reset/recovery behaviour
+and local environment boundaries, see [Scripted demo walkthroughs](presentation-walkthroughs.md).
+Those walkthrough fixes require Desktop 0.1.25 and the matching hosted release;
+the version-specific installation notes below describe earlier releases.
+
 ## Installation
 
 The hosted frontend must include the new Presentation view, and the desktop
@@ -347,6 +352,9 @@ Presentation scrolling is manual only. Speed defaults to 80 output CSS pixels
 per second, bounded to 10-300 in increments of 2. Faster/Slower change actual
 playback speed, not the current line. Text size is 24-96 in increments of 4.
 Pause retains position; Stop resets to the beginning; reaching the end stops.
+If a demo is open, Stop also returns it to its starting screen and resets its
+walkthrough cues before playback can resume. Stop does not open a new demo
+when none was open.
 **Stop presenting**, available beside **Present** in a Think note's Actions menu
 and as its own Stream Deck action, closes the output window while keeping the
 note and main application open. It preserves the display settings and does not

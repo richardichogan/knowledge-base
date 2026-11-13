@@ -363,32 +363,36 @@ export const NotesPage: React.FC = () => {
   presentationSelectionRef.current = presentationSelection;
   const presentationCancellation = useRef(0);
   const registerPresentationSave = useCallback((save: (() => Promise<boolean>) | null): void => { presentationSave.current = save; }, []);
-  async function presentNote(): Promise<void> {
-    const selection = presentationSelection;
-    const cancellation = presentationCancellation.current;
-    const assertCurrentSelection = (): void => {
-      if (authSession.isExpired()) throw new Error('Sign in again before presenting.');
-      if (selection !== presentationSelectionRef.current || cancellation !== presentationCancellation.current) {
-        throw new Error('The presentation request was cancelled or the open document changed. Present the current document again.');
-      }
-      if (mode === 'notes' && !selectedEpisode && openDoc && latestSelectRef.current !== openDoc.id) {
-        throw new Error('Wait for the selected document to finish opening before presenting.');
-      }
-    };
+  function assertCurrentPresentationSelection(selection: string, cancellation: number): void {
     if (authSession.isExpired()) throw new Error('Sign in again before presenting.');
-    const presentation = getDesktop()?.presentation;
-    if (!presentation) throw new Error('Update Athena Desktop to present on another display.');
-    assertCurrentSelection();
+    if (selection !== presentationSelectionRef.current || cancellation !== presentationCancellation.current) {
+      throw new Error('The presentation request was cancelled or the open document changed. Present the current document again.');
+    }
+    if (mode === 'notes' && !selectedEpisode && openDoc && latestSelectRef.current !== openDoc.id) {
+      throw new Error('Wait for the selected document to finish opening before presenting.');
+    }
+  }
+  async function saveCurrentPresentationDocument(selection: string, cancellation: number): Promise<void> {
+    assertCurrentPresentationSelection(selection, cancellation);
     if (mode === 'notes' && (selectedEpisode || openDoc)) {
       const save = presentationSave.current;
       if (!save || !await save()) throw new Error('Save the current document successfully before presenting. Your open edits are retained.');
       if (presentationSave.current !== save) throw new Error('The open document changed while saving. Present the current document again.');
-      assertCurrentSelection();
+      assertCurrentPresentationSelection(selection, cancellation);
     }
+  }
+  async function presentNote(): Promise<void> {
+    const selection = presentationSelection;
+    const cancellation = presentationCancellation.current;
+    const presentation = getDesktop()?.presentation;
+    if (!presentation) throw new Error('Update Athena Desktop to present on another display.');
+    assertCurrentPresentationSelection(selection, cancellation);
+    await saveCurrentPresentationDocument(selection, cancellation);
+    assertCurrentPresentationSelection(selection, cancellation);
     if (mode === 'notes' && selectedEpisode) {
       if (!presentation.present) throw new Error('Install the updated Athena Desktop to present directly without the settings window.');
       const episode = requireApiData(await api.getPodcastEpisode(selectedEpisode));
-      assertCurrentSelection();
+      assertCurrentPresentationSelection(selection, cancellation);
       const text = episodeScriptText(episode.scriptIntro, episode.scriptCards);
       if (!text.trim()) throw new Error('Write or draft the script before presenting.');
       const annotated = annotatedPresentation(text);
@@ -402,10 +406,10 @@ export const NotesPage: React.FC = () => {
     if (mode !== 'notes' || !openDoc) { await presentation.open(); return; }
     if (!presentation.present) throw new Error('Install the updated Athena Desktop to present directly without the settings window.');
     const saved = await fetchNote(openDoc.id);
-    assertCurrentSelection();
+    assertCurrentPresentationSelection(selection, cancellation);
     if (!saved) throw new Error('Save the note before presenting.');
     const script = await preparePresentationScript(saved.contentJson, { script: saved.contentType === 'script' });
-    assertCurrentSelection();
+    assertCurrentPresentationSelection(selection, cancellation);
     if (!script.text.trim()) throw new Error(saved.contentType === 'script'
       ? 'No spoken text to present. Script headings are editor-only; add spoken text beneath them.'
       : 'Choose a saved note containing text.');
@@ -415,7 +419,10 @@ export const NotesPage: React.FC = () => {
     }
     const desktopIssue = desktopVisualIssue(script.visuals, presentation);
     await presentation.present({ noteId: saved.id, title: saved.title, text: script.text, runs: script.runs, visuals: desktopIssue ? [] : script.visuals,
-      ...(presentation.scriptDemo && !script.demoIssue && script.demo.length ? { demo: script.demo } : {}) });
+      ...(presentation.scriptDemo && !script.demoIssue && script.demo.length
+        && (presentation.scriptDemoInspection || !script.demo.some(action => action.action === 'inspect'))
+        && (presentation.scriptDemoWorkforce || !script.demo.some(action => action.action === 'navigate' && action.route === 'workforce'
+          || action.action === 'inspect' && action.target.startsWith('workforce-'))) ? { demo: script.demo } : {}) });
     recordPresentedVisuals(saved.id, script.visualIssue ?? desktopIssue);
   }
   useDesktopCommand('present-note', presentNote);
@@ -431,14 +438,37 @@ export const NotesPage: React.FC = () => {
     if (!presentation?.openDemo) throw new Error('Update Athena Desktop to open the Turnaround demo.');
     if (!openDoc || mode !== 'notes') throw new Error('Open a saved script before opening the demo.');
     const noteId = openDoc.id;
-    await presentNote();
+    const selection = presentationSelection;
+    const cancellation = presentationCancellation.current;
+    assertCurrentPresentationSelection(selection, cancellation);
+    await saveCurrentPresentationDocument(selection, cancellation);
     const saved = await fetchNote(noteId);
+    assertCurrentPresentationSelection(selection, cancellation);
     if (!saved) throw new Error('The saved script could not be loaded.');
     const script = await preparePresentationScript(saved.contentJson, { script: saved.contentType === 'script' });
+    assertCurrentPresentationSelection(selection, cancellation);
     if (script.demoIssue) throw new Error(script.demoIssue);
     if (!script.demo.length) throw new Error('Set up Turnaround demo cues in the script first.');
+    if (script.demo.some(action => action.action === 'inspect') && !presentation.scriptDemoInspection) {
+      throw new Error('Update Athena Desktop to use the scripted scrolling, pointing and record selection. Plain presenting remains available.');
+    }
+    if (script.demo.some(action => action.action === 'navigate' && action.route === 'workforce'
+      || action.action === 'inspect' && action.target.startsWith('workforce-')) && !presentation.scriptDemoWorkforce) {
+      throw new Error('Update Athena Desktop to open the Workforce Intelligence walkthrough. Plain presenting remains available.');
+    }
     if (latestSelectRef.current !== noteId) throw new Error('The open note changed. Open the demo from the current script.');
-    await presentation.openDemo(null, noteId);
+    const displays = await presentation.displays();
+    assertCurrentPresentationSelection(selection, cancellation);
+    const outputDisplay = displays.find(display => display.preferred && !display.primary);
+    const demoDisplay = displays.find(display => display.preferredDemo && !display.primary);
+    if (!outputDisplay || !demoDisplay || outputDisplay.id === demoDisplay.id) {
+      throw new Error('Choose separate output and demo displays in Presentation before opening the demo.');
+    }
+    const desktopIssue = desktopVisualIssue(script.visuals, presentation);
+    await presentation.openDemo({ noteId: saved.id, title: saved.title, text: script.text, runs: script.runs,
+      visuals: desktopIssue ? [] : script.visuals, demo: script.demo,
+      displayId: outputDisplay.id, demoDisplayId: demoDisplay.id });
+    recordPresentedVisuals(saved.id, script.visualIssue ?? desktopIssue);
   } : undefined;
   const playbackHandler = getDesktop()?.presentation ? async (command: 'play' | 'pause'): Promise<void> => {
     const presentation = getDesktop()?.presentation;

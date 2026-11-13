@@ -3,7 +3,7 @@ import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-quer
 import { fetchNote, fetchNotesPage } from '../../notes/noteStorage';
 import { nextNotesPage } from '../../notes/noteListState';
 import { desktopErrorMessage, getDesktop, type DesktopCommand, type DesktopCommandState } from '../../types/desktop';
-import type { PresentationDisplay } from '../../../../athena-desktop/src/elgatoProtocol';
+import { isWorkforceDemo, type PresentationDisplay } from '../../../../athena-desktop/src/elgatoProtocol';
 import { preparePresentationScript } from './preparePresentationScript';
 import { openPresentationVisuals, desktopVisualIssue } from './presentedVisuals';
 import { authSession } from '../../services/authSession';
@@ -26,6 +26,7 @@ export function Presenter(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [demoOpening, setDemoOpening] = useState(false);
   const [opacity, setOpacity] = useState(100);
   const busyRef = useRef(false);
   const [pairing, setPairing] = useState<{ enabled: boolean; error: string | null } | null>(null);
@@ -62,7 +63,12 @@ export function Presenter(): React.JSX.Element {
   const visualScenes = script && 'visuals' in script ? script.visuals : undefined;
   const demo = script && 'demo' in script ? script.demo : [];
   const demoIssue = script && 'demoIssue' in script ? script.demoIssue : null;
+  const workforceDemo = isWorkforceDemo(demo);
+  const workforceUnsupported = workforceDemo && !desktop?.scriptDemoWorkforce;
+  const demoLabel = workforceDemo ? 'Workforce Intelligence demo' : 'Turnaround demo';
+  const outputDemo = workforceUnsupported ? [] : demo;
   const desktopIssue = desktopVisualIssue(visualScenes, desktop);
+  const streamDeckPlayRequired = !import.meta.env.DEV && demo.length > 0;
 
   async function action(fn: () => Promise<unknown>, message?: string): Promise<void> {
     if (busyRef.current) return;
@@ -116,7 +122,7 @@ export function Presenter(): React.JSX.Element {
     if (!desktop || !canStart || !selected || !script) throw new Error('Choose a saved script and an available output display before presenting.');
     if (!connected || playback?.noteId !== selected.id || playback?.displayId !== Number(displayId)) {
       const visuals = 'visuals' in script ? script.visuals : undefined;
-      await desktop.start({ noteId: selected.id, title: selected.title, text: script.text, runs: script.runs, ...(visuals ? { visuals: desktopIssue ? [] : visuals } : {}), ...(demo.length ? { demo } : {}), displayId: Number(displayId) });
+      await desktop.start({ noteId: selected.id, title: selected.title, text: script.text, runs: script.runs, ...(visuals ? { visuals: desktopIssue ? [] : visuals } : {}), ...(outputDemo.length && (desktop.scriptDemoInspection || !demo.some(action => action.action === 'inspect')) ? { demo: outputDemo } : {}), displayId: Number(displayId) });
     }
   };
   const play = (): void => {
@@ -174,9 +180,10 @@ export function Presenter(): React.JSX.Element {
             () => (script && 'visualIssue' in script ? script.visualIssue : null) ?? desktopIssue, () => desktop.openVisuals!()));
         }}>Open browser visuals</button>
         <section>
-          <h2>Turnaround demo</h2>
+          <h2>{demoLabel}</h2>
           <p>Open the read-only demo separately, then sign in if prompted. Its actions follow the saved script cues.</p>
           {demoIssue && <p className="kh-presenter__error" role="alert">{demoIssue}</p>}
+          {workforceUnsupported && <p className="kh-presenter__error" role="alert">Update Athena Desktop to open the Workforce Intelligence walkthrough. Plain presenting remains available.</p>}
           {!desktop.openDemo && <p>Update Athena Desktop to use the Turnaround demo.</p>}
           <label>Demo display<select value={demoDisplayId} disabled={busy} onChange={event => {
             const previous = demoDisplayId, next = event.target.value;
@@ -191,8 +198,22 @@ export function Presenter(): React.JSX.Element {
             <option value="">Choose a separate display</option>
             {displays.map(display => <option key={display.id} value={display.id} disabled={display.primary || String(display.id) === displayId}>{display.label} - {display.width} x {display.height}</option>)}
           </select></label>
-          <button type="button" disabled={busy || !canStart || !desktop.openDemo || !demo.length || !!demoIssue || !demoDisplayId || demoDisplayId === displayId}
-            onClick={() => { void action(async () => { await startPresentation(); await desktop.openDemo!(Number(demoDisplayId), noteId); }, 'Demo opened. Sign in if needed before playing.'); }}>Open Turnaround demo</button>
+          <button type="button" disabled={busy || !canStart || !desktop.openDemo || !demo.length || !!demoIssue || workforceUnsupported || !demoDisplayId || demoDisplayId === displayId}
+            onClick={() => { void action(async () => {
+              setDemoOpening(true);
+              try {
+                if (demo.some(action => action.action === 'inspect') && !desktop.scriptDemoInspection) throw new Error('Update Athena Desktop to use the scripted scrolling, pointing and record selection.');
+                if (!selected || !script) throw new Error('Choose a saved script before opening the Turnaround demo.');
+                await desktop.openDemo!({ noteId: selected.id, title: selected.title, text: script.text, runs: script.runs,
+                  ...(visualScenes ? { visuals: visualScenes } : {}), ...(demo.length ? { demo } : {}),
+                  displayId: Number(displayId), demoDisplayId: Number(demoDisplayId) });
+              } finally { setDemoOpening(false); }
+            }, import.meta.env.DEV
+              ? 'Demo loaded and ready. Use the on-screen Play button to begin.'
+              : 'Demo loaded and ready. Press Play on the paired Stream Deck to begin.'); }}>
+            {demoOpening ? 'Waiting for demo…' : `Open ${demoLabel}`}
+          </button>
+          {demoOpening && <p className="kh-presenter__notice" role="status">{workforceDemo ? 'Waiting for the Turnaround workforce to finish loading.' : 'Waiting for the NPT2 Overview and scope data to finish loading.'} Playback stays paused.</p>}
         </section>
         <section>
           <h2>Output display</h2>
@@ -217,7 +238,7 @@ export function Presenter(): React.JSX.Element {
           <button className="kh-presenter__primary" disabled={!canStart || busy} onClick={() => {
             if (!selected || !script) return;
             void action(() => desktop.start({ noteId: selected.id, title: selected.title, text: script.text, runs: script.runs,
-              ...(visualScenes ? { visuals: visualScenes } : {}), ...(demo.length ? { demo } : {}), displayId: Number(displayId) }), 'Script opened, paused and ready.');
+              ...(visualScenes ? { visuals: visualScenes } : {}), ...(outputDemo.length ? { demo: outputDemo } : {}), displayId: Number(displayId) }), 'Script opened, paused and ready.');
           }}>Open script on display</button>
           <button disabled={!selected || busy} onClick={() => { void action(async () => {
             if (connected) await desktop.command({ id: crypto.randomUUID(), command: 'pause', issuedAt: Date.now() });
@@ -236,8 +257,9 @@ export function Presenter(): React.JSX.Element {
         <section>
           <h2>Playback</h2>
           <p>{playback?.title || 'No output script loaded'}</p>
+          {streamDeckPlayRequired && <p>Press Play on the paired Stream Deck to start this walkthrough.</p>}
           <div className="kh-presenter__row">
-            <button disabled={!canStart || busy || (playback?.status === 'playing' && playback.noteId === noteId)} onClick={play}>Play</button>
+            <button disabled={!canStart || busy || streamDeckPlayRequired || (playback?.status === 'playing' && playback.noteId === noteId)} onClick={play}>Play</button>
             <button disabled={!connected || busy || playback?.status !== 'playing'} onClick={() => command('pause')}>Pause</button>
             <button disabled={!connected || busy} onClick={() => command('stop')}>Stop &amp; reset</button>
           </div>

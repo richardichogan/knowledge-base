@@ -7,7 +7,7 @@ import { ScriptVisualPreview } from '../features/autocue/ScriptVisualPreview';
 import { useAthenaContext } from '../context/AthenaContext';
 import { getActiveNoteId } from '../utils/activeBlockNoteEditor';
 import { readSectionVisuals, type VisualScriptBlock } from '../../../knowledge-hub-backend/src/utils/scriptVisuals';
-import { readScriptDemo, scriptDemoFromPhrases, scriptNavigationFromPhrase, TURNAROUND_ROUTES, type ScriptDemo, type TurnaroundRoute } from '../../../knowledge-hub-backend/src/utils/scriptDemo';
+import { readScriptDemo, scriptDemoFromPhrases, scriptNavigationFromPhrase, scriptWalkthroughFromPhrases, TURNAROUND_ROUTES, type ScriptDemo, type TurnaroundRoute } from '../../../knowledge-hub-backend/src/utils/scriptDemo';
 import { parseScriptDirection, SCRIPT_DIRECTION_LIMIT } from '../../../knowledge-hub-backend/src/utils/scriptDirections';
 
 type HeadingProps = Omit<typeof defaultBlockSpecs.heading.config.propSchema, 'isToggleable'> & {
@@ -19,6 +19,25 @@ const config = { ...nativeHeading.config, propSchema: { ...nativeHeading.config.
 
 const DEMO_LABELS = ['Open Scope list', 'Select Jobs', 'Open first job'];
 const PILOT_PHRASES = ['Scope list', 'Jobs tab', 'Open one job'];
+
+function WalkthroughCues({ plan, disabled, save, ask }: {
+  plan: Extract<ScriptDemo, { version: 3 }>; disabled: boolean; save: (phrases: string[]) => void; ask: () => void;
+}): React.JSX.Element {
+  const [phrases, setPhrases] = React.useState(() => plan.actions.map(action => action.cue.quote));
+  return <section className="kh-script-demo" contentEditable={false} aria-label="Read-only walkthrough actions">
+    <div className="kh-script-demo__header"><strong>Read-only walkthrough</strong>
+      <button type="button" disabled={disabled} onClick={ask}>Ask Athena to adjust</button></div>
+    <p>Scrolls, points and opens the specified content at these spoken phrases. Uses one linked work-order/job pair throughout; never records decisions or runs agents.</p>
+    {plan.actions.map((action, index) => <label key={index}>
+      {index + 1}. {action.action === 'navigate' ? `Open ${TURNAROUND_ROUTES[action.route].label}` : action.target.replace(/-/g, ' ')}
+      {action.action === 'inspect' && action.selection && `: ${action.selection.jobId} / ${action.selection.workOrderId}`}
+      <input value={phrases[index] ?? ''} maxLength={300} disabled={disabled} onChange={event => {
+        const next = [...phrases]; next[index] = event.target.value; setPhrases(next);
+      }} />
+    </label>)}
+    <button type="button" disabled={disabled || phrases.some(phrase => !phrase.trim())} onClick={() => save(phrases)}>Save walkthrough phrases</button>
+  </section>;
+}
 
 function DemoCues({ plan, disabled, save, ask }: {
   plan: Extract<ScriptDemo, { version: 1 }>; disabled: boolean; save: (phrases: string[]) => void; ask: () => void;
@@ -147,7 +166,16 @@ const sectionHeading = createReactBlockSpec(config, {
         if (!noteId || !pageContext || pageContext.id !== noteId) { setError('Reopen the script before asking Athena to change its visuals.'); return; }
         openAthena(`Please ${block.props.scriptVisuals ? 'update' : 'create'} the visuals for script section ${block.id}${sceneId ? `, scene ${sceneId}` : ''}. Read its current scenes first. Keep the spoken script unchanged. Use concepts and meaningful animation, not narration repeated as bullet points. ${block.props.scriptVisuals ? 'The change I want is: ' : ''}`, pageContext);
       }} />
-      {demo?.version === 1 ? <DemoCues key={block.props.scriptDemo} plan={demo} disabled={!editor.isEditable} save={phrases => perform(() => {
+      {demo?.version === 3 ? <WalkthroughCues key={block.props.scriptDemo} plan={demo} disabled={!editor.isEditable} save={phrases => perform(() => {
+        const current = editor.getBlock(block.id);
+        if (!current || current.props.scriptDemo !== block.props.scriptDemo) throw new Error('Walkthrough actions changed. Review them before saving.');
+        const actions = demo.actions.map((action, index) => ({ ...action, phrase: phrases[index] }));
+        editor.updateBlock(current, { props: { ...current.props, scriptDemo: JSON.stringify(scriptWalkthroughFromPhrases(current, actions)) } });
+      })} ask={() => {
+        const noteId = getActiveNoteId();
+        if (!noteId || !pageContext || pageContext.id !== noteId) { setError('Reopen the script before asking Athena to adjust its walkthrough.'); return; }
+        openAthena(`Please read the walkthrough actions and Presenter directions for section ${block.id}, then adjust the actions as follows. Keep the narration unchanged and the walkthrough read-only: `, pageContext);
+      }} /> : demo?.version === 1 ? <DemoCues key={block.props.scriptDemo} plan={demo} disabled={!editor.isEditable} save={phrases => perform(() => {
         const current = editor.getBlock(block.id);
         if (!current || current.props.scriptDemo !== block.props.scriptDemo) throw new Error('Demo cues changed. Review them before saving again.');
         editor.updateBlock(current, { props: { ...current.props, scriptDemo: JSON.stringify(scriptDemoFromPhrases(current, phrases)) } });

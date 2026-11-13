@@ -13,7 +13,8 @@ import { scriptAnnotationRuns, scriptInlineContent, scriptReadingText, spokenScr
 import { annotatedPresentation } from '../src/features/podcasts/scriptAnnotations';
 import { SCRIPT_COLOUR_VALUES } from '../src/features/podcasts/scriptRichText';
 import { parseScriptVisuals, parseVisualArtwork, parseVisualComposition, scriptVisualSource, visualSourceCurrent, VISUAL_ASSET_IDS, VISUAL_GRAMMAR, VISUAL_ICON_IDS, type VisualScriptBlock } from '../../knowledge-hub-backend/src/utils/scriptVisuals';
-import { PRESENTATION_ASSET_IDS, parsePresentationVisuals } from '../../athena-desktop/src/elgatoProtocol';
+import { PRESENTATION_ASSET_IDS, parsePresentationVisuals, parsePresentationDemo } from '../../athena-desktop/src/elgatoProtocol';
+import { parseScriptDemo, scriptWalkthroughFromPhrases } from '../../knowledge-hub-backend/src/utils/scriptDemo';
 import { VISUAL_ASSETS } from '../../athena-desktop/assets/visualAssets.js';
 import { desktopVisualIssue, openPresentationVisuals, presentedVisualIssue, recordPresentedVisuals, visualAssetsIssue, visualBrandingIssue } from '../src/features/autocue/presentedVisuals';
 
@@ -415,7 +416,7 @@ test('visual cues survive blank lines and paragraph splits, and broken visuals n
   const result = presentationScript(JSON.stringify([section]), { script: true });
   assert.equal(result.visualIssue, null);
   assert.equal(result.visuals[0]?.at, result.text.indexOf('Copilots'));
-  assert.equal(result.visuals[0]?.items[0]?.at, result.text.indexOf('each\nhelp'));
+  assert.equal(result.visuals[0]?.items[0]?.at, result.text.indexOf('each'));
   section.children = [spoken('first', 'Your AI strategy is not enough.'), spoken('moved', 'Copilots and agents can help.')];
   assert.equal(visualSourceCurrent(visuals.source, section), false);
   const stale = presentationScript(JSON.stringify([section]), { script: true });
@@ -424,7 +425,7 @@ test('visual cues survive blank lines and paragraph splits, and broken visuals n
   assert.match(stale.visualIssue ?? '', /Section "Why".*out of date/);
 });
 
-test('Script autocue starts each sentence on its own line and gaps sections only where no break already exists', () => {
+test('Script autocue leaves a blank line between sentences and preserves authored blank lines', () => {
   const card = (id: string, children: VisualScriptBlock[]): VisualScriptBlock =>
     ({ id, type: 'heading', props: { level: 2, scriptSection: true }, content: [{ text: id }], children });
   const result = presentationScript(JSON.stringify([
@@ -437,10 +438,16 @@ test('Script autocue starts each sentence on its own line and gaps sections only
     ]),
     card('two', [{ type: 'paragraph', content: [] }, { type: 'paragraph', content: [{ text: 'Second section.' }] }]),
     card('three', [{ type: 'paragraph', content: [{ text: 'Third section.' }] }]),
+    card('four', [
+      { type: 'paragraph', content: [{ text: 'Separate sentence.' }] },
+      { type: 'paragraph', content: [{ text: 'Another sentence.\n\nAlready spaced.' }] },
+      { type: 'paragraph', content: [] },
+      { type: 'paragraph', content: [{ text: 'After an empty paragraph.' }] },
+    ]),
   ]), { script: true });
-  assert.equal(result.text, 'Explain the idea.\nThen connect it!\nWhy?\nMr. Smith paid £3.50 at 9 a.m. today.\n'
-    + 'Already split.\nNext line. \nAfter break.\n• Bullet one. Still bullet.\nPlain one.\nPlain two.\n- List one. List two.\n* * * . . .\n'
-    + '\nSecond section.\n\nThird section.');
+  assert.equal(result.text, 'Explain the idea.\n\nThen connect it!\n\nWhy?\n\nMr. Smith paid £3.50 at 9 a.m. today.\n\n'
+    + 'Already split.\n\nNext line.\n\nAfter break.\n\n• Bullet one. Still bullet.\nPlain one.\n\nPlain two.\n- List one. List two.\n* * * . . .\n'
+    + '\nSecond section.\n\nThird section.\n\nSeparate sentence.\n\nAnother sentence.\n\nAlready spaced.\n\nAfter an empty paragraph.');
   assert.equal(result.runs.map(run => run.text).join(''), result.text);
   assert.deepEqual(result.runs.find(run => run.text === 'Plain two.')?.styles, ['bold']);
   assert.equal(presentationScript(JSON.stringify([{ type: 'paragraph', content: [{ text: 'One. Two.' }] }])).text, 'One. Two.');
@@ -462,13 +469,48 @@ test('visual cues follow sentence line breaks and carry their script section for
     section('last', 'Close the loop. Show the result.', 'Show the result'),
   ]), { script: true });
   assert.equal(result.visualIssue, null);
-  assert.equal(result.text, 'Explain the idea.\nThen connect it.\n\nBridge.\n\nClose the loop.\nShow the result.');
+  assert.equal(result.text, 'Explain the idea.\n\nThen connect it.\n\nBridge.\n\nClose the loop.\n\nShow the result.');
   assert.equal(result.visuals[0]?.items[0]?.at, result.text.indexOf('Then connect'));
   assert.equal(result.visuals[1]?.at, result.text.indexOf('Close the loop'));
   assert.equal(result.visuals[1]?.items[0]?.at, result.text.indexOf('Show the result'));
   assert.deepEqual(result.visuals.map(scene => scene.section), [0, 2]);
   assert.deepEqual(parsePresentationVisuals(result.visuals, result.text.length)?.map(scene => scene.section), [0, 2]);
   assert.throws(() => parsePresentationVisuals([{ ...result.visuals[0], section: -1 }], result.text.length), /section/);
+});
+
+test('walkthrough actions retain ordered shared cues and align with blank-line presentation offsets', () => {
+  const section: VisualScriptBlock = { id: 'walkthrough', type: 'heading', props: { scriptSection: true },
+    children: [
+      { id: 'intro', type: 'paragraph', content: [{ text: 'Start here. Show the scope.' }] },
+      { id: 'detail', type: 'paragraph', content: [{ text: 'Inspect the evidence.' }] },
+    ] };
+  const plan = scriptWalkthroughFromPhrases(section, [
+    { action: 'navigate', route: 'overview', phrase: 'Start here.' },
+    { action: 'inspect', target: 'plan-job-expand', phrase: 'Show the scope.',
+      selection: { jobId: 'NPT2-TA-2027_SI-013', workOrderId: 'WO-50123' } },
+    { action: 'inspect', target: 'scope-work-orders', phrase: 'Show the scope.' },
+    { action: 'inspect', target: 'steward', phrase: 'Show the scope.' },
+    { action: 'inspect', target: 'order-evidence', phrase: 'Inspect the evidence.' },
+  ]);
+  section.props!['scriptDemo'] = JSON.stringify(plan);
+  const original = JSON.stringify(section);
+  const result = presentationScript(JSON.stringify([section]), { script: true });
+  assert.equal(result.demoIssue, null);
+  assert.equal(result.text, 'Start here.\n\nShow the scope.\n\nInspect the evidence.');
+  assert.deepEqual(result.demo.map(action => action.at), [0, result.text.indexOf('Show'), result.text.indexOf('Show'), result.text.indexOf('Show'), result.text.indexOf('Inspect')]);
+  assert.deepEqual(parsePresentationDemo(result.demo, result.text.length), result.demo);
+  assert.deepEqual(result.demo[1]?.action === 'inspect' && result.demo[1].selection,
+    { jobId: 'NPT2-TA-2027_SI-013', workOrderId: 'WO-50123' });
+  assert.equal(JSON.stringify(section), original);
+  assert.throws(() => scriptWalkthroughFromPhrases(section, [
+    { action: 'inspect', target: 'run-agent', phrase: 'Show the scope.' },
+  ]), /approved read-only/);
+  assert.throws(() => scriptWalkthroughFromPhrases(section, [
+    { action: 'inspect', target: 'funnel', phrase: 'Inspect the evidence.' },
+    { action: 'inspect', target: 'standing', phrase: 'Start here.' },
+  ]), /narration order/);
+  section.children![0]!.content = [{ text: 'Changed narration.' }];
+  assert.throws(() => parseScriptDemo(plan, section), /no longer matches|script changed/);
 });
 
 test('scene validation rejects unknown templates, ambiguous cues, wrong comparisons and out-of-order reveals', () => {

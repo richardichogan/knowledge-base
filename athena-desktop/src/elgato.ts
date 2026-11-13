@@ -30,6 +30,7 @@ export function installElgato(
   });
   let lastVideoState = '';
   let starting = false;
+  let demoOpening = false;
   let script: PresentationScript | null = null;
   let state: DesktopCommandState = { protocol: 1, presentation: initialPresentation(), recording: false, transcribing: false, error: null };
   let config: Config = {};
@@ -199,7 +200,7 @@ export function installElgato(
       }
     });
   }
-  async function execute(request: CommandRequest): Promise<void> {
+  async function execute(request: CommandRequest, source: 'presenter' | 'stream-deck' = 'presenter'): Promise<void> {
     try {
       state.error = null;
       switch (request.command) {
@@ -208,12 +209,38 @@ export function installElgato(
         case 'present-note': await toRenderer(request); break;
         case 'stop-presenting': closeOutput(); break;
         default: {
+          const requestsPlayback = request.command === 'play'
+            || (request.command === 'toggle-play' && state.presentation.status !== 'playing');
+          if (requestsPlayback && demoOpening) {
+            throw new Error('The Turnaround demo is still loading. Play was not queued; press it again after the demo is ready.');
+          }
+          const nextPresentation = playbackCommand(state.presentation, request.command);
+          const startingPlayback = state.presentation.status !== 'playing' && nextPresentation.status === 'playing';
           if (!outputReady) throw new Error('Choose a script and connect the Prompter in Present first.');
+          if (startingPlayback && app.isPackaged && script?.demo?.length && source !== 'stream-deck') {
+            throw new Error('In the installed app, press Play on the Stream Deck after the demo is ready.');
+          }
+          if (startingPlayback && app.isPackaged && script?.demo?.length && source === 'stream-deck' && !demo.isReady) {
+            throw new Error('The Turnaround demo is not ready. Wait for it to finish loading, then press Play on the Stream Deck again.');
+          }
           const wasEnded = state.presentation.status === 'ended' || state.presentation.progress >= 1;
-          state.presentation = playbackCommand(state.presentation, request.command);
-          demo.update(readingPosition, state.presentation.status === 'playing');
-          await sendOutput(request.command === 'stop' || wasEnded);
-          if (['faster', 'slower', 'text-larger', 'text-smaller'].includes(request.command)) await saveSettings();
+          const resetDemo = request.command === 'stop' && !demoOpening && demo.isReady;
+          const sessionId = state.presentation.sessionId;
+          if (resetDemo) demoOpening = true;
+          try {
+            state.presentation = nextPresentation;
+            demo.update(readingPosition, state.presentation.status === 'playing');
+            await sendOutput(request.command === 'stop' || wasEnded);
+            if (resetDemo) {
+              if (!outputReady || state.presentation.sessionId !== sessionId || state.presentation.displayId === null) {
+                throw new Error('The presentation closed before the demo could be reset.');
+              }
+              await demo.reset(state.presentation.displayId);
+            }
+            if (['faster', 'slower', 'text-larger', 'text-smaller'].includes(request.command)) await saveSettings();
+          } finally {
+            if (resetDemo) demoOpening = false;
+          }
         }
       }
     } catch (error) {
@@ -223,7 +250,7 @@ export function installElgato(
     }
     publish();
   }
-  const bridge = new ElgatoBridge(execute, () => state);
+  const bridge = new ElgatoBridge(request => execute(request, 'stream-deck'), () => state);
   function closeOutput(): void {
     if (starting) throw new Error('The presentation is still opening. Try Stop presenting again once it opens.');
     output?.close();
@@ -461,17 +488,33 @@ export function installElgato(
   handle('presentation:start', (event, value) => startOutput(event, value));
   handle('presentation:demo', async (event, value) => {
     if (event.sender !== controller?.webContents && new URL(event.senderFrame!.url).pathname !== '/think') throw new Error('Open the demo from the script or Presentation.');
+    if (demoOpening) throw new Error('The demo is already opening or resetting. Wait until it is ready.');
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Choose a saved script and demo display.');
     const request = value as Record<string, unknown>;
-    if (!outputReady || !script?.demo?.length) throw new Error('Open a saved script with Turnaround demo cues first.');
-    if (request.noteId !== script.noteId) throw new Error('The active presentation changed. Reopen the current script.');
     if (state.presentation.status === 'playing') throw new Error('Pause the prompter before opening the demo.');
-    const matches = request.displayId === null
-      ? [savedDisplay('demo')].filter((d): d is Electron.Display => !!d)
-      : screen.getAllDisplays().filter(display => display.id === request.displayId);
-    if (matches.length !== 1) throw new Error('Choose a demo display in Presentation and Stream Deck first.');
-    if (request.displayId !== null) { rememberDisplay('demo', matches[0]!); await persist(); }
-    await demo.open(matches[0]!.id, state.presentation.displayId, script.demo);
+    if (typeof request.noteId !== 'string' || typeof request.title !== 'string' || typeof request.text !== 'string'
+      || typeof request.displayId !== 'number' || !Number.isSafeInteger(request.displayId)
+      || typeof request.demoDisplayId !== 'number' || !Number.isSafeInteger(request.demoDisplayId)) {
+      throw new Error('Choose a saved script and separate presenter and demo displays.');
+    }
+    const demoDisplay = screen.getAllDisplays().find(display => display.id === request.demoDisplayId);
+    if (!demoDisplay || demoDisplay.id === screen.getPrimaryDisplay().id || demoDisplay.id === request.displayId) {
+      throw new Error('Choose a demo display separate from the presenter and prompter.');
+    }
+    demoOpening = true;
+    try {
+      rememberDisplay('demo', demoDisplay);
+      await persist();
+      const activeOutput = outputReady && output && !output.isDestroyed() && outputOwner === event.sender.id
+        && script?.noteId === request.noteId && script.demo?.length && state.presentation.displayId === request.displayId;
+      if (!activeOutput) await startOutput(event, request);
+      if (!outputReady || !script?.demo?.length || script.noteId !== request.noteId) {
+        throw new Error('The saved script could not be opened for the Turnaround demo.');
+      }
+      await demo.open(demoDisplay.id, state.presentation.displayId, script.demo);
+    } finally {
+      demoOpening = false;
+    }
   }, false);
   handle('presentation:visuals', async event => {
     if (!outputReady || outputOwner !== event.sender.id || !script?.visuals?.length) throw new Error('Present a saved script with visuals first.');
