@@ -31,6 +31,7 @@ test('note summaries exhaust stable pages and filter saved writing, types and ex
   await db.exec(migration);
   await db.exec(await readFile(new URL('../src/db/migrations/060_note_history.sql', import.meta.url), 'utf8'));
   await db.exec(await readFile(new URL('../src/db/migrations/061_note_github_publications.sql', import.meta.url), 'utf8'));
+  await db.exec(await readFile(new URL('../src/db/migrations/158_note_version_task_audit.sql', import.meta.url), 'utf8'));
   await db.query('INSERT INTO tags VALUES ($1,NULL),($2,$1),($3,NULL)', [parent, child, extra]);
   await db.query('INSERT INTO tags VALUES ($1,$2)', [otherChild, parent]);
   for (let i = 0; i < 105; i++) {

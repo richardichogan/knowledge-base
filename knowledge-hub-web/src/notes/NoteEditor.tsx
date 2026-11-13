@@ -46,7 +46,6 @@ import { useProjects } from '../hooks/useProjects';
 import { editorSchema } from './editorSchema';
 import { watchPasteForSource } from './pasteSource';
 import { parseTranscript, transcriptToBlocks } from './transcriptPaste';
-import { imagineDemoSpecificationPrompt } from './imagineDemoBrief';
 import { useAthenaContext } from '../context/AthenaContext';
 import { noteDraftIdentity } from '../services/auth';
 import { captureNoteDraft, removeNoteDraftIfUnchanged, storeNoteDraft, type NoteDraft } from './noteDraftStorage';
@@ -237,7 +236,6 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [copying, setCopying] = useState(false);
-  const [preparingSpecification, setPreparingSpecification] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const editorScrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1365,27 +1363,6 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
                 </NoteActionGroup>
                 <NoteActionGroup label="Create & build">
                 {actionContent}
-                {!usesDesignVisual && <li role="menuitem">
-                  <button type="button" className="kb-menu__item" disabled={historyBusy || preparingSpecification}
-                    title="Create the full IMAGINE specification from this note and its Athena conversation; keep the source unchanged"
-                    onClick={() => {
-                      setExportMenuOpen(false);
-                      setPreparingSpecification(true);
-                      void doSave().then(saved => {
-                        if (!saved) throw new Error('Save the source note before creating its demo specification. Resolve the save error and retry.');
-                        if (!mountedRef.current || getActiveBlockNoteEditor() !== editorRef.current) return;
-                        openAthena(imagineDemoSpecificationPrompt(doc.id, savedDocRef.current.title), {
-                          ...(pageContext?.id === doc.id ? pageContext : {}),
-                          type: 'note', id: doc.id, title: savedDocRef.current.title,
-                          ...(projectIdRef.current ? { projectId: projectIdRef.current } : {}),
-                        });
-                      }).catch((error: unknown) => {
-                        if (mountedRef.current) setNotification({ kind: 'error', msg: error instanceof Error ? error.message : 'Could not prepare the demo specification. Retry from this note.' });
-                      }).finally(() => { if (mountedRef.current) setPreparingSpecification(false); });
-                    }}>
-                    <DocumentExport size={16} /> {preparingSpecification ? 'Preparing specification...' : 'Create demo specification'}
-                  </button>
-                </li>}
                 {onMapNote && (
                   <li role="menuitem">
                     <button type="button" className="kb-menu__item" title="Open the brainstorm linked to this note, or start one with this note as its centre"

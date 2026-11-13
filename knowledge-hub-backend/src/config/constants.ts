@@ -257,6 +257,17 @@ export const TAVILY_MCP_TOOL_CACHE_MS = 10 * 60 * 1_000;
 /** Timeout for individual Tavily MCP requests (connect, list_tools, call_tool). */
 export const TAVILY_MCP_TIMEOUT_MS = 15_000;
 
+// ── Bluesky engagement collection ─────────────────────────────────────────────
+
+/** Public, unauthenticated Bluesky AppView used to read post engagement counts. */
+export const BLUESKY_PUBLIC_API_URL = 'https://public.api.bsky.app';
+/** How far back sent Bluesky deliveries are tracked for daily engagement snapshots. */
+export const BLUESKY_ENGAGEMENT_LOOKBACK_DAYS = 90;
+/** app.bsky.feed.getPosts accepts at most 25 URIs per request. */
+export const BLUESKY_GET_POSTS_BATCH = 25;
+/** Timeout for one public getPosts request. */
+export const BLUESKY_ENGAGEMENT_TIMEOUT_MS = 15_000;
+
 // ── Graph / tokens ────────────────────────────────────────────────────────────
 
 /** Milliseconds per second — used for token expiry calculations. */

@@ -118,7 +118,7 @@ export const KnowledgeHealthPage: React.FC = () => {
       type: 'knowledge-health', id: 'knowledge-health', title: 'Knowledge health instrumentation',
       detail: JSON.stringify({ filters: applied, generatedAt: query.data?.generatedAt,
         measurements: query.data?.measurements, reliability: query.data?.reliability, artifactOutcomes: query.data?.artifactOutcomes, traceSelection, tablePages,
-        activeDetailTab: ['AI usage', 'Workflows', 'Source sync', 'Retrieval quality', 'Knowledge coverage', 'Index freshness', 'Turn measurements', 'Traces and evaluations'][detailTab],
+        activeDetailTab: ['AI usage', 'Workflows', 'Source sync', 'Retrieval quality', 'Knowledge coverage', 'Index freshness', 'Turn measurements', 'Traces and evaluations', 'Audience engagement'][detailTab],
         workflowOutcomes: query.data?.workflows?.available ? query.data.workflows.data.outcomes : null,
         loading: query.isFetching, error: query.isError ? 'Health could not be loaded' : null,
         retrieval: 'Use read_knowledge_health for the current structured report sections. Metrics are not proof of answer correctness.' }),
@@ -180,6 +180,7 @@ export const KnowledgeHealthPage: React.FC = () => {
               <TabList aria-label="Detailed instrumentation data">
                 <Tab>AI usage</Tab><Tab>Workflows</Tab><Tab>Source sync</Tab><Tab>Retrieval quality</Tab>
                 <Tab>Knowledge coverage</Tab><Tab>Index freshness</Tab><Tab>Turn measurements</Tab><Tab>Traces and evaluations</Tab>
+                <Tab>Audience engagement</Tab>
               </TabList>
               <TabPanels>
                 <TabPanel>
@@ -334,6 +335,34 @@ export const KnowledgeHealthPage: React.FC = () => {
                 </TabPanel>
                 <TabPanel>
                   <HealthTraceInspector key={JSON.stringify(applied)} filters={applied} onSelection={setTraceSelection} />
+                </TabPanel>
+                <TabPanel>
+          <section className="kh-health__section" aria-labelledby="health-engagement">
+            <h2 id="health-engagement">Audience engagement</h2>
+            {!query.data.engagement ? <p>Engagement snapshots are not available from this server version.</p>
+              : !query.data.engagement.available ? <Unavailable title="Audience engagement" section={query.data.engagement} /> : (
+                <>
+                  <p className="kh-health__note">{query.data.engagement.data.note}</p>
+                  {query.data.engagement.data.posts.length === 0 ? <p>No sent Bluesky posts were published in this window.</p> : (
+                    <HealthDataTable label="Bluesky post engagement"
+                      headers={<tr><th>Post</th><th>Published</th><th>Likes</th><th>Reposts</th><th>Replies</th><th>Quotes</th><th>Captured</th></tr>}
+                      rows={query.data.engagement.data.posts.map(post => (
+                        <tr key={post.deliveryId}>
+                          <td>{post.url === null ? post.source : <a className="kh-health__post-link" href={post.url} target="_blank" rel="noreferrer">{post.source}</a>}
+                            {post.unavailable && <> <span className="kh-health__tag">No longer on Bluesky</span></>}</td>
+                          <td>{when(post.publishedAt)}</td>
+                          {(['likes', 'reposts', 'replies', 'quotes'] as const).map(key => (
+                            <td key={key}>{post.unavailable ? '—' : post.metrics === null ? 'Not collected'
+                              : post.metrics[key] === null ? 'Not reported' : number.format(post.metrics[key])}</td>
+                          ))}
+                          <td>{post.capturedAt === null ? 'Not collected yet' : <>{when(post.capturedAt)}{post.capturedEnvironment !== null && <> <span className="kh-health__tag">{post.capturedEnvironment}</span></>}</>}</td>
+                        </tr>
+                      ))} />
+                  )}
+                  {query.data.engagement.data.postsTruncated && <p className="kh-health__note">Showing the 50 most recent posts. Narrow the date range for older ones.</p>}
+                </>
+              )}
+          </section>
                 </TabPanel>
               </TabPanels>
             </Tabs>

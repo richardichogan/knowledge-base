@@ -313,7 +313,15 @@ export interface KnowledgeHealth {
   /** Optional so an older server that lacks per-family coverage still renders. */
   families?: HealthSection<HealthFamilies>;
   retrievalQuality?: HealthSection<HealthRetrievalQuality>;
+  /** Optional so an older server without engagement snapshots still renders. */
+  engagement?: HealthSection<HealthEngagement>;
 }
+export interface HealthEngagementPost {
+  deliveryId: string; url: string | null; publishedAt: string; source: string;
+  metrics: { likes: number | null; reposts: number | null; replies: number | null; quotes: number | null } | null;
+  unavailable: boolean; capturedAt: string | null; capturedEnvironment: string | null;
+}
+export interface HealthEngagement { posts: HealthEngagementPost[]; postsTruncated: boolean; note: string }
 export interface HealthRetrievalQuality {
   auditedTurns: number; scopeMeasuredTurns: number; legacyUnattributedTurns: number;
   scopedTurns: number; blockedScopeTurns: number; temporalTurns: number; defaultWindowTurns: number;

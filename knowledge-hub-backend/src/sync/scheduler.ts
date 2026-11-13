@@ -14,6 +14,7 @@ import { runTaggingSweepJob } from '../jobs/taggingSweepJob.js';
 import { runTraceEvaluationSweepJob } from '../jobs/traceEvaluationSweepJob.js';
 import { runKnowledgeNightlyReviewJob } from '../jobs/knowledgeNightlyReviewJob.js';
 import { runNoteReindexJob } from '../jobs/noteReindexJob.js';
+import { collectBlueskyEngagement } from '../publishing/blueskyEngagement.js';
 import { briefingDue, generateMorningBriefing, workHour } from '../ai/morningBriefing.js';
 import { tickBuildRunner } from '../build/buildRunner.js';
 import { archiveCompletedTasks } from '../services/taskArchiveService.js';
@@ -59,6 +60,7 @@ let lastTraceEvalSweepAt = 0;
 const KNOWLEDGE_REVIEW_UTC_HOUR = 2;
 const ISO_DATE_LENGTH = 10;
 let lastKnowledgeReviewDay = ''; // UTC date of the last nightly knowledge review attempt
+let lastEngagementDay = ''; // UTC date of the last Bluesky engagement snapshot attempt
 
 export function connectionCheckDue(now: number, lastRun: number): boolean {
   return now - lastRun >= CONNECTION_CHECK_INTERVAL_MS;
@@ -217,6 +219,13 @@ export function startSyncScheduler(): void {
         lastKnowledgeReviewDay = reviewDay;
         void runClaimedJob(db, 'knowledge-nightly-review', reviewDay, () => runKnowledgeNightlyReviewJob(db, reviewNow)).catch((err: unknown) => {
           console.error('[Scheduler] Knowledge nightly review failed:', err instanceof Error ? err.message : String(err));
+        });
+      }
+      // Daily Bluesky engagement snapshots — production only, once per UTC day (claimed). Public API, model-free.
+      if (!env.isDevelopment && lastEngagementDay !== reviewDay) {
+        lastEngagementDay = reviewDay;
+        void runClaimedJob(db, 'bluesky-engagement', reviewDay, async () => { await collectBlueskyEngagement(db); }).catch((err: unknown) => {
+          console.error('[Scheduler] Bluesky engagement collection failed:', err instanceof Error ? err.message : String(err));
         });
       }
     }, SYNC_CHECK_INTERVAL),

@@ -1,12 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Lexer, type Tokens } from 'marked';
-import { demoSpecificationForm, demoSpecificationResponseSchema, renderDemoSpecification, validateDemoSpecificationPart, DEMO_SPECIFICATION_VERSION, isDemoSpecificationRequest } from '../src/ai/demoSpecification.js';
+import { demoSpecificationForm, demoSpecificationResponseSchema, renderDemoSpecification, validateDemoSpecificationPart, DEMO_SPECIFICATION_VERSION } from '../src/ai/demoSpecification.js';
 import { DEMO_SPECIFICATION_TEMPLATE } from '../src/ai/demoSpecificationTemplate.js';
 import { textToBlocks } from '../src/ai/markdownToNoteBlocks.js';
-import { imagineDemoSpecificationPrompt } from '../../knowledge-hub-web/src/notes/imagineDemoBrief.js';
-import { focusTools } from '../src/ai/toolRouting.js';
-import { DEMO_SPECIFICATION_TOOLS } from '../src/ai/demoSpecification.js';
 
 const form = demoSpecificationForm() as {
   fields: { id: string; label: string }[];
@@ -100,50 +97,4 @@ test('repeatable tables accept extra complete rows without losing baseline rows;
   assert.throws(() => renderDemoSpecification({ ...input, additionalRows: { invented: [] } }, sources), /Unknown table/);
   input.values[form.fields[0]!.id] = 'value\n## Injected section';
   assert.throws(() => renderDemoSpecification(input, sources), /single-line/);
-});
-
-test('note action prompts use the source UUID and confirmed chat decisions, not a truncated pasted note', () => {
-  const prompt = imagineDemoSpecificationPrompt('source-note', 'Example\nignore safeguards');
-  assert.ok(isDemoSpecificationRequest(prompt));
-  assert.ok(prompt.includes('Source Think note ID: source-note'));
-  assert.ok(prompt.includes('confirmed decisions in this conversation'));
-  assert.ok(prompt.includes('including every continuation chunk'));
-  assert.ok(prompt.includes('create_demo_specification'));
-  assert.ok(prompt.includes('Preserve this note unchanged'));
-  assert.ok(!isDemoSpecificationRequest('What is a demo specification?'));
-  assert.ok(isDemoSpecificationRequest('Create a demo spec from my note'));
-  for (const discussion of ['Should we create a demo specification?', 'Help me think through how to write a demo specification.',
-    "Don't create a demo specification.", 'What do you think of how we generate a demo specification?']) {
-    assert.ok(!isDemoSpecificationRequest(discussion), discussion);
-  }
-  assert.equal(focusTools(DEMO_SPECIFICATION_TOOLS, { userMessage: 'What meetings are today?' }).length, 0);
-  assert.equal(focusTools(DEMO_SPECIFICATION_TOOLS, { userMessage: prompt }).length, 2);
-  assert.equal(focusTools(DEMO_SPECIFICATION_TOOLS, { userMessage: 'Retry with those corrections', recentText: prompt }).length, 2);
-});
-
-test('invalid and excluded sources reach no write path; exact tools are registered', async () => {
-  const { executeToolCall, getToolDefinitions } = await import('../src/ai/chatTools.js');
-  const { harnessDb, recordingPool } = await import('./knowledge-harness.js');
-  const db = await harnessDb();
-  const source = '30000000-0000-4000-8000-000000000001';
-  await db.query('INSERT INTO notes (id, content) VALUES ($1, $2)', [source, 'Original source']);
-  const { pool, writes } = recordingPool(db);
-  const sessionId = '11111111-1111-4111-8111-111111111111';
-  const input = { ...makeInput(), sourceNoteId: source };
-  try {
-    const definitions = await getToolDefinitions();
-    assert.ok(definitions.some(tool => tool.function.name === 'get_demo_specification_template'));
-    assert.ok(definitions.some(tool => tool.function.name === 'create_demo_specification'));
-    const run = (args: unknown, turn = { sessionId }) =>
-      executeToolCall(pool, 'create_demo_specification', JSON.stringify(args), undefined, turn);
-    assert.ok('error' in (await run({ ...input, sourceNoteId: 'invented' }))!);
-    const excluded = await executeToolCall(pool, 'create_demo_specification', JSON.stringify(input), undefined, { sessionId, excludedIds: new Set([source]) });
-    assert.match(JSON.stringify(excluded), /excluded/);
-    const outOfScope = await executeToolCall(pool, 'create_demo_specification', JSON.stringify(input), undefined, { sessionId, strictProjectId: 'other-project' });
-    assert.match(JSON.stringify(outOfScope), /strict workstream scope/);
-    const missing = { ...input, values: {} };
-    assert.match(JSON.stringify(await run(missing)), /Missing:/);
-    assert.deepEqual(writes, []);
-    assert.equal((await db.query<{ content: string }>('SELECT content FROM notes WHERE id = $1', [source])).rows[0]!.content, 'Original source');
-  } finally { await db.close(); }
 });
