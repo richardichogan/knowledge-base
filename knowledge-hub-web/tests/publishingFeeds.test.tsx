@@ -97,9 +97,9 @@ test('a held or unreviewed draft explains recovery instead of suggesting it can 
   assert.match(publishingApprovalBlocker({ ...savedDraft, held: true })!, /Publishing is on hold/);
   const deliveryFailure = 'Blog accepted, but public verification failed: Page returned HTTP 404';
   assert.equal(publishingApprovalBlocker({ ...savedDraft, held: true, approval: 'approved', reason: deliveryFailure }), deliveryFailure);
-  assert.match(publishingApprovalBlocker({ ...savedDraft, held: true, review: 'hold' })!, /not ready for approval/);
+  assert.match(publishingApprovalBlocker({ ...savedDraft, held: true, review: 'hold' })!, /Rewrite from source/);
   assert.match(publishingApprovalBlocker({ ...savedDraft, review: 'pending' })!, /accuracy and voice checks pass/);
-  assert.match(publishingApprovalBlocker({ ...savedDraft, review: 'revise' })!, /Edit the copy/);
+  assert.match(publishingApprovalBlocker({ ...savedDraft, review: 'revise' })!, /Rewrite from source/);
   assert.equal(publishingApprovalBlocker({ ...savedDraft, expiresAt: new Date(0).toISOString() }), null);
 });
 test('missing saved copy is an explicit generation state, never undefined or ready for approval', () => {

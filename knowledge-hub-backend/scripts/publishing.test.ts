@@ -715,19 +715,28 @@ for (const outcome of ['consistent', 'restored-pass', 'conflict', 'concurrent-ch
       const t = await topic(f.db); const s = await source(f.db, t.id);
       const b = await draft(f.db, t.id, 'blog', 'blog');
       const hook = await draft(f.db, t.id, 'linkedin', 'blog');
+      const quickBlog = { ...b.content, postType: 'quick', slug: 'a-practical-administration-change', sourceUrl: s.url };
       await f.db.query('DELETE FROM publishing_schedule');
       await f.db.query("UPDATE publishing_drafts SET approval='pending' WHERE topic_id=$1", [t.id]);
-      await f.db.query("UPDATE publishing_drafts SET review='pending' WHERE id=$1", [b.id]);
+      await f.db.query("UPDATE publishing_drafts SET review='pending',content=$2 WHERE id=$1", [b.id, JSON.stringify(quickBlog)]);
+      await f.db.query('UPDATE publishing_versions SET content=$2 WHERE draft_id=$1 AND version=1', [b.id, JSON.stringify(quickBlog)]);
       if (outcome === 'restored-pass') {
         await f.db.query(`UPDATE publishing_drafts SET review='pending',reviewed_at=NULL,
           reason='Blog changed; hook must be reviewed and approved again.' WHERE id=$1`, [hook.id]);
         await f.db.query(`UPDATE publishing_versions SET reviews=$2 WHERE draft_id=$1 AND version=1`,
           [hook.id, JSON.stringify([{ outcome: 'pass', at: '2026-10-28T13:08:15.950Z' }])]);
       }
-      b.review = 'pending';
+      b.review = 'pending'; b.content = quickBlog;
+      let reviews = 0;
+      let regenerations = 0;
       const services: typeof editorial.editorialServices = {
         ...editorial.editorialServices, preferences: async () => '',
         chat: async (system, input, _tokens, _schema, role) => {
+          if (system.includes('This is generation, not a review.')) {
+            assert.equal(role, 'blog-author');
+            regenerations++;
+            return { ...quickBlog, summary: 'Check the documented permissions before enabling the capability.' };
+          }
           if (system.includes('Correct only the supplied')) return { edits: [{ id: target(input).id,
             after: 'Check the documented permissions before enabling the capability.', remove: '' }] };
           if (system.includes('Check only whether each unchanged')) {
@@ -737,18 +746,24 @@ for (const outcome of ['consistent', 'restored-pass', 'conflict', 'concurrent-ch
             }
             return { hooks: [{ id: hook.id, consistent: outcome !== 'conflict', reason: 'Checked against the corrected article.' }] };
           }
-          return { outcome: 'revise', findings: [reviewedPassage(input, 'summary', 'Clarify the summary.')] };
+          return ++reviews <= 2
+            ? { outcome: 'revise', findings: [reviewedPassage(input, 'summary', 'Clarify the summary.')] }
+            : { outcome: 'pass', findings: [] };
         },
       };
-      if (outcome === 'consistent' || outcome === 'restored-pass' || outcome === 'conflict') {
-        await editorial.reviewDraft(f.db, b, [s], services);
-      } else {
-        await assert.rejects(editorial.reviewDraft(f.db, b, [s], services), /saved package is unchanged/i);
-      }
+      await editorial.reviewDraft(f.db, b, [s], services);
       const rows = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE topic_id=$1`, [t.id])).rows;
       const savedBlog = rows.find(row => row.id === b.id)!;
       const savedHook = rows.find(row => row.id === hook.id)!;
-      assert.equal(savedBlog.version, outcome === 'consistent' || outcome === 'restored-pass' || outcome === 'conflict' ? 2 : 1);
+      assert.equal(savedBlog.version, 2);
+      assert.equal(regenerations, outcome === 'concurrent-change' ? 1 : 0);
+      if (outcome === 'concurrent-change') {
+        assert.equal(savedHook.review, 'pending');
+        assert.equal(savedHook.version, hook.version + 1);
+        assert.equal(savedHook.content.copy, 'Changed concurrently');
+        assert.equal((await f.db.query("SELECT id FROM publishing_events WHERE event='blog-hook-consistency-preserved' AND topic_id=$1", [t.id])).rowCount, 0);
+        return;
+      }
       if (outcome === 'conflict') {
         assert.equal(savedHook.review, 'pending');
         assert.equal(savedHook.version, hook.version + 1);
@@ -1352,7 +1367,7 @@ test('selection can choose nothing and preserves rationale without generating fi
     assert.match((await store.listTopics(f.db))[0]!.rationale, /No substantive/);
   } finally { await f.close(); }
 });
-test('accuracy and voice are separate checks; unchanged findings stop a stalled repair with versioned evidence', async () => {
+test('accuracy and voice stay separate through bounded regeneration after stalled repairs', async () => {
   const f = await publishingFixture();
   try {
     const t = await topic(f.db); const s = await source(f.db, t.id); const d = await draft(f.db, t.id);
@@ -1360,9 +1375,14 @@ test('accuracy and voice are separate checks; unchanged findings stop a stalled 
     await f.db.query('DELETE FROM publishing_schedule WHERE draft_id=$1', [d.id]);
     d.approval = 'pending';
     const calls: string[] = [];
+    let regenerations = 0;
     await editorial.reviewDraft(f.db, d, [s], { ...editorial.editorialServices, preferences: async () => '',
       chat: async (system, input) => {
         calls.push(system);
+        if (system.includes('This is generation, not a review.')) {
+          regenerations++;
+          return { copy: 'A documented change, with permissions to check.', account: 'fixture.bsky.social' };
+        }
         if (system.includes('Correct only the supplied')) {
           const current = target(input);
           return { edits: [{ id: current.id, after: `${current.before} Check scope.`, remove: '' }] };
@@ -1370,11 +1390,12 @@ test('accuracy and voice are separate checks; unchanged findings stop a stalled 
         return { outcome: 'revise', findings: [reviewedPassage(input, 'copy', 'Clarify the source claim.')] };
       } });
     const result = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE id=$1`, [d.id])).rows[0]!;
-    assert.equal(result.version, 2); assert.equal(result.review, 'hold');
-    assert.equal(calls.filter(s => s.includes('accuracy review only')).length, 2);
-    assert.equal(calls.filter(s => s.includes('voice review only')).length, 2);
-    assert.match(result.reason, /same findings remain after targeted repair/);
-    assert.equal((await f.db.query<{ reviews: unknown[] }>('SELECT reviews FROM publishing_versions WHERE draft_id=$1', [d.id])).rows.filter(v => v.reviews.length).length, 2);
+    assert.equal(result.version, 6); assert.equal(result.review, 'hold');
+    assert.equal(regenerations, 2);
+    assert.equal(calls.filter(s => s.includes('accuracy review only')).length, 6);
+    assert.equal(calls.filter(s => s.includes('voice review only')).length, 6);
+    assert.match(result.reason, /rewrote this bluesky draft from the source 2 times/);
+    assert.equal((await f.db.query<{ reviews: unknown[] }>('SELECT reviews FROM publishing_versions WHERE draft_id=$1', [d.id])).rows.filter(v => v.reviews.length).length, 6);
   } finally { await f.close(); }
 });
 test('changed source evidence never reopens a passed review or an existing human approval', async () => {

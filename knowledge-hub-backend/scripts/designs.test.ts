@@ -412,7 +412,7 @@ test('real parent conversion, source identity, persisted feedback, atomic accept
   for (const file of ['054_ai_usage_log.sql', '067_ai_usage_measured.sql', '117_ai_workflow_attribution.sql']) {
     await local.exec(await readFile(new URL(`../src/db/migrations/${file}`, import.meta.url), 'utf8'));
   }
-  for (const file of ['060_note_history.sql', '061_note_github_publications.sql', '064_note_list_metadata.sql', '082_note_links.sql', '102_designs.sql', '103_design_note_origins.sql']) {
+  for (const file of ['060_note_history.sql', '061_note_github_publications.sql', '064_note_list_metadata.sql', '082_note_links.sql', '102_designs.sql', '103_design_note_origins.sql', '158_note_version_task_audit.sql']) {
     await local.exec(await readFile(new URL(`../src/db/migrations/${file}`, import.meta.url), 'utf8'));
   }
   const original = writing('Claims', 'use-case', 'Original requirement');

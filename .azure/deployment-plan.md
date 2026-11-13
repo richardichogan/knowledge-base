@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validating
+**Status:** Validated
 
 **Turnaround walkthrough release (2026-11-13):**
 - User approved deploying the existing web/backend changes and publishing
@@ -11,14 +11,45 @@
   authentication, dependency or automatic-delivery configuration changes.
 - Preserve the unrelated `.impeccable/hook.cache.json` working change.
 - All validation checks pass:
-  - [ ] Core validation: sync origin/main, CLI/authentication, all three
+  - [x] Core validation: sync origin/main, CLI/authentication, all three
     typechecks and the existing automated release gates.
-  - [ ] Build verification: backend/frontend production builds and the
+  - [x] Build verification: backend/frontend production builds and the
     versioned Desktop package; use the existing ACR remote Docker build.
-  - [ ] Azure Policy and static role validation: application-only update;
+  - [x] Azure Policy and static role validation: application-only update;
     no IaC, policy or role changes to provision.
 - Section 7: Validation Proof will record the completed commands and release
   health evidence below. No new browser or functional rehearsal is requested.
+
+**Section 7: Validation Proof - Turnaround walkthrough (2026-11-13 UTC):**
+- `git fetch origin` and `git merge origin/main` produced release merge
+  `579fce6e` from main `5abccd09`. A subsequent fetch at 15:03 UTC confirms
+  no newer main commits. The unrelated hook-cache modification is preserved.
+- Backend, frontend and Desktop TypeScript checks passed. Both application
+  `npx tsc --noEmit` checks passed again at 15:02 UTC after test-only fixes.
+- Full isolated backend/frontend release gates ran once. Their failures were
+  outdated presenter-context/recovery assertions, a missing existing audit
+  migration in the design fixture, and publishing mocks that did not support
+  the existing automatic source-regeneration workflow. No production behavior
+  was changed to satisfy these tests.
+- Only affected files were rerun with `npm run test:isolated -- --test-file=...`:
+  noteText 6/6 and publishingFeeds 12/12 at 14:50 UTC, designs 14/14 at
+  14:50 UTC, and publishing 89/89 at 15:02 UTC. Publishing checks retain
+  hook-consistency, concurrent-copy preservation and bounded-retry assertions.
+- Backend/frontend `npm run build` passed at 14:46/14:47 UTC. Desktop release
+  checks passed 40/40; `npm run dist` packaged version 0.1.24 at 14:46 UTC.
+  These unchanged application artifacts are reused after test-only updates.
+  The existing unsigned packaging configuration is unchanged.
+- Static role/policy verification: no Bicep, Terraform, azure.yaml, RBAC or
+  infrastructure changes in the release. Existing subscription/targets are
+  confirmed. Registry pulls retain their existing secret reference; no
+  managed-identity registry migration or provisioning is required.
+- The revised eight-stage script is prepared for the existing full-walkthrough
+  note, retaining read-only directions, opening/closing and seven navigation
+  cues ending on Scenario Planner. Save it after the compatible editor release.
+  Hands-on playback remains deferred to the dev app.
+- Evidence: `turnaround-release-*-validation.log`, the four affected-file logs,
+  both application build logs and `turnaround-release-desktop-package.log` in
+  this session's files. Deployment health and release-asset proof are pending.
 
 **Narrated storyboard graphics release (2026-11-06):**
 - Application commit `0d469d7d`, merged with current main as `616ef935`, was

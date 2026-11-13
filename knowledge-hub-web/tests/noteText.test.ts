@@ -53,12 +53,12 @@ test('Athena receives script heading levels and their spoken content without cha
   assert.equal(extractNoteBlockText(blocks), 'Script title\nChapter\nNested spoken words.\nMore spoken words.');
 });
 
-test('Script card context exposes stable section IDs and the full spoken body without hidden directions', () => {
+test('Script card context exposes stable section IDs, spoken content and separately labelled presenter directions', () => {
   const blocks = [{ id: 'opening', type: 'heading',
     props: { level: 2, scriptSection: true, scriptDirection: 'Warm, then slow down.' },
     content: [{ text: 'Opening' }], children: [{ type: 'paragraph', content: [{ text: 'Actual spoken words.' }] }] }];
   assert.equal(extractNoteBlockText(blocks, undefined, true),
-    '## Opening\n[Script section id: opening]\nActual spoken words.');
+    '## Opening\n[Script section id: opening]\n[Presenter directions (not spoken):\nWarm, then slow down.\n]\nActual spoken words.');
   assert.equal(extractNoteBlockText(blocks), 'Opening\nActual spoken words.');
 });
 
@@ -67,6 +67,6 @@ test('active Script context identifies a deeply nested selection without claimin
     { id: 'list', children: [{ id: 'nested' }] },
   ] }];
   assert.equal(scriptSectionContext(blocks, 'nested', 'selected words'),
-    '\n[Active script section id: section]\n[Active block id: nested]\n[No presentation visuals for this section.]\n[Selected script text: selected words]');
+    '\n[Active script section id: section]\n[Active block id: nested]\n[No presenter directions for this section.]\n[No presentation visuals for this section.]\n[No Turnaround demo cues for this section.]\n[Selected script text: selected words]');
   assert.equal(scriptSectionContext(blocks, 'missing', ''), '');
 });
