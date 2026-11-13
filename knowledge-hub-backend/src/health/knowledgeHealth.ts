@@ -9,6 +9,7 @@ import { CONTENT_SOURCE_DISPOSITIONS, KNOWLEDGE_FAMILIES, type Availability } fr
 import type { SyncFailure } from '../sync/sourceDiagnostics.js';
 import { readTurnMeasurements, type TurnMeasurementHealth } from './turnMeasurements.js';
 import { readReliability, type ReliabilityHealth } from './reliability.js';
+import { engagementSection, type EngagementSection } from './engagementHealth.js';
 
 export const HEALTH_MAX_DAYS = 90;
 export const HEALTH_DEFAULT_DAYS = 7;
@@ -129,6 +130,7 @@ export interface KnowledgeHealth {
   measurements: Section<TurnMeasurementHealth>;
   reliability: Section<ReliabilityHealth>;
   artifactOutcomes: Section<ArtifactOutcomes>;
+  engagement: Section<EngagementSection>;
 }
 
 export interface ArtifactOutcomes {
@@ -679,5 +681,6 @@ export async function getKnowledgeHealth(
     : filters.feature !== null && filters.feature !== 'chat'
       ? { available: false, message: 'Turn measurements cover chat only. Select chat or all features.' }
       : await guarded(() => readTurnMeasurements(db, filters, start, end));
-  return { generatedAt: now.toISOString(), filters, windowStart: start, windowEnd: end, usage, syncRuns, index, families, turnReview, retrievalQuality, workflows, measurements, reliability, artifactOutcomes };
+  const engagement = await guarded(() => engagementSection(db, start, end));
+  return { generatedAt: now.toISOString(), filters, windowStart: start, windowEnd: end, usage, syncRuns, index, families, turnReview, retrievalQuality, workflows, measurements, reliability, artifactOutcomes, engagement };
 }
