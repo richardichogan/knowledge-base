@@ -43,13 +43,37 @@
   infrastructure changes in the release. Existing subscription/targets are
   confirmed. Registry pulls retain their existing secret reference; no
   managed-identity registry migration or provisioning is required.
-- The revised eight-stage script is prepared for the existing full-walkthrough
-  note, retaining read-only directions, opening/closing and seven navigation
-  cues ending on Scenario Planner. Save it after the compatible editor release.
-  Hands-on playback remains deferred to the dev app.
+- The revised script replaced existing full-walkthrough note
+  `65927601-7d56-4beb-912d-037b8abf8c58` at revision 8 through the authenticated
+  normal note client, after checkpointing revision 7. Reread persistence
+  confirms eight stages, 118 spoken sentence blocks, editable non-spoken
+  directions, opening/closing and seven navigation cues ending on Scenario
+  Planner. The pilot is unchanged. Hands-on playback remains deferred.
+- Release source `b60c7cf4` was pushed to the session branch and main. ACR run
+  `cab0` built v350 from main; image digest is
+  `sha256:8ef1b4d40d2f1e5838e4e66adc41ae96b44285df676739f066df4d5339fbda74`.
+  Revision `kh-prod-api-vnet--0000349` is Healthy/RunningAtMaxScale, is the only
+  active revision and receives 100% latest traffic at 15:16 UTC. Startup
+  reported migration completion, pool warmed 8/8, specialist worker and scheduler.
+- Production SWA serves entrypoint `index-VE4yFNqC.js`. The served entrypoint,
+  `appBootstrap-DZAqQpxI.js` and `scriptAnnotations-BI4-uQbH.js` match the
+  local build SHA-256 digests byte-for-byte; HTML/assets returned 200.
+- Desktop 0.1.24 is published at
+  https://github.com/richardichogan/knowledge-base/releases/tag/v0.1.24.
+  The installer, blockmap and latest.yml are uploaded and match local SHA-256
+  digests. Both manifest SHA-512 fields and its size match the exact installer.
+  Recovered the publisher's release-creation race by completing the same
+  release and correcting its stale manifest, without another application build.
+- Live role verification confirms the existing system identity has no direct
+  assignments; existing API-key and registry-secret authentication is unchanged.
+  No new managed-identity operation or RBAC assignment is part of this release.
 - Evidence: `turnaround-release-*-validation.log`, the four affected-file logs,
-  both application build logs and `turnaround-release-desktop-package.log` in
-  this session's files. Deployment health and release-asset proof are pending.
+  both application build logs, `turnaround-release-desktop-package.log`,
+  `turnaround-release-backend-health.json`, `turnaround-release-startup.log`,
+  `turnaround-release-served-frontend.json`, `turnaround-release-desktop-assets.json`
+  and `turnaround-revision-saved.json` in this session's files. No local browser
+  was launched; refresh/reopen Athena to load the compatible editor before
+  editing the replacement.
 
 **Narrated storyboard graphics release (2026-11-06):**
 - Application commit `0d469d7d`, merged with current main as `616ef935`, was
