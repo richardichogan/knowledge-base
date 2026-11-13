@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Workforce walkthrough and reset release (2026-11-13, current):**
 - User requested full operating/testing documentation, shutdown of the local
@@ -21,9 +21,9 @@
 - All validation checks pass:
   - [x] Core validation: sync origin/main, CLI/auth, three typechecks and existing
     full isolated release suites once; rerun failed/affected checks only.
-  - [x] Build verification: local backend/frontend builds and compatible Desktop
-    package. Docker is unavailable locally; the existing ACR remote Docker build
-    from pushed main remains a mandatory gate before updating Container Apps.
+  - [x] Build verification: local backend/frontend builds, compatible Desktop
+    package and successful ACR remote Docker build from pushed main. Docker is
+    unavailable locally; the remote build completed before the image update.
   - [x] Azure Policy/static role validation: no new infrastructure or roles;
     preserve registry-secret authentication, ingress port and existing targets.
 
@@ -62,8 +62,41 @@
   for the production resource-group scope including inherited assignments.
 - Development remains closed; only installed Athena bridge 43129 is listening.
   No new browser, physical-monitor rehearsal, saved-note mutation or installed
-  Desktop restart was performed. Deployment and publication evidence is pending;
-  historical release evidence below is not current-release proof.
+  Desktop restart was performed. Historical release evidence below is not
+  current-release proof.
+- Validation completed on 2026-11-13 at approximately 22:56 UTC through the
+  azure-validate workflow; its final state is UpdateStatus. Release source
+  `c2959ce4d48d9eefdc888fe0a0104ee497a515da` was pushed to the session branch and
+  main without force. The unrelated hook-cache modification is preserved.
+- ACR run `cab1` succeeded at 22:59:52 UTC using node:22-slim in both Docker
+  stages. It built `kh-prod-api:v351` with digest
+  `sha256:8320ed9bd15dcb0554a42b371f3c9617b37425b36266fe3155cc4724a368dc26`.
+  The local log-stream command treated an Azure CLI warning as a PowerShell
+  terminating error; inspecting ACR confirmed the build had succeeded, so it
+  was not rebuilt. Only then was the existing Container App image updated.
+- At 23:01:29 UTC, revision `kh-prod-api-vnet--0000350` is
+  Healthy/RunningAtMaxScale, Provisioned, with one replica; it is both the latest
+  and latest-ready revision and receives 100% latest traffic. Startup logs show
+  listening on production port 3000, migration completion, pool warmed 8/8,
+  specialist worker and scheduler startup without configuration errors.
+- Live identity verification confirms the existing system-assigned principal
+  `33431199-d9a7-4bdc-a894-54eb77964f6a` has no RBAC assignments; registry pulls
+  continue to use the unchanged secret reference. This release adds no managed
+  identity data-plane operations or permissions and changes no credentials.
+- Static Web Apps production deployment succeeded. The custom hostname
+  https://athena.themicrosoftcloudblog.com serves the built entrypoint
+  `index-eSl4Tnfd.js` and changed compiler `scriptAnnotations-BtdVLbsw.js`.
+  Both return HTTP 200 and match local SHA-256 digests byte-for-byte:
+  `115991ffdd3814387728505ded8147180c5232c8d97a43fcb5b62dc43ffc0b19` and
+  `94ec933190fe9518e137059c389cc17c5fc2e51141cc648446701cfbfab2c6f9`.
+- Desktop v0.1.25 is published, non-draft and GitHub's latest release:
+  https://github.com/richardichogan/knowledge-base/releases/tag/v0.1.25.
+  Installer, blockmap and latest.yml upload digests match their local files.
+  The 111,964,252-byte installer has SHA-256
+  `8d0503b5892824d5c719ee22d9b5164a8099b1c9492ca393662ebc7281f01f76`;
+  latest.yml references the exact matching SHA-512 and version. The existing
+  unsigned packaging configuration is retained. Installed Athena was neither
+  installed over nor restarted; its bridge still belongs to PID 72488.
 
 **Turnaround walkthrough release (2026-11-13):**
 - User approved deploying the existing web/backend changes and publishing
