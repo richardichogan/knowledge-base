@@ -2,6 +2,27 @@
 
 ---
 
+## App update bar and mobile chat/Tasks
+
+When a newer web build is deployed, the installed app (Android PWA and desktop)
+shows an "Update available — Reload" bar. Builds are identified by
+`/version.json`, which is served uncached. An installed Android app needs one
+manual restart to pick up this mechanism; later updates surface automatically.
+
+The standalone mobile chat (`/chat`) has a Chat | Tasks switch. Tasks is a
+single-column variant of Focus with an Inbox, Add task, an Undo toast after
+completing a task and a full-screen task editor. "Ask Athena" attaches the task
+as a removable "Viewing …" strip above the composer.
+
+Following an impeccable review of the mobile app, the phone top bar contains
+only history, the Chat | Tasks switch and a settings button. Persona, context,
+action, workstream, Save to Think, voice replies and volume moved into the
+settings sheet. Touch targets are at least 44px. The layout uses dynamic
+viewport height so the composer stays above the keyboard, and the keyboard
+stays open after sending. Android Back closes Tasks, the history drawer or the
+settings sheet before leaving the app. The closed drawer is inert. Desktop is
+unchanged.
+
 ## Manual social posting
 
 Discover's manual Bluesky and LinkedIn posting actions bypass automatic-feed

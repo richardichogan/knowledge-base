@@ -1,5 +1,29 @@
 # Session Summary & Notes
 
+## Session: 12–13 Nov 2026 — Update bar, mobile Tasks, impeccable mobile pass
+
+### Released
+- Commit `bc2339d0` on `main`; frontend deployed (build `mwd78wht`). Backend unchanged at `kh-prod-api:v345`.
+- Details are in `CHANGE_LOG.md` ("App update bar and mobile chat/Tasks") and `DESIGN.md` (mobile section, about lines 228–248).
+
+### Key files
+- Update bar: `knowledge-hub-web/vite.config.ts` (BUILD_ID and `version.json`), `src/hooks/useAppUpdate.ts`, `src/components/AppUpdateBar.tsx`, `staticwebapp.config.json` (no-store/no-cache).
+- Mobile chat: `src/pages/AIChatPage.tsx` (top bar, `#ai-mobile-more` settings sheet, context strip), `src/components/athena/ComposerControl.tsx` (`ComposerControlFlat`).
+- Mobile Tasks: `src/pages/TasksPage.tsx` (`fullScreen` TaskEditor, undo toast). Styles are in `src/styles/global.scss` (`.kb-mobile-tasks`, `.kh-dialog--task-mobile`).
+- Android Back: `src/hooks/useBackDismiss.ts`. It is id-checked and deferred because StrictMode double-runs effects in dev.
+
+### Gotchas
+- `KhModal`/`AppDialog` dialogs are portalled to `<body>`, so ancestor selectors never match them. Style them via `className`.
+- Browser canvases hang after HMR or with a modal open in an iframe. Use JS metrics rather than screenshots.
+
+### Open / not verified
+- The full-screen mobile task editor CSS and Undo were not re-measured in the browser because the canvas hung. They are tsc-verified only.
+- Deliberately unchanged: links outside the PWA scope open in a browser tab; the "Edit Task" title case and tag colours are shared with desktop.
+- Undecided ideas, not recommendations: a bottom tab bar, and a fresh chat per task.
+- Untracked `.impeccable/` cache and critique files are intentionally uncommitted.
+
+---
+
 ## Session: 28 May 2026 — Canvas Build, Context Menu, Server Chaos
 
 ### 1. Canvas Bottom Padding Fix
