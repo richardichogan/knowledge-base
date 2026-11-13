@@ -22,6 +22,8 @@ if (process.isMainFrame && athenaOrigin !== '' && window.location.origin === ath
       scriptVisualAssets: true,
       scriptVisualThemes: true,
       scriptVisualVideo: true,
+      scriptDemo: true,
+      openDemo: (displayId: number | null, noteId: string) => ipcRenderer.invoke('presentation:demo', { displayId, noteId }),
       videoState: () => ipcRenderer.invoke('presentation:video-state'),
       setVideoMode: (mode: unknown, noteId: string) => ipcRenderer.invoke('presentation:video-mode', { mode, noteId }),
       onVideoState: (listener: (value: unknown) => void) => {
@@ -32,6 +34,8 @@ if (process.isMainFrame && athenaOrigin !== '' && window.location.origin === ath
       openVisuals: () => ipcRenderer.invoke('presentation:visuals'),
       open: (noteId?: string) => ipcRenderer.invoke('presentation:open', noteId),
       displays: () => ipcRenderer.invoke('presentation:displays'),
+      setDisplay: (id: number | null) => ipcRenderer.invoke('presentation:set-display', id),
+      setDemoDisplay: (id: number | null) => ipcRenderer.invoke('presentation:set-demo-display', id),
       identify: (id: number) => ipcRenderer.invoke('presentation:identify', id),
       state: () => ipcRenderer.invoke('presentation:state'),
       close: () => ipcRenderer.invoke('presentation:close'),
@@ -39,6 +43,7 @@ if (process.isMainFrame && athenaOrigin !== '' && window.location.origin === ath
       present: (value: unknown) => ipcRenderer.invoke('presentation:direct', value),
       release: () => ipcRenderer.invoke('presentation:release'),
       command: (value: unknown) => ipcRenderer.invoke('presentation:command', value),
+      noteCommand: (noteId: string, command: 'play' | 'pause') => ipcRenderer.invoke('presentation:note-command', { noteId, command }),
       options: (value: unknown) => ipcRenderer.invoke('presentation:options', value),
       onState: (listener: (value: unknown) => void) => {
         const handler = (_event: IpcRendererEvent, value: unknown): void => listener(value);

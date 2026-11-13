@@ -15603,6 +15603,7 @@ fieldset.proj-modal-body {
   border-radius: var(--kh-radius-md);
   font-size: var(--kh-text-body);
 }
+.note-edit-card__direction-preview { white-space: pre-wrap; }
 
 .note-edit-card__diff {
   display: flex;

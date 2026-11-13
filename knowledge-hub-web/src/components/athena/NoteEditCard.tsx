@@ -23,6 +23,8 @@ const ACTION_LABEL: Record<NoteEdit['action'], string> = {
   move_section: 'Move section',
   replace_every: 'Replace everywhere',
   set_script_visuals: 'Update section visuals',
+  set_script_demo: 'Update Turnaround demo cues',
+  set_script_direction: 'Update presenter directions',
 };
 
 const LONG_PREVIEW_WORDS = 220;
@@ -50,7 +52,8 @@ export const NoteEditCard: React.FC<{ edits: NoteEdit[]; noteId: string; result?
     setApplying(true);
     setError(null);
     try {
-      const protect = edits.some(edit => ['replace_all', 'replace_section', 'replace_text', 'delete_section', 'set_script_visuals'].includes(edit.action));
+      const protect = edits.some(edit => ['replace_all', 'replace_section', 'replace_text', 'delete_section',
+        'set_script_visuals', 'set_script_demo', 'set_script_direction'].includes(edit.action));
       let failed: string[] = [];
       await runNoteAction(noteId, protect, () => {
         failed = applyNoteEdits(editor, edits, { script: isActiveScriptEditor() }).failed;
@@ -102,6 +105,9 @@ export const NoteEditCard: React.FC<{ edits: NoteEdit[]; noteId: string; result?
                 <del>{e.find}</del>
                 <ins>{e.markdown}</ins>
               </div>
+            )}
+            {e.action === 'set_script_direction' && status.state === 'pending' && e.direction !== undefined && (
+              <div className="note-edit-card__preview note-edit-card__direction-preview">{e.direction || '(clear presenter directions)'}</div>
             )}
             {e.visuals && status.state === 'pending' && <ScriptVisualPreview section={{
               ...(e.sectionId ? { id: e.sectionId } : {}), props: { scriptVisuals: JSON.stringify(e.visuals) },

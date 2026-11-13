@@ -1,6 +1,7 @@
-import { parsePresentationVisuals, type PresentationRun, type PresentationStyle, type PresentationVisualScene } from '../../../../athena-desktop/src/elgatoProtocol';
+import { parsePresentationVisuals, type PresentationDemoAction, type PresentationRun, type PresentationStyle, type PresentationVisualScene } from '../../../../athena-desktop/src/elgatoProtocol';
 import { parseScriptVisuals, visualCueResolver, visualSourceCurrent, visualSpokenText, type VisualCue, type VisualScriptBlock } from '../../../../knowledge-hub-backend/src/utils/scriptVisuals';
 import { scriptTextColour } from '../../../../knowledge-hub-backend/src/podcasts/scriptAnnotations';
+import { parseScriptDemo } from '../../../../knowledge-hub-backend/src/utils/scriptDemo';
 
 const PRESENTATION_STYLES = ['bold', 'italic', 'underline', 'strike', 'code'] satisfies PresentationStyle[];
 
@@ -104,7 +105,7 @@ function inline(value: unknown, depth = 0, inherited: PresentationStyle[] = [], 
   if (typeof item.text === 'string') return [{ text: item.text, styles }];
   return inline(item.content, depth + 1, styles, options);
 }
-export function presentationScript(contentJson: string, options: PresentationOptions = {}): { text: string; runs: PresentationRun[]; warnings: string[]; visuals: PresentationVisualScene[]; visualIssue: string | null } {
+export function presentationScript(contentJson: string, options: PresentationOptions = {}): { text: string; runs: PresentationRun[]; warnings: string[]; visuals: PresentationVisualScene[]; visualIssue: string | null; demo: PresentationDemoAction[]; demoIssue: string | null } {
   const raw: unknown = JSON.parse(contentJson);
   if (!Array.isArray(raw)) throw new Error('This note does not contain a supported block document.');
   let omitted = 0;
@@ -217,6 +218,39 @@ export function presentationScript(contentJson: string, options: PresentationOpt
     try { parsePresentationVisuals(visuals, text.length); }
     catch (error) { visualIssue = `Visuals were left out of this presentation. ${reason(error)}`; }
   }
+  const demo: PresentationDemoAction[] = [];
+  let demoIssue: string | null = null;
+  let demoKind: 1 | 2 | null = null;
+  let previousDemoPosition = -1;
+  if (options.script) for (const section of raw as VisualScriptBlock[]) {
+    if (!section.props?.scriptSection || !section.props.scriptDemo) continue;
+    try {
+      const plan = parseScriptDemo(section.props.scriptDemo, section);
+      if (demoKind !== null && demoKind !== plan.version) throw new Error('Pilot actions and screen-navigation cues cannot be mixed in one presentation.');
+      if (plan.version === 1 && demoKind === 1) throw new Error('Only one pilot demo section can be presented at a time.');
+      demoKind = plan.version;
+      const resolve = visualCueResolver(section);
+      for (const entry of plan.actions) {
+        const cue = resolve(entry.cue);
+        const anchor = cue && anchors.get(cue.blockId);
+        if (!cue || !anchor) throw new Error('A demo cue cannot be located in the presented script.');
+        const content = anchor.source ?? anchor.runs.map(run => run.text.replace(/\r\n?/g, '\n')).join('');
+        const pos = content.indexOf(cue.quote);
+        if (pos < 0 || pos !== content.lastIndexOf(cue.quote)) throw new Error('A demo phrase cannot be located uniquely.');
+        const at = anchor.start + (anchor.map ? anchor.map(pos) : pos);
+        if (at <= previousDemoPosition) throw new Error('Demo actions must follow the script in cue order.');
+        previousDemoPosition = at;
+        demo.push(entry.action === 'navigate'
+          ? { action: 'navigate', route: entry.route, at }
+          : { action: entry.action, at });
+      }
+    } catch (error) {
+      demoIssue = `Turnaround demo unavailable: ${reason(error)}`;
+      demo.length = 0;
+      break;
+    }
+  }
   return { text, runs, visuals: visualIssue ? [] : visuals, visualIssue,
+    demo, demoIssue,
     warnings: omitted ? [`${omitted} media block(s) are represented by captions where available; media is not shown.`] : [] };
 }

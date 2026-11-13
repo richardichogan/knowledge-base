@@ -9,9 +9,10 @@
  */
 
 import { annotateScriptText, scriptHeadingPrefix } from '../podcasts/scriptAnnotations.js';
+import { parseScriptDirection } from './scriptDirections.js';
 
 interface BlockContent { text?: string }
-interface BlockProps { url?: string; level?: number; scriptSection?: boolean; scriptDirection?: string; scriptVisuals?: string }
+interface BlockProps { url?: string; level?: number; scriptSection?: boolean; scriptDirection?: string; scriptVisuals?: string; scriptDemo?: string }
 export interface Block { id?: string; type?: string; content?: unknown; children?: Block[]; props?: BlockProps }
 interface NoteContentWrapper { title?: string; contentType?: string; contentJson?: string }
 
@@ -125,7 +126,15 @@ export function blocksToTextWithImages(blocks: Block[], visionByBlobId: Map<stri
         else if (text) lines.push(heading + text);
         if (scriptAnnotations && block.props?.scriptSection) {
           lines.push(`[Script section id: ${block.id ?? 'not assigned'}]`);
+          if (block.props.scriptDirection) {
+            try {
+              lines.push(`[Presenter directions (not spoken):\n${parseScriptDirection(block.props.scriptDirection)}\n]`);
+            } catch (error) {
+              lines.push(`[Presenter directions access failed: ${error instanceof Error ? error.message : 'invalid direction metadata'}. Do not claim to have read them.]`);
+            }
+          }
           if (block.props.scriptVisuals) lines.push('[Linked presentation visuals available: use read_script_visuals with this section id for actual scenes and cues.]');
+          if (block.props.scriptDemo) lines.push('[Linked Turnaround demo: use read_script_demo with this section id for actual cues.]');
         }
       }
       if (Array.isArray(block.children)) walk(block.children);

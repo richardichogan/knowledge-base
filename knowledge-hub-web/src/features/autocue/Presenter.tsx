@@ -18,8 +18,9 @@ export function Presenter(): React.JSX.Element {
   const desktop = getDesktop()?.presentation;
   const expired = useSyncExternalStore(authSession.subscribe, authSession.isExpired);
   const [state, setState] = useState<DesktopCommandState | null>(null);
-  const [displays, setDisplays] = useState<(PresentationDisplay & { preferred?: boolean })[]>([]);
+  const [displays, setDisplays] = useState<(PresentationDisplay & { preferred?: boolean; preferredDemo?: boolean })[]>([]);
   const [displayId, setDisplayId] = useState('');
+  const [demoDisplayId, setDemoDisplayId] = useState('');
   const [noteId, setNoteId] = useState(new URLSearchParams(window.location.search).get('noteId') ?? '');
   const [search, setSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +60,8 @@ export function Presenter(): React.JSX.Element {
   const annotationUnsupported = !!script?.runs.some(run => run.styles.some(style => style.startsWith('colour-') || style.startsWith('cue-')))
     && !desktop?.scriptAnnotations;
   const visualScenes = script && 'visuals' in script ? script.visuals : undefined;
+  const demo = script && 'demo' in script ? script.demo : [];
+  const demoIssue = script && 'demoIssue' in script ? script.demoIssue : null;
   const desktopIssue = desktopVisualIssue(visualScenes, desktop);
 
   async function action(fn: () => Promise<unknown>, message?: string): Promise<void> {
@@ -85,6 +88,8 @@ export function Presenter(): React.JSX.Element {
       setState(value); setDisplays(available); setPairing(paired);
       const preferred = available.find(display => display.preferred && !display.primary);
       if (preferred) setDisplayId(String(preferred.id));
+      const preferredDemo = available.find(display => display.preferredDemo && !display.primary);
+      if (preferredDemo) setDemoDisplayId(String(preferredDemo.id));
       if (!new URLSearchParams(window.location.search).has('noteId') && value.presentation.noteId) setNoteId(value.presentation.noteId);
     }).catch(err => { if (active) setError(desktopErrorMessage(err)); });
     return () => {
@@ -111,7 +116,7 @@ export function Presenter(): React.JSX.Element {
     if (!desktop || !canStart || !selected || !script) throw new Error('Choose a saved script and an available output display before presenting.');
     if (!connected || playback?.noteId !== selected.id || playback?.displayId !== Number(displayId)) {
       const visuals = 'visuals' in script ? script.visuals : undefined;
-      await desktop.start({ noteId: selected.id, title: selected.title, text: script.text, runs: script.runs, ...(visuals ? { visuals: desktopIssue ? [] : visuals } : {}), displayId: Number(displayId) });
+      await desktop.start({ noteId: selected.id, title: selected.title, text: script.text, runs: script.runs, ...(visuals ? { visuals: desktopIssue ? [] : visuals } : {}), ...(demo.length ? { demo } : {}), displayId: Number(displayId) });
     }
   };
   const play = (): void => {
@@ -169,8 +174,39 @@ export function Presenter(): React.JSX.Element {
             () => (script && 'visualIssue' in script ? script.visualIssue : null) ?? desktopIssue, () => desktop.openVisuals!()));
         }}>Open browser visuals</button>
         <section>
+          <h2>Turnaround demo</h2>
+          <p>Open the read-only demo separately, then sign in if prompted. Its actions follow the saved script cues.</p>
+          {demoIssue && <p className="kh-presenter__error" role="alert">{demoIssue}</p>}
+          {!desktop.openDemo && <p>Update Athena Desktop to use the Turnaround demo.</p>}
+          <label>Demo display<select value={demoDisplayId} disabled={busy} onChange={event => {
+            const previous = demoDisplayId, next = event.target.value;
+            setDemoDisplayId(next);
+            if (desktop.setDemoDisplay) void action(async () => {
+              try {
+                await desktop.setDemoDisplay!(next ? Number(next) : null);
+                setDisplays(await desktop.displays());
+              } catch (err) { setDemoDisplayId(previous); throw err; }
+            });
+          }}>
+            <option value="">Choose a separate display</option>
+            {displays.map(display => <option key={display.id} value={display.id} disabled={display.primary || String(display.id) === displayId}>{display.label} - {display.width} x {display.height}</option>)}
+          </select></label>
+          <button type="button" disabled={busy || !canStart || !desktop.openDemo || !demo.length || !!demoIssue || !demoDisplayId || demoDisplayId === displayId}
+            onClick={() => { void action(async () => { await startPresentation(); await desktop.openDemo!(Number(demoDisplayId), noteId); }, 'Demo opened. Sign in if needed before playing.'); }}>Open Turnaround demo</button>
+        </section>
+        <section>
           <h2>Output display</h2>
-          <label>Display<select value={displayId} onChange={e => setDisplayId(e.target.value)}>
+          <label>Display<select value={displayId} disabled={busy} onChange={event => {
+            const previous = displayId;
+            const next = event.target.value;
+            setDisplayId(next);
+            if (desktop.setDisplay) void action(async () => {
+              try {
+                await desktop.setDisplay!(next ? Number(next) : null);
+                setDisplays(await desktop.displays());
+              } catch (err) { setDisplayId(previous); throw err; }
+            });
+          }}>
             <option value="">Confirm your output display</option>
             {displays.map(display => <option key={display.id} value={display.id} disabled={display.primary}>{display.label} - {display.width} x {display.height}{display.primary ? ' (presenter controls)' : ''}{display.preferred ? ' (previous)' : ''}</option>)}
           </select></label>
@@ -181,7 +217,7 @@ export function Presenter(): React.JSX.Element {
           <button className="kh-presenter__primary" disabled={!canStart || busy} onClick={() => {
             if (!selected || !script) return;
             void action(() => desktop.start({ noteId: selected.id, title: selected.title, text: script.text, runs: script.runs,
-              ...(visualScenes ? { visuals: visualScenes } : {}), displayId: Number(displayId) }), 'Script opened, paused and ready.');
+              ...(visualScenes ? { visuals: visualScenes } : {}), ...(demo.length ? { demo } : {}), displayId: Number(displayId) }), 'Script opened, paused and ready.');
           }}>Open script on display</button>
           <button disabled={!selected || busy} onClick={() => { void action(async () => {
             if (connected) await desktop.command({ id: crypto.randomUUID(), command: 'pause', issuedAt: Date.now() });

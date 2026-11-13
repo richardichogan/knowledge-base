@@ -1,4 +1,4 @@
-export interface NoteContentBlock { id?: string; type?: string; props?: { level?: number; scriptSection?: boolean; scriptDirection?: string; scriptVisuals?: string }; content?: unknown; children?: NoteContentBlock[] }
+export interface NoteContentBlock { id?: string; type?: string; props?: { level?: number; scriptSection?: boolean; scriptDirection?: string; scriptVisuals?: string; scriptDemo?: string }; content?: unknown; children?: NoteContentBlock[] }
 
 /** Renders a link chip as text; returning '' drops it. */
 export type MentionText = (type: string, id: string) => string;
@@ -39,7 +39,12 @@ export function extractNoteBlockText(blocks: NoteContentBlock[], mention?: Menti
     if (text.trim() !== '') parts.push(heading + text.trim());
     if (scriptAnnotations && block.props?.scriptSection) {
       parts.push(`[Script section id: ${block.id ?? 'not assigned'}]`);
+      if (block.props.scriptDirection) {
+        try { parts.push(`[Presenter directions (not spoken):\n${parseScriptDirection(block.props.scriptDirection)}\n]`); }
+        catch (error) { parts.push(`[Presenter directions access failed: ${error instanceof Error ? error.message : 'invalid direction metadata'}. Do not claim to have read them.]`); }
+      }
       if (block.props.scriptVisuals) parts.push('[Linked presentation visuals: use read_script_visuals for full saved scenes and cues.]');
+      if (block.props.scriptDemo) parts.push('[Linked Turnaround demo: use read_script_demo for saved actions and cues.]');
     }
 
     if (Array.isArray(block.children)) {
@@ -55,8 +60,24 @@ export function scriptSectionContext(blocks: NoteContentBlock[], activeBlockId: 
   const section = blocks.find(block => block.props?.scriptSection && contains(block));
   if (!section) return '';
   return `\n[Active script section id: ${section.id ?? 'not assigned'}]\n[Active block id: ${activeBlockId}]`
+    + directionContext(section)
     + visualContext(section)
+    + demoContext(section)
     + (selectedText ? `\n[Selected script text${selectedText.length > 4000 ? ' (truncated)' : ''}: ${selectedText.slice(0, 4000)}]` : '');
+}
+function directionContext(section: NoteContentBlock): string {
+  const direction = section.props?.scriptDirection;
+  if (!direction) return '\n[No presenter directions for this section.]';
+  try { return `\n[Presenter directions (not spoken):\n${parseScriptDirection(direction)}\n]`; }
+  catch (error) { return `\n[Presenter directions access failed: ${error instanceof Error ? error.message : 'invalid direction metadata'}. Do not claim to have read them.]`; }
+}
+function demoContext(section: NoteContentBlock): string {
+  if (!section.props?.scriptDemo) return '\n[No Turnaround demo cues for this section.]';
+  try {
+    const demo = readScriptDemo(section);
+    if (!demo) throw new Error('Demo cues missing.');
+    return `\n[Turnaround demo cues ${visualSourceCurrent(demo.source, section) ? 'current' : 'stale'}: ${JSON.stringify(demo.actions)}]`;
+  } catch (error) { return `\n[Demo access failed: ${error instanceof Error ? error.message : 'invalid demo metadata'}. Do not claim to have read these cues.]`; }
 }
 function visualContext(section: NoteContentBlock): string {
   if (!section.props?.scriptVisuals) return '\n[No presentation visuals for this section.]';
@@ -68,3 +89,5 @@ function visualContext(section: NoteContentBlock): string {
 }
 import { annotateScriptText, scriptHeadingPrefix } from '../../../knowledge-hub-backend/src/podcasts/scriptAnnotations';
 import { parseScriptVisuals, visualSourceCurrent } from '../../../knowledge-hub-backend/src/utils/scriptVisuals';
+import { readScriptDemo } from '../../../knowledge-hub-backend/src/utils/scriptDemo';
+import { parseScriptDirection } from '../../../knowledge-hub-backend/src/utils/scriptDirections';

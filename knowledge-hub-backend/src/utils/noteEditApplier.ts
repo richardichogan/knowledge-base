@@ -11,6 +11,8 @@ import { scriptInlineContent } from '../podcasts/scriptAnnotations.js';
 import { scriptNoteBlocks } from './scriptNoteContent.js';
 import { groupScriptSections, ungroupScriptSections, splitScriptSectionTail } from './scriptSections.js';
 import { parseScriptVisuals, visualSourceCurrent, type ScriptVisuals } from './scriptVisuals.js';
+import { parseScriptDemo, type ScriptDemo } from './scriptDemo.js';
+import { parseScriptDirection } from './scriptDirections.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Block = any;
@@ -36,6 +38,10 @@ export interface ApplicableNoteEdit {
   sectionId?: string | undefined;
   visuals?: ScriptVisuals | undefined;
   expectedVisuals?: string | undefined;
+  demo?: ScriptDemo | undefined;
+  expectedDemo?: string | undefined;
+  direction?: string | undefined;
+  expectedDirection?: string | undefined;
   formats?: Array<{ blockId: string; style: 'paragraph' | 'h1' | 'h2' | 'h3' | 'bullet' | 'numbered' | 'checklist' | 'quote'; stripMarker?: boolean | undefined }> | undefined;
   moves?: Array<{ blockId: string; beforeId?: string | undefined }> | undefined;
   wholeWord?: boolean | undefined;
@@ -243,6 +249,23 @@ function validatedVisualEdit(blocks: Block[], edit: NoteEdit, script: boolean) {
   return { section, visuals: parseScriptVisuals(edit.visuals, section) };
 }
 
+function validatedDemoEdit(blocks: Block[], edit: NoteEdit, script: boolean) {
+  const section = blocks.find(block => block.id === edit.sectionId && block.props?.scriptSection);
+  if (!script || !section || !edit.demo || (section.props.scriptDemo ?? '') !== edit.expectedDemo) {
+    throw new Error('The script section or demo cues changed. Nothing was overwritten; review the current cues.');
+  }
+  return { section, demo: parseScriptDemo(edit.demo, section) };
+}
+
+function validatedScriptDirectionEdit(blocks: Block[], edit: NoteEdit, script: boolean) {
+  const section = blocks.find(block => block.id === edit.sectionId && block.props?.scriptSection);
+  if (!script || !section || edit.direction === undefined
+    || (section.props.scriptDirection ?? '') !== edit.expectedDirection) {
+    throw new Error('The script section or presenter directions changed. Nothing was overwritten; review the current directions.');
+  }
+  return { section, direction: parseScriptDirection(edit.direction) };
+}
+
 const FORMAT_TARGETS: Record<NonNullable<NoteEdit['formats']>[number]['style'], { type: string; props: Record<string, unknown> }> = {
   paragraph: { type: 'paragraph', props: {} },
   h1: { type: 'heading', props: { level: 1 } },
@@ -270,6 +293,16 @@ function applyOne(editor: Editor, edit: NoteEdit, titleBlock: Block | undefined,
     case 'set_script_visuals': {
       const { section, visuals } = validatedVisualEdit(blocks, edit, script);
       editor.updateBlock(section, { props: { ...section.props, scriptVisuals: JSON.stringify(visuals) } });
+      return;
+    }
+    case 'set_script_demo': {
+      const { section, demo } = validatedDemoEdit(blocks, edit, script);
+      editor.updateBlock(section, { props: { ...section.props, scriptDemo: JSON.stringify(demo) } });
+      return;
+    }
+    case 'set_script_direction': {
+      const { section, direction } = validatedScriptDirectionEdit(blocks, edit, script);
+      editor.updateBlock(section, { props: { ...section.props, scriptDirection: direction } });
       return;
     }
     case 'append': {
@@ -450,8 +483,13 @@ export function applyNoteEdits(
   const failed: string[] = [];
   const outcomes: NoteEditOutcome[] = [];
   let applied = 0;
-  if (edits.length && edits.every(edit => edit.action === 'set_script_visuals')) {
-    try { edits.forEach(edit => { validatedVisualEdit(editor.document, edit, options.script === true); }); }
+  if (edits.length && edits.every(edit => edit.action === 'set_script_visuals'
+    || edit.action === 'set_script_demo' || edit.action === 'set_script_direction')) {
+    try { edits.forEach(edit => {
+      if (edit.action === 'set_script_visuals') validatedVisualEdit(editor.document, edit, options.script === true);
+      else if (edit.action === 'set_script_demo') validatedDemoEdit(editor.document, edit, options.script === true);
+      else validatedScriptDirectionEdit(editor.document, edit, options.script === true);
+    }); }
     catch (error) {
       const reason = error instanceof Error ? error.message : 'The visual result could not be validated.';
       return { applied: 0, failed: [reason], outcomes: edits.map(edit => ({ summary: edit.summary, outcome: 'skipped', reason })) };
@@ -459,7 +497,8 @@ export function applyNoteEdits(
   }
   const run = (): void => {
     const cards = options.script && editor.document.some(block => block.props?.scriptSection)
-      && edits.some(edit => edit.action !== 'replace_text' && edit.action !== 'replace_every' && edit.action !== 'set_script_visuals');
+      && edits.some(edit => edit.action !== 'replace_text' && edit.action !== 'replace_every'
+        && edit.action !== 'set_script_visuals' && edit.action !== 'set_script_demo' && edit.action !== 'set_script_direction');
     if (cards) editor.replaceBlocks(editor.document, ungroupScriptSections(editor.document));
     const titleBlock = editor.document.find(block => block.type === 'heading' && inlineText(block).trim());
     for (const edit of edits) {

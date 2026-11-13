@@ -21,7 +21,9 @@ import { scriptVisualNarration } from '../services/scriptVisualDesigner.js';
 import { queueScriptVisuals, readScriptVisualJob } from '../services/scriptVisualJobs.js';
 import { scriptVisualJobEdits, SCRIPT_VISUAL_SPECIALIST } from '../utils/scriptVisualJobs.js';
 import { listAgentJobs } from '../agents/engine.js';
-import { readSectionVisuals, scriptVisualSource, visualSourceBlocks, visualSourceCurrent, SCRIPT_VISUAL_SOURCE_BUDGET, SCRIPT_VISUAL_INSTRUCTION_LIMIT, VISUAL_GRAMMAR, type VisualScriptBlock } from '../utils/scriptVisuals.js';
+import { readSectionVisuals, scriptVisualSource, visualSourceBlocks, visualSourceCurrent, visualSpokenText, SCRIPT_VISUAL_SOURCE_BUDGET, SCRIPT_VISUAL_INSTRUCTION_LIMIT, VISUAL_GRAMMAR, type VisualScriptBlock } from '../utils/scriptVisuals.js';
+import { readScriptDemo, scriptDemoFromPhrases, scriptNavigationFromPhrase, TURNAROUND_ROUTES, type ScriptDemo } from '../utils/scriptDemo.js';
+import { parseScriptDirection } from '../utils/scriptDirections.js';
 import { getDiscoverPicks, refreshDiscoverPicks } from '../services/discoverPicks.js';
 import { PUBLISHING_TOOL, executePublishingTool } from './publishingTools.js';
 import { DECIDE_TOOL, GOALS_TOOL, PROACTIVE_TOOL, executeDecideTool, executeGoalsTool, executeProactiveTool } from './goalTools.js';
@@ -804,6 +806,47 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
     {
       type: 'function',
       function: {
+        name: 'read_script_demo',
+        description: 'Read saved Turnaround pilot actions or screen-navigation routes, exact cue phrases and spoken blocks in the open Script. This is saved content, not a live playback receipt.',
+        parameters: { type: 'object', properties: { sectionId: { type: 'string' } } },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'set_script_demo',
+        description: 'On explicit request, either update the three pilot trigger phrases or link one exact spoken phrase to an approved Turnaround screen in this Script section. Do not change narration or visuals. Read the current plan first. Uses protected editor delivery; accepted is not a save receipt.',
+        parameters: { type: 'object', properties: {
+          sectionId: { type: 'string' },
+          phrases: { type: 'array', items: { type: 'string' }, description: 'Pilot only: exactly three exact spoken phrases in action order: Scope list, Jobs, first job.' },
+          route: { type: 'string', enum: Object.keys(TURNAROUND_ROUTES), description: 'For a full script, the allowlisted screen to open at the cue.' },
+          phrase: { type: 'string', description: 'For a full script, an exact phrase appearing once in a spoken block of this section.' },
+        }, required: ['sectionId'] },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'read_script_directions',
+        description: 'Read the actual saved non-spoken Presenter directions in the open Script. Omit sectionId to list section ids and direction availability; supply a sectionId to retrieve the full directions for that section.',
+        parameters: { type: 'object', properties: { sectionId: { type: 'string' } } },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'set_script_directions',
+        description: 'On explicit request, update non-spoken Presenter directions in one or more sections of the open Script. This never changes spoken text, visuals or demo cues. Read current directions first. Changes use protected editor delivery; accepted is not a save receipt.',
+        parameters: { type: 'object', properties: {
+          sections: { type: 'array', minItems: 1, maxItems: 20, items: { type: 'object', properties: {
+            sectionId: { type: 'string' }, direction: { type: 'string', maxLength: 4000 },
+          }, required: ['sectionId', 'direction'], additionalProperties: false } },
+        }, required: ['sections'], additionalProperties: false },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'read_script_visuals',
         description: 'Read actual saved Script visuals, cue state and background visual jobs. Omit sectionId to list sections and recent jobs. Supply jobId to read a pending result (sectionId retrieves its full scenes, source and cues). A template "close" scene is the end page: subtitle is the setup line, title the closing statement, items are emphasised phrases from them, and the renderer adds the "Thank you" sign-off. Scene compositions are complete: node kind "asset" draws a named vector graphic, nodes may carry a hero/secondary role and timed build states, and composition.frame keeps a scene around the presenter video; the result includes a grammar guide for these fields. Never infer content from titles; pending visuals have not been applied.',
         parameters: { type: 'object', properties: { sectionId: { type: 'string' }, jobId: { type: 'string' } } },
@@ -1510,6 +1553,118 @@ export async function executeToolCall(
         return { error: err instanceof Error ? err.message : 'The demo pages could not be made.' };
       }
     }
+      case 'read_script_demo':
+      case 'set_script_demo': {
+        try {
+          if (!turn.noteId || turn.designOwner || turn.podcastOwner) throw new ValidationError('Open a Script note in Think first.');
+          if (turn.exclusionsFailed) return EXCLUSIONS_UNAVAILABLE_RESULT;
+          if (turn.retrievalScope && Object.keys(turn.retrievalScope.filter).length) throw new ValidationError('Demo operations are outside the enforced collection scope.');
+          const access = await executeReadKnowledgeRecord(db, { kind: 'note', id: turn.noteId, maxChars: 256 }, turn);
+          if (!access || typeof access !== 'object' || !('record' in access)) return access;
+          if (name === 'set_script_demo') {
+            if (turn.readOnly || !turn.noteEdits || turn.noteEdits.length) throw new ValidationError('Finish pending editor changes before adjusting demo cues.');
+            await turn.beforeNoteEdit?.();
+          }
+          const saved = await loadNoteBlocks(db, turn.noteId);
+          if (!saved?.script) throw new ValidationError('The current saved note is not a Script.');
+          const sections = (saved.blocks as VisualScriptBlock[]).filter(block => block.props?.scriptSection);
+          if (!args['sectionId'] && name === 'read_script_demo') return { sections: sections.map(section => ({
+            sectionId: section.id, title: section.content, hasDemo: !!section.props?.scriptDemo,
+            ...(section.props?.scriptDemo ? { plan: readScriptDemo(section) } : {}),
+          })), routes: TURNAROUND_ROUTES };
+          const section = sections.find(block => block.id === args['sectionId']);
+          if (!section?.id) throw new ValidationError('Choose an existing stable script section id.');
+          const demo = readScriptDemo(section);
+          if (name === 'read_script_demo') return { sectionId: section.id, actions: demo?.actions ?? [],
+            cueBlocks: visualSourceBlocks(section), stale: !!demo && !visualSourceCurrent(demo.source, section),
+            note: 'These are saved cues, not evidence that the demo has run.' };
+          const route = args['route'];
+          const phrase = args['phrase'];
+          let updated: ScriptDemo;
+          if (typeof route === 'string' || typeof phrase === 'string') {
+            if (typeof route !== 'string' || typeof phrase !== 'string') throw new ValidationError('Provide both an approved route and one exact spoken phrase.');
+            updated = scriptNavigationFromPhrase(section, route as keyof typeof TURNAROUND_ROUTES, phrase);
+          } else {
+            const phrases = args['phrases'];
+            if (!Array.isArray(phrases) || !phrases.every((phrase: unknown) => typeof phrase === 'string')) throw new ValidationError('Provide the three exact spoken phrases.');
+            updated = scriptDemoFromPhrases(section, phrases);
+          }
+          turn.noteEdits!.push({ action: 'set_script_demo', sectionId: section.id, demo: updated,
+            expectedDemo: typeof section.props?.scriptDemo === 'string' ? section.props.scriptDemo : '',
+            summary: updated.version === 2 ? 'Update screen navigation cue' : 'Adjust Turnaround demo phrases', delivery: 'apply' });
+          return { proposed: true, note: 'Accepted for protected editor delivery. This is not a save receipt.' };
+        } catch (error) {
+          console.error('[Script demo] Athena operation failed:', error);
+          return { error: error instanceof Error ? error.message : 'Demo operation failed. No completion is confirmed.' };
+        }
+      }
+      case 'read_script_directions':
+      case 'set_script_directions': {
+        try {
+          if (!turn.noteId || turn.designOwner || turn.podcastOwner) throw new ValidationError('Open a Script note in Think first.');
+          if (turn.exclusionsFailed) return EXCLUSIONS_UNAVAILABLE_RESULT;
+          if (turn.retrievalScope && Object.keys(turn.retrievalScope.filter).length) {
+            throw new ValidationError('Presenter direction operations are outside the enforced collection scope.');
+          }
+          const access = await executeReadKnowledgeRecord(db, { kind: 'note', id: turn.noteId, maxChars: 256 }, turn);
+          if (!access || typeof access !== 'object' || !('record' in access)) return access;
+          let updates: Array<{ sectionId: string; direction: string }> = [];
+          if (name === 'set_script_directions') {
+            if (turn.readOnly || !turn.noteEdits || turn.noteEdits.length) {
+              throw new ValidationError('Finish pending editor changes before updating presenter directions.');
+            }
+            const rawUpdates = args['sections'];
+            if (!Array.isArray(rawUpdates) || rawUpdates.length < 1 || rawUpdates.length > 20) {
+              throw new ValidationError('Provide 1 to 20 presenter-direction updates.');
+            }
+            const seen = new Set<string>();
+            updates = rawUpdates.map((raw: unknown) => {
+              if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new ValidationError('Each direction update needs a sectionId and direction.');
+              const entry = raw as Record<string, unknown>;
+              const sectionId = entry['sectionId'];
+              if (typeof sectionId !== 'string' || seen.has(sectionId)) throw new ValidationError('Each direction update needs a unique sectionId.');
+              seen.add(sectionId);
+              return { sectionId, direction: parseScriptDirection(entry['direction']) };
+            });
+            await turn.beforeNoteEdit?.();
+          }
+          const saved = await loadNoteBlocks(db, turn.noteId);
+          if (!saved?.script) throw new ValidationError('The current saved note is not a Script.');
+          const sections = (saved.blocks as VisualScriptBlock[]).filter(block => block.props?.scriptSection && block.id);
+          if (name === 'read_script_directions') {
+            const sectionId = args['sectionId'];
+            if (sectionId !== undefined && typeof sectionId !== 'string') throw new ValidationError('Provide a stable script section id.');
+            const selected = typeof sectionId === 'string' ? sections.filter(section => section.id === sectionId) : sections;
+            if (typeof sectionId === 'string' && selected.length === 0) throw new ValidationError('Choose an existing stable script section id.');
+            return { sections: selected.map(section => ({
+              sectionId: section.id, title: section.content,
+              ...(typeof sectionId === 'string'
+                ? { directions: parseScriptDirection(section.props?.scriptDirection ?? '') }
+                : { hasDirections: typeof section.props?.scriptDirection === 'string' && !!section.props.scriptDirection,
+                  directionLength: typeof section.props?.scriptDirection === 'string' ? section.props.scriptDirection.length : 0 }),
+            })), note: 'Presenter directions are not spoken narration.' };
+          }
+          const proposed = updates.map(update => {
+            const section = sections.find(item => item.id === update.sectionId);
+            if (!section) throw new ValidationError('Choose an existing stable script section id.');
+            return { section, direction: update.direction };
+          }).filter(({ section, direction }) => direction !== (typeof section.props?.scriptDirection === 'string' ? section.props.scriptDirection : ''));
+          if (!proposed.length) return { proposed: 0, note: 'The saved presenter directions already match; nothing changed.' };
+          const pendingNoteEdits = turn.noteEdits;
+          if (!pendingNoteEdits) throw new ValidationError('Presenter directions were not queued because protected editor delivery is unavailable.');
+          for (const { section, direction } of proposed) {
+            if (!section.id) throw new ValidationError('Choose an existing stable script section id.');
+            const title = visualSpokenText(section.content).slice(0, 100) || 'script section';
+            pendingNoteEdits.push({ action: 'set_script_direction', sectionId: section.id, direction,
+              expectedDirection: typeof section.props?.scriptDirection === 'string' ? section.props.scriptDirection : '',
+              summary: `Update presenter directions for ${title}`, delivery: 'apply' });
+          }
+          return { proposed: proposed.length, note: 'Accepted for protected editor delivery. This is not a save receipt.' };
+        } catch (error) {
+          console.error('[Script directions] Athena operation failed:', error);
+          return { error: error instanceof Error ? error.message : 'Presenter directions operation failed. No completion is confirmed.' };
+        }
+      }
       case 'read_script_visuals':
       case 'apply_script_visuals':
       case 'design_script_visuals': {
@@ -1600,7 +1755,10 @@ export async function executeToolCall(
         note: 'Saved layout only: numbers identify blocks for format_blocks and move_section. Pending unsaved editor changes are not included.' };
     }
     case 'propose_note_edit': {
-      if (turn.noteEdits?.some(edit => edit.action === 'set_script_visuals')) return { error: 'Finish the pending visual edits before changing spoken text in a separate turn.' };
+      if (turn.noteEdits?.some(edit => edit.action === 'set_script_visuals'
+        || edit.action === 'set_script_demo' || edit.action === 'set_script_direction')) {
+        return { error: 'Finish the pending visual, demo or presenter-direction edits before changing spoken text in a separate turn.' };
+      }
       if (turn.noteId === undefined || turn.noteId === '' || turn.noteId.startsWith('doc:') || turn.noteId.startsWith('map:')) {
         return { error: 'No editable Think note is open next to this chat. Library documents are read-only.' };
       }

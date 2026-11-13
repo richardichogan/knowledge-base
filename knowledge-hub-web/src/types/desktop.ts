@@ -18,12 +18,16 @@ export interface DesktopPresentation {
   scriptVisualAssets?: boolean;
   scriptVisualThemes?: boolean;
   scriptVisualVideo?: boolean;
+  scriptDemo?: boolean;
+  openDemo?(displayId: number | null, noteId: string): Promise<void>;
   videoState?(): Promise<PresentationVideoState>;
   setVideoMode?(mode: VisualVideoMode, noteId: string): Promise<PresentationVideoState>;
   onVideoState?(listener: (value: PresentationVideoState) => void): () => void;
   openVisuals?(): Promise<void>;
   open(noteId?: string): Promise<void>;
-  displays(): Promise<(PresentationDisplay & { preferred?: boolean })[]>;
+  displays(): Promise<(PresentationDisplay & { preferred?: boolean; preferredDemo?: boolean })[]>;
+  setDisplay?(id: number | null): Promise<void>;
+  setDemoDisplay?(id: number | null): Promise<void>;
   identify(id: number): Promise<void>;
   state(): Promise<DesktopCommandState>;
   close(): Promise<void>;
@@ -31,6 +35,7 @@ export interface DesktopPresentation {
   present?(value: PresentationScript): Promise<void>;
   release?(): Promise<void>;
   command(value: CommandRequest): Promise<void>;
+  noteCommand?(noteId: string, command: 'play' | 'pause'): Promise<void>;
   options(value: { mirror: boolean; flip: boolean; opacity?: number }): Promise<void>;
   onState(listener: (value: DesktopCommandState) => void): () => void;
   onNote(listener: (value: string) => void): () => void;

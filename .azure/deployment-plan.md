@@ -1,6 +1,24 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Validating
+
+**Turnaround walkthrough release (2026-11-13):**
+- User approved deploying the existing web/backend changes and publishing
+  Desktop 0.1.24. The hands-on walkthrough is deferred to the dev app.
+- Retain the existing application-only AZCLI targets in Alliance Tenant
+  Reporting: kh-prod-api-vnet, cad79107555facr and kh-prod-web in
+  rg-knowledge-hub-prod. No infrastructure, location, identity, permissions,
+  authentication, dependency or automatic-delivery configuration changes.
+- Preserve the unrelated `.impeccable/hook.cache.json` working change.
+- All validation checks pass:
+  - [ ] Core validation: sync origin/main, CLI/authentication, all three
+    typechecks and the existing automated release gates.
+  - [ ] Build verification: backend/frontend production builds and the
+    versioned Desktop package; use the existing ACR remote Docker build.
+  - [ ] Azure Policy and static role validation: application-only update;
+    no IaC, policy or role changes to provision.
+- Section 7: Validation Proof will record the completed commands and release
+  health evidence below. No new browser or functional rehearsal is requested.
 
 **Narrated storyboard graphics release (2026-11-06):**
 - Application commit `0d469d7d`, merged with current main as `616ef935`, was

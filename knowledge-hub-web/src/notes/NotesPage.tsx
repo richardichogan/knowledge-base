@@ -414,7 +414,8 @@ export const NotesPage: React.FC = () => {
       throw new Error('Update Athena Desktop to present script colours and delivery cues. Your saved script is unchanged.');
     }
     const desktopIssue = desktopVisualIssue(script.visuals, presentation);
-    await presentation.present({ noteId: saved.id, title: saved.title, text: script.text, runs: script.runs, visuals: desktopIssue ? [] : script.visuals });
+    await presentation.present({ noteId: saved.id, title: saved.title, text: script.text, runs: script.runs, visuals: desktopIssue ? [] : script.visuals,
+      ...(presentation.scriptDemo && !script.demoIssue && script.demo.length ? { demo: script.demo } : {}) });
     recordPresentedVisuals(saved.id, script.visualIssue ?? desktopIssue);
   }
   useDesktopCommand('present-note', presentNote);
@@ -424,6 +425,31 @@ export const NotesPage: React.FC = () => {
     if (!openDoc || mode !== 'notes') throw new Error('Choose a saved script before opening browser visuals.');
     const noteId = openDoc.id;
     await openPresentationVisuals(presentNote, () => presentedVisualIssue(noteId), () => presentation.openVisuals!());
+  } : undefined;
+  const openDemoHandler = getDesktop()?.presentation ? async (): Promise<void> => {
+    const presentation = getDesktop()?.presentation;
+    if (!presentation?.openDemo) throw new Error('Update Athena Desktop to open the Turnaround demo.');
+    if (!openDoc || mode !== 'notes') throw new Error('Open a saved script before opening the demo.');
+    const noteId = openDoc.id;
+    await presentNote();
+    const saved = await fetchNote(noteId);
+    if (!saved) throw new Error('The saved script could not be loaded.');
+    const script = await preparePresentationScript(saved.contentJson, { script: saved.contentType === 'script' });
+    if (script.demoIssue) throw new Error(script.demoIssue);
+    if (!script.demo.length) throw new Error('Set up Turnaround demo cues in the script first.');
+    if (latestSelectRef.current !== noteId) throw new Error('The open note changed. Open the demo from the current script.');
+    await presentation.openDemo(null, noteId);
+  } : undefined;
+  const playbackHandler = getDesktop()?.presentation ? async (command: 'play' | 'pause'): Promise<void> => {
+    const presentation = getDesktop()?.presentation;
+    if (!presentation?.noteCommand) throw new Error('Update Athena Desktop to control playback from the script.');
+    if (!openDoc || mode !== 'notes') throw new Error('Open a script first.');
+    const noteId = openDoc.id;
+    const state = await presentation.state();
+    if (command === 'play' && (state.presentation.noteId !== noteId || state.presentation.displayId === null
+      || state.presentation.status === 'disconnected')) await presentNote();
+    if (latestSelectRef.current !== noteId) throw new Error('The open note changed. Control playback from the current script.');
+    await presentation.noteCommand(noteId, command);
   } : undefined;
   const presentHandler = getDesktop()?.presentation ? (): void => { void presentNote().catch(err => {
     void alertDialog(err instanceof Error ? err.message : 'Could not open presentation.', { title: 'Presentation', tone: 'danger' });
@@ -1047,7 +1073,7 @@ export const NotesPage: React.FC = () => {
               workspaceBusy={loadingNoteId !== null} onOpenNote={id => { void handleSelectNote(id); }} onOpenMap={openMap}
               onPresent={presentHandler} onStopPresenting={stopPresentingHandler} onSaveReady={registerPresentationSave} /> : openDoc !== null ? (
               <NoteEditor key={openDoc.id} doc={openDoc} campaignRequest={campaignRequest?.noteId === openDoc.id ? campaignRequest.sequence : undefined} externalBusy={loadingNoteId !== null} onSaved={handleNoteSaved} onDelete={(id) => { void handleDeleteNote(id); }} actionsSlot={docActionsSlot} onShowEditor={showEditor} onMapNote={(id) => { void mapNote(id); }} onOpenMap={openMap} onImport={() => { setImportModalOpen(true); }} onRecovery={() => { setRecoveryOpen(true); }}
-                onPresent={presentHandler} onOpenVisuals={openVisualsHandler} onStopPresenting={stopPresentingHandler} onSaveReady={registerPresentationSave}
+                onPresent={presentHandler} onPlayback={playbackHandler} onOpenDemo={openDemoHandler} onOpenVisuals={openVisualsHandler} onStopPresenting={stopPresentingHandler} onSaveReady={registerPresentationSave}
                 onCreateDiagram={async (id) => { if (!await handleCreateCanvas('diagram', id)) throw new Error('Could not create the linked diagram. Please retry.'); }} />
             ) : (
               <div className="notes-empty-state">Select a document or create a new one</div>

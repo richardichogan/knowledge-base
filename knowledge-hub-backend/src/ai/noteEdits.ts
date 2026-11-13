@@ -8,6 +8,7 @@
 import { scriptAnnotationRuns } from '../podcasts/scriptAnnotations.js';
 import { replaceMatches } from '../utils/textMatches.js';
 import { parseScriptVisuals, visualSourceCurrent, type ScriptVisuals } from '../utils/scriptVisuals.js';
+import { parseScriptDemo, type ScriptDemo } from '../utils/scriptDemo.js';
 
 export type NoteEditAction =
   | 'append'           // add to the end of the note
@@ -20,7 +21,7 @@ export type NoteEditAction =
   | 'format_blocks'    // change how existing blocks are styled (heading, list, quote…); never changes wording
   | 'replace_every'    // replace every exact occurrence of `find` with `markdown` throughout the note (title excluded)
   | 'move_section'     // move a heading and its content before another heading (or to the end); never changes wording
-  | 'set_script_visuals';
+  | 'set_script_visuals' | 'set_script_demo' | 'set_script_direction';
 
 export const NOTE_FORMAT_STYLES = ['paragraph', 'h1', 'h2', 'h3', 'bullet', 'numbered', 'checklist', 'quote'] as const;
 export type NoteFormatStyle = typeof NOTE_FORMAT_STYLES[number];
@@ -39,6 +40,10 @@ export interface NoteEditProposal {
   sectionId?: string;
   visuals?: ScriptVisuals;
   expectedVisuals?: string;
+  demo?: ScriptDemo;
+  expectedDemo?: string;
+  direction?: string;
+  expectedDirection?: string;
   layout?: Array<{ n: number; to?: number; as: NoteFormatStyle; stripMarker?: boolean }>;
   formats?: NoteBlockFormat[];
   move?: { n: number; before?: number };
@@ -336,6 +341,15 @@ export function checkEditsAgainstNote(edits: NoteEditProposal[], blocks: NoteBlo
       } else {
         try { parseScriptVisuals(e.visuals, section); }
         catch (error) { problems.push(error instanceof Error ? error.message : 'Invalid visuals'); }
+      }
+      return;
+    }
+    if (e.action === 'set_script_demo') {
+      const section = blocks.find(block => block.id === e.sectionId && block.props?.scriptSection);
+      if (!script || !section || !e.demo) problems.push(`edit ${label(i)}: the demo source section is unavailable`);
+      else {
+        try { parseScriptDemo(e.demo, section); }
+        catch (error) { problems.push(error instanceof Error ? error.message : 'Invalid demo cues'); }
       }
       return;
     }

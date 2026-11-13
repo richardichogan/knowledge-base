@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { Tooltip } from '@carbon/react';
-import { Add, Erase, Launch, MagicWand, Pause, PresentationFile, Renew, StopFilled, TextColor, Time, UserAvatar, View } from '@carbon/icons-react';
+import { Add, ApplicationWeb, Erase, Launch, MagicWand, Pause, PlayFilled, PresentationFile, Renew, StopFilled, TextColor, Time, UserAvatar, View } from '@carbon/icons-react';
 import type { BlockNoteEditor } from '@blocknote/core';
 import type { editorSchema } from './editorSchema';
 import { SCRIPT_COLOURS } from '../features/podcasts/scriptAnnotations';
 import { SCRIPT_COLOUR_VALUES } from '../features/podcasts/scriptRichText';
-import { groupScriptSections, splitScriptSectionTail } from '../../../knowledge-hub-backend/src/utils/scriptSections';
+import { groupScriptSections, splitScriptSectionTail, splitScriptTitle } from '../../../knowledge-hub-backend/src/utils/scriptSections';
 import { preserveScriptSelection } from './scriptSectionSelection';
 import { applyNoteEdits } from '../utils/noteEditApplier';
 import { getDesktop } from '../types/desktop';
@@ -24,9 +24,11 @@ function ScriptToolButton({ title, disabled, ...props }: React.ButtonHTMLAttribu
   </Tooltip>;
 }
 
-export function ScriptTools({ editor, disabled, noteId, save, onPresent, onOpenVisuals, onStopPresenting }: {
+export function ScriptTools({ editor, disabled, noteId, save, onPresent, onPlayback, onOpenDemo, onOpenVisuals, onStopPresenting }: {
   editor: Editor; disabled: boolean; noteId: string; save: () => Promise<boolean>;
   onPresent?: (() => void) | undefined; onStopPresenting?: (() => void) | undefined;
+  onOpenDemo?: (() => Promise<void>) | undefined;
+  onPlayback?: ((command: 'play' | 'pause') => Promise<void>) | undefined;
   onOpenVisuals?: (() => Promise<void>) | undefined;
 }): React.ReactElement {
   const visualJobs = useScriptVisualJobs({ editor, noteId, save, disabled });
@@ -38,9 +40,30 @@ export function ScriptTools({ editor, disabled, noteId, save, onPresent, onOpenV
   const [presenterLayout, setPresenterLayout] = useState(false);
   const [keynoteTheme, setKeynoteTheme] = useState(false);
   const [hasVisuals, setHasVisuals] = useState(false);
+  const [hasDemo, setHasDemo] = useState(false);
+  const [openingDemo, setOpeningDemo] = useState(false);
+  const [playbackBusy, setPlaybackBusy] = useState(false);
+  const [playing, setPlaying] = useState(false);
   const video = useScriptVideoState();
   const [videoBusy, setVideoBusy] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
+  useEffect(() => {
+    const presentation = getDesktop()?.presentation;
+    if (!presentation) return;
+    let active = true;
+    const receive = (state: import('../types/desktop').DesktopCommandState): void => {
+      if (!active) return;
+      setPlaying(state.presentation.noteId === noteId && state.presentation.status === 'playing');
+      if (state.presentation.noteId === noteId && (state.error || state.presentation.error)) {
+        setSectionError(state.error ?? state.presentation.error);
+      }
+    };
+    const off = presentation.onState(receive);
+    void presentation.state().then(receive).catch(error => {
+      if (active) setSectionError(error instanceof Error ? error.message : 'Could not read playback state.');
+    });
+    return () => { active = false; off(); };
+  }, [noteId]);
   const changeVideo = (mode: 'guide' | 'camera' | 'off'): void => {
     if (videoBusy) return;
     setVideoBusy(true); setVideoError(null);
@@ -50,6 +73,7 @@ export function ScriptTools({ editor, disabled, noteId, save, onPresent, onOpenV
   };
   useEffect(() => {
     const refresh = (): void => {
+      setHasDemo(editor.document.some(block => block.type === 'heading' && block.props.scriptSection && !!block.props.scriptDemo));
       try {
         const scenes = editor.document.filter(block => block.type === 'heading' && block.props.scriptSection)
           .flatMap(block => readSectionVisuals(block)?.scenes ?? []);
@@ -86,13 +110,14 @@ export function ScriptTools({ editor, disabled, noteId, save, onPresent, onOpenV
       try {
         const current = editor.document;
         const { body, tail } = splitScriptSectionTail(current);
-        if (body.length && body.every(block => block.type === 'heading' && block.props.scriptSection && block.children.length > 0)) return;
+        const { body: sectionBody } = splitScriptTitle(body);
+        if (sectionBody.length && sectionBody.every(block => block.type === 'heading' && block.props.scriptSection && block.children.length > 0)) return;
         const sections = groupScriptSections(body, (): Editor['document'][number] => ({
           id: crypto.randomUUID(), type: 'heading', props: {
-            level: 2, isToggleable: false, scriptSection: true, scriptDirection: '', scriptVisuals: '',
+            level: 2, isToggleable: false, scriptSection: true, scriptDirection: '', scriptVisuals: '', scriptDemo: '',
             textColor: 'default', backgroundColor: 'default', textAlignment: 'left',
           }, content: [], children: [],
-        })).map(section => section.children.length ? section : { ...section, children: [{
+        })).map(section => section.type !== 'heading' || !section.props.scriptSection || section.children.length ? section : { ...section, children: [{
           id: crypto.randomUUID(), type: 'paragraph' as const,
           props: { textColor: 'default', backgroundColor: 'default', textAlignment: 'left' as const },
           content: [], children: [],
@@ -202,6 +227,20 @@ export function ScriptTools({ editor, disabled, noteId, save, onPresent, onOpenV
       onClick={() => { changeVideo('camera'); }}><Renew size={18} aria-hidden="true" /></ScriptToolButton>}
     {onPresent && <ScriptToolButton type="button" className="kh-btn-ghost" title="Present" aria-label="Present"
       disabled={disabled} onClick={onPresent}><PresentationFile size={18} aria-hidden="true" /></ScriptToolButton>}
+    {onPlayback && <ScriptToolButton type="button" className="kh-btn-ghost"
+      title={playing ? 'Pause presentation' : 'Play presentation'} aria-label={playing ? 'Pause presentation' : 'Play presentation'}
+      disabled={disabled || playbackBusy} onClick={() => {
+        setPlaybackBusy(true); setSectionError(null);
+        void onPlayback(playing ? 'pause' : 'play').catch(error => {
+          setSectionError(error instanceof Error ? error.message : 'Could not control playback.');
+        }).finally(() => { setPlaybackBusy(false); });
+      }}>{playing ? <Pause size={18} aria-hidden="true" /> : <PlayFilled size={18} aria-hidden="true" />}</ScriptToolButton>}
+    {onOpenDemo && <ScriptToolButton type="button" className="kh-btn-ghost" title={hasDemo ? 'Open Turnaround demo' : 'Set up demo cues in a script section first'}
+      aria-label="Open Turnaround demo" disabled={disabled || openingDemo || !hasDemo} onClick={() => {
+        setOpeningDemo(true); setSectionError(null);
+        void onOpenDemo().catch(error => { setSectionError(error instanceof Error ? error.message : 'Could not open the demo.'); })
+          .finally(() => { setOpeningDemo(false); });
+      }}><ApplicationWeb size={18} aria-hidden="true" /></ScriptToolButton>}
     {onStopPresenting && <ScriptToolButton type="button" className="kh-btn-ghost" title="Stop presenting" aria-label="Stop presenting"
       onClick={onStopPresenting}><StopFilled size={18} aria-hidden="true" /></ScriptToolButton>}
     <ScriptToolButton type="button" className="kh-btn-ghost" title={designing ? 'Ariadne is designing visuals…' : 'Generate visuals'}

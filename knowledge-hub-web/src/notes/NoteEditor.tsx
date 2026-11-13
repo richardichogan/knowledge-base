@@ -99,6 +99,8 @@ interface NoteEditorProps {
   onImport?: () => void;
   onRecovery?: () => void;
   onPresent?: (() => void) | undefined;
+  onOpenDemo?: (() => Promise<void>) | undefined;
+  onPlayback?: ((command: 'play' | 'pause') => Promise<void>) | undefined;
   onOpenVisuals?: (() => Promise<void>) | undefined;
   onStopPresenting?: (() => void) | undefined;
   onShowEditor?: (() => void) | undefined;
@@ -216,7 +218,7 @@ function detectPastedCode(text: string): { isCode: boolean; language: string; fo
   return { isCode: false, language: 'text', formatted: text };
 }
 
-export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap, onCreateDiagram, onImport, onRecovery, onPresent, onOpenVisuals, onStopPresenting, onShowEditor, campaignRequest, hideProperties = false, externalBusy = false, onBeforeViewChange, headerContent, designPanel, designPanelLabel, loading = false, bodyContent, footerContent, visualContent, htmlViewEnabled = true, actionContent, onSaveReady }) => {
+export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, actionsSlot, onMapNote, onOpenMap, onCreateDiagram, onImport, onRecovery, onPresent, onPlayback, onOpenDemo, onOpenVisuals, onStopPresenting, onShowEditor, campaignRequest, hideProperties = false, externalBusy = false, onBeforeViewChange, headerContent, designPanel, designPanelLabel, loading = false, bodyContent, footerContent, visualContent, htmlViewEnabled = true, actionContent, onSaveReady }) => {
   const queryClient = useQueryClient();
   const { openAthena, pageContext } = useAthenaContext();
   const [contentType, setContentType] = useState<ContentType>(doc.contentType);
@@ -1513,7 +1515,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
           {!showingHtml && bodyContent}
           {!showingHtml && contentType === 'email-draft' && <EmailDraftFields work={work} disabled={historyBusy || externalBusy || work.busy || work.recoveryConflict} />}
           <div className={`notes-editor-inner${contentType === 'script' ? ' notes-editor-inner--script' : ''}`} hidden={showingHtml || bodyContent !== undefined}>
-            {contentType === 'script' && <ScriptTools editor={editor} disabled={historyBusy || externalBusy} noteId={doc.id} save={doSave} onPresent={onPresent} onOpenVisuals={onOpenVisuals} onStopPresenting={onStopPresenting} />}
+            {contentType === 'script' && <ScriptTools editor={editor} disabled={historyBusy || externalBusy} noteId={doc.id} save={doSave} onPresent={onPresent} onPlayback={onPlayback} onOpenDemo={onOpenDemo} onOpenVisuals={onOpenVisuals} onStopPresenting={onStopPresenting} />}
             {contentType === 'blog' && <BlogTools noteId={doc.id} title={doc.title} disabled={historyBusy || externalBusy} save={doSave} />}
             <BlockNoteViewWrapper
               editor={editor}

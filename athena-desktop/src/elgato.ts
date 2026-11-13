@@ -3,12 +3,13 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ElgatoBridge } from './elgatoBridge';
-import { initialPresentation, parseCommand, parsePresentationRuns, parsePresentationVisuals, parseVisualVideoMode, playbackCommand, type CommandRequest, type DesktopCommandState, type PresentationScript, type PresentationVideoState } from './elgatoProtocol';
+import { initialPresentation, parseCommand, parsePresentationDemo, parsePresentationRuns, parsePresentationVisuals, parseVisualVideoMode, playbackCommand, type CommandRequest, type DesktopCommandState, type PresentationScript, type PresentationVideoState } from './elgatoProtocol';
 import { VisualOutput } from './visualOutput';
+import { DemoOutput } from './demoOutput';
 import { isAthenaFrame } from './navigation';
 import { wakePresentationDisplay } from './displayWake';
 
-interface Config { encryptedToken?: string; display?: string; noteId?: string; settings?: { speed: number; fontSize: number; mirror: boolean; flip: boolean; opacity: number } }
+interface Config { encryptedToken?: string; display?: string; demoDisplay?: string; noteId?: string; settings?: { speed: number; fontSize: number; mirror: boolean; flip: boolean; opacity: number } }
 type Reply = { id: string; error?: string };
 export function installElgato(
   origin: string,
@@ -21,6 +22,12 @@ export function installElgato(
   let outputOwner: number | null = null;
   let readingPosition = 0;
   const visuals = new VisualOutput(join(app.getAppPath(), 'assets'), () => publishVideoState());
+  const demo = new DemoOutput(message => {
+    state.error = message;
+    state.presentation = { ...state.presentation, status: 'paused' };
+    void sendOutput().catch(error => { console.error('[Presentation] Could not pause after demo failure:', error); });
+    publish();
+  });
   let lastVideoState = '';
   let starting = false;
   let script: PresentationScript | null = null;
@@ -74,8 +81,13 @@ export function installElgato(
   }
   const publish = (): void => {
     syncAwake();
+    demo.update(readingPosition, state.presentation.status === 'playing', state.presentation.status === 'ended');
     if (state.presentation.status === 'ended' && visuals.videoState().mode === 'camera') visuals.setVideoMode('off');
-    if (controller && !controller.isDestroyed()) controller.webContents.send('presentation:state', state);
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed() && isAthenaFrame(window.webContents.getURL(), origin)) {
+        window.webContents.send('presentation:state', state);
+      }
+    }
     visuals.update(script?.visuals ?? [], readingPosition,
       state.presentation.status === 'disconnected' ? state.presentation.error : null, script?.title ?? '');
     publishVideoState();
@@ -83,6 +95,7 @@ export function installElgato(
   const disconnected = (message: string): void => {
     outputReady = false;
     visuals.close();
+    demo.close();
     state.presentation = { ...state.presentation, displayId: null, status: 'disconnected', error: message };
     publish();
   };
@@ -183,6 +196,7 @@ export function installElgato(
           if (!outputReady) throw new Error('Choose a script and connect the Prompter in Present first.');
           const wasEnded = state.presentation.status === 'ended' || state.presentation.progress >= 1;
           state.presentation = playbackCommand(state.presentation, request.command);
+          demo.update(readingPosition, state.presentation.status === 'playing');
           await sendOutput(request.command === 'stop' || wasEnded);
           if (['faster', 'slower', 'text-larger', 'text-smaller'].includes(request.command)) await saveSettings();
         }
@@ -228,8 +242,43 @@ export function installElgato(
   handle('presentation:displays', () => screen.getAllDisplays().map(d => ({
     id: d.id, label: d.label || `Display ${d.id}`, width: d.size.width, height: d.size.height,
     scale: d.scaleFactor, primary: d.id === screen.getPrimaryDisplay().id,
-    preferred: config.display === fingerprint(d),
+    preferred: config.display === fingerprint(d), preferredDemo: config.demoDisplay === fingerprint(d),
   })));
+  handle('presentation:set-display', async (_event, value) => {
+    const previous = config.display;
+    if (value === null) delete config.display;
+    else {
+      if (typeof value !== 'number' || !Number.isSafeInteger(value)) throw new Error('Choose an available output display.');
+      const display = screen.getAllDisplays().find(item => item.id === value);
+      if (!display || display.id === screen.getPrimaryDisplay().id) throw new Error('Choose a separate output display.');
+      if (config.demoDisplay === fingerprint(display)) throw new Error('Choose a different display from the demo.');
+      config.display = fingerprint(display);
+    }
+    try { await persist(); }
+    catch (error) {
+      if (previous === undefined) delete config.display;
+      else config.display = previous;
+      throw error;
+    }
+  });
+  handle('presentation:set-demo-display', async (_event, value) => {
+    const previous = config.demoDisplay;
+    if (value === null) delete config.demoDisplay;
+    else {
+      if (typeof value !== 'number' || !Number.isSafeInteger(value)) throw new Error('Choose an available demo display.');
+      const display = screen.getAllDisplays().find(item => item.id === value);
+      if (!display || display.id === screen.getPrimaryDisplay().id || config.display === fingerprint(display)) {
+        throw new Error('Choose a demo display separate from the presenter and prompter.');
+      }
+      config.demoDisplay = fingerprint(display);
+    }
+    try { await persist(); }
+    catch (error) {
+      if (previous === undefined) delete config.demoDisplay;
+      else config.demoDisplay = previous;
+      throw error;
+    }
+  });
   handle('presentation:identify', async (_event, value) => {
     const display = screen.getAllDisplays().find(d => d.id === value);
     if (!display) throw new Error('Display disconnected.');
@@ -238,7 +287,12 @@ export function installElgato(
     await marker.loadURL(`data:text/html,${encodeURIComponent(`<body style="background:#080808;color:#3ddbd9;font:48px Segoe UI;display:grid;place-items:center;height:90vh">Athena output: display ${display.id}</body>`)}`);
     setTimeout(() => { if (!marker.isDestroyed()) marker.close(); }, 2000);
   });
-  handle('presentation:state', () => state);
+  handle('presentation:state', event => {
+    if (event.sender !== controller?.webContents && new URL(event.senderFrame!.url).pathname !== '/think') {
+      throw new Error('Read presentation state from Think or the presentation controls.');
+    }
+    return state;
+  }, false);
   handle('presentation:video-state', () => videoState(), false);
   handle('presentation:video-mode', async (event, value) => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Choose a video mode from the script toolbar.');
@@ -275,6 +329,16 @@ export function installElgato(
   }, false);
   handle('presentation:release', event => { if (outputOwner === event.sender.id) output?.close(); }, false);
   handle('presentation:command', (_event, value) => execute(parseCommand(value)));
+  handle('presentation:note-command', (event, value) => {
+    if (new URL(event.senderFrame!.url).pathname !== '/think' || !value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error('Control playback from the current script.');
+    }
+    const request = value as Record<string, unknown>;
+    if ((request.command !== 'play' && request.command !== 'pause') || request.noteId !== script?.noteId || !outputReady) {
+      throw new Error('Open the current script on the prompter first.');
+    }
+    return execute({ id: randomUUID(), command: request.command, issuedAt: Date.now() });
+  }, false);
   handle('presentation:options', async (_event, value) => {
     if (!value || typeof value !== 'object') throw new Error('Invalid output options.');
     const options = value as Record<string, unknown>;
@@ -299,9 +363,11 @@ export function installElgato(
         || typeof v.text !== 'string' || !v.text.trim() || v.text.length > 500_000) throw new Error('Choose a non-empty saved note (up to 500,000 characters).');
       const runs = parsePresentationRuns(v.runs, v.text);
       const scenes = parsePresentationVisuals(v.visuals, v.text.length);
+      const actions = parsePresentationDemo(v.demo, v.text.length);
       const sameScript = script?.noteId === v.noteId && script.text === v.text
         && JSON.stringify(script.runs) === JSON.stringify(runs)
-        && JSON.stringify(script.visuals) === JSON.stringify(scenes);
+        && JSON.stringify(script.visuals) === JSON.stringify(scenes)
+        && JSON.stringify(script.demo) === JSON.stringify(actions);
       const matches = screen.getAllDisplays().filter(d => direct ? fingerprint(d) === config.display : d.id === v.displayId);
       if (matches.length !== 1) throw new Error(direct ? 'Set your output display once in Athena > Presentation and Stream Deck, then try Present again.' : 'Choose an available output display.');
       const display = matches[0]!;
@@ -325,8 +391,9 @@ export function installElgato(
       trusted(event, !direct);
       state.error = null;
       output?.close();
+      demo.close();
       readingPosition = 0;
-      script = { noteId: v.noteId, title: v.title, text: v.text, ...(runs ? { runs } : {}), ...(scenes ? { visuals: scenes } : {}) };
+      script = { noteId: v.noteId, title: v.title, text: v.text, ...(runs ? { runs } : {}), ...(scenes ? { visuals: scenes } : {}), ...(actions ? { demo: actions } : {}) };
       state.presentation = { ...state.presentation, sessionId: randomUUID(), noteId: script.noteId, title: script.title,
         displayId: display.id, status: 'ready', progress: resumeProgress, error: null };
       const win = new BrowserWindow({
@@ -371,6 +438,18 @@ export function installElgato(
     } finally { starting = false; }
   }
   handle('presentation:start', (event, value) => startOutput(event, value));
+  handle('presentation:demo', async (event, value) => {
+    if (event.sender !== controller?.webContents && new URL(event.senderFrame!.url).pathname !== '/think') throw new Error('Open the demo from the script or Presentation.');
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Choose a saved script and demo display.');
+    const request = value as Record<string, unknown>;
+    if (!outputReady || !script?.demo?.length) throw new Error('Open a saved script with Turnaround demo cues first.');
+    if (request.noteId !== script.noteId) throw new Error('The active presentation changed. Reopen the current script.');
+    if (state.presentation.status === 'playing') throw new Error('Pause the prompter before opening the demo.');
+    const matches = screen.getAllDisplays().filter(display => request.displayId === null
+      ? fingerprint(display) === config.demoDisplay : display.id === request.displayId);
+    if (matches.length !== 1) throw new Error('Choose a demo display in Presentation and Stream Deck first.');
+    await demo.open(matches[0]!.id, state.presentation.displayId, script.demo);
+  }, false);
   handle('presentation:visuals', async event => {
     if (!outputReady || outputOwner !== event.sender.id || !script?.visuals?.length) throw new Error('Present a saved script with visuals first.');
     visuals.update(script.visuals, readingPosition, null, script.title);
@@ -425,12 +504,14 @@ export function installElgato(
     return { enabled: false, error: null };
   });
   screen.on('display-removed', (_event, display) => {
+    demo.displayChanged(display, true, state.presentation.displayId);
     if (display.id === state.presentation.displayId) {
       const win = output; output = null; win?.close();
       disconnected('Prompter disconnected. Reconnect it and explicitly reopen the output.');
     }
   });
   screen.on('display-metrics-changed', (_event, display) => {
+    demo.displayChanged(display, false, state.presentation.displayId);
     if (!output || display.id !== state.presentation.displayId) return;
     if (display.id === screen.getPrimaryDisplay().id) {
       output.close();
@@ -438,13 +519,14 @@ export function installElgato(
     }
     output.setBounds(display.bounds);
   });
-  app.on('before-quit', () => { visuals.close(); void bridge.stop(); if (awake !== null) powerSaveBlocker.stop(awake); });
+  app.on('before-quit', () => { demo.close(); visuals.close(); void bridge.stop(); if (awake !== null) powerSaveBlocker.stop(awake); });
   configLoaded = (async () => {
     try {
       const parsed: unknown = JSON.parse(await readFile(configPath, 'utf8'));
       if (!parsed || typeof parsed !== 'object') throw new Error('Invalid Stream Deck configuration.');
       const saved = parsed as Record<string, unknown>;
       config = { ...(typeof saved.display === 'string' ? { display: saved.display } : {}),
+        ...(typeof saved.demoDisplay === 'string' ? { demoDisplay: saved.demoDisplay } : {}),
         ...(typeof saved.noteId === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(saved.noteId) ? { noteId: saved.noteId } : {}),
         ...(typeof saved.encryptedToken === 'string' ? { encryptedToken: saved.encryptedToken } : {}) };
       state.presentation.noteId = config.noteId ?? null;
