@@ -14,7 +14,7 @@ import { isMicrosoftRelevant } from '../utils/microsoftRelevance.js';
 import { object, text } from '../jobs/contracts.js';
 import { ValidationError, ConflictError, NotFoundError, IntegrationError, AiOutputLimitError } from '../types/errors.js';
 import { MS_PER_HOUR } from '../config/constants.js';
-import { draftColumns, event, feeds, saveDraft, sourceColumns, topicColumns, transaction, writtenPublishingSourcesSql } from './store.js';
+import { draftColumns, event, feeds, REGENERATION_REQUEST, saveDraft, sourceColumns, topicColumns, transaction, writtenPublishingSourcesSql } from './store.js';
 import { PUBLISH_LIMITS, type Draft, type Source, type Topic } from './contracts.js';
 import { destinationAccount } from './delivery.js';
 import { getLinkedInMember } from '../integrations/social/linkedin.js';
@@ -53,10 +53,6 @@ class EditorialSourceAccessError extends IntegrationError {
     super('editorial', 'The source website denied automated reading. Open the original article to check access, or provide an accessible source before requesting reassessment. No source content was inferred.');
   }
 }
-const TWITTER_CHARACTER_LIMIT = 280;
-const TWITTER_LINK_LENGTH = 23;
-const TWITTER_LINK = /https?:\/\/\S*[^\s.,;:!?)\]'"’”]/g;
-const MAX_SOCIAL_EMOJIS = 2;
 const MIN_LINKEDIN_WORDS = 120;
 const MAX_LINKEDIN_WORDS = 150;
 const MIN_LINKEDIN_HASHTAGS = 2;
@@ -78,22 +74,20 @@ function destinationSchema(destination: Draft['destination'], variant: Draft['va
 }
 const blogSchema = jsonObject({
   title: { ...stringField, maxLength: 60 }, slug: stringField, excerpt: stringField, summary: stringField, content: stringField,
-  twitterCopy: { ...stringField, maxLength: 279 }, sourceUrl: stringField,
+  sourceUrl: stringField,
   keyTakeaways: { type: 'array', items: stringField, maxItems: 2 }, categories: stringList, tags: stringList, postType: { type: 'string', enum: ['quick'] },
 });
 const QUICK_PACKAGE_RULES = `${quickTakeRules('Open with the news in one sentence, then give RichardÃ¢â‚¬â„¢s proposed view in the next sentence.')}
 For this delivery API, content is HTML paragraphs rather than Markdown; preserve the same quick-take structure.
 Set postType to "quick". Include a lowercase hyphenated slug, distinct excerpt, summary, at most two takeaways, approved categories and specific tags.
 Set sourceUrl to the exact original source URL; keep it out of body prose. No featured image URL or image prompt.
-Include twitterCopy under 280 characters, where the exact source URL counts as 23 characters however long it is, with one or two hashtags and one or two relevant emojis.
 LinkedIn copy is 120 to 150 words, grounded with subtle wit where appropriate, ending with an engagement question and two or three hashtags.
 LinkedIn contains no URLs; the verified blog URL is appended separately. Use Microsoft-owned source evidence verified within seven days.
 Do not pad the quick take with a second argument or turn it into a long article.`;
 function quickDestinationRules(destination: Draft['destination']): string {
   if (destination === 'blog') return `${quickTakeRules('Open with the news in one sentence, then give the proposed editorial view.')}
-This destination is only the blog object: title, slug, excerpt, summary, HTML paragraph content, keyTakeaways, categories, tags, postType:"quick", sourceUrl and twitterCopy.
+This destination is only the blog object: title, slug, excerpt, summary, HTML paragraph content, keyTakeaways, categories, tags, postType:"quick" and sourceUrl.
 LinkedIn and Bluesky are separate destination drafts, not missing blog fields. Never request linkedinCopy or social copy inside the body.
-twitterCopy includes the exact source URL (which counts as 23 characters however long it is) and must be under 280 characters, with one or two hashtags and one or two emojis.
 Keep the original source in sourceUrl, separate from the body. No image fields.`;
   if (destination === 'linkedin') return 'Review or repair only the LinkedIn copy: 120 to 150 words, a closing engagement question and two or three hashtags. No URLs. The blog package and its metadata are separate and must not be returned or requested here.';
   return 'Review or repair only Bluesky copy. Blog package fields and other social destinations are separate and must not be returned or requested here.';
@@ -117,7 +111,7 @@ export const EDITORIAL_SCHEMAS = {
   bluesky: { name: 'editorial_bluesky_revision', schema: blueskySchema },
   edits: { name: 'editorial_passage_edits', schema: jsonObject({
     edits: { type: 'array', minItems: 1, items: jsonObject({
-      field: { type: 'string', enum: ['title', 'slug', 'excerpt', 'summary', 'content', 'keyTakeaways', 'twitterCopy', 'copy'] },
+      field: { type: 'string', enum: ['title', 'slug', 'excerpt', 'summary', 'content', 'keyTakeaways', 'copy'] },
       before: { type: 'string', minLength: 1 }, after: stringField,
     }) },
   }) },
@@ -249,10 +243,6 @@ function prepareContent(destination: Draft['destination'], value: unknown): Reco
     return destination === 'blog' ? { ...raw, status: 'published' } : { copy: raw.copy };
   }
 }
-/** X counts every link as 23 characters, however long the URL is. */
-export function xPostLength(copy: string): number {
-  return graphemeLength(copy.replace(TWITTER_LINK, 'x'.repeat(TWITTER_LINK_LENGTH)));
-}
 function validateQuickPackage(draft: Draft, sources: Source[]): void {
   if (draft.destination === 'blog') {
     if (draft.content.postType !== 'quick') throw new ValidationError('Publishing blog packages must use the quick-take post type.');
@@ -260,16 +250,6 @@ function validateQuickPackage(draft: Draft, sources: Source[]): void {
       || typeof draft.content.excerpt !== 'string' || !draft.content.excerpt.trim()
       || !sources.some(source => source.url === draft.content.sourceUrl)) {
       throw new ValidationError('Quick-take package requires a slug, excerpt and exact verified source URL.');
-    }
-    const copy = draft.content.twitterCopy;
-    if (typeof copy !== 'string' || !copy.includes(String(draft.content.sourceUrl)) || xPostLength(copy) >= TWITTER_CHARACTER_LIMIT) {
-      throw new ValidationError('Twitter/X package copy must include the exact source URL and stay under 280 characters, counting the link as 23.');
-    }
-    const hashtags = copy.match(/#[\p{L}\p{N}_]+/gu) ?? [];
-    const emojis = [...new Intl.Segmenter('en', { granularity: 'grapheme' }).segment(copy)]
-      .filter(segment => /\p{Extended_Pictographic}/u.test(segment.segment)).length;
-    if (hashtags.length < 1 || hashtags.length > MAX_SOCIAL_EMOJIS || emojis < 1 || emojis > MAX_SOCIAL_EMOJIS) {
-      throw new ValidationError('Twitter/X package copy requires one or two hashtags and one or two emojis.');
     }
   }
   if (draft.destination === 'linkedin' && draft.variant === 'blog') {
@@ -324,8 +304,113 @@ async function drafts(db: Pool, topic: string): Promise<Draft[]> {
   return (await db.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts WHERE topic_id=$1`, [topic])).rows;
 }
 export async function reviewDraft(db: Pool, draft: Draft, sources: Source[], service = editorialServices, allowRevisions = true, draftsOnly = false): Promise<void> {
-  return withAiWorkflow(db, { feature: 'discovery-editorial-review', purpose: 'scheduled' },
-    () => withAiStage(`review:${draft.id}`, () => reviewDraftContent(db, draft, sources, service, allowRevisions, draftsOnly)));
+  return withAiWorkflow(db, { feature: 'discovery-editorial-review', purpose: 'scheduled' }, async () => {
+    const run = (target: Draft): Promise<void> => withAiStage(`review:${target.id}`, () => reviewDraftContent(db, target, sources, service, allowRevisions, draftsOnly));
+    if (!allowRevisions) return run(draft);
+    const find = async (): Promise<Draft | undefined> => (await drafts(db, draft.topicId)).find(d => d.id === draft.id);
+    let failure: string | undefined;
+    let latest: Draft | undefined = draft.reason === REGENERATION_REQUEST ? (await find()) ?? draft : undefined;
+    let attempts = 0;
+    if (latest?.reason === REGENERATION_REQUEST) {
+      attempts++;
+      try {
+        const rewritten = await regenerateDraft(db, latest, sources, service, ['An earlier version failed its editorial checks and could not be repaired.']);
+        if (rewritten) draft = rewritten;
+      } catch (error) { if (!(error instanceof ValidationError || error instanceof ConflictError)) throw error; }
+    }
+    for (;;) {
+      failure = undefined;
+      try { await run(draft); }
+      catch (error) {
+        if (!(error instanceof ValidationError || error instanceof ConflictError) || error.message.startsWith('Draft changed before review')) throw error;
+        failure = error.message;
+      }
+      latest = await find();
+      if (!latest || latest.review === 'pass' || latest.approval !== 'pending') return;
+      if (!failure && latest.review !== 'hold') return;
+      const notes = failureNotes(latest.reason, failure);
+      if (attempts >= MAX_REGENERATIONS) {
+        await holdAfterRegeneration(db, latest, attempts, notes[0] ?? 'The review did not pass.');
+        return;
+      }
+      let rewritten: Draft | undefined;
+      try { rewritten = await regenerateDraft(db, latest, sources, service, notes); }
+      catch (error) {
+        if (!(error instanceof ValidationError || error instanceof ConflictError)) throw error;
+        attempts++;
+        draft = latest;
+        continue;
+      }
+      if (!rewritten) {
+        if (failure) throw new ValidationError(failure);
+        return;
+      }
+      attempts++;
+      draft = rewritten;
+    }
+  });
+}
+
+const MAX_REGENERATIONS = 2;
+function failureNotes(reason: string | null | undefined, error?: string): string[] {
+  const notes: string[] = error ? [error] : [];
+  if (reason && reason !== REGENERATION_REQUEST) {
+    try {
+      const parsed: unknown = JSON.parse(reason);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const record = parsed as Record<string, unknown>;
+        for (const key of ['accuracy', 'voice', 'style', 'validation']) {
+          if (Array.isArray(record[key])) notes.push(...(record[key] as unknown[]).filter((item): item is string => typeof item === 'string'));
+        }
+        if (typeof record.error === 'string') notes.push(record.error);
+      } else notes.push(reason);
+    } catch { notes.push(reason); }
+  }
+  return [...new Set(notes)].slice(0, 12);
+}
+// Writes the draft again from the sources, with the failed findings as constraints. Returns undefined when the draft may not be changed.
+async function regenerateDraft(db: Pool, draft: Draft, sources: Source[], service: EditorialServices, notes: string[]): Promise<Draft | undefined> {
+  const members = await drafts(db, draft.topicId);
+  const current = members.find(d => d.id === draft.id);
+  if (!current || current.approval !== 'pending' || current.held || current.review === 'pass') return undefined;
+  const locked = await db.query(`SELECT 1 FROM publishing_deliveries WHERE topic_id=$1
+    UNION ALL SELECT 1 FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id WHERE d.topic_id=$1`, [draft.topicId]);
+  if (locked.rowCount || members.some(d => d.approval === 'approved')) return undefined;
+  const companion = members.find(d => d.destination === 'blog');
+  if (current.destination === 'linkedin' && current.variant === 'blog' && !companion) return undefined;
+  const feed = (await feeds(db)).find(f => f.id === (current.destination === 'bluesky' ? 'bluesky' : 'blog-linkedin'))!;
+  const preferences = await service.preferences(db);
+  const blog = current.destination === 'blog' ? undefined : companion?.content;
+  const generated = await service.chat(`${AUTHOR}\n${SAFETY}
+Write this ${current.destination} draft again from the supplied sources. An earlier version failed editorial review and could not be repaired.
+Do not reuse its wording. Avoid every problem listed in problemsToAvoid. This is generation, not a review.
+Return only this destination's content JSON. Do not return a package or review findings.
+Social copy is plain text without URLs. Bluesky copy must fit within 240 graphemes.
+For LinkedIn, write a hook for the supplied companion blog, not a separate article.
+${BLOG_WRITING_RULES}\n${destinationRules(current.destination)}
+${current.variant === 'blog' ? quickDestinationRules(current.destination) : ''}
+${current.destination === 'bluesky' ? `Copy allowance including spaces: ${blueskyAllowance(current.variant, sources, blog)} graphemes; the full destination URL and two line breaks use the rest.` : ''}
+${preferences}\nSaved editorial guidance:\n${feed.policy.guidance}`,
+  { sources, destination: current.destination, variant: current.variant, blog: blog ? editorialContent(blog) : undefined, problemsToAvoid: notes },
+  PUBLISH_LIMITS.draftTokens, destinationSchema(current.destination, current.variant, sources, blog),
+  current.destination === 'blog' ? 'blog-author' : 'social-author');
+  const prepared = prepareContent(current.destination, generated);
+  // A blog with passed hooks cannot take an automatic revision; a full replacement resets those hooks for review instead.
+  const passedHooks = current.destination === 'blog' ? (await db.query(passedHooksSql, [draft.topicId])).rowCount ?? 0 : 0;
+  await editDraft(db, current.id, current.version, prepared, 'editorial-regeneration', undefined, passedHooks === 0);
+  await event(db, draft.topicId, 'editorial-regeneration', 'draft-regenerated', { draftId: current.id, destination: current.destination, problems: notes });
+  return (await drafts(db, draft.topicId)).find(d => d.id === current.id);
+}
+async function holdAfterRegeneration(db: Pool, draft: Draft, attempts: number, lastProblem: string): Promise<void> {
+  let base: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = JSON.parse(draft.reason ?? '');
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) base = parsed as Record<string, unknown>;
+  } catch { /* a plain-text reason carries no findings to keep */ }
+  const error = `Athena rewrote this ${draft.destination} draft from the source ${attempts} time${attempts === 1 ? '' : 's'} and it still did not pass its checks. Last problem: ${lastProblem}`;
+  await db.query(`UPDATE publishing_drafts SET review='hold',reason=$2,updated_at=NOW() WHERE id=$1 AND approval='pending' AND review<>'pass'`,
+    [draft.id, JSON.stringify({ accuracy: [], voice: [], style: [], validation: [], ...base, error })]);
+  await event(db, draft.topicId, 'editorial-review', 'regeneration-exhausted', { draftId: draft.id, destination: draft.destination, attempts, error });
 }
 
 async function reviewDraftContent(db: Pool, draft: Draft, sources: Source[], service: EditorialServices, allowRevisions: boolean, draftsOnly: boolean): Promise<void> {
@@ -375,7 +460,7 @@ ${preferences}\nSaved editorial guidance:\n${feed.policy.guidance}`,
     const companionBlog = companions.find(item => item.destination === 'blog');
     const feed = (await feeds(db)).find(f => f.id === (draft.destination === 'bluesky' ? 'bluesky' : 'blog-linkedin'))!;
     const editableFields = draft.destination === 'blog'
-      ? ['title', 'slug', 'excerpt', 'summary', 'content', 'keyTakeaways', 'twitterCopy'] : ['copy'];
+      ? ['title', 'slug', 'excerpt', 'summary', 'content', 'keyTakeaways'] : ['copy'];
     const reviewFields = draft.destination === 'blog'
       ? [...editableFields, 'categories', 'tags', 'postType', 'sourceUrl'] : editableFields;
     const saved = editablePassages(editorialContent(draft.content), reviewFields);
@@ -383,7 +468,7 @@ ${preferences}\nSaved editorial guidance:\n${feed.policy.guidance}`,
     const changedPassageIds = new Set(previousPassages
       ? saved.passages.filter(passage => !previousPassages!.has(passageKey(passage))).map(passage => passage.id) : []);
     const indexedSource = indexSource(sources);
-    const style = findTropes(...Object.values(draft.content).filter((v): v is string => typeof v === 'string'));
+    const style = findTropes(...Object.entries(draft.content).filter((entry): entry is [string, string] => entry[0] !== 'twitterCopy' && typeof entry[1] === 'string').map(entry => entry[1]));
     const validation: string[] = [];
     try {
       parseDraftContent(draft.destination, draft.content);
@@ -966,7 +1051,7 @@ ${preferences}`, { sources, related, feeds: settings.map(f => ({ id: f.id, guida
   setAiWorkflowStage('package-generation');
   const packageData = await service.chat(`${AUTHOR}\n${SAFETY}\n${BLOG_WRITING_RULES}\n${preferences}
 Saved guidance for each destination: ${JSON.stringify(settings.map(f => ({ feed: f.id, guidance: f.policy.guidance })))}
-Create ONLY selected destinations. Return {blog:{title,slug,excerpt,summary,content,keyTakeaways,categories,tags,postType:"quick",sourceUrl,twitterCopy},linkedin:{copy},bluesky:{copy}}.
+Create ONLY selected destinations. Return {blog:{title,slug,excerpt,summary,content,keyTakeaways,categories,tags,postType:"quick",sourceUrl},linkedin:{copy},bluesky:{copy}}.
 Set blog/linkedin to null unless selected.blog=true; set bluesky to null unless selected.bluesky=true.
 ${QUICK_PACKAGE_RULES}
 LinkedIn is a hook for the blog argument, never a standalone article. Do not include a URL: the verified blog URL is appended later.

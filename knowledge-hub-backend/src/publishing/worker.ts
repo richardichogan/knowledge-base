@@ -10,7 +10,7 @@ import { microsoftRelevanceSql } from '../utils/microsoftRelevance.js';
 import { assessTopic, editorialServices, readSources, reviewDraft, type EditorialServices } from './editorial.js';
 import { normalisePublishingBlogCategories } from './blogCategories.js';
 import { assertSocialOpportunity, BlogVerificationPending, deliver, destinationAccount, inWindow, PublicationDeferred, PublicationUnconfirmed, type DeliveryContext } from './delivery.js';
-import { deliveryColumns, draftColumns, event, feeds, closeDeadPackages, holdTopic, intake, releaseTopic, listTopics, sourceColumns, topicColumns, transaction, writtenPublishingSourcesSql } from './store.js';
+import { deliveryColumns, draftColumns, event, feeds, closeDeadPackages, holdTopic, intake, regenerateStoppedPackages, releaseTopic, listTopics, sourceColumns, topicColumns, transaction, writtenPublishingSourcesSql } from './store.js';
 import { PUBLISH_LIMITS, type Delivery, type Draft, type Source, type Topic } from './contracts.js';
 import { refreshSchedule } from './schedule.js';
 import { MS_PER_MINUTE } from '../config/constants.js';
@@ -197,6 +197,7 @@ export async function tickPublishing(db: Pool, editorial: EditorialServices = ed
       WHERE state='assessing' AND lease_until<NOW()`);
     await closeDeadPackages(db);
     await retryStoppedPackages(db);
+    await regenerateStoppedPackages(db);
     await intake(db);
     const hasDraftCapacity = (await listTopics(db, 0, true)).length < PUBLISH_LIMITS.draftShortlist;
     const lease = randomUUID();

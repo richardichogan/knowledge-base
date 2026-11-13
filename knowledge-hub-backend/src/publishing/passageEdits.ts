@@ -18,7 +18,7 @@ function passageWrapper(value: string): string {
 export function applyEditorialEdits(destination: Draft['destination'], content: Record<string, unknown>, value: unknown, additionalFields: readonly string[] = []): Record<string, unknown> {
   const response = object(value);
   if (!Array.isArray(response.edits) || !response.edits.length) throw new ValidationError('Editorial repair returned no passage edits. The saved draft is unchanged.');
-  const allowed = [...(destination === 'blog' ? ['title', 'slug', 'excerpt', 'summary', 'content', 'keyTakeaways', 'twitterCopy'] : ['copy']), ...additionalFields];
+  const allowed = [...(destination === 'blog' ? ['title', 'slug', 'excerpt', 'summary', 'content', 'keyTakeaways'] : ['copy']), ...additionalFields];
   const replacements: Array<{ field: string; index: number | null; start: number; end: number; after: string }> = [];
   for (const input of response.edits) {
     const edit = object(input);

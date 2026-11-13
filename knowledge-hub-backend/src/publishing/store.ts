@@ -243,6 +243,35 @@ export async function rejectDraftTopic(db: Pool, topicId: string, versions: Reco
     });
   });
 }
+// Marks an unfinished package for a fresh rewrite from its sources. The review worker sees the marker, rewrites each failed draft, then reviews it again.
+export const REGENERATION_REQUEST = 'Rewriting from the source after failed checks.';
+export async function requestRegeneration(db: Pool, id: string, actor: string): Promise<boolean> {
+  return transaction(db, async c => {
+    const topic = await c.query(`UPDATE publishing_topics SET state='ready',error=NULL WHERE id=$1 AND state IN ('held','ready')
+      AND EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=$1 AND approval='pending' AND review<>'pass')
+      AND NOT EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=$1 AND approval='approved')
+      AND NOT EXISTS(SELECT 1 FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id WHERE d.topic_id=$1)
+      AND NOT EXISTS(SELECT 1 FROM publishing_deliveries WHERE topic_id=$1) RETURNING id`, [id]);
+    if (!topic.rowCount) return false;
+    await c.query(`UPDATE publishing_drafts SET held=FALSE,review=CASE WHEN review='pass' THEN review ELSE 'pending' END,
+      reason=CASE WHEN review='pass' THEN reason ELSE $2 END,updated_at=NOW()
+      WHERE topic_id=$1 AND approval='pending'`, [id, REGENERATION_REQUEST]);
+    await event(c, id, actor, 'regeneration-requested', {});
+    return true;
+  });
+}
+// Packages Athena stopped on its own (a failed repair or an exhausted revision limit) are rewritten once automatically, so none waits for a manual review.
+export async function regenerateStoppedPackages(db: Pool): Promise<void> {
+  const stopped = (await db.query<{ id: string }>(`SELECT t.id FROM publishing_topics t WHERE t.state IN ('held','ready')
+    AND EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=t.id AND approval='pending' AND review<>'pass')
+    AND NOT EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=t.id AND approval='approved')
+    AND NOT EXISTS(SELECT 1 FROM publishing_events e WHERE e.topic_id=t.id AND e.event='regeneration-requested')
+    AND (EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=t.id AND approval='pending' AND review='hold')
+      OR (t.state='held' AND t.error IS NOT NULL AND (SELECT actor FROM publishing_events WHERE topic_id=t.id AND event IN ('topic-held','topic-rejected','topic-retried') ORDER BY id DESC LIMIT 1)
+        IN ('review-worker','editorial-worker','publishing-auto-retry')))
+    ORDER BY t.created_at DESC LIMIT 3`)).rows;
+  for (const topic of stopped) await requestRegeneration(db, topic.id, 'publishing-auto-regenerate');
+}
 // Returns a stopped package to editorial preparation. Passed reviews, approvals and anything scheduled or delivered are untouched.
 export async function releaseTopic(db: Pool, id: string, actor: string): Promise<boolean> {
   return transaction(db, async c => {

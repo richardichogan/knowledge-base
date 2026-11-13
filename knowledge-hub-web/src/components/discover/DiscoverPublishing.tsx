@@ -53,7 +53,7 @@ function DraftEditor({ draft, act, busy, onDone }: { draft: PublishingDraft; act
     e.preventDefault(); void act(`/drafts/${draft.id}`, 'PUT', { version: draft.version, content }).then(saved => { if (saved) onDone(); });
   }}>
     {draft.destination === 'blog' ? <>
-      {['title', 'slug', 'excerpt', 'summary', 'twitterCopy'].map(key => <label key={key}>{key === 'title' ? 'Title' : key === 'slug' ? 'Slug' : key === 'excerpt' ? 'Excerpt' : key === 'twitterCopy' ? 'Twitter / X package copy (not auto-posted)' : 'Summary'}
+      {['title', 'slug', 'excerpt', 'summary'].map(key => <label key={key}>{key === 'title' ? 'Title' : key === 'slug' ? 'Slug' : key === 'excerpt' ? 'Excerpt' : 'Summary'}
         <textarea required={key !== 'excerpt'} rows={key === 'summary' ? 3 : 2} value={String(content[key] ?? '')} onChange={e => field(key, e.target.value)} />
       </label>)}
       <BlogPostEditor value={String(content.content ?? '')} onChange={value => field('content', value)} disabled={busy} />
@@ -80,8 +80,6 @@ export function PublishingDraftPreview({ draft }: { draft: Pick<PublishingDraft,
       <p>Categories: {Array.isArray(draft.content.categories) ? draft.content.categories.join(', ') : ''}</p>
       <p>Tags: {Array.isArray(draft.content.tags) ? draft.content.tags.join(', ') : ''}</p>
       {typeof draft.content.sourceUrl === 'string' && <p>Source: <a href={sourceLink(draft.content.sourceUrl)} target="_blank" rel="noreferrer">{draft.content.sourceUrl}</a></p>}
-      <h4>Twitter / X copy</h4><p className="kh-publishing__copy">{String(draft.content.twitterCopy ?? 'Not prepared')}</p>
-      <p className="kh-publishing__meta">Included for manual use; Twitter / X is not an automated destination.</p>
     </details>
   </> : <p className="kh-publishing__copy">{String(draft.content.copy ?? 'No copy has been saved yet.')}</p>;
 }
@@ -93,14 +91,30 @@ function isReadyDraft(draft: PublishingDraft): boolean {
   return hasSavedDraftText(draft) && draft.review === 'pass' && !draft.held && draft.approval !== 'rejected'
     && draft.reviewedAt !== null;
 }
+export function plainReason(reason: string | null | undefined): string {
+  if (!reason) return '';
+  try {
+    const parsed: unknown = JSON.parse(reason);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const record = parsed as Record<string, unknown>;
+      const notes = ['error', 'accuracy', 'voice', 'style', 'validation'].flatMap(key => {
+        const value = record[key];
+        return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : typeof value === 'string' ? [value] : [];
+      });
+      return [...new Set(notes)].slice(0, 4).join(' ');
+    }
+  } catch { /* plain text reason */ }
+  return reason;
+}
 export function publishingApprovalBlocker(draft: PublishingDraft): string | null {
   if (!hasSavedDraftText(draft)) return 'No post text was saved. This record is not ready for approval.';
+  const why = plainReason(draft.reason);
   if (draft.held) return draft.review === 'pass'
     ? draft.reason || 'Publishing is on hold. Resolve the delivery issue before scheduling.'
-    : 'Editorial preparation is incomplete. This draft is not ready for approval.';
+    : `Athena could not finish preparing this draft.${why ? ` ${why}` : ''} Use Rewrite from source to have Athena draft it again.`;
   if (draft.review !== 'pass') return draft.review === 'pending'
     ? 'Editorial review is pending. Approval becomes available after accuracy and voice checks pass.'
-    : 'Editorial checks need attention. Edit the copy or request another review before approving.';
+    : `This draft did not pass its checks.${why ? ` ${why}` : ''} Use Rewrite from source to have Athena draft it again.`;
   return null;
 }
 export function TopicReview({ id, act, busy, feeds, readyOnly = false, initialDestination = null }: { id: string; act: Action; busy: boolean; feeds: PublishingFeed[]; readyOnly?: boolean; initialDestination?: PublishingDraft['destination'] | null }): React.ReactElement {
@@ -154,6 +168,8 @@ export function TopicReview({ id, act, busy, feeds, readyOnly = false, initialDe
       const blocker = packageDraft ? packageBlocker : publishingApprovalBlocker(draft);
       const approved = packageDraft ? pair.every(candidate => candidate?.approval === 'approved') : draft.approval === 'approved';
       const canApprove = blocker === null && !sent;
+      const canRewrite = d.deliveries.length === 0 && d.drafts.every(item => item.approval === 'pending')
+        && d.drafts.some(item => item.review !== 'pass') && (draft.held || draft.review === 'hold' || draft.review === 'revise' || d.topic.state === 'held');
       const feedId = draft.destination === 'bluesky' ? 'bluesky' : 'blog-linkedin';
       const feed = feeds.find(f => f.id === feedId);
       return <section className="kh-publishing__draft" key={draft.id}>
@@ -167,6 +183,8 @@ export function TopicReview({ id, act, busy, feeds, readyOnly = false, initialDe
               else decide(draft, 'approve');
             }}>
               {approved ? 'Sent for scheduling' : packageDraft ? 'Send package for scheduling' : 'Send for scheduling'}</button>}
+            {canRewrite && <button type="button" className="kh-publishing__primary" disabled={busy}
+              onClick={() => { void act(`/topics/${id}/decision`, 'POST', { action: 'regenerate' }); }}>Rewrite from source</button>}
             {hasSavedDraftText(draft) && <button type="button" disabled={busy || Boolean(sent)} onClick={() => setEditing(draft.id)}>Edit draft</button>}
             {draft.approval === 'pending' && <button type="button" className="kh-publishing__danger"
               disabled={busy || d.drafts.some(item => item.approval === 'approved') || d.deliveries.length > 0}
