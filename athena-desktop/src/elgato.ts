@@ -9,7 +9,7 @@ import { DemoOutput } from './demoOutput';
 import { isAthenaFrame } from './navigation';
 import { wakePresentationDisplay } from './displayWake';
 
-interface Config { encryptedToken?: string; display?: string; demoDisplay?: string; noteId?: string; settings?: { speed: number; fontSize: number; mirror: boolean; flip: boolean; opacity: number } }
+interface Config { encryptedToken?: string; display?: string; displayId?: number; demoDisplay?: string; demoDisplayId?: number; noteId?: string; settings?: { speed: number; fontSize: number; mirror: boolean; flip: boolean; opacity: number } }
 type Reply = { id: string; error?: string };
 export function installElgato(
   origin: string,
@@ -44,6 +44,21 @@ export function installElgato(
   const configPath = join(app.getPath('userData'), 'elgato.json');
   const fingerprint = (display: Electron.Display): string =>
     `${display.label}:${display.size.width}x${display.size.height}:${display.scaleFactor}`;
+  // Unnamed monitors of the same size share a fingerprint, so prefer the saved Electron display ID.
+  const savedDisplay = (kind: 'output' | 'demo'): Electron.Display | null => {
+    const print = kind === 'output' ? config.display : config.demoDisplay;
+    const id = kind === 'output' ? config.displayId : config.demoDisplayId;
+    if (print === undefined) return null;
+    const displays = screen.getAllDisplays();
+    const exact = displays.find(d => d.id === id && fingerprint(d) === print);
+    if (exact) return exact;
+    const matches = displays.filter(d => fingerprint(d) === print);
+    return matches.length === 1 ? matches[0]! : null;
+  };
+  const rememberDisplay = (kind: 'output' | 'demo', display: Electron.Display): void => {
+    if (kind === 'output') { config.display = fingerprint(display); config.displayId = display.id; }
+    else { config.demoDisplay = fingerprint(display); config.demoDisplayId = display.id; }
+  };
   let saving: Promise<void> = Promise.resolve();
   const persist = (): Promise<void> => {
     const snapshot = JSON.stringify(config);
@@ -239,43 +254,48 @@ export function installElgato(
     if (value !== undefined && (typeof value !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(value))) throw new Error('Invalid note ID.');
     openPresenter(typeof value === 'string' ? value : undefined);
   }, false);
-  handle('presentation:displays', () => screen.getAllDisplays().map(d => ({
-    id: d.id, label: d.label || `Display ${d.id}`, width: d.size.width, height: d.size.height,
-    scale: d.scaleFactor, primary: d.id === screen.getPrimaryDisplay().id,
-    preferred: config.display === fingerprint(d), preferredDemo: config.demoDisplay === fingerprint(d),
-  })));
+  handle('presentation:displays', () => {
+    const output = savedDisplay('output')?.id, demoDisplay = savedDisplay('demo')?.id;
+    return screen.getAllDisplays().map(d => ({
+      id: d.id, label: d.label || `Display ${d.id}`, width: d.size.width, height: d.size.height,
+      scale: d.scaleFactor, primary: d.id === screen.getPrimaryDisplay().id,
+      preferred: d.id === output, preferredDemo: d.id === demoDisplay,
+    }));
+  });
   handle('presentation:set-display', async (_event, value) => {
-    const previous = config.display;
-    if (value === null) delete config.display;
+    const previous = { display: config.display, displayId: config.displayId };
+    if (value === null) { delete config.display; delete config.displayId; }
     else {
       if (typeof value !== 'number' || !Number.isSafeInteger(value)) throw new Error('Choose an available output display.');
       const display = screen.getAllDisplays().find(item => item.id === value);
       if (!display || display.id === screen.getPrimaryDisplay().id) throw new Error('Choose a separate output display.');
-      if (config.demoDisplay === fingerprint(display)) throw new Error('Choose a different display from the demo.');
-      config.display = fingerprint(display);
+      if (savedDisplay('demo')?.id === display.id) throw new Error('Choose a different display from the demo.');
+      rememberDisplay('output', display);
     }
     try { await persist(); }
     catch (error) {
-      if (previous === undefined) delete config.display;
-      else config.display = previous;
+      Object.assign(config, previous);
+      if (previous.display === undefined) delete config.display;
+      if (previous.displayId === undefined) delete config.displayId;
       throw error;
     }
   });
   handle('presentation:set-demo-display', async (_event, value) => {
-    const previous = config.demoDisplay;
-    if (value === null) delete config.demoDisplay;
+    const previous = { demoDisplay: config.demoDisplay, demoDisplayId: config.demoDisplayId };
+    if (value === null) { delete config.demoDisplay; delete config.demoDisplayId; }
     else {
       if (typeof value !== 'number' || !Number.isSafeInteger(value)) throw new Error('Choose an available demo display.');
       const display = screen.getAllDisplays().find(item => item.id === value);
-      if (!display || display.id === screen.getPrimaryDisplay().id || config.display === fingerprint(display)) {
+      if (!display || display.id === screen.getPrimaryDisplay().id || savedDisplay('output')?.id === display.id) {
         throw new Error('Choose a demo display separate from the presenter and prompter.');
       }
-      config.demoDisplay = fingerprint(display);
+      rememberDisplay('demo', display);
     }
     try { await persist(); }
     catch (error) {
-      if (previous === undefined) delete config.demoDisplay;
-      else config.demoDisplay = previous;
+      Object.assign(config, previous);
+      if (previous.demoDisplay === undefined) delete config.demoDisplay;
+      if (previous.demoDisplayId === undefined) delete config.demoDisplayId;
       throw error;
     }
   });
@@ -368,7 +388,8 @@ export function installElgato(
         && JSON.stringify(script.runs) === JSON.stringify(runs)
         && JSON.stringify(script.visuals) === JSON.stringify(scenes)
         && JSON.stringify(script.demo) === JSON.stringify(actions);
-      const matches = screen.getAllDisplays().filter(d => direct ? fingerprint(d) === config.display : d.id === v.displayId);
+      const matches = direct ? [savedDisplay('output')].filter((d): d is Electron.Display => !!d)
+        : screen.getAllDisplays().filter(d => d.id === v.displayId);
       if (matches.length !== 1) throw new Error(direct ? 'Set your output display once in Athena > Presentation and Stream Deck, then try Present again.' : 'Choose an available output display.');
       const display = matches[0]!;
       if (display.id === screen.getPrimaryDisplay().id) throw new Error('Choose a separate output display. Presenter controls stay on your primary display.');
@@ -385,7 +406,7 @@ export function installElgato(
       }
       const resumeProgress = sameScript
         ? state.presentation.progress : 0;
-      config.display = fingerprint(display);
+      rememberDisplay('output', display);
       config.noteId = v.noteId;
       await persist();
       trusted(event, !direct);
@@ -445,9 +466,11 @@ export function installElgato(
     if (!outputReady || !script?.demo?.length) throw new Error('Open a saved script with Turnaround demo cues first.');
     if (request.noteId !== script.noteId) throw new Error('The active presentation changed. Reopen the current script.');
     if (state.presentation.status === 'playing') throw new Error('Pause the prompter before opening the demo.');
-    const matches = screen.getAllDisplays().filter(display => request.displayId === null
-      ? fingerprint(display) === config.demoDisplay : display.id === request.displayId);
+    const matches = request.displayId === null
+      ? [savedDisplay('demo')].filter((d): d is Electron.Display => !!d)
+      : screen.getAllDisplays().filter(display => display.id === request.displayId);
     if (matches.length !== 1) throw new Error('Choose a demo display in Presentation and Stream Deck first.');
+    if (request.displayId !== null) { rememberDisplay('demo', matches[0]!); await persist(); }
     await demo.open(matches[0]!.id, state.presentation.displayId, script.demo);
   }, false);
   handle('presentation:visuals', async event => {
@@ -526,7 +549,9 @@ export function installElgato(
       if (!parsed || typeof parsed !== 'object') throw new Error('Invalid Stream Deck configuration.');
       const saved = parsed as Record<string, unknown>;
       config = { ...(typeof saved.display === 'string' ? { display: saved.display } : {}),
+        ...(Number.isSafeInteger(saved.displayId) ? { displayId: saved.displayId as number } : {}),
         ...(typeof saved.demoDisplay === 'string' ? { demoDisplay: saved.demoDisplay } : {}),
+        ...(Number.isSafeInteger(saved.demoDisplayId) ? { demoDisplayId: saved.demoDisplayId as number } : {}),
         ...(typeof saved.noteId === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(saved.noteId) ? { noteId: saved.noteId } : {}),
         ...(typeof saved.encryptedToken === 'string' ? { encryptedToken: saved.encryptedToken } : {}) };
       state.presentation.noteId = config.noteId ?? null;
