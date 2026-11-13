@@ -151,6 +151,10 @@ function durableBudget(t: TestContext, limit: number) {
       saved.status = saved.actual === null ? 'unknown' : 'known';
       return { rows: [{ id: values[0] }], rowCount: 1 };
     }
+    if (sql.includes('UPDATE agent_assignments SET tokens_reserved=GREATEST(tokens_reserved+$2,0)')) {
+      counters.tokens = Math.max(counters.tokens + Number(values[1]), 0);
+      return { rows: [], rowCount: 1 };
+    }
     throw new Error(`Unexpected budget query: ${sql}`);
   };
   t.mock.method(db, 'connect', async () => ({ query, release() {} }));
@@ -189,6 +193,7 @@ for (const api of ['chat', 'responses', 'bulk', 'stream'] as const) {
     await budget.run(async () => {
       await call();
       assert.equal([...budget.reservations.values()][0]!.actual, 12);
+      assert.equal(budget.counters.tokens, 12, 'known usage settles the conservative reservation down to the actual charge');
       await assert.rejects(call, /budget is exhausted/);
     });
     assert.equal(fetch.mock.callCount(), 1);
