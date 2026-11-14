@@ -3,7 +3,7 @@ import { env } from '../config/env.js';
 import { MS_PER_HOUR, MS_PER_MINUTE } from '../config/constants.js';
 import { ConflictError, IntegrationError, ValidationError } from '../types/errors.js';
 import { localClock } from '../jobs/schedule.js';
-import { deliveryColumns, draftColumns, event, transaction } from './store.js';
+import { blueskyRepeatBlocker, deliveryColumns, draftColumns, event, lastBlueskyPublication, transaction } from './store.js';
 import { PUBLISH_LIMITS, type Delivery, type Destination, type PublishingFeed, type FeedId, type FeedPolicy, type Draft } from './contracts.js';
 import { importPublishingHistory } from './legacyHistory.js';
 
@@ -116,12 +116,9 @@ export async function reserveDelivery(db: Pool, destination: Destination, accoun
     if (blocked) throw new PublicationDeferred(blocked);
     if (context.topicId) {
       if (destination === 'bluesky') {
-        const prior = (await c.query<Delivery>(`SELECT ${deliveryColumns} FROM publishing_deliveries WHERE destination='bluesky'
-          AND account=$2 AND status='sent' AND topic_id IN(SELECT id FROM publishing_topics WHERE
-          event_key=(SELECT event_key FROM publishing_topics WHERE id=$1))`, [context.topicId, account])).rows;
-        if (prior.length && (!context.distinctArgument || prior.some(d => now.getTime() - new Date(d.publishedAt!).getTime() < PUBLISH_LIMITS.sameTopicHours * MS_PER_HOUR))) {
-          throw new PublicationDeferred('Same-topic promotion needs a distinct argument and at least 24 hours.');
-        }
+        const blocker = blueskyRepeatBlocker({ destination, distinctArgument: context.distinctArgument === true },
+          await lastBlueskyPublication(c, context.topicId, account), now);
+        if (blocker) throw new PublicationDeferred(blocker);
       }
     }
     if (context.draftId) {

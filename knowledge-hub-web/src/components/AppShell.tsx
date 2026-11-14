@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Header } from '@carbon/react';
-import { Search, Menu, Tools, Idea, DocumentAdd, Time, WarningAlt } from '@carbon/icons-react';
+import { Search, Menu, Settings, Idea, DocumentAdd, Time, WarningAlt } from '@carbon/icons-react';
 import type { CarbonIconType } from '@carbon/icons-react';
 import type { NavAttention } from '../services/api';
 import { FloatingAIChat } from './FloatingAIChat';
@@ -122,7 +122,7 @@ export const AppShell: React.FC = () => {
     }
   }
   const menuGroups = menu === 'mobile'
-    ? [{ label: 'Main', items: PRIMARY_DESTINATIONS }, ...TOOL_GROUPS.map((group) => ({ ...group, label: `Tools / ${group.label}` }))]
+    ? [{ label: 'Main', items: PRIMARY_DESTINATIONS }, ...TOOL_GROUPS.map((group) => ({ ...group, label: `Tools and settings / ${group.label}` }))]
     : TOOL_GROUPS;
 
   return (
@@ -147,14 +147,14 @@ export const AppShell: React.FC = () => {
           <BackgroundWork />
           <button type="button" ref={narrow ? mobileRef : toolsRef}
             className={`kh-header__utility${tool || menu ? ' kh-header__utility--active' : ''}`}
-            title={narrow ? 'Navigation and Tools' : 'Tools'} aria-label={narrow ? 'Navigation and Tools' : 'Tools'}
+            title={narrow ? 'Navigation, tools and settings' : 'Tools and settings'} aria-label={narrow ? 'Navigation, tools and settings' : 'Tools and settings'}
             aria-haspopup="menu" aria-expanded={menu !== null} aria-controls={menu ? 'kh-navigation-menu' : undefined}
             onKeyDown={(event) => { menuKey(event, narrow ? 'mobile' : 'tools'); }}
             onClick={() => { setInitialFocus('first'); setMenu((value) => value ? null : narrow ? 'mobile' : 'tools'); }}>
-            {narrow ? <Menu size={20} /> : <Tools size={20} />}
+            {narrow ? <Menu size={20} /> : <Settings size={20} />}
           </button>
         </nav>
-        {menu && <NavigationMenu id="kh-navigation-menu" label={menu === 'mobile' ? 'Navigation and Tools' : 'Tools'}
+        {menu && <NavigationMenu id="kh-navigation-menu" label={menu === 'mobile' ? 'Navigation, tools and settings' : 'Tools and settings'}
           groups={menuGroups} selectedId={tool?.id ?? (menu === 'mobile' ? primary?.id : undefined)}
           attentionIds={[...(pendingTags.length > 0 ? ['tags'] : []), ...(newClusters ? ['think'] : []),
             ...(['discover', 'plan', 'build'] as const).filter((tab) => badgeCount(tab) > 0)]}

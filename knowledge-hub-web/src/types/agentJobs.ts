@@ -29,6 +29,7 @@ export interface AgentPlanStep { specialist: string; specialistName: string; rea
 
 export interface BackgroundWorkContext {
   panelOpen: boolean;
+  activeFilter?: 'all' | 'attention' | 'completed' | 'information';
   activeCount: number;
   unreadCount: number;
   incomplete: boolean;

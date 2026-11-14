@@ -161,6 +161,8 @@ test('background work context is bounded and keeps stable retrieval identities w
   assert.match(block, /00000000-0000-4000-8000-000000000045/);
   assert.equal(block.includes('NOT_ALLOWED'), false);
   assert.equal(backgroundWorkContextBlock(undefined), '');
+  assert.match(backgroundWorkContextBlock({ ...context, activeFilter: 'information' }), /"activeFilter":"information"/);
+  assert.throws(() => backgroundWorkContextBlock({ ...context, activeFilter: 'unknown' }), /Invalid updates filter/);
   assert.throws(() => backgroundWorkContextBlock({ ...context, unreadCount: -1 }), /Invalid background work/);
   assert.throws(() => backgroundWorkContextBlock({ ...context, items: Array(11).fill(context.items[0]) }), /Invalid background work/);
   assert.throws(() => backgroundWorkContextBlock({ ...context, items: [{ ...context.items[0], jobId: 'bad-id' }] }), /identifier/);

@@ -6,7 +6,7 @@ import { object, type JobRun } from '../jobs/contracts.js';
 import { runColumns } from '../jobs/store.js';
 import { destinationAccount, inWindow, slotBlock, spacingConflict } from './delivery.js';
 import { PUBLISH_LIMITS, type Delivery, type Draft, type PublishingFeed } from './contracts.js';
-import { deliveryColumns, draftColumns, event, feeds, transaction } from './store.js';
+import { blueskyRepeatBlocker, deliveryColumns, draftColumns, event, feeds, transaction } from './store.js';
 
 const LEAD_MINUTES = 15;
 const PLANNING_DAYS = 30;
@@ -25,12 +25,15 @@ export interface ScheduledPost {
   approved?: boolean;
   sources?: Array<{ id: string; title: string; url: string | null }>;
 }
-interface Candidate extends Draft { title: string; topicState: string; scheduledAt: string | null; scheduleReason: string | null }
+interface Candidate extends Draft { title: string; topicState: string; scheduledAt: string | null; scheduleReason: string | null; lastBlueskyPublishedAt?: string | null }
 interface Booking { draftId: string; destination: Draft['destination']; account: string; at: Date }
 const scheduleCandidates = `SELECT ${draftColumns.split(',').map(column => {
   const trimmed = column.trim();
   return `d.${trimmed}`;
-}).join(',')},t.title,t.state AS "topicState",s.scheduled_at::text AS "scheduledAt",s.reason AS "scheduleReason"
+}).join(',')},t.title,t.state AS "topicState",s.scheduled_at::text AS "scheduledAt",s.reason AS "scheduleReason",
+  (SELECT MAX(p.published_at)::text FROM publishing_deliveries p JOIN publishing_topics prior ON prior.id=p.topic_id
+    WHERE p.destination='bluesky' AND p.account=d.content->>'account' AND p.status='sent'
+      AND prior.event_key=t.event_key) AS "lastBlueskyPublishedAt"
   FROM publishing_drafts d JOIN publishing_topics t ON t.id=d.topic_id
   LEFT JOIN publishing_schedule s ON s.draft_id=d.id AND s.version=d.version`;
 
@@ -121,7 +124,7 @@ export function planSchedule(candidates: Candidate[], settings: PublishingFeed[]
   }
   for (const draft of ordered) {
     const feed = feedFor(draft, settings);
-    let reason = readiness(draft);
+    let reason = readiness(draft) ?? blueskyRepeatBlocker(draft, draft.lastBlueskyPublishedAt ?? null);
     if (!reason && draft.variant === 'source' && candidates.some(d => d.topicId === draft.topicId && d.destination === 'blog')) {
       reason = 'Source promotion is superseded by the blog package.';
     }
@@ -136,10 +139,11 @@ export function planSchedule(candidates: Candidate[], settings: PublishingFeed[]
     const blog = pair.find(d => d.destination === 'blog');
     const publishedBlog = history.find(d => d.draftId === blog?.id && d.version === blog?.version && d.destination === 'blog' && d.status === 'sent' && d.receipt?.verifiedAt);
     const blogPlan = blog ? planned.get(blog.id) : undefined;
-    let dependency = 0;
+    let dependency = draft.destination === 'bluesky' && draft.lastBlueskyPublishedAt
+      ? Date.parse(draft.lastBlueskyPublishedAt) + PUBLISH_LIMITS.sameTopicHours * MS_PER_HOUR : 0;
     if (!reason && draft.variant === 'blog' && draft.destination !== 'blog' && !publishedBlog) {
       if (!blogPlan?.scheduledAt) reason = 'Waiting for the blog to be scheduled and its public URL verified.';
-      else dependency = Date.parse(blogPlan.scheduledAt) + LEAD;
+      else dependency = Math.max(dependency, Date.parse(blogPlan.scheduledAt) + LEAD);
     }
     if (!reason && draft.variant === 'blog' && draft.destination === 'bluesky') {
       const linkedin = pair.find(d => d.destination === 'linkedin');
@@ -165,18 +169,18 @@ export function planSchedule(candidates: Candidate[], settings: PublishingFeed[]
       const fits = (spaced: boolean) => (time: Date): boolean => time < until && inWindow(feed.policy, time) && available(draft, time, spaced)
         && (draft.destination !== 'blog' || (hook !== undefined
           && inWindow(feed.policy, new Date(time.getTime() + LEAD)) && available(hook, new Date(time.getTime() + LEAD), spaced)));
-      at = overdue ? prior : options.find(fits(true)) ?? options.find(fits(false));
+      at = overdue && due ? prior : due && fits(false)(prior) ? prior : options.find(fits(true)) ?? options.find(fits(false));
       const effectiveAt = at && new Date(Math.max(at.getTime(), now.getTime(), dependency,
         retry?.nextAttemptAt ? Date.parse(retry.nextAttemptAt) : 0));
       const canReserve = effectiveAt !== undefined && inWindow(feed.policy, effectiveAt) && available(draft, effectiveAt, false);
-      if (overdue) reason = 'Overdue; sends at the next delivery check.';
+      if (at && at.getTime() <= now.getTime()) reason = 'Overdue; sends at the next delivery check.';
       if (!at) reason = 'No slot in the next 30 days fits the publishing window and package dependencies. Adjust the publishing window or resolve earlier queued items, then refresh. This draft remains queued.';
       else if (canReserve) {
         const reservation = bookings.find(b => b.draftId === draft.id);
-        if (reservation) reservation.at = effectiveAt;
-        else bookings.push({ draftId: draft.id, destination: draft.destination, account: String(draft.content.account), at: effectiveAt });
+        if (reservation) reservation.at = at;
+        else bookings.push({ draftId: draft.id, destination: draft.destination, account: String(draft.content.account), at });
         if (draft.destination === 'blog' && hook) bookings.push({
-          draftId: hook.id, destination: 'linkedin', account: String(hook.content.account), at: new Date(effectiveAt.getTime() + LEAD),
+          draftId: hook.id, destination: 'linkedin', account: String(hook.content.account), at: new Date(at.getTime() + LEAD),
         });
       }
     }
@@ -228,13 +232,14 @@ export async function listSchedule(db: Pool, includeDrafts = false): Promise<Sch
   return candidates.filter(d => d.approval !== 'rejected' && (d.topicState !== 'rejected' || d.approval === 'approved')
     && (includeDrafts || d.approval === 'approved') && !completed(d, history)).map(d => {
     const feed = feedFor(d, settings);
-    const blocker = readiness(d) ?? packageBlocker(d, candidates);
+    const blocker = readiness(d) ?? packageBlocker(d, candidates) ?? blueskyRepeatBlocker(d, d.lastBlueskyPublishedAt ?? null);
     return { draftId: d.id, topicId: d.topicId, title: String(d.content.title ?? d.title), destination: d.destination,
       version: d.version, scheduledAt: blocker || !d.scheduledAt ? null : new Date(d.scheduledAt).toISOString(), timezone: feed.policy.timezone,
       paused: !feed.enabled, reason: blocker ?? d.scheduleReason ?? 'Refresh the schedule to assign a slot.',
+      ...(blocker && { status: 'Blocked' }),
       ...(includeDrafts && { origin: 'Discover', approved: d.approval === 'approved', status: d.approval === 'rejected' ? 'Rejected' : d.held ? 'Held'
         : d.review !== 'pass' ? `Review: ${d.review}` : d.approval !== 'approved' ? 'Awaiting approval'
-          : !d.scheduledAt ? 'Needs scheduling' : 'Scheduled',
+          : blocker ? 'Blocked' : !d.scheduledAt ? 'Needs scheduling' : 'Scheduled',
       sources: sources.filter(s => s.topicId === d.topicId).map(({ id, title, url }) => ({ id, title, url })) }) };
   }).sort((a, b) => (a.scheduledAt ?? 'z').localeCompare(b.scheduledAt ?? 'z'));
 }

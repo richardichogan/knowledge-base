@@ -198,6 +198,16 @@ flex content region below it. Primary destinations are in the header; secondary
 tools live in a menu. Do not invent a permanent sidebar simply because an old
 `--sidebar-width` variable exists.
 
+The header bell opens **Updates**; the cog opens **Tools and settings**, retaining
+the existing tool destinations. Updates use green checks for completed work, red
+error icons for failures, yellow warnings for work needing attention, teal progress
+icons for active work and blue information icons for explicitly informational events.
+Keep one Updates trigger with state-specific counts and the **All**, **Needs attention**,
+**Completed** and **Information** filters inside its panel. Do not relabel job
+completions as informational events; Information remains empty until one is published.
+Every filter shows a single flat list in descending date/time order, without
+group headings or unread-first reordering. Import activity appears in that same list.
+
 Use 4/8/12/16/24px spacing as the working rhythm. Controls are normally **36px**
 high, or **32px** in compact contexts. Header navigation has at least **44px**
 targets; tool-menu rows have at least **48px** height.

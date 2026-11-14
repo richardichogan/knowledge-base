@@ -330,6 +330,14 @@ Explicit approval of the exact publishing draft version takes precedence over
 archiving or shelving its Discover source. Filing the source is not cancellation
 of an approved post; pause or hold publishing, or revoke its approval, to stop it.
 Held items do not reserve account capacity or displace eligible posts.
+Bluesky same-topic duplicate protection also runs before draft approval and
+schedule assignment, including older manual/legacy deliveries and related topics
+sharing the same event identity. A repeat without a distinct argument is blocked
+and receives no slot; a distinct follow-up must be scheduled at least 24 hours
+after the previous post. Inspection exposes the blocker rather than promising
+delivery at the next check. Existing valid approved slots are not moved to satisfy
+spacing preferences, and overdue items reserve their original time rather than
+a moving reservation at the current time.
 Automatic low-value shelving, like age-based archiving, excludes parked articles
 and sources of live publishing topics (pending, assessing, ready or held).
 Discover evaluates short-social suitability independently of long-form depth.

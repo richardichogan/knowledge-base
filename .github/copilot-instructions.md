@@ -68,6 +68,7 @@ Path-specific rules live in `.github/instructions/*.instructions.md` (each scope
 ## Code Changes
 
 - Follow the user's specification, including data source and workflow, without substituting a different implementation. Athena content in local development uses the production database: real drafts and approvals must work against shared production data, not an isolated snapshot or synthetic preview. Keep local automatic delivery disabled; do not disable requested editing or scheduling just because the application is running in development.
+- Development against production data uses the same real Microsoft sign-in and owner identity as production, never `dev-user` or an auth bypass. Preserve production behaviour except for the explicitly requested feature; keep automatic local scheduling/delivery disabled.
 - Always run `tsc --noEmit` after changes to both `knowledge-hub-web` and `knowledge-hub-backend` before declaring work done.
 - Never deploy to production without an explicit instruction from the user to do so.
 

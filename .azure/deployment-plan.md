@@ -1,8 +1,52 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Workforce walkthrough and reset release (2026-11-13, current):**
+**Publishing scheduler and Updates release (2026-11-14, current):**
+- User requested deployment of the completed changes. Reuse the existing AZCLI
+  application-only targets: kh-prod-api-vnet, cad79107555facr and kh-prod-web in
+  rg-knowledge-hub-prod / Alliance Tenant Reporting. No infrastructure, region,
+  production identity, credentials, RBAC or worker configuration changes.
+- Block same-event Bluesky duplicates before approval and scheduling, preserve
+  valid approved times, and prevent overdue reservations moving with the clock.
+  Expose the real blocker instead of promising another delivery check.
+- Header bell opens the flat, newest-first Updates panel with state colours and
+  filters; the cog retains the full Tools and settings menu. Explicit information
+  events are supported without relabelling completed jobs.
+- Local development uses the production sign-in identity and shared database;
+  automatic scheduling/delivery remains disabled locally.
+- All validation checks pass:
+  - [x] Core validation: origin/main sync, both package typechecks, existing full
+    backend/frontend release suites once, and directly affected regressions.
+  - [x] Build verification: local backend/frontend production builds passed.
+    Existing Node 22 Dockerfile and lockfile are present; ACR remote build must
+    succeed before updating the production container image.
+  - [x] Policy/static role validation: no new infrastructure or roles; preserve
+    registry-secret authentication and ingress port 3000.
+
+**Section 7: Validation Proof - Publishing scheduler and Updates release:**
+- Validation completed through azure-validate on 2026-11-14, approximately
+  08:10 UTC. `git fetch origin` and `git merge origin/main --no-edit` confirmed
+  the worktree is current. Both `npx tsc --noEmit` checks passed.
+- `npm run test:isolated` ran once in each package: backend reported 1,077
+  passed, zero failed; frontend groups reported 391 passed, zero failed.
+  The new old-legacy-duplicate, Friday-slot-stability, distinct-follow-up-cooldown
+  and real-development-identity regressions explicitly passed in the full output.
+- Backend `npm run build` and frontend `npm run build` passed; frontend
+  transformed 2,917 modules. No Desktop files changed; no Desktop release needed.
+- A read-only call to `listSchedule` against the shared database confirmed the
+  real Entra duplicate has no exposed slot and reports Blocked / already posted.
+  No manual send, approval change or live schedule rewrite was performed.
+- Azure CLI confirmed subscription c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28,
+  existing backend image v351 / ingress 3000, and the existing SWA hostname.
+  Policy lookup including inherited assignments returned zero applicable
+  assignments. Registry authentication remains secret-based, not managed identity.
+- The existing app registration includes http://localhost:5173/signin; no Entra
+  configuration changes were needed. Local backend startup confirms database
+  readiness and disabled automatic scheduling; interactive identity parity still
+  depends on signing in with the production account.
+
+**Workforce walkthrough and reset release (2026-11-13, previous):**
 - User requested full operating/testing documentation, shutdown of the local
   dev environment, merge/push and deployment. Publish compatible Desktop 0.1.25
   for the locator/reset fixes; do not restart installed Athena automatically.

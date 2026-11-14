@@ -1337,6 +1337,31 @@ test('a queued source post is superseded by the blog and a sent one needs a dist
     await reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', { ...context(later), distinctArgument: true });
   } finally { await f.close(); }
 });
+test('old same-event Bluesky deliveries block approval and scheduling before delivery is attempted', async () => {
+  const f = await publishingFixture();
+  try {
+    const original = await topic(f.db);
+    const repeat = await topic(f.db);
+    await f.db.query('UPDATE publishing_topics SET event_key=$2 WHERE id=$1', [repeat.id, original.eventKey]);
+    const blue = await draft(f.db, repeat.id);
+    await f.db.query('DELETE FROM publishing_schedule WHERE draft_id=$1', [blue.id]);
+    await f.db.query("UPDATE publishing_drafts SET approval='pending' WHERE id=$1", [blue.id]);
+    await f.db.query(`INSERT INTO publishing_deliveries(identity,destination,topic_id,account,status,attempted_at,published_at)
+      VALUES('legacy-prior','bluesky',$1,'fixture.bsky.social','sent',NOW()-INTERVAL '5 days',NOW()-INTERVAL '5 days')`, [original.id]);
+    await assert.rejects(store.decideDraft(f.db, blue.id, blue.version, 'approve', 'human', ''), /already been posted/);
+    assert.equal((await f.db.query("SELECT approval FROM publishing_drafts WHERE id=$1", [blue.id])).rows[0]!.approval, 'pending');
+    assert.equal((await f.db.query("SELECT approved_at FROM publishing_versions WHERE draft_id=$1", [blue.id])).rows[0]!.approved_at, null);
+    await f.db.query("UPDATE publishing_drafts SET approval='approved' WHERE id=$1", [blue.id]);
+    await f.db.query("INSERT INTO publishing_schedule(draft_id,version,scheduled_at) VALUES($1,$2,NOW()-INTERVAL '1 day')", [blue.id, blue.version]);
+    const before = (await listSchedule(f.db, true)).find(post => post.draftId === blue.id)!;
+    assert.equal(before.status, 'Blocked', 'inspection must not repeat the stale overdue promise');
+    assert.equal(before.scheduledAt, null);
+    assert.match(before.reason, /already been posted/);
+    await refreshSchedule(f.db);
+    assert.equal((await f.db.query('SELECT scheduled_at FROM publishing_schedule WHERE draft_id=$1', [blue.id])).rows[0]!.scheduled_at, null);
+    assert.equal((await f.db.query('SELECT * FROM publishing_deliveries')).rowCount, 1, 'planning must not send anything');
+  } finally { await f.close(); }
+});
 test('public blog verification rejects missing, preview and unrelated pages; no publication is faked', async () => {
   const good = async () => ({ title: blog.title, text: prose });
   assert.ok((await verifyBlog('https://blog.fixture.invalid/article', blog, good)).verifiedAt);
@@ -1608,6 +1633,42 @@ test('held drafts do not reserve slots and overdue commitments are not silently 
     assert.equal(plan.find(post => post.draftId !== blue.id)!.scheduledAt,
       planSchedule([{ ...candidate, id: 'other', scheduledAt: null }], settings, [], now)[0]!.scheduledAt,
       'A blocked source must not consume the next available slot');
+  } finally { await f.close(); }
+});
+test('duplicate and overdue posts cannot push approved Friday slots into Monday', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db);
+    const blue = await draft(f.db, t.id);
+    const settings = await store.feeds(f.db);
+    const candidate = { ...blue, title: 'Fixture', topicState: 'ready', scheduleReason: null,
+      scheduledAt: '2026-11-13T12:00:00Z', lastBlueskyPublishedAt: '2026-11-09T14:38:34Z' };
+    const eligible = { ...candidate, id: randomUUID(), topicId: randomUUID(),
+      scheduledAt: '2026-11-13T14:00:00Z', lastBlueskyPublishedAt: null };
+    for (const at of ['2026-11-13T12:00:44Z', '2026-11-13T14:00:50Z', '2026-11-13T16:00:35Z']) {
+      const plan = planSchedule([candidate, eligible], settings, [], new Date(at));
+      assert.equal(plan.find(post => post.draftId === candidate.id)!.scheduledAt, null);
+      assert.equal(plan.find(post => post.draftId === eligible.id)!.scheduledAt, '2026-11-13T14:00:00.000Z');
+    }
+    const now = new Date('2026-11-13T12:00:44Z');
+    const unscheduled = { ...eligible, scheduledAt: null };
+    const baseline = planSchedule([unscheduled], settings, [], now)[0]!.scheduledAt;
+    const withOverdue = planSchedule([{ ...candidate, lastBlueskyPublishedAt: null, scheduledAt: '2026-11-13T08:00:00Z' },
+      unscheduled], settings, [], now);
+    assert.equal(withOverdue.find(post => post.draftId === eligible.id)!.scheduledAt, baseline,
+      'a genuine overdue post reserves its saved time, not a moving slot at now');
+  } finally { await f.close(); }
+});
+test('a distinct Bluesky follow-up is scheduled after the same-topic cooldown', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db);
+    const blue = await draft(f.db, t.id);
+    const settings = await store.feeds(f.db);
+    const candidate = { ...blue, distinctArgument: true, title: 'Distinct follow-up', topicState: 'ready', scheduleReason: null,
+      scheduledAt: '2026-11-13T10:00:00Z', lastBlueskyPublishedAt: '2026-11-12T12:00:00Z' };
+    const post = planSchedule([candidate], settings, [], new Date('2026-11-13T10:01:00Z'))[0]!;
+    assert.equal(post.scheduledAt, '2026-11-13T12:00:00.000Z');
   } finally { await f.close(); }
 });
 

@@ -59,6 +59,7 @@ export interface ChatPageContext {
 
 export interface BackgroundWorkContext {
   panelOpen: boolean;
+  activeFilter?: 'all' | 'attention' | 'completed' | 'information';
   activeCount: number;
   unreadCount: number;
   incomplete: boolean;

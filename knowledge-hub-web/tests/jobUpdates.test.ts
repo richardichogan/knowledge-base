@@ -47,4 +47,13 @@ test('job results persist unread, acknowledge selectively and follow cross-tab u
   announce('three');
   second.refresh();
   assert.equal(second.api.useJobUpdates().filter(update => !update.seen).length, 1, 'late arrivals remain visible');
+  first.api.announceAthenaJob({
+    id: 'information', always: true, ok: true, kind: 'information',
+    title: 'Athena information', body: 'A new informational update', url: '/think', tag: 'information', startedAt: Date.now(),
+  });
+  second.refresh();
+  assert.equal(second.api.useJobUpdates().find(update => update.id === 'information')?.kind, 'information',
+    'explicit information events retain their category across tabs');
+  assert.equal(second.api.useJobUpdates().find(update => update.id === 'three')?.kind, undefined,
+    'existing completions are not relabelled as information');
 });

@@ -4,6 +4,7 @@ import type { Pool, PoolClient } from 'pg';
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
 import { cleanUrl } from '../integrations/discovery/feedReader.js';
 import { microsoftRelevanceSql } from '../utils/microsoftRelevance.js';
+import { MS_PER_HOUR } from '../config/constants.js';
 import { parsePolicy, PUBLISH_LIMITS, type PublishingFeed, type Topic, type Source, type Draft, type Delivery, type FeedId } from './contracts.js';
 
 export const topicColumns = `id,title,fingerprint,event_key AS "eventKey",rationale,priority,state,error,created_at::text AS "createdAt",assessed_at::text AS "assessedAt"`;
@@ -13,6 +14,23 @@ export const draftColumns = `id,topic_id AS "topicId",destination,variant,versio
   reviewed_blog_version AS "reviewedBlogVersion",reviewed_feed_revision AS "reviewedFeedRevision"`;
 export const deliveryColumns = `id,identity,destination,topic_id AS "topicId",draft_id AS "draftId",version,account,status,
   attempted_at::text AS "attemptedAt",published_at::text AS "publishedAt",next_attempt_at::text AS "nextAttemptAt",attempts,receipt,error`;
+
+export async function lastBlueskyPublication(db: Pool | PoolClient, topicId: string, account: string): Promise<string | null> {
+  const result = await db.query<{ publishedAt: string | null }>(`SELECT MAX(p.published_at)::text AS "publishedAt"
+    FROM publishing_deliveries p JOIN publishing_topics t ON t.id=p.topic_id
+    WHERE p.destination='bluesky' AND p.account=$2 AND p.status='sent'
+      AND t.event_key=(SELECT event_key FROM publishing_topics WHERE id=$1)`, [topicId, account]);
+  return result.rows[0]?.publishedAt ?? null;
+}
+export function blueskyRepeatBlocker(draft: Pick<Draft, 'destination' | 'distinctArgument'>,
+  publishedAt: string | null, at?: Date): string | null {
+  if (draft.destination !== 'bluesky' || !publishedAt) return null;
+  if (!draft.distinctArgument) return 'This topic has already been posted to Bluesky. A repeat needs a distinct argument before it can be scheduled.';
+  if (at && at.getTime() - Date.parse(publishedAt) < PUBLISH_LIMITS.sameTopicHours * MS_PER_HOUR) {
+    return 'Same-topic promotion needs at least 24 hours after the previous Bluesky post.';
+  }
+  return null;
+}
 
 const YOUTUBE_URL = String.raw`^https?://([^/]+\.)?(youtube\.com|youtu\.be|youtube-nocookie\.com)([/:?#]|$)`;
 export function writtenPublishingSourcesSql(topicId: string): string {
@@ -189,7 +207,13 @@ export async function decideDraft(db: Pool, id: string, version: unknown, action
     const d = (await c.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts WHERE id=$1 FOR UPDATE`, [id])).rows[0];
     if (!d) throw new NotFoundError('Publishing draft');
     if (d.version !== version) throw new ConflictError('Draft changed. Review the current version.', 'PUBLISHING_CONFLICT');
-    if (action === 'approve') assertApprovable(d);
+    if (action === 'approve' || action === 'resume') {
+      if (action === 'approve') assertApprovable(d);
+      if (d.destination === 'bluesky') {
+        const blocker = blueskyRepeatBlocker(d, await lastBlueskyPublication(c, d.topicId, String(d.content.account)));
+        if (blocker) throw new ValidationError(blocker);
+      }
+    }
     await c.query(`UPDATE publishing_drafts SET approval=$2,held=$3,reason=$4,updated_at=NOW() WHERE id=$1`,
       [id, action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : d.approval, action === 'hold' || action === 'reject', reason]);
     if (action === 'approve') await c.query('UPDATE publishing_versions SET approved_by=$3,approved_at=NOW() WHERE draft_id=$1 AND version=$2', [id, version, actor]);

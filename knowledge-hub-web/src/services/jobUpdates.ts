@@ -1,11 +1,11 @@
 /**
- * Job updates — finished or failed background work is recorded here and surfaced only through the Background work
+ * Job updates — finished or failed background work and explicitly informational events are surfaced through the Updates
  * toolbar: a persistent unread pill and a list in its panel. No popup, chime or desktop notification. Shared across tabs.
  */
 import { useSyncExternalStore } from 'react';
 import { LONG_PROMPT_MS } from '../chat/completionNotification';
 
-export interface JobUpdate { id: string; ok: boolean; title: string; body: string; url: string; tag: string; at: string; seen: boolean }
+export interface JobUpdate { id: string; ok: boolean; kind?: 'information'; title: string; body: string; url: string; tag: string; at: string; seen: boolean }
 
 const STORAGE_KEY = 'athena-job-updates';
 const LIMIT = 30;
@@ -31,11 +31,11 @@ if (typeof window !== 'undefined') {
 }
 
 /** Records finished background work for the cog. Jobs shorter than 30s are not recorded unless `always` is set. */
-export function announceAthenaJob(input: { ok: boolean; title: string; body: string; url: string; startedAt: number; tag: string; always?: boolean; id?: string }): void {
+export function announceAthenaJob(input: { ok: boolean; kind?: 'information'; title: string; body: string; url: string; startedAt: number; tag: string; always?: boolean; id?: string }): void {
   if (!input.always && Date.now() - input.startedAt <= LONG_PROMPT_MS) return;
   const id = input.id ?? crypto.randomUUID();
   if (updates.some(update => update.id === id)) return;
-  save([{ id, ok: input.ok, title: input.title, body: input.body, url: input.url, tag: input.tag, at: new Date().toISOString(), seen: false }, ...updates]);
+  save([{ id, ok: input.ok, ...(input.kind ? { kind: input.kind } : {}), title: input.title, body: input.body, url: input.url, tag: input.tag, at: new Date().toISOString(), seen: false }, ...updates]);
 }
 
 export function markJobUpdatesSeen(ids?: readonly string[]): void {

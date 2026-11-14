@@ -1,9 +1,9 @@
 /**
  * services/auth.ts — Microsoft sign-in (Entra ID, IBM Alliance tenant) via MSAL.
  *
- * Enabled when VITE_ENTRA_CLIENT_ID and VITE_ENTRA_TENANT_ID are set (the
- * production build). Without them (local dev) sign-in is skipped and API
- * calls go out without a token, as before.
+ * Enabled when VITE_ENTRA_CLIENT_ID and VITE_ENTRA_TENANT_ID are set, including
+ * local development against production data. Without them, sign-in is skipped;
+ * this is only appropriate for isolated local/test backends.
  */
 import {
   PublicClientApplication,

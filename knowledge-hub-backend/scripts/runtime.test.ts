@@ -12,6 +12,36 @@ import { createApp } from '../src/app.js';
 import { env } from '../src/config/env.js';
 import { startSyncScheduler, stopSyncScheduler } from '../src/sync/scheduler.js';
 import { INITIAL_SYNC_DELAY_MS } from '../src/config/constants.js';
+import jwt from 'jsonwebtoken';
+import { verifyBearerToken } from '../src/middleware/auth.js';
+
+test('development against production data requires the real identity even with SKIP_AUTH', async () => {
+  const nodeEnv = Object.getOwnPropertyDescriptor(env, 'NODE_ENV')!;
+  const databaseMode = Object.getOwnPropertyDescriptor(env, 'DATABASE_MODE')!;
+  const skipAuth = process.env.SKIP_AUTH;
+  let server: ReturnType<ReturnType<typeof createApp>['listen']> | undefined;
+  try {
+    Object.defineProperty(env, 'NODE_ENV', { value: 'development', configurable: true });
+    Object.defineProperty(env, 'DATABASE_MODE', { value: 'production', configurable: true });
+    process.env.SKIP_AUTH = 'true';
+    await assert.rejects(verifyBearerToken(undefined), /Missing access token/);
+    const token = jwt.sign({ sub: 'authenticated-owner' }, env.JWT_SECRET, { expiresIn: '1m' });
+    assert.equal(await verifyBearerToken(token), 'authenticated-owner');
+    server = createApp(() => 'ready').listen(0, '127.0.0.1');
+    await new Promise<void>(resolve => { server!.once('listening', resolve); });
+    const address = server.address();
+    assert.ok(address && typeof address !== 'string');
+    assert.equal((await fetch(`http://127.0.0.1:${address.port}/api/tasks`)).status, 401);
+    Object.defineProperty(env, 'DATABASE_MODE', { value: 'disposable', configurable: true });
+    assert.equal(await verifyBearerToken(undefined), 'dev-user');
+  } finally {
+    if (server) await new Promise<void>(resolve => { server!.close(() => { resolve(); }); });
+    Object.defineProperty(env, 'NODE_ENV', nodeEnv);
+    Object.defineProperty(env, 'DATABASE_MODE', databaseMode);
+    if (skipAuth === undefined) delete process.env.SKIP_AUTH;
+    else process.env.SKIP_AUTH = skipAuth;
+  }
+});
 
 test('liveness stays available while readiness reports startup/failure and becomes ready only explicitly', async () => {
   let phase: 'starting' | 'failed' | 'ready' | 'stopping' = 'starting';

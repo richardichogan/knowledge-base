@@ -23,6 +23,11 @@ function entraTenantId(): string | undefined {
   return env.ATHENA_AUTH_TENANT_ID ?? env.ALLIANCE_GRAPH_TENANT_ID;
 }
 
+function bypassAuthentication(): boolean {
+  if (env.NODE_ENV === 'development' && env.DATABASE_MODE === 'production') return false;
+  return env.NODE_ENV === 'development' || process.env.SKIP_AUTH === 'true';
+}
+
 let signingKeys = new Map<string, KeyObject>();
 let keysFetchedAt = 0;
 
@@ -97,8 +102,8 @@ export function authenticate(req: Request, _res: Response, next: NextFunction): 
     return next();
   }
 
-  // In development or when SKIP_AUTH is set, bypass JWT so the UI works without login
-  if (env.NODE_ENV === 'development' || process.env.SKIP_AUTH === 'true') {
+  // Shared production data must use the authenticated owner's identity, including locally.
+  if (bypassAuthentication()) {
     (req as AuthenticatedRequest).userId = 'dev-user';
     return next();
   }
@@ -123,7 +128,7 @@ export function authenticate(req: Request, _res: Response, next: NextFunction): 
 
 /** Same checks as `authenticate`, for connections that cannot pass through Express (the voice WebSocket). */
 export async function verifyBearerToken(token: string | undefined): Promise<string> {
-  if (env.NODE_ENV === 'development' || process.env.SKIP_AUTH === 'true') return 'dev-user';
+  if (bypassAuthentication()) return 'dev-user';
   if (token === undefined || token === '') throw new UnauthorisedError('Missing access token');
   try {
     const entraUser = await verifyEntraToken(token);
