@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Publishing scheduler and Updates release (2026-11-14, current):**
 - User requested deployment of the completed changes. Reuse the existing AZCLI
@@ -45,6 +45,19 @@
   configuration changes were needed. Local backend startup confirms database
   readiness and disabled automatic scheduling; interactive identity parity still
   depends on signing in with the production account.
+- Release source `54f65a30` was pushed to the session branch and main. ACR run
+  `cab2` built/pushed `kh-prod-api:v352` successfully at 08:15:33 UTC from main.
+  Revision `kh-prod-api-vnet--0000351` is Healthy / RunningAtMaxScale, latest-ready,
+  and receives 100% production traffic. Startup logs confirm migration completion,
+  pool warmed 8/8, production specialist worker and scheduler startup.
+- SWA production deployment succeeded. https://athena.themicrosoftcloudblog.com
+  serves `/assets/index-D-F35SHe.js` with HTTP 200 and matches the local build's
+  SHA-256 `7a283c9fb5cd9046a0f63abb939746b376d368863244992362c33fa4cc01b5f5`.
+  The existing system-assigned principal still has zero role assignments;
+  registry-secret authentication is unchanged.
+- At 08:17:21 UTC the production worker cleared the Entra duplicate's persisted
+  slot and recorded the actual already-posted blocker. Read-only verification
+  confirmed `scheduled_at IS NULL`; no manual resend or database patch was used.
 
 **Workforce walkthrough and reset release (2026-11-13, previous):**
 - User requested full operating/testing documentation, shutdown of the local
