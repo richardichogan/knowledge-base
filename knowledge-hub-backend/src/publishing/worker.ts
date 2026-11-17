@@ -9,7 +9,7 @@ import { articleProse, readPublicPage } from '../utils/articleReading.js';
 import { microsoftRelevanceSql } from '../utils/microsoftRelevance.js';
 import { assessTopic, editorialServices, readSources, reviewDraft, type EditorialServices } from './editorial.js';
 import { normalisePublishingBlogCategories } from './blogCategories.js';
-import { assertSocialOpportunity, BlogVerificationPending, deliver, destinationAccount, inWindow, PublicationDeferred, PublicationUnconfirmed, type DeliveryContext } from './delivery.js';
+import { BlogVerificationPending, deliver, destinationAccount, PublicationDeferred, PublicationUnconfirmed, type DeliveryContext } from './delivery.js';
 import { deliveryColumns, draftColumns, event, feeds, closeDeadPackages, holdTopic, intake, regenerateStoppedPackages, releaseTopic, listTopics, sourceColumns, topicColumns, transaction, writtenPublishingSourcesSql } from './store.js';
 import { PUBLISH_LIMITS, type Delivery, type Draft, type Source, type Topic } from './contracts.js';
 import { refreshSchedule } from './schedule.js';
@@ -128,12 +128,6 @@ export async function publishDraft(db: Pool, draft: Draft, services = publishing
   const account = draft.destination === 'linkedin' ? String(draft.content.account) : destinationAccount(draft.destination);
   const context = { identity: `draft:${draft.id}:v${draft.version}`, topicId: draft.topicId, draftId: draft.id, version: draft.version, feed, distinctArgument: draft.distinctArgument } as const;
   if (draft.destination === 'blog') {
-    // Check LinkedIn's opportunity before making the paired blog publicly visible.
-    const memberDraft = (await db.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts WHERE topic_id=$1 AND destination='linkedin'`, [draft.topicId])).rows[0];
-    if (!memberDraft) throw new PublicationDeferred('The LinkedIn hook is missing.');
-    const member = await services.member();
-    if (member.id !== memberDraft.content.account) throw new PublicationDeferred('LinkedIn account changed. Rebind and reapprove the hook.');
-    await assertSocialOpportunity(db, 'linkedin', member.id);
     await publishBlogWithVerification(db, account, context, normalisePublishingBlogCategories(draft.content), services);
     return;
   }
@@ -146,7 +140,6 @@ export async function publishDraft(db: Pool, draft: Draft, services = publishing
     if (!receipt?.verifiedAt || typeof receipt.url !== 'string') throw new PublicationDeferred('Waiting for the verified public blog URL.');
     url = receipt.url;
     title = String(blog.content.title);
-    await verifyBlogForPromotion(url, blog.content, services.read);
   } else {
     const source = (await db.query<Source>(`SELECT ${sourceColumns} FROM publishing_sources WHERE topic_id=$1 AND read_at IS NOT NULL ORDER BY url,discovered_at LIMIT 1`, [draft.topicId])).rows[0];
     if (!source) throw new PublicationDeferred('No fully read source is available.');
@@ -168,10 +161,13 @@ const AUTO_RETRY_LIMIT = 3;
 async function retryStoppedPackages(db: Pool): Promise<void> {
   const stopped = (await db.query<{ id: string }>(`SELECT t.id FROM publishing_topics t WHERE t.state='held' AND t.error IS NOT NULL
     AND EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=t.id)
-    AND NOT EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=t.id AND approval<>'pending')
+    AND NOT EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=t.id AND approval='rejected')
+    AND NOT EXISTS(SELECT 1 FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id AND d.version=s.version
+      WHERE d.topic_id=t.id AND s.scheduled_at IS NOT NULL)
+    AND NOT EXISTS(SELECT 1 FROM publishing_deliveries WHERE topic_id=t.id)
     AND (SELECT COUNT(*) FROM publishing_events e WHERE e.topic_id=t.id AND e.event='topic-retried' AND e.actor='publishing-auto-retry')<$1
     AND EXISTS(SELECT 1 FROM (SELECT event,actor,created_at FROM publishing_events WHERE topic_id=t.id
-      AND event IN ('topic-held','topic-rejected','topic-retried','draft-refresh-error','draft-recovery-error') ORDER BY id DESC LIMIT 1) last
+      AND event IN ('topic-held','topic-rejected','topic-retried','draft-hold','draft-reject','draft-resume','cold-drafts-held','draft-refresh-error','draft-recovery-error') ORDER BY id DESC LIMIT 1) last
       WHERE (last.event IN ('draft-refresh-error','draft-recovery-error') OR (last.event='topic-held' AND last.actor IN ('review-worker','editorial-worker')))
         AND last.created_at<NOW()-INTERVAL '30 minutes') ORDER BY t.created_at DESC LIMIT 20`, [AUTO_RETRY_LIMIT])).rows;
   for (const topic of stopped) if (await releaseTopic(db, topic.id, 'publishing-auto-retry')) break;
@@ -217,25 +213,27 @@ export async function tickPublishing(db: Pool, editorial: EditorialServices = ed
         await holdTopic(db, topic.id, false, 'editorial-worker', message);
       } finally { await db.query('UPDATE publishing_topics SET lease=NULL,lease_until=NULL WHERE id=$1 AND lease=$2', [topic.id, lease]); }
     }
-    const review = (await db.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts WHERE review='pending' AND NOT held
+    const review = (await db.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts WHERE review='pending' AND NOT held AND approval='pending'
       AND ${writtenPublishingSourcesSql('publishing_drafts.topic_id')}
-      AND topic_id IN(SELECT id FROM publishing_topics WHERE state='ready') ORDER BY updated_at LIMIT 1`)).rows[0];
+      AND NOT EXISTS(SELECT 1 FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id AND d.version=s.version
+        WHERE d.topic_id=publishing_drafts.topic_id AND s.scheduled_at IS NOT NULL)
+      AND (variant='source' OR destination='blog' OR EXISTS(SELECT 1 FROM publishing_drafts blog
+        WHERE blog.topic_id=publishing_drafts.topic_id AND blog.destination='blog' AND blog.review='pass'))
+      AND topic_id IN(SELECT id FROM publishing_topics WHERE state='ready')
+      ORDER BY CASE destination WHEN 'blog' THEN 0 WHEN 'linkedin' THEN 1 ELSE 2 END,updated_at LIMIT 1`)).rows[0];
     if (review) {
       const delivered = await db.query("SELECT id FROM publishing_deliveries WHERE draft_id=$1 AND status IN ('sent','sending','unconfirmed')", [review.id]);
-      try { await reviewDraft(db, review, await readSources(db, review.topicId, editorial), editorial, !delivered.rowCount); }
+      try { await reviewDraft(db, review, await readSources(db, review.topicId, editorial), editorial, !delivered.rowCount, true); }
       catch (error) { await holdTopic(db, review.topicId, false, 'review-worker', error instanceof Error ? error.message : 'Review failed'); console.error('[Publishing] Review failed:', error); }
     }
     await refreshSchedule(db);
     const settings = await feeds(db);
-    const enabled = settings.filter(f => f.enabled && inWindow(f.policy, new Date())).map(f => f.id);
+    const enabled = settings.filter(f => f.enabled).map(f => f.id);
     if (!enabled.length) return;
     const queue = (await db.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts d
-      WHERE NOT held AND approval='approved' AND review='pass'
+      WHERE NOT held AND approval='approved'
       AND EXISTS(SELECT 1 FROM publishing_schedule s WHERE s.draft_id=d.id AND s.version=d.version AND s.scheduled_at<=NOW())
       AND ((destination='bluesky' AND $1) OR (destination<>'bluesky' AND $2))
-      AND topic_id IN(SELECT id FROM publishing_topics WHERE state='ready')
-      AND (variant='source' OR NOT EXISTS(SELECT 1 FROM publishing_drafts required WHERE required.topic_id=d.topic_id
-        AND required.destination IN ('blog','linkedin') AND (required.approval<>'approved' OR required.held OR required.review<>'pass')))
       AND NOT EXISTS(SELECT 1 FROM publishing_deliveries p WHERE p.draft_id=d.id AND p.version=d.version AND p.status IN ('sent','sending','unconfirmed'))
       ORDER BY (SELECT scheduled_at FROM publishing_schedule WHERE draft_id=d.id),created_at LIMIT 20`,
     [enabled.includes('bluesky'), enabled.includes('blog-linkedin')])).rows;

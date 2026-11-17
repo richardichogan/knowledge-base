@@ -63,7 +63,7 @@ export async function reserveDelivery(db: Pool, destination: Destination, accoun
     if (context.feed) {
       const feed = settings.find(f => f.id === context.feed);
       if (!feed?.enabled) throw new PublicationDeferred('Posting automation is off for this feed.');
-      if (!context.independentSchedule && !inWindow(feed.policy, now)) throw new PublicationDeferred('Outside the configured publishing window.');
+      if (!context.draftId && !context.independentSchedule && !inWindow(feed.policy, now)) throw new PublicationDeferred('Outside the configured publishing window.');
     }
     await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`athena-publish:${destination}:${account}`]);
     const existing = (await c.query<Delivery>(`SELECT ${deliveryColumns} FROM publishing_deliveries WHERE identity=$1 AND destination=$2 FOR UPDATE`, [context.identity, destination])).rows[0];
@@ -74,7 +74,7 @@ export async function reserveDelivery(db: Pool, destination: Destination, accoun
     }
     if (context.topicId) {
       const topic = await c.query<{ state: string }>('SELECT state FROM publishing_topics WHERE id=$1 FOR NO KEY UPDATE', [context.topicId]);
-      if (!topic.rows[0] || topic.rows[0].state !== 'ready') throw new PublicationDeferred('Topic is held, rejected or not ready.');
+      if (!topic.rows[0] || ['held', 'rejected'].includes(topic.rows[0].state)) throw new PublicationDeferred('Topic is held or rejected.');
     }
     if (context.draftId) {
       const topicDrafts = (await c.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts WHERE topic_id=$1 ORDER BY id FOR UPDATE`, [context.topicId])).rows;
@@ -85,24 +85,15 @@ export async function reserveDelivery(db: Pool, destination: Destination, accoun
           WHERE s.topic_id=$1 AND c.workflow_state IN ('archived','shelved') LIMIT 1`, [context.topicId]);
         if (withdrawn.rowCount) throw new PublicationDeferred('Source material was archived or shelved after selection.');
       }
-      const required = draft.variant === 'blog' ? topicDrafts.filter(d => d.destination === 'blog' || d.destination === 'linkedin') : [];
-      if (draft.variant === 'blog' && required.length !== PUBLISH_LIMITS.packageDestinations) throw new PublicationDeferred('Blog and LinkedIn drafts are both required.');
-      for (const candidate of [draft, ...required]) {
-        if (candidate.held || candidate.approval === 'rejected' || candidate.review !== 'pass' || !candidate.reviewedAt) {
-          throw new PublicationDeferred('Draft is held or has not passed editorial review.');
-        }
-        if (candidate.variant === 'blog' && candidate.destination !== 'bluesky' && candidate.approval !== 'approved') throw new PublicationDeferred('Both the blog and LinkedIn hook require human approval.');
-        if (candidate.destination === 'bluesky' && candidate.approval !== 'approved') throw new PublicationDeferred('The exact Bluesky draft requires human approval before scheduling.');
-        if (candidate.variant === 'blog' && candidate.destination !== 'blog'
-          && candidate.reviewedBlogVersion !== required.find(d => d.destination === 'blog')?.version) throw new PublicationDeferred('Hook consistency must be checked against the current blog version.');
-      }
-      if (draft.variant === 'source' && topicDrafts.some(d => d.destination === 'blog')) throw new PublicationDeferred('Source promotion is superseded by the blog package.');
+      if (draft.held || draft.approval !== 'approved') throw new PublicationDeferred('Draft is held or its approval was withdrawn.');
       if (draft.variant === 'blog' && destination !== 'blog') {
-        const blog = required.find(d => d.destination === 'blog')!;
+        const blog = topicDrafts.find(d => d.destination === 'blog');
+        if (!blog) throw new PublicationDeferred('The scheduled blog is unavailable.');
         const published = await c.query<{ receipt: Record<string, unknown> }>("SELECT receipt FROM publishing_deliveries WHERE draft_id=$1 AND version=$2 AND destination='blog' AND status='sent'", [blog.id, blog.version]);
         if (!published.rows[0]?.receipt.verifiedAt) throw new PublicationDeferred('The public blog has not been verified.');
         if (destination === 'bluesky') {
-          const linkedin = required.find(d => d.destination === 'linkedin')!;
+          const linkedin = topicDrafts.find(d => d.destination === 'linkedin');
+          if (!linkedin) throw new PublicationDeferred('The scheduled LinkedIn post is unavailable.');
           const posted = await c.query("SELECT id FROM publishing_deliveries WHERE draft_id=$1 AND version=$2 AND destination='linkedin' AND status='sent'", [linkedin.id, linkedin.version]);
           if (!posted.rowCount) throw new PublicationDeferred('Waiting for the approved LinkedIn post to be confirmed before Bluesky.');
         }
@@ -115,7 +106,7 @@ export async function reserveDelivery(db: Pool, destination: Destination, accoun
     const blocked = slotBlock(history, destination, now, context.independentSchedule);
     if (blocked) throw new PublicationDeferred(blocked);
     if (context.topicId) {
-      if (destination === 'bluesky') {
+      if (destination === 'bluesky' && !context.draftId) {
         const blocker = blueskyRepeatBlocker({ destination, distinctArgument: context.distinctArgument === true },
           await lastBlueskyPublication(c, context.topicId, account), now);
         if (blocker) throw new PublicationDeferred(blocker);

@@ -155,7 +155,7 @@ test('reimporting a Discover article preserves first discovery and never replace
   const db = await phase2Db();
   try {
     await db.exec("CREATE UNIQUE INDEX discovered_url ON content_items(url) WHERE source = 'discovered-article' AND url IS NOT NULL AND url != ''");
-    const id = await insertContent(db, { source: 'discovered-article', sourceId: 'old-import', title: 'Article', publishedAt: '2026-01-01',
+    const id = await insertContent(db, { source: 'discovered-article', sourceId: 'old-import', title: 'Article', publishedAt: '2026-01-01T00:00:00Z',
       metadata: { discoveredAt: '2026-02-01T00:00:00Z', publicationDateKnown: true } });
     await db.query("UPDATE content_items SET url='https://example.com/article' WHERE id=$1", [id]);
     await upsertContentItem(db as unknown as Pool, { source: 'discovered-article', sourceId: 'reimport', title: 'Article',

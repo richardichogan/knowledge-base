@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { assessTopic, editorialServices, readSources, reviewDraft, type EditorialServices } from './editorial.js';
-import { draftColumns, event, intake, listTopics, topicColumns, writtenPublishingSourcesSql } from './store.js';
+import { draftColumns, event, intake, listTopics, regenerateStoppedPackages, topicColumns, writtenPublishingSourcesSql } from './store.js';
 import { PUBLISH_LIMITS, type Draft, type Topic } from './contracts.js';
 import { microsoftRelevanceSql } from '../utils/microsoftRelevance.js';
 import { ConflictError } from '../types/errors.js';
@@ -25,6 +25,7 @@ async function refreshDrafts(db: Pool, services: EditorialServices, actor: strin
     let assessmentAttempts = 0;
     let savedReviewAttempts = 0;
     const processed: Topic[] = [];
+    await regenerateStoppedPackages(db);
     await intake(db);
     const initialShortlist = await listTopics(db, 0, true);
     const candidates = (await db.query<Topic>(`WITH candidates AS (
@@ -39,11 +40,11 @@ async function refreshDrafts(db: Pool, services: EditorialServices, actor: strin
         AND ${writtenPublishingSourcesSql('t.id')}
         AND (NOT EXISTS(SELECT 1 FROM publishing_drafts d WHERE d.topic_id=t.id)
           OR EXISTS(SELECT 1 FROM publishing_drafts d WHERE d.topic_id=t.id AND d.review<>'pass' AND NOT d.held))
-        AND NOT EXISTS(SELECT 1 FROM publishing_drafts d WHERE d.topic_id=t.id AND d.approval<>'pending')
+        AND NOT EXISTS(SELECT 1 FROM publishing_drafts d WHERE d.topic_id=t.id AND d.approval='rejected')
         AND NOT EXISTS(SELECT 1 FROM publishing_drafts d WHERE d.topic_id=t.id
           AND (d.destination IN ('blog','linkedin') OR d.variant='source') AND d.held)
-        AND NOT EXISTS(SELECT 1 FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id
-          WHERE d.topic_id=t.id)
+        AND NOT EXISTS(SELECT 1 FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id AND d.version=s.version
+          WHERE d.topic_id=t.id AND s.scheduled_at IS NOT NULL)
         AND NOT EXISTS(SELECT 1 FROM publishing_deliveries p WHERE p.topic_id=t.id)
       ) SELECT ${topicColumns} FROM candidates t
       WHERE position<=CASE WHEN saved THEN $3::int ELSE $1::int END
@@ -82,10 +83,16 @@ async function refreshDrafts(db: Pool, services: EditorialServices, actor: strin
           savedReviewAttempts++;
           const sources = await readSources(db, topic.id, services, true);
           for (const previous of saved) {
-            const scheduled = await db.query(`SELECT id FROM publishing_drafts WHERE topic_id=$1 AND approval='approved'`, [topic.id]);
+            const scheduled = await db.query(`SELECT s.draft_id FROM publishing_schedule s
+              JOIN publishing_drafts d ON d.id=s.draft_id AND d.version=s.version WHERE d.topic_id=$1 AND s.scheduled_at IS NOT NULL
+              UNION ALL SELECT draft_id FROM publishing_deliveries WHERE topic_id=$1`, [topic.id]);
             if (scheduled.rowCount) break;
             const draft = (await db.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts WHERE id=$1`, [previous.id])).rows[0];
             if (!draft || draft.held || draft.approval !== 'pending' || draft.review === 'pass') continue;
+            if (draft.variant === 'blog' && draft.destination !== 'blog') {
+              const blog = await db.query("SELECT id FROM publishing_drafts WHERE topic_id=$1 AND destination='blog' AND review='pass'", [topic.id]);
+              if (!blog.rowCount) continue;
+            }
             await reviewDraft(db, draft, sources, services, true, true);
           }
         }
@@ -93,8 +100,8 @@ async function refreshDrafts(db: Pool, services: EditorialServices, actor: strin
         const reason = error instanceof Error ? error.message : 'Draft refresh failed.';
         console.error('[Publishing] Content-sync draft refresh failed:', reason);
         await db.query(`UPDATE publishing_topics SET state='held',error=$2 WHERE id=$1
-          AND NOT EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=$1 AND approval='approved')
-          AND NOT EXISTS(SELECT 1 FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id WHERE d.topic_id=$1)
+          AND NOT EXISTS(SELECT 1 FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id AND d.version=s.version
+            WHERE d.topic_id=$1 AND s.scheduled_at IS NOT NULL)
           AND NOT EXISTS(SELECT 1 FROM publishing_deliveries WHERE topic_id=$1)`, [topic.id, reason]);
         await event(db, topic.id, actor, 'draft-refresh-error', { reason });
       }

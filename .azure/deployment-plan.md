@@ -1,8 +1,51 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
 
-**Publishing scheduler and Updates release (2026-11-14, current):**
+**Publishing commitments and package recovery release (2026-11-17):**
+- User requested a quick deployment of the completed publishing repair. Reuse
+  kh-prod-api-vnet, cad79107555facr and kh-prod-web in rg-knowledge-hub-prod /
+  Alliance Tenant Reporting. No infrastructure, region, RBAC, credentials,
+  production identity, worker configuration or Desktop changes.
+- Preserve assigned exact-version publishing slots without repeat editorial,
+  readiness or window checks; retain explicit holds and delivery safeguards.
+  Keep approved-but-undated entries in Drafts and recover unfinished companions
+  without rewriting passed or approved copy.
+- All validation checks pass:
+  - [x] Core validation: synced main, both application typechecks and existing
+    backend/frontend isolated release suites once; failed checks rerun only.
+  - [x] Build verification: backend/frontend production builds passed. The
+    existing ACR remote Docker build must succeed before the Container App update.
+  - [x] Policy/static role validation: existing targets and ingress 3000;
+    registry-secret authentication unchanged; no applicable policy assignments
+    or existing application-identity role assignments returned by Azure CLI.
+
+**Section 7: Validation Proof - Publishing commitments and recovery:**
+- `git fetch origin` and `git merge origin/main --no-edit` confirmed HEAD and
+  origin/main are identical before the release commit. Both application
+  `npx tsc --noEmit` checks passed during implementation; unchanged application
+  code reuses that evidence. Backend and frontend production builds passed.
+  Frontend transformed 2,917 modules; no application changes followed the builds.
+- Full isolated release suites ran once: backend reported 1,047 passed and four
+  failed; frontend groups reported one failure. All failures were test-fixture
+  issues: UTC assumptions, artificial assigned slots in preparation tests and
+  a browser-only HTML renderer in a server-side recovery-control fixture.
+  Narrow fixture corrections retained the assertions and changed no application
+  behavior. Only affected files were rerun: publishing 95/95,
+  knowledge-monitoring 7/7, retrieval-scope 7/7 and publishingFeeds 14/14.
+  All other full-suite results are retained; no full suite was repeated.
+- Azure CLI confirmed subscription c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28,
+  current backend image v352, ingress port 3000, secret-based registry pulls
+  and existing SWA hostname nice-mud-0f780fb03.7.azurestaticapps.net.
+- Browser verification was explicitly deferred after the local Microsoft sign-in
+  popup failed. A read-only call to the shared topic detail projection returned
+  the real stopped package, exact versions and null-slot diagnostic correctly.
+  No live draft, approval, schedule or delivery was manually changed.
+- Optional whole-test-project typechecks encounter existing repository test
+  configuration/type errors; both production application typechecks pass.
+  The existing isolated runners are the actual executable release gates.
+
+**Publishing scheduler and Updates release (2026-11-14, previous):**
 - User requested deployment of the completed changes. Reuse the existing AZCLI
   application-only targets: kh-prod-api-vnet, cad79107555facr and kh-prod-web in
   rg-knowledge-hub-prod / Alliance Tenant Reporting. No infrastructure, region,

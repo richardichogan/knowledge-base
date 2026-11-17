@@ -129,6 +129,10 @@ export function TopicReview({ id, act, busy, feeds, readyOnly = false, initialDe
     ?? visibleDrafts.find(draft => draft.approval !== 'approved') ?? visibleDrafts[0];
   const currentId = current?.id;
   const currentDestination = current?.destination;
+  const scheduledPackage = d?.schedule?.some(post => post.scheduledAt !== null) === true;
+  const canRecover = Boolean(d && !scheduledPackage && d.deliveries.length === 0
+    && d.drafts.length > 0 && !d.drafts.some(item => item.approval === 'rejected'));
+  const canPrepare = canRecover && Boolean(d?.drafts.some(item => item.approval === 'pending' && item.review !== 'pass'));
   useEffect(() => {
     setAthenaContext({ type: 'publishing topic', title: d?.topic.title ?? 'Publishing draft', id,
       ...(currentId ? { selectedId: currentId } : {}),
@@ -144,8 +148,8 @@ export function TopicReview({ id, act, busy, feeds, readyOnly = false, initialDe
       <p><strong>Preparation stopped.</strong> {d.topic.error}</p>
       {d.topic.state === 'held' && d.drafts.some(item => item.approval === 'rejected') && d.deliveries.length === 0
         && <p className="kh-publishing__meta">A destination in this package was rejected, so Athena cannot finish it. Use Reject draft to remove the whole package, or reject the topic under Sources and topic controls.</p>}
-      {d.topic.state === 'held' && d.drafts.length > 0 && d.drafts.every(item => item.approval === 'pending') && d.deliveries.length === 0 && <>
-        <p className="kh-publishing__meta">Athena retries this automatically. You can retry now.</p>
+      {d.topic.state === 'held' && canRecover && <>
+        <p className="kh-publishing__meta">Retry finishes only the unfinished copies. Passed reviews and approved copy are retained.</p>
         <div className="kh-publishing__actions"><button type="button" className="kh-publishing__primary" disabled={busy}
           onClick={() => { void act(`/topics/${id}/decision`, 'POST', { action: 'retry' }); }}>Retry preparation</button></div></>}
     </div>}
@@ -160,21 +164,22 @@ export function TopicReview({ id, act, busy, feeds, readyOnly = false, initialDe
       const blog = d.drafts.find(candidate => candidate.destination === 'blog');
       const linkedin = d.drafts.find(candidate => candidate.destination === 'linkedin');
       const pair = [blog, linkedin];
-      const packageBlocker = d.topic.state !== 'ready' ? 'This topic is on hold or still being prepared. Retry preparation above, or wait: Athena retries automatically.'
+      const packageBlocker = d.topic.state !== 'ready' ? 'This package is on hold or still being prepared. Use the preparation controls to finish its unfinished copies; passed reviews and approved copy are retained.'
         : !blog || !linkedin ? 'The blog and LinkedIn copy must both be prepared before scheduling.'
         : pair.map(candidate => candidate && publishingApprovalBlocker(candidate)
           ? `${names[candidate.destination]}: ${publishingApprovalBlocker(candidate)}` : null).find(Boolean)
           ?? (linkedin.reviewedBlogVersion !== blog.version ? 'The LinkedIn hook has not been checked against this blog version.' : null);
-      const blocker = packageDraft ? packageBlocker : publishingApprovalBlocker(draft);
+      const assigned = d.schedule?.find(post => post.draftId === draft.id && post.version === draft.version && post.scheduledAt !== null);
+      const blocker = assigned && draft.approval === 'approved' && !draft.held ? null
+        : packageDraft ? packageBlocker : publishingApprovalBlocker(draft);
       const approved = packageDraft ? pair.every(candidate => candidate?.approval === 'approved') : draft.approval === 'approved';
       const canApprove = blocker === null && !sent;
-      const canRewrite = d.deliveries.length === 0 && d.drafts.every(item => item.approval === 'pending')
-        && d.drafts.some(item => item.review !== 'pass') && (draft.held || draft.review === 'hold' || draft.review === 'revise' || d.topic.state === 'held');
+      const canRewrite = canPrepare && d.drafts.some(item => item.held || item.review === 'hold' || item.review === 'revise' || d.topic.state === 'held');
       const feedId = draft.destination === 'bluesky' ? 'bluesky' : 'blog-linkedin';
       const feed = feeds.find(f => f.id === feedId);
       return <section className="kh-publishing__draft" key={draft.id}>
         <div className="kh-publishing__draft-heading"><h3>{names[draft.destination]} <span>v{draft.version}</span></h3>
-          <span className="kh-publishing__meta">{sent?.status ?? (draft.held ? 'Needs attention' : approved ? 'Approved' : blocker ? 'Needs review' : 'Ready for approval')}</span></div>
+          <span className="kh-publishing__meta">{sent?.status ?? (draft.held ? 'Needs attention' : assigned ? 'Scheduled' : approved ? 'Approved · awaiting slot' : blocker ? 'Needs review' : 'Ready for approval')}</span></div>
         <p className="kh-publishing__meta">Account: {String(draft.content.accountName ?? draft.content.account ?? 'Not connected')}</p>
         {editing === draft.id ? <DraftEditor key={`${draft.id}:${draft.version}`} draft={draft} act={act} busy={busy} onDone={() => setEditing(null)} /> : <>
           <div className="kh-publishing__actions kh-publishing__draft-actions">
@@ -182,7 +187,7 @@ export function TopicReview({ id, act, busy, feeds, readyOnly = false, initialDe
               if (packageDraft && blog && linkedin) void act(`/topics/${id}/approve`, 'POST', { versions: { blog: blog.version, linkedin: linkedin.version } });
               else decide(draft, 'approve');
             }}>
-              {approved ? 'Sent for scheduling' : packageDraft ? 'Send package for scheduling' : 'Send for scheduling'}</button>}
+              {approved ? assigned ? 'Scheduled' : 'Approved · awaiting slot' : packageDraft ? 'Send package for scheduling' : 'Send for scheduling'}</button>}
             {canRewrite && <button type="button" className="kh-publishing__primary" disabled={busy}
               onClick={() => { void act(`/topics/${id}/decision`, 'POST', { action: 'regenerate' }); }}>Rewrite from source</button>}
             {hasSavedDraftText(draft) && <button type="button" disabled={busy || Boolean(sent)} onClick={() => setEditing(draft.id)}>Edit draft</button>}
@@ -210,7 +215,8 @@ export function TopicReview({ id, act, busy, feeds, readyOnly = false, initialDe
               <button type="button" className="kh-publishing__danger" disabled={busy || Boolean(sent)} onClick={() => decide(draft, 'reject')}>Reject this destination</button>
             </div></details>
           </div>
-          {!sent && <p className="kh-publishing__notice">{blocker ?? (approved ? 'Sent for scheduling.'
+          {!sent && <p className="kh-publishing__notice">{blocker ?? (assigned ? `Scheduled for ${when(assigned.scheduledAt)}. Preparation and editorial checks are complete.`
+            : approved ? d.schedule?.find(post => post.draftId === draft.id)?.reason || 'Approved, but no slot has been assigned. This remains in Drafts until scheduling succeeds.'
             : packageDraft ? 'Read the Blog and LinkedIn tabs, then send the package for scheduling once. This approves both saved versions together.'
               : 'Editorial checks passed. Read the draft, then send this exact version for scheduling.')}
             {feed?.enabled === false ? ` ${names[feedId]} automation is off; planned times are paused, not promised delivery times.`
@@ -290,7 +296,7 @@ function scheduleStatus(post: PublishingScheduleEntry): string {
     if (post.deliveryStatus === 'failed') return 'Needs attention';
   }
   return !post.scheduledAt ? 'Cannot schedule' : post.paused ? 'Paused · automation off'
-    : new Date(post.scheduledAt) <= new Date() ? 'Due · awaiting worker checks' : 'Scheduled';
+    : new Date(post.scheduledAt) <= new Date() ? 'Due · awaiting delivery' : 'Scheduled';
 }
 export function ScheduledPodcastPreview({ post, onOpen }: { post: ScheduledPodcastPost; onOpen: () => void }): React.ReactElement {
   return <section className="kh-publishing__review">
@@ -356,7 +362,8 @@ export function PublishingSchedule({ posts, selected, onSelect }: { posts: Publi
 }
 export function publishingContentForView(posts: PublishingScheduleEntry[], view: 'drafts' | 'schedule'): PublishingScheduleEntry[] {
   return posts.filter(post => post.status !== 'Rejected' && post.status !== 'Published'
-    && (view === 'schedule' ? post.approved === true : post.approved === false));
+    && (view === 'schedule' ? post.approved === true && Boolean(post.scheduledAt)
+      : post.approved === false || post.approved === true && !post.scheduledAt));
 }
 export function PublishingContentDraftList({ posts, selected, onSelect }: {
   posts: PublishingScheduleEntry[]; selected: string | undefined; onSelect: (id: string) => void;
@@ -368,7 +375,7 @@ export function PublishingContentDraftList({ posts, selected, onSelect }: {
   }
   return <aside className="kh-publishing__draft-list" aria-label="Draft posts">
     {[...groups.values()].map(entries => {
-      const post = entries[0]!;
+      const post = entries.find(entry => entry.destination === 'blog') ?? entries[0]!;
       return <button className="kh-publishing__draft-row" type="button" key={post.draftId}
         aria-pressed={entries.some(entry => entry.draftId === selected)} onClick={() => onSelect(post.draftId)}>
         <strong>{post.title}</strong>
@@ -437,8 +444,8 @@ export function DiscoverPublishing({ onClose }: { onClose: () => void }): React.
         : path.endsWith('/review') ? 'Review queued. Your saved copy is unchanged; approval will be needed after review.'
         : path.endsWith('/approve') ? 'Package sent for scheduling. Blog and LinkedIn approved together; the blog publishes first.'
         : path.endsWith('/decision') && typeof body === 'object' && body !== null && 'action' in body && body.action === 'approve'
-          ? 'Approval saved. Open Scheduling to see the planned time or what is blocking a slot. Automation remains unchanged.'
-        : path === '/schedule/refresh' ? 'Schedule refreshed. Missed slots move to the next available opening; posting switches are unchanged.'
+          ? 'Approval saved. Scheduling shows assigned times only; anything awaiting a slot remains in Drafts. Automation remains unchanged.'
+        : path === '/schedule/refresh' ? 'Unassigned posts checked for scheduling. Existing assigned times and posting switches are unchanged.'
         : path.endsWith('/decision') ? 'Decision saved.'
           : 'Saved. Changes apply to the next unclaimed publishing opportunity.'); return true;
     } catch (err) { setError(describeApiError(err)); return false; }
@@ -462,7 +469,7 @@ export function DiscoverPublishing({ onClose }: { onClose: () => void }): React.
   return <AppDialog title="Publishing" wide settings onClose={onClose}
     actions={<button className="kh-dialog__button" type="button" onClick={onClose}>Close</button>}>
     <div className="kh-publishing" aria-busy={busy}>
-      <p className="kh-publishing__meta">Drafts contains unapproved Discover, podcast and weekly-digest content, with its preparation and review status. Discover Blog / LinkedIn packages count as one entry. Scheduling contains only approved, unpublished posts.</p>
+      <p className="kh-publishing__meta">Drafts contains content awaiting preparation, approval or a slot. Discover Blog / LinkedIn packages count as one entry. Scheduling contains only approved, unpublished posts with an assigned time.</p>
       <details className="kh-publishing__settings">
       <summary>Automation and schedule{feeds.data ? ` · Bluesky ${feeds.data.find(feed => feed.id === 'bluesky')?.enabled ? 'on' : 'off'} · Blog / LinkedIn ${feeds.data.find(feed => feed.id === 'blog-linkedin')?.enabled ? 'on' : 'off'}` : ''}</summary>
       <div className="kh-publishing__feeds" aria-label="Posting automation">
@@ -494,12 +501,12 @@ export function DiscoverPublishing({ onClose }: { onClose: () => void }): React.
         <button type="button" disabled={busy} onClick={() => { void holdCold(); }}>Hold them</button>
       </section>}
       {tab === 'upcoming' && <div className="kh-publishing__schedule-toolbar">
-        <p className="kh-publishing__meta">Approved, unpublished posts only, with status and source. Unapproved content remains in Drafts. Refresh replans approved Discover posts only; campaign and job controls remain in their existing editors. Job times are when the job sends; spacing guides scheduling but never holds a post.</p>
+        <p className="kh-publishing__meta">Assigned times only. Discover preparation checks finish before a slot is assigned; refresh does not recheck or move scheduled posts. Explicit pauses and delivery outcomes remain visible. Campaign and job controls remain in their existing editors.</p>
         <button type="button" disabled={busy || content.isFetching} onClick={() => { void act('/schedule/refresh', 'POST', {}); }}>Refresh schedule</button>
       </div>}
       {shown.isLoading && <p role="status">Loading publishing {tab}…</p>}
       {shown.isError && <div className="kh-publishing__error" role="alert"><p>{describeApiError(shown.error)}</p><button type="button" onClick={() => { void shown.refetch(); }}>Retry loading</button></div>}
-      {!shown.isLoading && !shown.isError && (tab === 'picks' ? !pickList.length : tab === 'review' ? !drafts.length : tab === 'upcoming' ? !schedule.length : active.data?.length === 0) && <p className="kh-publishing__empty">{tab === 'picks' ? (picks.data?.note ?? (picks.data?.removed ? 'You have dealt with today\u2019s picks. Re-pick to choose again.' : 'No picks yet. Re-pick to choose now.')) : tab === 'history' ? 'No delivery attempts yet.' : tab === 'audit' ? 'No publishing events yet.' : tab === 'upcoming' ? 'No approved, unpublished posts. Content awaiting approval is in Drafts.' : 'No unapproved publishing content. Approved posts are in Scheduling.'}</p>}
+      {!shown.isLoading && !shown.isError && (tab === 'picks' ? !pickList.length : tab === 'review' ? !drafts.length : tab === 'upcoming' ? !schedule.length : active.data?.length === 0) && <p className="kh-publishing__empty">{tab === 'picks' ? (picks.data?.note ?? (picks.data?.removed ? 'You have dealt with today\u2019s picks. Re-pick to choose again.' : 'No picks yet. Re-pick to choose now.')) : tab === 'history' ? 'No delivery attempts yet.' : tab === 'audit' ? 'No publishing events yet.' : tab === 'upcoming' ? 'No posts have an assigned time. Content awaiting preparation, approval or a slot is in Drafts.' : 'No content awaiting preparation, approval or a slot.'}</p>}
       {tab === 'review' && <ReviewWorkspace storageKey="discover-publishing" label="Publishing drafts"
         context={{ type: 'publishing', title: draft?.title ?? 'Drafts', ...(draft ? { id: draft.draftId } : {}),
           detail: `Selected saved draft:\n${JSON.stringify(draft ?? null)}\nDraft preparation state:\n${JSON.stringify(refresh.data ?? null)}\nFeed settings:\n${JSON.stringify(feeds.data ?? null)}` }}

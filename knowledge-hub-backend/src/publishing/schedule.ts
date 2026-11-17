@@ -25,12 +25,12 @@ export interface ScheduledPost {
   approved?: boolean;
   sources?: Array<{ id: string; title: string; url: string | null }>;
 }
-interface Candidate extends Draft { title: string; topicState: string; scheduledAt: string | null; scheduleReason: string | null; lastBlueskyPublishedAt?: string | null }
+interface Candidate extends Draft { title: string; topicState: string; scheduledAt: string | null; scheduleReason: string | null; eventKey?: string; lastBlueskyPublishedAt?: string | null }
 interface Booking { draftId: string; destination: Draft['destination']; account: string; at: Date }
 const scheduleCandidates = `SELECT ${draftColumns.split(',').map(column => {
   const trimmed = column.trim();
   return `d.${trimmed}`;
-}).join(',')},t.title,t.state AS "topicState",s.scheduled_at::text AS "scheduledAt",s.reason AS "scheduleReason",
+}).join(',')},t.title,t.state AS "topicState",t.event_key AS "eventKey",s.scheduled_at::text AS "scheduledAt",s.reason AS "scheduleReason",
   (SELECT MAX(p.published_at)::text FROM publishing_deliveries p JOIN publishing_topics prior ON prior.id=p.topic_id
     WHERE p.destination='bluesky' AND p.account=d.content->>'account' AND p.status='sent'
       AND prior.event_key=t.event_key) AS "lastBlueskyPublishedAt"
@@ -50,7 +50,9 @@ function readiness(draft: Candidate): string | null {
     ? draft.reason || 'Publishing is on hold. Resolve the delivery issue before scheduling.'
     : 'Held; resolve the editorial findings before scheduling.';
   if (draft.topicState !== 'ready') return 'The topic is held or not ready for scheduling.';
-  if (draft.review !== 'pass') return 'Waiting for a passed editorial review.';
+  if (draft.review !== 'pass' || !draft.reviewedAt) return 'Waiting for a passed editorial review.';
+  const fields = draft.destination === 'blog' ? ['title', 'summary', 'content'] : ['copy'];
+  if (!fields.every(field => typeof draft.content[field] === 'string' && draft.content[field].trim())) return 'Waiting for complete saved copy.';
   if (draft.approval !== 'approved') return 'Waiting for approval of this exact version.';
   if (typeof draft.content.account !== 'string' || !draft.content.account.trim() || draft.content.account === '(not connected)') {
     return 'Destination account is not connected; rebind it and approve the new version.';
@@ -67,6 +69,12 @@ function packageBlocker(draft: Draft, candidates: Candidate[]): string | null {
     if (blocker) return `${destinationNames[destination]} v${companion.version}: ${blocker}${
       companion.approval === 'pending' && !companion.held && companion.review === 'pass'
         ? ' Read the package and choose Send package for scheduling once to approve Blog and LinkedIn together.' : ''}`;
+  }
+  const blog = candidates.find(d => d.topicId === draft.topicId && d.destination === 'blog')!;
+  const hooks = candidates.filter(d => d.topicId === draft.topicId
+    && (d.destination === 'linkedin' || d.id === draft.id && d.destination === 'bluesky'));
+  if (hooks.some(hook => hook.reviewedBlogVersion !== blog.version)) {
+    return 'Finish checking the hooks against the current blog before scheduling.';
   }
   return null;
 }
@@ -104,7 +112,10 @@ export function jobSlots(run: JobRun, _history: Delivery[] = [], now = new Date(
 }
 
 export function planSchedule(candidates: Candidate[], settings: PublishingFeed[], history: Delivery[], now = new Date(), reserved: JobSlot[] = []): ScheduledPost[] {
-  const bookings: Booking[] = reserved.map(slot => ({ ...slot }));
+  const commitments = candidates.filter(d => d.approval === 'approved' && d.scheduledAt && !d.held && !completed(d, history));
+  const bookings: Booking[] = [...reserved.map(slot => ({ ...slot })), ...commitments.map(d => ({
+    draftId: d.id, destination: d.destination, account: String(d.content.account), at: new Date(d.scheduledAt!),
+  }))];
   const planned = new Map<string, ScheduledPost>();
   const approved = candidates.filter(d => d.approval === 'approved' && !completed(d, history));
   const ordered = [...approved].sort((a, b) => {
@@ -124,7 +135,21 @@ export function planSchedule(candidates: Candidate[], settings: PublishingFeed[]
   }
   for (const draft of ordered) {
     const feed = feedFor(draft, settings);
+    if (draft.scheduledAt && !draft.held) {
+      planned.set(draft.id, {
+        draftId: draft.id, topicId: draft.topicId, title: String(draft.content.title ?? draft.title),
+        destination: draft.destination, version: draft.version, scheduledAt: new Date(draft.scheduledAt).toISOString(),
+        timezone: feed.policy.timezone, paused: !feed.enabled,
+        reason: Date.parse(draft.scheduledAt) <= now.getTime() ? 'Overdue; awaiting delivery.' : 'Scheduled; sends at this time.',
+      });
+      continue;
+    }
     let reason = readiness(draft) ?? blueskyRepeatBlocker(draft, draft.lastBlueskyPublishedAt ?? null);
+    const sameEvent = draft.destination === 'bluesky' ? candidates.filter(other => other.id !== draft.id
+      && other.destination === 'bluesky' && other.content.account === draft.content.account
+      && (other.eventKey ?? other.topicId) === (draft.eventKey ?? draft.topicId)
+      && Boolean(planned.get(other.id)?.scheduledAt || commitments.some(committed => committed.id === other.id))) : [];
+    if (!reason && sameEvent.length && !draft.distinctArgument) reason = 'This topic already has a Bluesky post scheduled. A repeat needs a distinct argument.';
     if (!reason && draft.variant === 'source' && candidates.some(d => d.topicId === draft.topicId && d.destination === 'blog')) {
       reason = 'Source promotion is superseded by the blog package.';
     }
@@ -141,6 +166,10 @@ export function planSchedule(candidates: Candidate[], settings: PublishingFeed[]
     const blogPlan = blog ? planned.get(blog.id) : undefined;
     let dependency = draft.destination === 'bluesky' && draft.lastBlueskyPublishedAt
       ? Date.parse(draft.lastBlueskyPublishedAt) + PUBLISH_LIMITS.sameTopicHours * MS_PER_HOUR : 0;
+    for (const other of sameEvent) {
+      dependency = Math.max(dependency, Date.parse(planned.get(other.id)?.scheduledAt ?? other.scheduledAt!)
+        + PUBLISH_LIMITS.sameTopicHours * MS_PER_HOUR);
+    }
     if (!reason && draft.variant === 'blog' && draft.destination !== 'blog' && !publishedBlog) {
       if (!blogPlan?.scheduledAt) reason = 'Waiting for the blog to be scheduled and its public URL verified.';
       else dependency = Math.max(dependency, Date.parse(blogPlan.scheduledAt) + LEAD);
@@ -232,12 +261,13 @@ export async function listSchedule(db: Pool, includeDrafts = false): Promise<Sch
   return candidates.filter(d => d.approval !== 'rejected' && (d.topicState !== 'rejected' || d.approval === 'approved')
     && (includeDrafts || d.approval === 'approved') && !completed(d, history)).map(d => {
     const feed = feedFor(d, settings);
-    const blocker = readiness(d) ?? packageBlocker(d, candidates) ?? blueskyRepeatBlocker(d, d.lastBlueskyPublishedAt ?? null);
+    const committed = d.approval === 'approved' && Boolean(d.scheduledAt) && !d.held;
+    const blocker = committed ? null : readiness(d) ?? packageBlocker(d, candidates) ?? blueskyRepeatBlocker(d, d.lastBlueskyPublishedAt ?? null);
     return { draftId: d.id, topicId: d.topicId, title: String(d.content.title ?? d.title), destination: d.destination,
       version: d.version, scheduledAt: blocker || !d.scheduledAt ? null : new Date(d.scheduledAt).toISOString(), timezone: feed.policy.timezone,
       paused: !feed.enabled, reason: blocker ?? d.scheduleReason ?? 'Refresh the schedule to assign a slot.',
       ...(blocker && { status: 'Blocked' }),
-      ...(includeDrafts && { origin: 'Discover', approved: d.approval === 'approved', status: d.approval === 'rejected' ? 'Rejected' : d.held ? 'Held'
+      ...(includeDrafts && { origin: 'Discover', approved: d.approval === 'approved', status: committed ? 'Scheduled' : d.approval === 'rejected' ? 'Rejected' : d.held ? 'Held'
         : d.review !== 'pass' ? `Review: ${d.review}` : d.approval !== 'approved' ? 'Awaiting approval'
           : blocker ? 'Blocked' : !d.scheduledAt ? 'Needs scheduling' : 'Scheduled',
       sources: sources.filter(s => s.topicId === d.topicId).map(({ id, title, url }) => ({ id, title, url })) }) };

@@ -44,6 +44,7 @@ export interface PublishingDelivery {
 export interface PublishingEvent { id: string; actor: string; event: string; detail: unknown; createdAt: string }
 export interface PublishingDetail {
   topic: PublishingTopic; drafts: PublishingDraft[]; deliveries: PublishingDelivery[]; events: PublishingEvent[];
+  schedule?: Array<{ draftId: string; version: number; scheduledAt: string | null; reason: string }>;
   sources: Array<{ itemId: string; title: string; url: string; body: string; readAt: string | null }>;
   versions: Array<{ draft_id: string; version: number; reviews: unknown[]; approved_by: string | null; approved_at: string | null; content: Record<string, unknown> }>;
 }

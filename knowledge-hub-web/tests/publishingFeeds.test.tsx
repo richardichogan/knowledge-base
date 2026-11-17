@@ -9,13 +9,14 @@ import type { PublishingFeed, PublishingDraft, PublishingTopic, PublishingDetail
 
 const policy = { timezone: 'Europe/London', startHour: 8, endHour: 20, days: [0, 1, 2, 3, 4, 5, 6], expiryHours: 48, guidance: '' };
 const feeds: PublishingFeed[] = [{ id: 'bluesky', revision: 1, enabled: false, policy }, { id: 'blog-linkedin', revision: 1, enabled: false, policy: { ...policy, expiryHours: 168 } }];
-test('drafts and scheduling are separated by saved approval, not proposed dates or status labels', () => {
+test('Scheduling requires approval and an assigned time; approved but unassigned entries stay actionable in Drafts', () => {
   const base = { title: 'Microsoft update', destination: 'linkedin' as const, version: 1,
     scheduledAt: '2099-01-01T08:00:00Z', timezone: 'Europe/London', paused: false, reason: '', origin: 'Discover' };
   const posts: PublishingScheduleEntry[] = [
     { ...base, draftId: 'pending', topicId: 'topic', approved: false, status: 'Awaiting approval' },
     { ...base, draftId: 'blog', topicId: 'topic', destination: 'blog', approved: false, status: 'Awaiting approval' },
     { ...base, draftId: 'approved', topicId: 'approved-topic', approved: true, scheduledAt: null, status: 'Needs scheduling' },
+    { ...base, draftId: 'committed', topicId: 'committed-topic', approved: true, status: 'Scheduled' },
     { ...base, draftId: 'unknown', topicId: 'unknown-topic', status: 'Scheduled' },
     { ...base, draftId: 'published', topicId: 'published-topic', approved: true, status: 'Published' },
     { ...base, draftId: 'campaign', noteId: 'note', copy: 'Saved campaign copy', label: 'Follow-up', blog: null,
@@ -24,10 +25,10 @@ test('drafts and scheduling are separated by saved approval, not proposed dates 
       approved: false, origin: 'Microsoft weekly digest', status: 'awaiting-approval' },
   ];
   const drafts = publishingContentForView(posts, 'drafts');
-  assert.deepEqual(drafts.map(p => p.draftId), ['pending', 'blog', 'campaign', 'job']);
-  assert.deepEqual(publishingContentForView(posts, 'schedule').map(p => p.draftId), ['approved']);
+  assert.deepEqual(drafts.map(p => p.draftId), ['pending', 'blog', 'approved', 'campaign', 'job']);
+  assert.deepEqual(publishingContentForView(posts, 'schedule').map(p => p.draftId), ['committed']);
   const html = renderToStaticMarkup(<PublishingContentDraftList posts={drafts} selected="pending" onSelect={() => {}} />);
-  assert.equal([...html.matchAll(/class="kh-publishing__draft-row"/g)].length, 3);
+  assert.equal([...html.matchAll(/class="kh-publishing__draft-row"/g)].length, 4);
   assert.ok(html.includes('LinkedIn / Blog'));
   assert.ok(html.includes('Podcast campaign'));
   assert.ok(html.includes('Microsoft weekly digest'));
@@ -158,5 +159,38 @@ test('blog and LinkedIn share one package approval even after a legacy partial a
   assert.match(html, /Send package for scheduling<\/button>/);
   assert.match(html, /approves both saved versions together/);
   assert.ok(!html.includes('must both be approved'));
+  query.clear();
+});
+test('a failed Blog/LinkedIn companion remains recoverable from either tab despite an approved Bluesky copy', () => {
+  for (const destination of ['blog', 'linkedin'] as const) {
+    const query = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    const blog: PublishingDraft = { ...savedDraft, id: 'blog', destination: 'blog', held: true, review: 'revise',
+      content: { title: 'Saved article', summary: 'Saved summary', content: '' } };
+    const linkedin: PublishingDraft = { ...savedDraft, held: true };
+    const blue: PublishingDraft = { ...savedDraft, id: 'blue', destination: 'bluesky', approval: 'approved', held: true };
+    const topic: PublishingTopic = { id: 'topic', title: 'Stopped package', rationale: '', priority: 90, state: 'held',
+      error: 'Correction failed.', drafts: [blog, linkedin, blue], deliveries: [] };
+    query.setQueryData(['publishing', 'topic', 'topic'], { topic, drafts: topic.drafts, sources: [], deliveries: [], events: [], versions: [],
+      schedule: [{ draftId: blue.id, version: 1, scheduledAt: null, reason: 'Finish preparing the package.' }] } satisfies PublishingDetail);
+    const html = renderToStaticMarkup(<QueryClientProvider client={query}><TopicReview id="topic" initialDestination={destination}
+      feeds={feeds} busy={false} act={async () => true} /></QueryClientProvider>);
+    assert.match(html, /Retry preparation<\/button>/);
+    assert.match(html, /Rewrite from source<\/button>/);
+    if (destination === 'linkedin') assert.match(html, /Edit draft<\/button>/);
+    assert.match(html, /Passed reviews and approved copy are retained/);
+    query.clear();
+  }
+});
+test('an assigned package does not offer preparation recovery when another review state changes', () => {
+  const query = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  const ready: PublishingDraft = { ...savedDraft, destination: 'bluesky', variant: 'source', approval: 'approved', review: 'hold' };
+  const topic: PublishingTopic = { id: 'topic', title: 'Scheduled post', rationale: '', priority: 90, state: 'ready',
+    error: null, drafts: [ready], deliveries: [] };
+  query.setQueryData(['publishing', 'topic', 'topic'], { topic, drafts: [ready], sources: [], deliveries: [], events: [], versions: [],
+    schedule: [{ draftId: ready.id, version: 1, scheduledAt: '2099-01-01T08:00:00Z', reason: 'Scheduled.' }] } satisfies PublishingDetail);
+  const html = renderToStaticMarkup(<QueryClientProvider client={query}><TopicReview id="topic" feeds={feeds} busy={false} act={async () => true} /></QueryClientProvider>);
+  assert.match(html, /Preparation and editorial checks are complete/);
+  assert.ok(!html.includes('Rewrite from source</button>'));
+  assert.ok(!html.includes('Retry preparation</button>'));
   query.clear();
 });

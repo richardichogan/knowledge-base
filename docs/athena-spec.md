@@ -348,10 +348,16 @@ content type. It does not promote blog, newsletter or podcast suitability.
 Zero audience relevance, zero novelty, advertorial exclusions and already-covered
 stories cannot use this low-composite exception. Existing scores are not
 automatically rewritten or rescored.
-An overdue approved commitment retains its assigned time and is shown as awaiting
-delivery checks instead of silently moving to a later slot. Actual sends still
-enforce current publishing windows, account limits, retry deadlines, approvals
-and package dependencies. Schedule inspection does not send posts.
+An assigned Discover slot is an exact-version publishing commitment. All copy,
+editorial, account, duplicate and package-readiness checks finish before assignment.
+Refresh and inspection do not repeat those checks, withdraw the slot or move it
+when policy, guidance, source evidence or another review state changes. Overdue
+commitments retain their time and show "awaiting delivery"; new publishing windows
+do not delay them. Explicit holds, approval withdrawal, feed pauses, duplicate-send
+protection, retry deadlines and actual delivery outcomes still apply. Blog-linked
+posts consume the saved verified blog receipt without fetching or reviewing the
+article again; confirmed Blog then LinkedIn delivery establishes the promotion order.
+Schedule inspection does not send posts.
 
 **Draft script from prep** queues the Podcast script writer through Athena's persistent
 specialist worker system. Script generation and its synopsis style pass run in the background,
@@ -680,14 +686,24 @@ or enable publishing. Discussing a possible job does not enable one.
 over the current workspace, preserving its editors, selection and return
 location. Discover no longer has a Publishing menu action; existing
 `/discover?publishing=1` links remain compatible.
-Publishing's **Drafts** view contains unapproved Discover content, grouped
+Publishing's **Drafts** view contains unapproved or approved-but-unassigned content, grouped
 by topic so Blog / LinkedIn packages remain one entry, plus unapproved podcast
 campaign and recording-teaser posts and publishing job outputs. Preparation,
 review and hold states remain visible without granting approval.
-**Scheduling** contains only approved, unpublished content across those same
+**Scheduling** contains only approved, unpublished content with assigned times across those same
 sources. Publishing jobs include the latest 50 outstanding runs, including
 Microsoft weekly digests. Typed approval state, not a proposed date or status
-label, determines which view contains an entry.
+label, determines approval; an assigned time is additionally required for Scheduling.
+An unfinished Blog/LinkedIn package remains operable from either existing tab.
+Athena automatically recovers worker-stopped, unscheduled packages with bounded
+attempts, even when a companion was already approved. Retry and Rewrite from source
+operate only on unfinished, unapproved copies, retaining passed reviews and approved
+copy. An inconsistent proposed blog correction cannot rewrite a preserved hook;
+the failure remains explicit and the existing editors remain available. Manually
+held/rejected packages and packages with assigned slots or delivery attempts are
+excluded from automatic recovery. One package approval covers the exact Blog and
+LinkedIn versions together after both are ready; a blog-linked Bluesky promotion
+cannot be approved ahead of the ready, approved package.
 Each entry shows its status, origin, saved copy and source
 references; image-bearing podcast previews show their saved artwork. Published
 outputs are excluded, including completed destinations of partial job runs;

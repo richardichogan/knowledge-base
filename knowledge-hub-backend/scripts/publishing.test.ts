@@ -22,6 +22,7 @@ const { refreshPublishingDrafts, publishingRefreshStatus } = await import('../sr
 const { jobPublishingPosts } = await import('../src/publishing/content.js');
 const { IntegrationError, AiOutputLimitError } = await import('../src/types/errors.js');
 const prose = 'Administrators can now configure the documented capability through the existing management portal. Check the scope and permissions before enabling it. '.repeat(9);
+const member = async () => ({ id: 'member', name: 'Fixture' });
 const blog = { title: 'A practical administration change', summary: 'Check permissions before enabling the documented capability.', excerpt: 'A practical administration change.',
   content: `<p>${prose}</p>`, keyTakeaways: ['Check the documented permissions.'], categories: [], tags: [], postType: 'article', account: 'blog.fixture.invalid' };
 function reviewedPassage(input: unknown, field: string, reason: string, contains = '') {
@@ -205,6 +206,7 @@ test('publishing accuracy and voice checks run concurrently on the same saved dr
     const t = await topic(f.db);
     const s = await source(f.db, t.id);
     const d = await draft(f.db, t.id);
+    await f.db.query('DELETE FROM publishing_schedule WHERE draft_id=$1', [d.id]);
     await f.db.query("UPDATE publishing_drafts SET review='pending' WHERE id=$1", [d.id]);
     let release!: () => void;
     const accuracy = new Promise<void>(resolve => { release = resolve; });
@@ -406,7 +408,7 @@ test('a scheduled package never reappears in Drafts through its pending Bluesky 
     await f.db.query("UPDATE publishing_drafts SET approval='pending'");
     await f.db.query('DELETE FROM publishing_schedule');
     assert.equal((await store.listTopics(f.db, 0, true)).length, 1);
-    await store.approvePackage(f.db, t.id, { blog: 1, linkedin: 1 }, 'human');
+    await store.approvePackage(f.db, t.id, { blog: 1, linkedin: 1 }, 'human', member);
     assert.equal((await store.listTopics(f.db, 0, true)).length, 0);
   } finally { await f.close(); }
 });
@@ -431,6 +433,63 @@ test('content-sync refresh reviews unscheduled copy but preserves approved packa
     assert.equal(completed.length, 1);
     assert.deepEqual(completed[0]!.detail, { limit: 8, selectedTopics: 1, assessmentAttempts: 0, assessedTopics: 0,
       reviewedTopics: 1, reviewedDrafts: 1, failedTopics: 0, skippedTopics: 0, drafts: [pending.id] });
+  } finally { await f.close(); }
+});
+test('automatic recovery finishes a failed companion despite a retained approval and null-slot records', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db); await source(f.db, t.id);
+    const b = await draft(f.db, t.id, 'blog', 'blog');
+    const l = await draft(f.db, t.id, 'linkedin', 'blog');
+    const blue = await draft(f.db, t.id, 'bluesky', 'blog');
+    await f.db.query('UPDATE publishing_schedule SET scheduled_at=NULL');
+    await f.db.query("UPDATE publishing_drafts SET review='hold' WHERE id=$1", [l.id]);
+    await store.event(f.db, t.id, 'editorial-review', 'review-error', { draftId: l.id, reason: 'Passage repair failed.' });
+    const preserved = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE id=ANY($1::uuid[]) ORDER BY id`, [[b.id, blue.id]])).rows;
+    await store.regenerateStoppedPackages(f.db);
+    assert.equal((await f.db.query("SELECT review FROM publishing_drafts WHERE id=$1", [l.id])).rows[0]!.review, 'pending');
+    const copy = `${'Administrators should confirm the documented permissions before enabling this capability for their organisation. '.repeat(9)}Which permissions will you check first? #Azure #Governance`;
+    const destinations: unknown[] = [];
+    await refreshPublishingDrafts(f.db, { ...editorial.editorialServices, preferences: async () => '',
+      chat: async (system, input) => {
+        destinations.push((input as { destination: string }).destination);
+        return system.includes('This is generation, not a review.') ? { copy } : { outcome: 'pass', findings: [] };
+      },
+    });
+    assert.deepEqual([...new Set(destinations)], ['linkedin']);
+    const finished = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE id=$1`, [l.id])).rows[0]!;
+    assert.equal(finished.review, 'pass');
+    assert.equal(finished.approval, 'pending');
+    assert.equal(finished.content.copy, copy);
+    assert.deepEqual((await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE id=ANY($1::uuid[]) ORDER BY id`, [[b.id, blue.id]])).rows, preserved);
+    assert.equal((await f.db.query('SELECT id FROM publishing_deliveries')).rowCount, 0);
+  } finally { await f.close(); }
+});
+test('automatic package recovery honours manual holds and never enters a dated package', async () => {
+  const f = await publishingFixture();
+  try {
+    for (const protection of ['scheduled', 'manual-hold']) {
+      const t = await topic(f.db); await source(f.db, t.id);
+      const blue = await draft(f.db, t.id);
+      const l = await draft(f.db, t.id, 'linkedin', 'blog');
+      await f.db.query("UPDATE publishing_drafts SET review='hold' WHERE id=$1", [l.id]);
+      await store.event(f.db, t.id, 'editorial-review', 'review-error', { draftId: l.id });
+      if (protection === 'manual-hold') {
+        await f.db.query('UPDATE publishing_schedule SET scheduled_at=NULL WHERE draft_id=ANY($1::uuid[])', [[blue.id, l.id]]);
+        await store.holdTopic(f.db, t.id, false, 'human', 'Wait for my decision.');
+      }
+      const before = (await f.db.query('SELECT * FROM publishing_drafts WHERE topic_id=$1 ORDER BY id', [t.id])).rows;
+      await store.regenerateStoppedPackages(f.db);
+      assert.deepEqual((await f.db.query('SELECT * FROM publishing_drafts WHERE topic_id=$1 ORDER BY id', [t.id])).rows, before);
+      if (protection === 'scheduled') {
+        assert.equal(await store.requestRegeneration(f.db, t.id, 'human'), false);
+        let calls = 0;
+        await editorial.reviewDraft(f.db, { ...l, review: 'hold' }, [], { ...editorial.editorialServices,
+          chat: async () => { calls++; throw new Error('Scheduled copy must not enter editorial review.'); },
+        });
+        assert.equal(calls, 0);
+      }
+    }
   } finally { await f.close(); }
 });
 test('content sync replaces a full shortlist with fresh reviewed proposals despite an exhausted rolling allowance', async () => {
@@ -613,6 +672,7 @@ test('blog-linked Bluesky review cannot pass copy which exceeds the combined per
       [b.id, JSON.stringify({ slug: 'github-tightens-the-screws-microsoft-chases-supply-chain-fallout' })]);
     const blue = await draft(f.db, t.id, 'bluesky', 'blog');
     blue.content.copy = 'x'.repeat(230);
+    await f.db.query('DELETE FROM publishing_schedule WHERE draft_id=ANY($1::uuid[])', [[b.id, blue.id]]);
     await f.db.query("UPDATE publishing_drafts SET content=$2,review='pending' WHERE id=$1", [blue.id, JSON.stringify(blue.content)]);
     await editorial.reviewDraft(f.db, blue, [s], {
       ...editorial.editorialServices, preferences: async () => '',
@@ -755,28 +815,32 @@ for (const outcome of ['consistent', 'restored-pass', 'conflict', 'concurrent-ch
       const rows = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE topic_id=$1`, [t.id])).rows;
       const savedBlog = rows.find(row => row.id === b.id)!;
       const savedHook = rows.find(row => row.id === hook.id)!;
-      assert.equal(savedBlog.version, 2);
-      assert.equal(regenerations, outcome === 'concurrent-change' ? 1 : 0);
+      if (outcome === 'conflict' || outcome === 'concurrent-change') {
+        assert.equal(savedBlog.version, 1, 'a conflicting correction cannot replace the saved blog');
+      } else {
+        assert.equal(savedBlog.version, 2);
+        assert.equal(regenerations, 0);
+      }
       if (outcome === 'concurrent-change') {
-        assert.equal(savedHook.review, 'pending');
-        assert.equal(savedHook.version, hook.version + 1);
+        assert.ok(savedHook.version > hook.version);
         assert.equal(savedHook.content.copy, 'Changed concurrently');
         assert.equal((await f.db.query("SELECT id FROM publishing_events WHERE event='blog-hook-consistency-preserved' AND topic_id=$1", [t.id])).rowCount, 0);
         return;
       }
       if (outcome === 'conflict') {
-        assert.equal(savedHook.review, 'pending');
-        assert.equal(savedHook.version, hook.version + 1);
-        assert.equal(savedHook.reviewedBlogVersion, null);
+        assert.equal(savedHook.review, 'pass');
+        assert.equal(savedHook.version, hook.version);
+        assert.equal(savedHook.reviewedBlogVersion, 1);
+        assert.deepEqual(savedHook.content, hook.content);
         const rewrites = await f.db.query("SELECT id FROM publishing_events WHERE event='hook-rewrite-requested' AND topic_id=$1", [t.id]);
-        assert.equal(rewrites.rowCount, 1);
+        assert.equal(rewrites.rowCount, 0);
         return;
       }
       assert.equal(savedHook.review, 'pass');
-      assert.equal(savedHook.reviewedBlogVersion, outcome === 'consistent' || outcome === 'restored-pass' ? 2 : 1);
-      if (outcome !== 'concurrent-change') assert.deepEqual(savedHook.content, hook.content);
+      assert.equal(savedHook.reviewedBlogVersion, 2);
+      assert.deepEqual(savedHook.content, hook.content);
       const events = await f.db.query("SELECT id FROM publishing_events WHERE event='blog-hook-consistency-preserved' AND topic_id=$1", [t.id]);
-      assert.equal(events.rowCount, outcome === 'consistent' || outcome === 'restored-pass' ? 1 : 0);
+      assert.equal(events.rowCount, 1);
     } finally { await f.close(); }
   });
 }
@@ -1054,6 +1118,7 @@ test('a truncated blog revision leaves exact saved content, versions and approva
   try {
     const t = await topic(f.db); const s = await source(f.db, t.id);
     const d = await draft(f.db, t.id, 'blog', 'blog');
+    await f.db.query('DELETE FROM publishing_schedule WHERE draft_id=$1', [d.id]);
     await f.db.query("UPDATE publishing_drafts SET review='pending' WHERE id=$1", [d.id]);
     await assert.rejects(editorial.reviewDraft(f.db, d, [s], {
       ...editorial.editorialServices, preferences: async () => '',
@@ -1163,16 +1228,14 @@ test('legacy drafts without copy are generated before review, creating a new una
     assert.equal((await f.db.query('SELECT * FROM publishing_deliveries')).rows.length, 0);
   } finally { await f.close(); }
 });
-test('pause, unreviewed copy, missing approval and stale version fail closed before a network request', async () => {
+test('pause, missing approval and stale version fail closed without repeating scheduled editorial checks', async () => {
   const f = await publishingFixture();
   try {
     const t = await topic(f.db); await source(f.db, t.id); const d = await draft(f.db, t.id);
     await assert.rejects(reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(d)), /off/);
     await enable(f.db);
-    await f.db.query("UPDATE publishing_drafts SET review='hold' WHERE id=$1", [d.id]);
-    await assert.rejects(reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(d)), /passed editorial review/);
     await f.db.query("UPDATE publishing_drafts SET review='pass',approval='pending',reviewed_at=NOW()-INTERVAL '25 hours' WHERE id=$1", [d.id]);
-    await assert.rejects(reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(d)), /human approval/);
+    await assert.rejects(reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(d)), /approval was withdrawn/);
     await f.db.query("UPDATE publishing_drafts SET reviewed_at=NOW(),approval='approved',expires_at=NOW()-INTERVAL '1 hour' WHERE id=$1", [d.id]);
     await editorial.editDraft(f.db, d.id, 1, { copy: 'Changed wording.' }, 'human');
     await assert.rejects(reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(d)), /version/);
@@ -1186,6 +1249,27 @@ test('an approved version is not reopened just because its passed review is olde
     await f.db.query("UPDATE publishing_drafts SET reviewed_at=NOW()-INTERVAL '40 hours' WHERE id=$1", [d.id]);
     await reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(d));
     assert.equal((await f.db.query('SELECT * FROM publishing_deliveries')).rows.length, 1);
+  } finally { await f.close(); }
+});
+test('an assigned slot survives later readiness changes and sends without new editorial or window checks', async () => {
+  const f = await publishingFixture();
+  try {
+    const t = await topic(f.db); await source(f.db, t.id);
+    const d = await draft(f.db, t.id); await enable(f.db);
+    await f.db.query("UPDATE publishing_drafts SET review='hold',reviewed_at=NULL WHERE id=$1", [d.id]);
+    await f.db.query("UPDATE publishing_topics SET state='assessing' WHERE id=$1", [t.id]);
+    await f.db.query("UPDATE publishing_feeds SET policy=jsonb_set(policy,'{days}','[]')");
+    const before = (await listSchedule(f.db, true)).find(post => post.draftId === d.id)!;
+    assert.equal(before.status, 'Scheduled');
+    assert.ok(before.scheduledAt);
+    await refreshSchedule(f.db);
+    const after = (await listSchedule(f.db, true)).find(post => post.draftId === d.id)!;
+    assert.equal(after.scheduledAt, before.scheduledAt);
+    let sends = 0;
+    const send = async () => { sends++; return { url: 'https://bsky.app/fixture' }; };
+    await deliver(f.db, 'bluesky', 'fixture.bsky.social', context(d), send);
+    await deliver(f.db, 'bluesky', 'fixture.bsky.social', context(d), send);
+    assert.equal(sends, 1, 'delivery idempotency is still enforced');
   } finally { await f.close(); }
 });
 test('a passed review never expires: an old pass can still be approved and delivered without another review', async () => {
@@ -1289,14 +1373,14 @@ test('unknown outcomes reserve capacity; only definite transient failures get bo
     assert.equal((await f.db.query<Delivery>(`SELECT ${store.deliveryColumns} FROM publishing_deliveries WHERE identity='bad-config'`)).rows[0]!.nextAttemptAt, null);
   } finally { await f.close(); }
 });
-test('blog and LinkedIn require separate exact-version approval; blog edit invalidates the hook', async () => {
+test('Blog and LinkedIn cannot bypass package approval and a blog edit invalidates the hook', async () => {
   const f = await publishingFixture();
   try {
     const t = await topic(f.db); await source(f.db, t.id); await enable(f.db);
     const b = await draft(f.db, t.id, 'blog', 'blog'); const l = await draft(f.db, t.id, 'linkedin', 'blog');
-    await store.decideDraft(f.db, b.id, 1, 'approve', 'human', '');
-    await assert.rejects(reserveDelivery(f.db, 'blog', 'blog.fixture.invalid', context(b)), /Both/);
-    await store.decideDraft(f.db, l.id, 1, 'approve', 'human', '');
+    await assert.rejects(store.decideDraft(f.db, b.id, 1, 'approve', 'human', ''), /single package approval/);
+    await assert.rejects(store.decideDraft(f.db, l.id, 1, 'approve', 'human', ''), /single package approval/);
+    await store.approvePackage(f.db, t.id, { blog: 1, linkedin: 1 }, 'human', member);
     await editorial.editDraft(f.db, b.id, 1, { ...blog, title: 'The revised practical argument' }, 'human');
     const changed = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE topic_id=$1`, [t.id])).rows;
     assert.ok(changed.every(x => x.approval === 'pending' && x.review === 'pending'));
@@ -1312,29 +1396,32 @@ test('one package approval covers both exact versions atomically and rejects sta
     const t = await topic(f.db);
     const b = await draft(f.db, t.id, 'blog', 'blog');
     const l = await draft(f.db, t.id, 'linkedin', 'blog');
-    await assert.rejects(store.approvePackage(f.db, t.id, { blog: 1, linkedin: 2 }, 'human'), /changed/);
+    await assert.rejects(store.approvePackage(f.db, t.id, { blog: 1, linkedin: 2 }, 'human', member), /changed/);
     await f.db.query("UPDATE publishing_drafts SET review='pending' WHERE id=$1", [l.id]);
-    await assert.rejects(store.approvePackage(f.db, t.id, { blog: 1, linkedin: 1 }, 'human'), /LinkedIn/);
+    await assert.rejects(store.approvePackage(f.db, t.id, { blog: 1, linkedin: 1 }, 'human', member), /LinkedIn/);
     assert.ok((await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE topic_id=$1`, [t.id])).rows.every(d => d.approval === 'pending'));
     await f.db.query("UPDATE publishing_drafts SET review='pass' WHERE id=$1", [l.id]);
-    await store.approvePackage(f.db, t.id, { blog: b.version, linkedin: l.version }, 'human');
+    await assert.rejects(store.approvePackage(f.db, t.id, { blog: b.version, linkedin: l.version }, 'human', async () => ({ id: 'changed-member' })), /account changed/);
+    await store.approvePackage(f.db, t.id, { blog: b.version, linkedin: l.version }, 'human', member);
     assert.ok((await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE topic_id=$1`, [t.id])).rows.every(d => d.approval === 'approved'));
     assert.equal((await f.db.query("SELECT * FROM publishing_versions WHERE approved_by='human'")).rows.length, 2);
     assert.equal((await f.db.query('SELECT * FROM publishing_deliveries')).rows.length, 0);
   } finally { await f.close(); }
 });
-test('a queued source post is superseded by the blog and a sent one needs a distinct argument and 24 hours', async () => {
+test('source supersession and same-topic duplicate protection run before slot assignment', async () => {
   const f = await publishingFixture();
   try {
     const t = await topic(f.db); await source(f.db, t.id); await enable(f.db);
-    const blue = await draft(f.db, t.id); await draft(f.db, t.id, 'blog', 'blog');
-    await assert.rejects(reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(blue)), /superseded/);
-    const next = await topic(f.db); await source(f.db, next.id); const later = await draft(f.db, next.id);
-    await f.db.query('UPDATE publishing_topics SET event_key=$2 WHERE id=$1', [next.id, t.eventKey]);
-    await f.db.query(`INSERT INTO publishing_deliveries(identity,destination,topic_id,account,status,attempted_at,published_at)
-      VALUES('prior','bluesky',$1,'fixture.bsky.social','sent',NOW()-INTERVAL '25 hours',NOW()-INTERVAL '25 hours')`, [t.id]);
-    await assert.rejects(reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(later)), /distinct/);
-    await reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', { ...context(later), distinctArgument: true });
+    const blue = await draft(f.db, t.id);
+    const b = await draft(f.db, t.id, 'blog', 'blog');
+    const settings = await store.feeds(f.db);
+    const candidate = { ...blue, title: t.title, topicState: 'ready', scheduledAt: null, scheduleReason: null };
+    const superseded = planSchedule([candidate, { ...b, title: t.title, topicState: 'ready', scheduledAt: null, scheduleReason: null }], settings, [])[0]!;
+    assert.equal(superseded.scheduledAt, null);
+    assert.match(superseded.reason, /superseded/);
+    const repeated = planSchedule([{ ...candidate, lastBlueskyPublishedAt: new Date(Date.now() - 25 * 3600000).toISOString() }], settings, [])[0]!;
+    assert.equal(repeated.scheduledAt, null);
+    assert.match(repeated.reason, /distinct argument/);
   } finally { await f.close(); }
 });
 test('old same-event Bluesky deliveries block approval and scheduling before delivery is attempted', async () => {
@@ -1352,7 +1439,7 @@ test('old same-event Bluesky deliveries block approval and scheduling before del
     assert.equal((await f.db.query("SELECT approval FROM publishing_drafts WHERE id=$1", [blue.id])).rows[0]!.approval, 'pending');
     assert.equal((await f.db.query("SELECT approved_at FROM publishing_versions WHERE draft_id=$1", [blue.id])).rows[0]!.approved_at, null);
     await f.db.query("UPDATE publishing_drafts SET approval='approved' WHERE id=$1", [blue.id]);
-    await f.db.query("INSERT INTO publishing_schedule(draft_id,version,scheduled_at) VALUES($1,$2,NOW()-INTERVAL '1 day')", [blue.id, blue.version]);
+    await f.db.query("INSERT INTO publishing_schedule(draft_id,version,scheduled_at) VALUES($1,$2,NULL)", [blue.id, blue.version]);
     const before = (await listSchedule(f.db, true)).find(post => post.draftId === blue.id)!;
     assert.equal(before.status, 'Blocked', 'inspection must not repeat the stale overdue promise');
     assert.equal(before.scheduledAt, null);
@@ -1426,8 +1513,8 @@ test('accuracy and voice stay separate through bounded regeneration after stalle
 test('changed source evidence never reopens a passed review or an existing human approval', async () => {
   const f = await publishingFixture();
   try {
-    const t = await topic(f.db); await source(f.db, t.id); const b = await draft(f.db, t.id, 'blog', 'blog'); await draft(f.db, t.id, 'linkedin', 'blog');
-    await store.decideDraft(f.db, b.id, 1, 'approve', 'human', '');
+    const t = await topic(f.db); await source(f.db, t.id); await draft(f.db, t.id, 'blog', 'blog'); await draft(f.db, t.id, 'linkedin', 'blog');
+    await store.approvePackage(f.db, t.id, { blog: 1, linkedin: 1 }, 'human', member);
     const unpassed = await draft(f.db, t.id);
     await f.db.query("UPDATE publishing_drafts SET review='revise',approval='pending',reviewed_at=NULL WHERE id=$1", [unpassed.id]);
     const passedRows = async () => (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE id<>$1 ORDER BY id`, [unpassed.id])).rows;
@@ -1458,8 +1545,8 @@ test('feed settings and editorial guidance never reopen a passed or approved dra
     await reserveDelivery(f.db, 'bluesky', 'fixture.bsky.social', context(kept));
     assert.equal((await f.db.query('SELECT * FROM publishing_deliveries')).rows.length, 1);
     const pkg = await topic(f.db); await source(f.db, pkg.id);
-    const b = await draft(f.db, pkg.id, 'blog', 'blog'); const l = await draft(f.db, pkg.id, 'linkedin', 'blog');
-    await store.decideDraft(f.db, b.id, 1, 'approve', 'human', ''); await store.decideDraft(f.db, l.id, 1, 'approve', 'human', '');
+    await draft(f.db, pkg.id, 'blog', 'blog'); await draft(f.db, pkg.id, 'linkedin', 'blog');
+    await store.approvePackage(f.db, pkg.id, { blog: 1, linkedin: 1 }, 'human', member);
     const blogFeed = (await store.feeds(f.db)).find(feed => feed.id === 'blog-linkedin')!;
     await store.saveFeed(f.db, blogFeed.id, blogFeed.revision, true, { ...blogFeed.policy, guidance: 'Only substantial analysis.' }, 'human');
     const approved = (await f.db.query<Draft>(`SELECT ${store.draftColumns} FROM publishing_drafts WHERE topic_id=$1`, [pkg.id])).rows;
@@ -1519,10 +1606,10 @@ test('preparation has no daily allowance; enabling alone never posts before exac
 });
 test('a verified blog survives LinkedIn rejection and retry without republishing; unverified acceptance blocks promotion', async () => {
   const f = await publishingFixture();
-  let blogs = 0; let linkedin = 0;
+  let blogs = 0; let linkedin = 0; let reads = 0;
   const services = {
-    member: async () => ({ id: 'member', name: 'Fixture' }),
-    read: async () => ({ title: blog.title, text: prose }),
+    member: async () => { throw new Error('Account preflight must not run after scheduling.'); },
+    read: async () => { reads++; assert.equal(reads, 1, 'social delivery must reuse the confirmed blog receipt'); return { title: blog.title, text: prose }; },
     blog: async () => { blogs++; return { httpStatus: 200, payload: { success: true as const, data: { url: 'https://blog.fixture.invalid/article', editUrl: null, status: 'published' as const } } }; },
     bluesky: async () => ({ uri: 'uri', url: 'https://bsky.app/fixture' }),
     linkedin: async () => { linkedin++; if (linkedin === 1) throw new IntegrationError('linkedin', 'HTTP 429'); return { urn: 'urn', url: 'https://www.linkedin.com/feed/update/fixture' }; },
@@ -1530,7 +1617,7 @@ test('a verified blog survives LinkedIn rejection and retry without republishing
   try {
     const t = await topic(f.db); await source(f.db, t.id); await enable(f.db);
     const b = await draft(f.db, t.id, 'blog', 'blog'); const l = await draft(f.db, t.id, 'linkedin', 'blog');
-    await store.decideDraft(f.db, b.id, 1, 'approve', 'human', ''); await store.decideDraft(f.db, l.id, 1, 'approve', 'human', '');
+    await store.approvePackage(f.db, t.id, { blog: 1, linkedin: 1 }, 'human', member);
     await publishDraft(f.db, b, services);
     await assert.rejects(publishDraft(f.db, l, services), /429/);
     await publishDraft(f.db, b, services);
@@ -1540,7 +1627,7 @@ test('a verified blog survives LinkedIn rejection and retry without republishing
     assert.equal(blogs, 1); assert.equal(linkedin, 2);
     const other = await topic(f.db); await source(f.db, other.id);
     const otherBlog = await draft(f.db, other.id, 'blog', 'blog'); const otherHook = await draft(f.db, other.id, 'linkedin', 'blog');
-    await store.decideDraft(f.db, otherBlog.id, 1, 'approve', 'human', ''); await store.decideDraft(f.db, otherHook.id, 1, 'approve', 'human', '');
+    await store.approvePackage(f.db, other.id, { blog: 1, linkedin: 1 }, 'human', member);
     await f.db.query("UPDATE publishing_deliveries SET published_at=NOW()-INTERVAL '4 hours' WHERE destination='linkedin'");
     await assert.rejects(publishDraft(f.db, otherBlog, { ...services, read: async () => ({ title: 'Error', text: 'Not found' }) }), /verification failed/);
     assert.equal((await f.db.query<{ status: string }>("SELECT status FROM publishing_deliveries WHERE draft_id=$1", [otherBlog.id])).rows[0]!.status, 'unconfirmed');
@@ -1555,8 +1642,7 @@ test('accepted blog confirmation recovers from 404 without recreating it and gat
     const b = await draft(f.db, t.id, 'blog', 'blog');
     const l = await draft(f.db, t.id, 'linkedin', 'blog');
     const blue = await draft(f.db, t.id, 'bluesky', 'blog');
-    await store.decideDraft(f.db, b.id, 1, 'approve', 'human', '');
-    await store.decideDraft(f.db, l.id, 1, 'approve', 'human', '');
+    await store.approvePackage(f.db, t.id, { blog: 1, linkedin: 1 }, 'human', member);
     let available = false;
     const order: string[] = [];
     const url = 'https://blog.fixture.invalid/new-blog';
@@ -1597,7 +1683,7 @@ test('blog-flow slots follow Blog then LinkedIn then Bluesky while standalone Bl
     const now = new Date('2026-10-27T07:00:00Z');
     const candidates = [b, l, blue].map(d => ({ ...d, approval: 'approved' as const,
       title: 'Fixture', topicState: 'ready', scheduleReason: null,
-      scheduledAt: d.destination === 'bluesky' ? '2026-10-27T08:15:00Z' : null }));
+      scheduledAt: null }));
     const settings = await store.feeds(f.db);
     const plan = planSchedule(candidates, settings, [], now);
     const at = (destination: Draft['destination']): number => Date.parse(plan.find(p => p.destination === destination)!.scheduledAt!);
@@ -1642,7 +1728,7 @@ test('duplicate and overdue posts cannot push approved Friday slots into Monday'
     const blue = await draft(f.db, t.id);
     const settings = await store.feeds(f.db);
     const candidate = { ...blue, title: 'Fixture', topicState: 'ready', scheduleReason: null,
-      scheduledAt: '2026-11-13T12:00:00Z', lastBlueskyPublishedAt: '2026-11-09T14:38:34Z' };
+      scheduledAt: null as string | null, lastBlueskyPublishedAt: '2026-11-09T14:38:34Z' };
     const eligible = { ...candidate, id: randomUUID(), topicId: randomUUID(),
       scheduledAt: '2026-11-13T14:00:00Z', lastBlueskyPublishedAt: null };
     for (const at of ['2026-11-13T12:00:44Z', '2026-11-13T14:00:50Z', '2026-11-13T16:00:35Z']) {
@@ -1666,7 +1752,7 @@ test('a distinct Bluesky follow-up is scheduled after the same-topic cooldown', 
     const blue = await draft(f.db, t.id);
     const settings = await store.feeds(f.db);
     const candidate = { ...blue, distinctArgument: true, title: 'Distinct follow-up', topicState: 'ready', scheduleReason: null,
-      scheduledAt: '2026-11-13T10:00:00Z', lastBlueskyPublishedAt: '2026-11-12T12:00:00Z' };
+      scheduledAt: null, lastBlueskyPublishedAt: '2026-11-12T12:00:00Z' };
     const post = planSchedule([candidate], settings, [], new Date('2026-11-13T10:01:00Z'))[0]!;
     assert.equal(post.scheduledAt, '2026-11-13T12:00:00.000Z');
   } finally { await f.close(); }

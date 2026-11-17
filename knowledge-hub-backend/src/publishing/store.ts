@@ -3,6 +3,7 @@ import { recordPublishingDraft } from '../ai/aiLedger.js';
 import type { Pool, PoolClient } from 'pg';
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
 import { cleanUrl } from '../integrations/discovery/feedReader.js';
+import { getLinkedInMember } from '../integrations/social/linkedin.js';
 import { microsoftRelevanceSql } from '../utils/microsoftRelevance.js';
 import { MS_PER_HOUR } from '../config/constants.js';
 import { parsePolicy, PUBLISH_LIMITS, type PublishingFeed, type Topic, type Source, type Draft, type Delivery, type FeedId } from './contracts.js';
@@ -117,14 +118,16 @@ export async function listTopics(db: Pool, offset = 0, shortlist = false): Promi
 export async function topicDetail(db: Pool, id: string): Promise<unknown> {
   const topic = (await db.query<Topic>(`SELECT ${topicColumns} FROM publishing_topics WHERE id=$1`, [id])).rows[0];
   if (!topic) throw new NotFoundError('Publishing topic');
-  const [sources, drafts, versions, attempts, events] = await Promise.all([
+  const [sources, drafts, versions, attempts, events, schedule] = await Promise.all([
     db.query<Source>(`SELECT ${sourceColumns} FROM publishing_sources WHERE topic_id=$1`, [id]),
     db.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts WHERE topic_id=$1`, [id]),
     db.query<Record<string, unknown>>(`SELECT v.* FROM publishing_versions v JOIN publishing_drafts d ON d.id=v.draft_id WHERE d.topic_id=$1 ORDER BY v.version DESC`, [id]),
     db.query<Delivery>(`SELECT ${deliveryColumns} FROM publishing_deliveries WHERE topic_id=$1 ORDER BY attempted_at DESC`, [id]),
     db.query<Record<string, unknown>>('SELECT id,actor,event,detail,created_at FROM publishing_events WHERE topic_id=$1 ORDER BY id DESC LIMIT 50', [id]),
+    db.query<{ draftId: string; version: number; scheduledAt: string | null; reason: string }>(`SELECT s.draft_id AS "draftId",s.version,s.scheduled_at::text AS "scheduledAt",s.reason
+      FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id AND d.version=s.version WHERE d.topic_id=$1`, [id]),
   ]);
-  return { topic, sources: sources.rows, drafts: drafts.rows, versions: versions.rows, deliveries: attempts.rows, events: events.rows };
+  return { topic, sources: sources.rows, drafts: drafts.rows, versions: versions.rows, deliveries: attempts.rows, events: events.rows, schedule: schedule.rows };
 }
 export async function intake(db: Pool): Promise<void> {
   const rows = (await db.query<{ id: string; title: string; url: string; discoveredAt: string }>(`
@@ -175,8 +178,13 @@ function assertApprovable(d: Draft): void {
   if (!complete || d.held || d.review !== 'pass' || !d.reviewedAt) {
     throw new ValidationError(`${d.destination === 'blog' ? 'Blog' : d.destination === 'linkedin' ? 'LinkedIn' : 'Bluesky'} v${d.version} needs complete copy and a passed review before scheduling.`);
   }
+  if (typeof d.content.account !== 'string' || !d.content.account.trim() || d.content.account === '(not connected)') {
+    throw new ValidationError('Connect and bind the destination account before scheduling.');
+  }
 }
-export async function approvePackage(db: Pool, topicId: string, versions: { blog: unknown; linkedin: unknown }, actor: string): Promise<void> {
+export async function approvePackage(db: Pool, topicId: string, versions: { blog: unknown; linkedin: unknown }, actor: string,
+  member: () => Promise<{ id: string }> = getLinkedInMember): Promise<void> {
+  const account = await member();
   await transaction(db, async c => {
     const topic = (await c.query<{ state: string }>('SELECT state FROM publishing_topics WHERE id=$1 FOR NO KEY UPDATE', [topicId])).rows[0];
     if (!topic) throw new NotFoundError('Publishing package');
@@ -190,6 +198,7 @@ export async function approvePackage(db: Pool, topicId: string, versions: { blog
       throw new ConflictError('The package changed. Reload and read the current saved versions.', 'PUBLISHING_CONFLICT');
     }
     for (const draft of pair) assertApprovable(draft);
+    if (linkedin.content.account !== account.id) throw new ValidationError('The LinkedIn account changed. Rebind the hook before scheduling.');
     if (linkedin.reviewedBlogVersion !== blog.version) throw new ValidationError('LinkedIn copy needs its consistency review against the current blog version.');
     const unresolved = await c.query(`SELECT id FROM publishing_deliveries WHERE draft_id=ANY($1::uuid[])
       AND status IN ('sending','unconfirmed')`, [pair.map(d => d.id)]);
@@ -209,6 +218,23 @@ export async function decideDraft(db: Pool, id: string, version: unknown, action
     if (d.version !== version) throw new ConflictError('Draft changed. Review the current version.', 'PUBLISHING_CONFLICT');
     if (action === 'approve' || action === 'resume') {
       if (action === 'approve') assertApprovable(d);
+      if (action === 'approve') {
+        const topic = await c.query<{ state: string }>('SELECT state FROM publishing_topics WHERE id=$1', [d.topicId]);
+        if (topic.rows[0]?.state !== 'ready') throw new ValidationError('Finish preparing the topic before scheduling.');
+        if (d.variant === 'blog') {
+          const pair = (await c.query<Draft>(`SELECT ${draftColumns} FROM publishing_drafts
+            WHERE topic_id=$1 AND destination IN ('blog','linkedin') ORDER BY id`, [d.topicId])).rows;
+          if (pair.length !== PUBLISH_LIMITS.packageDestinations) throw new ValidationError('Finish the Blog/LinkedIn package before scheduling.');
+          for (const companion of pair) assertApprovable(companion);
+          const blog = pair.find(companion => companion.destination === 'blog')!;
+          const linkedin = pair.find(companion => companion.destination === 'linkedin')!;
+          if (linkedin.reviewedBlogVersion !== blog.version || (d.destination !== 'blog' && d.reviewedBlogVersion !== blog.version)) {
+            throw new ValidationError('Finish checking the hooks against the current blog before scheduling.');
+          }
+          if (d.destination !== 'bluesky') throw new ValidationError('Use the single package approval to approve Blog and LinkedIn together.');
+          if (pair.some(companion => companion.approval !== 'approved')) throw new ValidationError('Approve the Blog/LinkedIn package before scheduling its Bluesky promotion.');
+        }
+      }
       if (d.destination === 'bluesky') {
         const blocker = blueskyRepeatBlocker(d, await lastBlueskyPublication(c, d.topicId, String(d.content.account)));
         if (blocker) throw new ValidationError(blocker);
@@ -273,13 +299,13 @@ export async function requestRegeneration(db: Pool, id: string, actor: string): 
   return transaction(db, async c => {
     const topic = await c.query(`UPDATE publishing_topics SET state='ready',error=NULL WHERE id=$1 AND state IN ('held','ready')
       AND EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=$1 AND approval='pending' AND review<>'pass')
-      AND NOT EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=$1 AND approval='approved')
-      AND NOT EXISTS(SELECT 1 FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id WHERE d.topic_id=$1)
+      AND NOT EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=$1 AND approval='rejected')
+      AND NOT EXISTS(SELECT 1 FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id AND d.version=s.version WHERE d.topic_id=$1 AND s.scheduled_at IS NOT NULL)
       AND NOT EXISTS(SELECT 1 FROM publishing_deliveries WHERE topic_id=$1) RETURNING id`, [id]);
     if (!topic.rowCount) return false;
-    await c.query(`UPDATE publishing_drafts SET held=FALSE,review=CASE WHEN review='pass' THEN review ELSE 'pending' END,
-      reason=CASE WHEN review='pass' THEN reason ELSE $2 END,updated_at=NOW()
-      WHERE topic_id=$1 AND approval='pending'`, [id, REGENERATION_REQUEST]);
+    await c.query(`UPDATE publishing_drafts SET held=FALSE,review=CASE WHEN review='pass' OR approval='approved' THEN review ELSE 'pending' END,
+      reason=CASE WHEN review='pass' OR approval='approved' THEN reason ELSE $2 END,updated_at=NOW()
+      WHERE topic_id=$1 AND approval<>'rejected' AND (held OR approval='pending' AND review<>'pass')`, [id, REGENERATION_REQUEST]);
     await event(c, id, actor, 'regeneration-requested', {});
     return true;
   });
@@ -288,11 +314,16 @@ export async function requestRegeneration(db: Pool, id: string, actor: string): 
 export async function regenerateStoppedPackages(db: Pool): Promise<void> {
   const stopped = (await db.query<{ id: string }>(`SELECT t.id FROM publishing_topics t WHERE t.state IN ('held','ready')
     AND EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=t.id AND approval='pending' AND review<>'pass')
-    AND NOT EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=t.id AND approval='approved')
+    AND NOT EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=t.id AND approval='rejected')
+    AND NOT EXISTS(SELECT 1 FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id AND d.version=s.version
+      WHERE d.topic_id=t.id AND s.scheduled_at IS NOT NULL)
+    AND NOT EXISTS(SELECT 1 FROM publishing_deliveries WHERE topic_id=t.id)
     AND NOT EXISTS(SELECT 1 FROM publishing_events e WHERE e.topic_id=t.id AND e.event='regeneration-requested')
-    AND (EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=t.id AND approval='pending' AND review='hold')
-      OR (t.state='held' AND t.error IS NOT NULL AND (SELECT actor FROM publishing_events WHERE topic_id=t.id AND event IN ('topic-held','topic-rejected','topic-retried') ORDER BY id DESC LIMIT 1)
-        IN ('review-worker','editorial-worker','publishing-auto-retry')))
+    AND (SELECT actor FROM publishing_events WHERE topic_id=t.id
+      AND event IN ('topic-held','topic-rejected','topic-retried','draft-hold','draft-reject','draft-resume','cold-drafts-held',
+        'review-error','review-hold','regeneration-exhausted','draft-refresh-error','draft-recovery-error')
+      ORDER BY id DESC LIMIT 1) IN ('review-worker','editorial-worker','editorial-review','content-sync',
+        'publishing-auto-retry','user-requested-targeted-draft-recovery')
     ORDER BY t.created_at DESC LIMIT 3`)).rows;
   for (const topic of stopped) await requestRegeneration(db, topic.id, 'publishing-auto-regenerate');
 }
@@ -301,13 +332,13 @@ export async function releaseTopic(db: Pool, id: string, actor: string): Promise
   return transaction(db, async c => {
     const topic = await c.query(`UPDATE publishing_topics SET state='ready',error=NULL WHERE id=$1 AND state='held'
       AND EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=$1)
-      AND NOT EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=$1 AND approval<>'pending')
-      AND NOT EXISTS(SELECT 1 FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id WHERE d.topic_id=$1)
+      AND NOT EXISTS(SELECT 1 FROM publishing_drafts WHERE topic_id=$1 AND approval='rejected')
+      AND NOT EXISTS(SELECT 1 FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id AND d.version=s.version WHERE d.topic_id=$1 AND s.scheduled_at IS NOT NULL)
       AND NOT EXISTS(SELECT 1 FROM publishing_deliveries WHERE topic_id=$1) RETURNING id`, [id]);
     if (!topic.rowCount) return false;
-    await c.query(`UPDATE publishing_drafts SET held=FALSE,review=CASE WHEN review='pass' THEN review ELSE 'pending' END,
-      reason=CASE WHEN review='pass' THEN reason ELSE 'Preparation retried.' END,updated_at=NOW()
-      WHERE topic_id=$1 AND approval='pending'`, [id]);
+    await c.query(`UPDATE publishing_drafts SET held=FALSE,review=CASE WHEN review='pass' OR approval='approved' THEN review ELSE 'pending' END,
+      reason=CASE WHEN review='pass' OR approval='approved' THEN reason ELSE 'Preparation retried.' END,updated_at=NOW()
+      WHERE topic_id=$1 AND approval<>'rejected' AND (held OR approval='pending' AND review<>'pass')`, [id]);
     await event(c, id, actor, 'topic-retried', {});
     return true;
   });
@@ -337,6 +368,16 @@ export async function closeDeadPackages(db: Pool): Promise<number> {
 }
 export async function holdTopic(db: Pool, id: string, rejected: boolean, actor: string, reason: string): Promise<void> {
   await transaction(db, async c => {
+    if (['review-worker', 'editorial-worker'].includes(actor)) {
+      await c.query('SELECT id FROM publishing_topics WHERE id=$1 FOR NO KEY UPDATE', [id]);
+      const scheduled = await c.query(`SELECT s.draft_id FROM publishing_schedule s
+        JOIN publishing_drafts d ON d.id=s.draft_id AND d.version=s.version
+        WHERE d.topic_id=$1 AND s.scheduled_at IS NOT NULL`, [id]);
+      if (scheduled.rowCount) {
+        await event(c, id, actor, 'preparation-skipped', { reason: 'The package is already scheduled.' });
+        return;
+      }
+    }
     const changed = await c.query("UPDATE publishing_topics SET state=$2,error=$3 WHERE id=$1 RETURNING id", [id, rejected ? 'rejected' : 'held', reason]);
     if (!changed.rowCount) throw new NotFoundError('Publishing topic');
     await c.query('UPDATE publishing_drafts SET held=TRUE,reason=$2 WHERE topic_id=$1', [id, reason]);

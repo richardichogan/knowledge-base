@@ -83,8 +83,10 @@ test('chat proposes the same two feed settings; only user confirmation changes t
     const localProposals = (await call('/jobs/proposals?sessionId=chat')).body.data as Array<{ id: string }>;
     assert.equal((await call(`/jobs/proposals/${localProposals[0]!.id}/confirm`, 'POST', {})).status, 200,
       'human-confirmed feed settings work in development without enabling job execution');
+    const localTopic = (await fixture.db.query<{ id: string }>(`INSERT INTO publishing_topics(title,fingerprint,state)
+      VALUES('Local reviewed post','local-reviewed-post','ready') RETURNING id`)).rows[0]!;
     const schedulable = (await fixture.db.query<{ id: string }>(`INSERT INTO publishing_drafts(topic_id,destination,variant,content,review,reviewed_at,expires_at)
-      VALUES($1,'linkedin','blog','{"copy":"Complete reviewed hook.","account":"fixture"}','pass',NOW(),NOW()+INTERVAL '1 day') RETURNING id`, [topic.id])).rows[0]!;
+      VALUES($1,'bluesky','source','{"copy":"Complete reviewed hook.","account":"fixture"}','pass',NOW(),NOW()+INTERVAL '1 day') RETURNING id`, [localTopic.id])).rows[0]!;
     await fixture.db.query(`INSERT INTO publishing_versions(draft_id,version,content)
       SELECT id,version,content FROM publishing_drafts WHERE id=$1`, [schedulable.id]);
     assert.equal((await call(`/publishing/drafts/${schedulable.id}/decision`, 'POST', { version: 1, action: 'approve' })).status, 200);

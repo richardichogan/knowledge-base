@@ -46,7 +46,7 @@ export async function executePublishingTool(db: Pool, args: Record<string, unkno
   }
   if (args.action === 'list') return {
     feeds: await feeds(db), topics: await listTopics(db, 0, true), reviewUrl: '/discover?publishing=1',
-    selectionPolicy: `Finished, reviewed drafts only. Microsoft-first, newest relevant evidence first. At most ${PUBLISH_LIMITS.draftShortlist} draft entries total; blog/social packages count as one entry. Scheduled or published topics do not appear in Drafts. Every content sync refreshes and reviews the shortlist without changing scheduled copy. Scheduled entries are separate from the draft limit. Non-Microsoft stories need an exceptional, explicit audience-relevance rationale. Human approval sends each exact version for scheduling, never immediate publication.`,
+    selectionPolicy: `This list is the finished, reviewed shortlist. The content action also exposes unfinished or approved-but-unassigned entries in Drafts. Microsoft-first, newest relevant evidence first. At most ${PUBLISH_LIMITS.draftShortlist} shortlist entries; blog/social packages count as one entry. Scheduling contains assigned times only. Every content sync can finish unfinished companions without changing passed or approved copy; an assigned package is excluded from preparation and never rechecked or replanned. Explicit holds and real delivery outcomes remain authoritative. Non-Microsoft stories need an exceptional, explicit audience-relevance rationale. Human approval sends each exact version for scheduling, never immediate publication.`,
   };
   if (args.action === 'read') return topicDetail(db, uuid(args.id));
   if (args.action === 'picks') return (await getPublishingPicks(db)) ?? { picks: [], note: 'No picks have been chosen yet; use repick.' };
@@ -69,12 +69,12 @@ export async function executePublishingTool(db: Pool, args: Record<string, unkno
     return { rejected: true, sourceRetained: true };
   }
   if (args.action === 'retry') {
-    if (!await releaseTopic(db, uuid(args.id), `chat:${sessionId ?? 'unsaved'}`)) throw new ValidationError('Only a held topic with unapproved drafts and no scheduled or delivered posts can be retried.');
+    if (!await releaseTopic(db, uuid(args.id), `chat:${sessionId ?? 'unsaved'}`)) throw new ValidationError('Only a held package with no assigned slots, delivery attempts or rejected copies can be retried. Passed reviews and approvals are retained.');
     return { retried: true };
   }
   if (args.action === 'regenerate') {
-    if (!await requestRegeneration(db, uuid(args.id), `chat:${sessionId ?? 'unsaved'}`)) throw new ValidationError('Only a package with unapproved, unscheduled drafts that have not passed review can be rewritten.');
-    return { regenerating: true, note: 'The review worker rewrites each failed draft from its sources and reviews it again; it never approves anything.' };
+    if (!await requestRegeneration(db, uuid(args.id), `chat:${sessionId ?? 'unsaved'}`)) throw new ValidationError('Only unfinished, unapproved copies in a package without assigned slots or delivery attempts can be rewritten. Passed and approved copies are retained.');
+    return { regenerating: true, note: 'The review worker rewrites only unfinished, unapproved copies. Passed reviews and approved copy are retained; nothing is approved or sent.' };
   }
   if (args.action === 'hold' || args.action === 'reject') {
     await holdTopic(db, uuid(args.id), args.action === 'reject', `chat:${sessionId ?? 'unsaved'}`, text(args.reason, 'editorial reason', PUBLISH_LIMITS.maxGuidance));

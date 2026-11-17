@@ -19,6 +19,7 @@ const row = (o: Partial<TurnAuditRow> = {}): TurnAuditRow => ({
 
 async function migratedDb(): Promise<PGlite> {
   const db = new PGlite();
+  await db.exec("SET TIME ZONE 'UTC'");
   await db.exec(await readFile(new URL('../src/db/migrations/092_knowledge_turn_audit.sql', import.meta.url), 'utf8'));
   await db.exec(await readFile(new URL('../src/db/migrations/096_retrieval_scope_audit.sql', import.meta.url), 'utf8'));
   await db.exec(await readFile(new URL('../src/db/migrations/109_knowledge_review_environment.sql', import.meta.url), 'utf8'));

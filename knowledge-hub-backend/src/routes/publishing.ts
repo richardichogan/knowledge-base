@@ -150,10 +150,10 @@ export function createPublishingRouter(getDb: () => Pool = defaultGetDb): Router
       await event(getDb(), id, actor(req), 'reassessment-requested', {});
       recordAiDecision(getDb(), { kind: 'reassess', agent: 'discovery-editorial-assessment', targetType: 'publishing-topic', targetId: id });
     } else if (b.action === 'retry') {
-      if (!await releaseTopic(getDb(), id, actor(req))) throw new ValidationError('Only a stopped package with unapproved drafts can be retried.');
+      if (!await releaseTopic(getDb(), id, actor(req))) throw new ValidationError('Only a stopped package without an assigned slot, delivery attempt or rejected copy can be retried. Passed reviews and approvals are retained.');
       recordAiDecision(getDb(), { kind: 'retry', agent: 'discovery-editorial-assessment', targetType: 'publishing-topic', targetId: id });
     } else if (b.action === 'regenerate') {
-      if (!await requestRegeneration(getDb(), id, actor(req))) throw new ValidationError('Only a package with unapproved, unscheduled drafts that have not passed review can be rewritten.');
+      if (!await requestRegeneration(getDb(), id, actor(req))) throw new ValidationError('Only unfinished, unapproved copies in a package without an assigned slot or delivery attempt can be rewritten. Passed and approved copies are retained.');
       recordAiDecision(getDb(), { kind: 'regenerate', agent: 'discovery-editorial-assessment', targetType: 'publishing-topic', targetId: id });
     } else {
       if (!['hold', 'reject'].includes(String(b.action))) throw new ValidationError('Choose hold, reject, reassess, retry or regenerate.');

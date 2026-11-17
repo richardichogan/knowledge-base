@@ -292,7 +292,7 @@ export async function readSources(db: Pool, topicId: string, service = editorial
     source.body = body; source.readAt = new Date().toISOString();
     await db.query('UPDATE publishing_sources SET body=$2,read_at=$3 WHERE item_id=$1', [source.itemId, source.body, source.readAt]);
     if (changed) await db.query(`UPDATE publishing_drafts SET review='pending',approval='pending',reviewed_at=NULL,reason='Source evidence changed; review and approval required.'
-      WHERE topic_id=$1 AND approval<>'rejected' AND NOT held AND review<>'pass'
+      WHERE topic_id=$1 AND approval='pending' AND NOT held AND review<>'pass'
       AND (NOT $2::boolean OR (approval='pending'
         AND NOT EXISTS(SELECT 1 FROM publishing_schedule s WHERE s.draft_id=publishing_drafts.id)
         AND NOT EXISTS(SELECT 1 FROM publishing_versions v, jsonb_array_elements(v.reviews) r
@@ -374,8 +374,9 @@ async function regenerateDraft(db: Pool, draft: Draft, sources: Source[], servic
   const current = members.find(d => d.id === draft.id);
   if (!current || current.approval !== 'pending' || current.held || current.review === 'pass') return undefined;
   const locked = await db.query(`SELECT 1 FROM publishing_deliveries WHERE topic_id=$1
-    UNION ALL SELECT 1 FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id WHERE d.topic_id=$1`, [draft.topicId]);
-  if (locked.rowCount || members.some(d => d.approval === 'approved')) return undefined;
+    UNION ALL SELECT 1 FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id AND d.version=s.version
+      WHERE d.topic_id=$1 AND s.scheduled_at IS NOT NULL`, [draft.topicId]);
+  if (locked.rowCount) return undefined;
   const companion = members.find(d => d.destination === 'blog');
   if (current.destination === 'linkedin' && current.variant === 'blog' && !companion) return undefined;
   const feed = (await feeds(db)).find(f => f.id === (current.destination === 'bluesky' ? 'bluesky' : 'blog-linkedin'))!;
@@ -387,17 +388,20 @@ Do not reuse its wording. Avoid every problem listed in problemsToAvoid. This is
 Return only this destination's content JSON. Do not return a package or review findings.
 Social copy is plain text without URLs. Bluesky copy must fit within 240 graphemes.
 For LinkedIn, write a hook for the supplied companion blog, not a separate article.
+Preserved hooks have already passed or been approved. Do not rewrite them. A replacement blog must remain factually consistent with them and the sources; do not invent facts to accommodate a hook.
 ${BLOG_WRITING_RULES}\n${destinationRules(current.destination)}
 ${current.variant === 'blog' ? quickDestinationRules(current.destination) : ''}
 ${current.destination === 'bluesky' ? `Copy allowance including spaces: ${blueskyAllowance(current.variant, sources, blog)} graphemes; the full destination URL and two line breaks use the rest.` : ''}
 ${preferences}\nSaved editorial guidance:\n${feed.policy.guidance}`,
-  { sources, destination: current.destination, variant: current.variant, blog: blog ? editorialContent(blog) : undefined, problemsToAvoid: notes },
+  { sources, destination: current.destination, variant: current.variant, blog: blog ? editorialContent(blog) : undefined, problemsToAvoid: notes,
+    preservedHooks: current.destination === 'blog' ? members.filter(member => member.destination !== 'blog'
+      && (member.review === 'pass' || member.approval === 'approved')).map(member => ({ id: member.id, content: editorialContent(member.content) })) : [] },
   PUBLISH_LIMITS.draftTokens, destinationSchema(current.destination, current.variant, sources, blog),
   current.destination === 'blog' ? 'blog-author' : 'social-author');
   const prepared = prepareContent(current.destination, generated);
-  // A blog with passed hooks cannot take an automatic revision; a full replacement resets those hooks for review instead.
-  const passedHooks = current.destination === 'blog' ? (await db.query(passedHooksSql, [draft.topicId])).rowCount ?? 0 : 0;
-  await editDraft(db, current.id, current.version, prepared, 'editorial-regeneration', undefined, passedHooks === 0);
+  const consistency = current.destination === 'blog'
+    ? await checkPassedHookConsistency(db, current, prepared, sources, service) : undefined;
+  await editDraft(db, current.id, current.version, prepared, 'editorial-regeneration', undefined, true, false, consistency);
   await event(db, draft.topicId, 'editorial-regeneration', 'draft-regenerated', { draftId: current.id, destination: current.destination, problems: notes });
   return (await drafts(db, draft.topicId)).find(d => d.id === current.id);
 }
@@ -418,6 +422,9 @@ async function reviewDraftContent(db: Pool, draft: Draft, sources: Source[], ser
   if (!current) throw new NotFoundError('Publishing draft');
   if (current.version !== draft.version) throw new ConflictError('Draft changed before review. Reload the current version.', 'PUBLISHING_CONFLICT');
   if (current.review === 'pass') return;
+  const scheduled = await db.query(`SELECT s.draft_id FROM publishing_schedule s
+    JOIN publishing_drafts d ON d.id=s.draft_id AND d.version=s.version WHERE d.topic_id=$1 AND s.scheduled_at IS NOT NULL`, [current.topicId]);
+  if (scheduled.rowCount) return;
   draft = current;
   if (draft.destination === 'blog' && allowRevisions) {
     const normalised = normalisePublishingBlogCategories(draft.content);
@@ -546,10 +553,9 @@ Return {outcome:"pass"|"revise"|"hold",findings:[structured findings]}.`, {
         WHERE id=$1 AND version=$2 AND review<>'pass' AND (SELECT revision FROM publishing_feeds WHERE id=$7)=$6 AND ($5::integer IS NULL OR NOT EXISTS(
           SELECT 1 FROM publishing_drafts blog WHERE blog.topic_id=publishing_drafts.topic_id AND blog.destination='blog' AND blog.version<>$5))
           AND (NOT $8::boolean OR (approval='pending' AND NOT held
-            AND NOT EXISTS(SELECT 1 FROM publishing_schedule s JOIN publishing_drafts scheduled ON scheduled.id=s.draft_id WHERE scheduled.topic_id=publishing_drafts.topic_id)
-            AND NOT EXISTS(SELECT 1 FROM publishing_deliveries p WHERE p.topic_id=publishing_drafts.topic_id)
-            AND NOT EXISTS(SELECT 1 FROM publishing_drafts approved
-            WHERE approved.topic_id=publishing_drafts.topic_id AND approved.approval='approved'))) RETURNING id`,
+            AND NOT EXISTS(SELECT 1 FROM publishing_schedule s JOIN publishing_drafts scheduled ON scheduled.id=s.draft_id AND scheduled.version=s.version
+              WHERE scheduled.topic_id=publishing_drafts.topic_id AND s.scheduled_at IS NOT NULL)
+            AND NOT EXISTS(SELECT 1 FROM publishing_deliveries p WHERE p.topic_id=publishing_drafts.topic_id))) RETURNING id`,
       [draft.id, draft.version, outcome, JSON.stringify({ accuracy: review.accuracy, voice: review.voice, style, validation }), blogVersion, feed.revision, feed.id, draftsOnly]);
       if (!changed.rowCount) return false;
       await c.query(`UPDATE publishing_versions SET reviews=reviews || $3::jsonb WHERE draft_id=$1 AND version=$2`,
@@ -796,7 +802,12 @@ Return one result per supplied hook ID. Mark consistent false if a hook conflict
       || typeof result.reason !== 'string' || !result.reason.trim()) {
       throw new ValidationError('The hook consistency check returned invalid results. The saved package is unchanged.');
     }
-    if (!result.consistent) { rewrite.push({ id: hook.id, reason: result.reason.trim() }); continue; }
+    if (!result.consistent) {
+      if (hook.review === 'pass' || hook.approval === 'approved') {
+        throw new ConflictError(`The unfinished blog could not be corrected without conflicting with the preserved ${hook.destination} copy: ${result.reason.trim()} No passed or approved copy was changed.`, 'PUBLISHING_CONFLICT');
+      }
+      rewrite.push({ id: hook.id, reason: result.reason.trim() }); continue;
+    }
     findings.push({ id: hook.id, reason: result.reason });
   }
   return { original: blog.content, revised, hooks, findings, rewrite, restored };
@@ -852,9 +863,9 @@ export async function reconcilePassedBlogHooks(db: Pool, blog: Draft, sources: S
     if (!current || !isDeepStrictEqual(current, blog) || !isDeepStrictEqual(currentHooks, consistency.hooks)) {
       throw new ConflictError('The package changed during hook reconciliation. Nothing was changed.', 'PUBLISHING_CONFLICT');
     }
-    const protectedRows = await c.query(`SELECT id FROM publishing_drafts WHERE topic_id=$1 AND approval='approved' AND NOT(id=ANY($2::uuid[]))
-      UNION ALL SELECT s.draft_id AS id FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id WHERE d.topic_id=$1 AND NOT(d.id=ANY($2::uuid[]))
-      UNION ALL SELECT draft_id AS id FROM publishing_deliveries WHERE topic_id=$1`, [blog.topicId, consistency.hooks.map(hook => hook.id)]);
+    const protectedRows = await c.query(`SELECT s.draft_id AS id FROM publishing_schedule s
+      JOIN publishing_drafts d ON d.id=s.draft_id AND d.version=s.version WHERE d.topic_id=$1 AND s.scheduled_at IS NOT NULL
+      UNION ALL SELECT draft_id AS id FROM publishing_deliveries WHERE topic_id=$1`, [blog.topicId]);
     const topic = await c.query<{ state: Topic['state'] }>('SELECT state FROM publishing_topics WHERE id=$1', [blog.topicId]);
     if (protectedRows.rowCount || topic.rows[0]?.state === 'rejected') {
       throw new ConflictError('The package is no longer available for hook reconciliation. Nothing was changed.', 'PUBLISHING_CONFLICT');
@@ -915,11 +926,9 @@ export async function editDraft(db: Pool, id: string, version: unknown, value: u
           throw new ConflictError('A passed hook would be invalidated by an automatic blog edit. The saved package is unchanged.', 'PUBLISHING_CONFLICT');
         }
       }
-      const checkedHooks = (consistency?.hooks ?? []).map(hook => hook.id);
-      const approved = await c.query("SELECT id FROM publishing_drafts WHERE topic_id=$1 AND approval='approved' AND NOT(id=ANY($2::uuid[]))", [d.topicId, checkedHooks]);
-      if (approved.rowCount) throw new ConflictError('The package was sent for scheduling; automatic revisions cannot change it.', 'PUBLISHING_CONFLICT');
-      const scheduled = await c.query(`SELECT s.draft_id FROM publishing_schedule s JOIN publishing_drafts d ON d.id=s.draft_id WHERE d.topic_id=$1 AND NOT(d.id=ANY($2::uuid[]))
-        UNION ALL SELECT draft_id FROM publishing_deliveries WHERE topic_id=$1`, [d.topicId, checkedHooks]);
+      const scheduled = await c.query(`SELECT s.draft_id FROM publishing_schedule s
+        JOIN publishing_drafts d ON d.id=s.draft_id AND d.version=s.version WHERE d.topic_id=$1 AND s.scheduled_at IS NOT NULL
+        UNION ALL SELECT draft_id FROM publishing_deliveries WHERE topic_id=$1`, [d.topicId]);
       if (scheduled.rowCount) throw new ConflictError('Scheduled copy cannot be changed by automatic revisions.', 'PUBLISHING_CONFLICT');
     }
     const delivered = await c.query("SELECT id FROM publishing_deliveries WHERE draft_id=$1 AND status IN ('sending','sent','unconfirmed')", [id]);
@@ -1069,6 +1078,9 @@ Never manufacture personal authority.`, { selected: selection, sources, blogOrig
     await db.query(`UPDATE publishing_drafts SET held=TRUE,reason='Source promotion superseded by the blog argument.'
       WHERE destination='bluesky' AND variant='source' AND topic_id IN(
         SELECT id FROM publishing_topics WHERE event_key=(SELECT event_key FROM publishing_topics WHERE id=$1))
+      AND approval='pending'
+      AND NOT EXISTS(SELECT 1 FROM publishing_schedule s WHERE s.draft_id=publishing_drafts.id
+        AND s.version=publishing_drafts.version AND s.scheduled_at IS NOT NULL)
       AND NOT EXISTS(SELECT 1 FROM publishing_deliveries WHERE draft_id=publishing_drafts.id AND status IN ('sent','sending','unconfirmed'))`, [topic.id]);
     const expiry = new Date(origin + settings.find(f => f.id === 'blog-linkedin')!.policy.expiryHours * MS_PER_HOUR).toISOString();
     const member = await service.member();
@@ -1080,7 +1092,10 @@ Never manufacture personal authority.`, { selected: selection, sources, blogOrig
     await saveDraft(db, topic.id, 'bluesky', selection.blog ? 'blog' : 'source',
       { ...blueskyContent, account: destinationAccount('bluesky') }, expiry, selection.distinctArgument);
   }
-  for (const draft of await drafts(db, topic.id)) {
+  const preparedDrafts = (await drafts(db, topic.id)).sort((a, b) => Number(a.destination !== 'blog') - Number(b.destination !== 'blog'));
+  for (const draft of preparedDrafts) {
+    if (draft.variant === 'blog' && draft.destination !== 'blog'
+      && !(await drafts(db, topic.id)).some(companion => companion.destination === 'blog' && companion.review === 'pass')) continue;
     try { await reviewDraft(db, draft, sources, service); }
     catch (error) {
       const reason = error instanceof Error ? error.message : 'Editorial review failed';
