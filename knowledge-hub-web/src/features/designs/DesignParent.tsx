@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { AppDialog } from '../../components/AppDialog';
 import { api } from '../../services/api';
 import { describeApiError, requireApiData } from '../../services/apiError';
 import { extractNoteBlockText, fetchNote, type NoteContentBlock } from '../../notes/noteStorage';
@@ -10,7 +9,8 @@ import { deferredView } from '../../utils/deferredView';
 import { setDesignChatBridge } from '../../utils/activeBlockNoteEditor';
 import { useAthenaContext } from '../../context/AthenaContext';
 import type { NoteDocument } from '../../notes/types';
-import type { DesignAsset, DesignDetail, SpecificationType } from '../../types/designs';
+import type { SpecificationType } from '../../types/designs';
+import { resolveDesignTab } from './designSections';
 import { DesignVisual } from './DesignVisual';
 import { DesignHandoff } from './DesignHandoff';
 import { DesignConsistency } from './DesignConsistency';
@@ -38,7 +38,6 @@ export const DesignParent: React.FC<{
   const initialTab = params.get('tab');
   const [tab, setTab] = useState<Tab>(isTab(initialTab) ? initialTab : 'use_case');
   const [targetId, setTargetId] = useState<string | null>(params.get('asset'));
-  const [linking, setLinking] = useState(false);
   const [handoff, setHandoff] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [switching, setSwitching] = useState(false);
@@ -77,10 +76,9 @@ export const DesignParent: React.FC<{
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
   const specBusy = job?.specialist === 'spec-writer';
   const busy = visualBusy || readinessBusy || harnessBusy || chatBusy || workspaceBusy || !!job;
-  const assets = design?.assets.filter(asset => asset.role === tab) ?? [];
-  const chosen = targetId && assets.some(item => item.sourceId === targetId) ? targetId : design?.selections[tab];
-  const asset = chosen ? assets.find(item => item.sourceId === chosen) : assets.length === 1 ? assets[0] : undefined;
-  const documentId = asset?.available && asset.sourceType === 'note' ? asset.sourceId : design?.parentNoteId;
+  const { assets, asset, noteId } = resolveDesignTab(design, tab, targetId);
+  // Empty sections use the parent only for the existing properties/shell, never as their editable body.
+  const documentId = noteId ?? design?.parentNoteId;
   const document = useQuery({
     queryKey: ['design-document', documentId, editorEpoch],
     queryFn: async () => { const doc = await fetchNote(documentId!); if (!doc) throw new Error('The document is unavailable.'); return doc; },
@@ -89,6 +87,14 @@ export const DesignParent: React.FC<{
   const { setAthenaContext } = useAthenaContext();
   useEffect(() => {
     if (!document.data || !design) return;
+    if (asset?.available && asset.sourceType === 'canvas') return;
+    if (!noteId) {
+      setAthenaContext({ type: 'note', id: design.parentNoteId, conversationId: design.parentNoteId,
+        designId: design.id, designTab: tab, title: design.title,
+        detail: `${TABS.find(item => item.role === tab)!.label} has no open document. ${assets.length ? 'Its existing document must be selected or restored.' : 'This section is empty; it is not the Use case text. Create this section only when requested.'} Read read_design_package for the actual saved sections.`,
+        ...(design.projectId ? { projectId: design.projectId } : {}) });
+      return;
+    }
     const note = document.data;
     const blocks: unknown = JSON.parse(note.contentJson);
     if (!Array.isArray(blocks)) return;
@@ -102,7 +108,7 @@ export const DesignParent: React.FC<{
     publish();
     void prepareEntityLinkExport(blocks).then(() => { if (!cancelled) publish(); }).catch(() => { /* links stay as ids */ });
     return () => { cancelled = true; };
-  }, [document.data, design, tab, setAthenaContext]);
+  }, [document.data, design, tab, noteId, asset, assets.length, setAthenaContext]);
   useEffect(() => () => { setAthenaContext(null); }, [setAthenaContext]);
   const prepare = useCallback(async (): Promise<void> => {
     if (noteSave.current && !await noteSave.current()) throw new Error('The document could not be saved. Your draft remains available; retry before continuing.');
@@ -142,10 +148,7 @@ export const DesignParent: React.FC<{
     setSwitching(true); setError(null);
     try {
       await prepare();
-      const nextAssets = design?.assets.filter(item => item.role === nextTab) ?? [];
-      const nextChosen = sourceId ?? design?.selections[nextTab];
-      const nextAsset = nextChosen ? nextAssets.find(item => item.sourceId === nextChosen) : nextAssets.length === 1 ? nextAssets[0] : undefined;
-      const nextDocumentId = nextAsset?.available && nextAsset.sourceType === 'note' ? nextAsset.sourceId : design?.parentNoteId;
+      const nextDocumentId = resolveDesignTab(design, nextTab, sourceId).noteId ?? design?.parentNoteId;
       if (nextDocumentId && nextDocumentId !== documentId) {
         await qc.fetchQuery({
           queryKey: ['design-document', nextDocumentId, editorEpoch],
@@ -159,6 +162,19 @@ export const DesignParent: React.FC<{
       }
       setTab(nextTab); setTargetId(sourceId);
       setParams({ design: id, tab: nextTab, ...(sourceId ? { asset: sourceId } : {}) }, { replace: true });
+    } catch (err) { setError(describeApiError(err)); }
+    finally { setSwitching(false); }
+  };
+  const startSection = async (role: Tab): Promise<void> => {
+    if (busy || switching || !design || role === 'workforce') return;
+    setSwitching(true); setError(null);
+    try {
+      await prepare();
+      const updated = requireApiData(await api.createDesignSection(id, role, design.revision));
+      qc.setQueryData(['design', id], updated);
+      setTargetId(null);
+      setParams({ design: id, tab: role }, { replace: true });
+      await refresh();
     } catch (err) { setError(describeApiError(err)); }
     finally { setSwitching(false); }
   };
@@ -257,7 +273,7 @@ export const DesignParent: React.FC<{
         || design.imagineDemo && design.specificationType !== 'imagine'} onClick={() => { void startSpec(); }}>
         {specBusy ? 'The Spec writer is working…' : design?.imagineDemo ? hasSpec ? 'Regenerate and validate spec' : 'Generate and validate spec'
           : hasSpec ? 'Regenerate spec from use case' : 'Generate spec with Athena'}</button>
-      <p>{!hasUseCase ? 'Link and select a use case before generating a spec.'
+      <p>{!hasUseCase ? 'Open the Use case tab and write the use case before generating a spec.'
         : !design?.specificationType ? 'Choose a specification type. The choice is saved on this Design.'
           : 'Uses the selected use case. The existing spec stays intact until the new version is ready.'}</p>
       {error && <p role="alert" className="kh-design-work__error">{error}</p>}
@@ -300,7 +316,7 @@ export const DesignParent: React.FC<{
       <ul className="kh-design-work__outputs">{tabs.map(item => {
         const linked = design?.assets.filter(output => output.role === item.role) ?? [];
         return <li key={item.role}><strong>{item.label}</strong>
-          {!linked.length ? <p>Not linked</p> : linked.map(output => <button key={output.sourceId} type="button"
+          {!linked.length ? <p>Not written yet</p> : linked.map(output => <button key={output.sourceId} type="button"
             className="kh-design-work__output" disabled={!output.available || busy || switching}
             onClick={() => { void switchTo(item.role, output.sourceId); }}>{output.title}{!output.available ? ' (unavailable)' : ''}</button>)}
         </li>;
@@ -339,63 +355,42 @@ export const DesignParent: React.FC<{
         </select></label>}
       {asset && assets.length > 1 && design.selections[tab] !== asset.sourceId && <button type="button" className="kh-btn-ghost" disabled={busy || selection.isPending || !asset.available}
         onClick={() => { selection.mutate(asset.sourceId); }}>Use this version for visuals and handoff</button>}
-      {!assets.length && <button type="button" className="kh-btn-ghost" disabled={switching || busy} onClick={() => { setLinking(true); }}>Link {TABS.find(item => item.role === tab)!.label.toLowerCase()}</button>}
     </div>
     {lockReason && <p className="kh-design-hint kh-design-hint--busy" role="status"><AthenaRibbon size={20} mood="thinking" />{lockReason}</p>}
     {error && !spec.isError && !specificationType.isError && <p role="alert" className="kh-uc-error">{error}</p>}
     {selection.isError && <p role="alert" className="kh-uc-error">{describeApiError(selection.error)}</p>}
-    {!asset && tab !== 'diagram' && <p className="kh-design-hint">{assets.length ? 'Choose a linked version; none has been assumed.' : 'No document linked. Link an existing original to this tab. The parent writing below is preserved.'}</p>}
+    {!asset && assets.length > 0 && <p className="kh-design-hint">Choose an existing version; no other section has been substituted.</p>}
     {asset && !asset.available && <p className="kh-uc-error" role="alert">The linked document is unavailable or archived. Its original has not been replaced.</p>}
   </div>;
   return <div className="kh-design-parent" role="tabpanel" id={`${uid}-document`} aria-labelledby={`${uid}-${tab}`}>
     {!document.data ? <>{chrome}<p className="kh-design-loading" role={document.isError ? 'alert' : 'status'}>
       {document.isError ? describeApiError(document.error) : 'Loading original document...'}
       {document.isError && <button className="kh-btn-ghost" type="button" onClick={() => { void document.refetch(); }}>Retry</button>}</p></>
-      : <NoteEditor key={`${document.data.id}:${editorEpoch}`} doc={document.data} onSaved={saved} actionsSlot={actionsSlot} externalBusy={busy || switching} loading={switching}
+      : <NoteEditor key={`${tab}:${document.data.id}:${editorEpoch}`} doc={document.data} onSaved={saved} actionsSlot={actionsSlot} externalBusy={busy || switching} loading={switching}
         hideProperties={asset?.sourceType === 'canvas' && asset.available}
-        htmlViewEnabled={tab === 'spec'}
+        htmlViewEnabled={tab === 'spec' && !!noteId}
         onOpenMap={onOpenMap} onSaveReady={registerSave} onBeforeViewChange={prepare} headerContent={chrome} designPanel={designPanel}
         actionContent={<li role="menuitem"><button type="button" className="kb-menu__item" onClick={() => { setHandoff(true); }}>Copilot package...</button></li>}
         bodyContent={asset?.available && asset.sourceType === 'canvas' ? <div className="kh-design-diagram-body">
           <DiagramEditor canvasId={asset.sourceId} designPanel={designPanel} parentContext={{ type: 'note', id: design.parentNoteId, title: design.title,
             designId: design.id, designTab: tab }}
             onSaveReady={registerDiagramSave} onOpenNote={onOpenNote} onDeleted={() => { void query.refetch(); }} /></div>
-          : tab === 'diagram' ? <section className="kh-design-diagram-empty" aria-label="Diagram canvas">
-            <h3>{asset ? 'Diagram unavailable' : assets.length ? 'Choose a diagram canvas' : 'No diagram canvas linked'}</h3>
-            <p>{asset ? 'The original canvas is unavailable or archived. No note editor has been substituted.'
-              : assets.length ? 'Select a linked canvas above to open its diagramming tools here.'
-                : 'Link an existing diagram canvas above to open its diagramming tools here. This tab edits the original canvas, not a note.'}</p>
+          : !noteId ? <section className="kh-design-diagram-empty" aria-label={`${TABS.find(item => item.role === tab)!.label} content`}>
+            <h3>{TABS.find(item => item.role === tab)!.label}{asset ? ' unavailable' : assets.length ? ': choose a version' : ' is empty'}</h3>
+            <p>{asset ? 'The original is unavailable or archived. No other section has been substituted.'
+              : assets.length ? 'Select an existing version above to open its own content.'
+                : tab === 'use_case' ? 'Start writing the use case here. Existing specification content stays in the Spec tab.'
+                  : tab === 'spec' ? 'Generate the specification from your Use case using Design actions, or start writing it here.'
+                  : tab === 'workforce' ? 'Generate the workforce from the validated, approved specification using Design actions.'
+                    : tab === 'diagram' ? 'Start a separate diagram canvas for this Design.'
+                      : 'Start the architecture document here, or ask Athena to write this section.'}</p>
+            {!assets.length && tab !== 'workforce' &&
+              <button type="button" className="kh-btn-accent" disabled={busy || switching} onClick={() => { void startSection(tab); }}>
+                {switching ? 'Starting...' : `Start ${TABS.find(item => item.role === tab)!.label.toLowerCase()}`}</button>}
           </section> : undefined}
         visualContent={<DesignVisual designId={id} subjectId={design.id} agentJob={job} parentNoteId={design.parentNoteId} prepare={prepare} onBusyChange={visualBusyChange} onAccepted={async () => {
           setEditorEpoch(value => value + 1); await refresh();
         }} />} />}
-    {linking && <LinkDocument design={design} role={tab} onClose={() => { setLinking(false); }} onSaved={updated => {
-      qc.setQueryData(['design', id], updated); setLinking(false); void refresh();
-    }} />}
     {handoff && <DesignHandoff design={design} prepare={prepare} onClose={() => { setHandoff(false); }} />}
   </div>;
-};
-
-const LinkDocument: React.FC<{ design: DesignDetail; role: Tab; onClose: () => void; onSaved: (design: DesignDetail) => void }> = ({ design, role, onClose, onSaved }) => {
-  const [input, setInput] = useState('');
-  const [search, setSearch] = useState('');
-  useEffect(() => { const timer = setTimeout(() => { setSearch(input); }, 250); return () => { clearTimeout(timer); }; }, [input]);
-  const sourceType = role === 'diagram' ? 'canvas' : 'note';
-  const query = useQuery({ queryKey: ['design-asset-search', search, sourceType], queryFn: async () => requireApiData(await api.searchDesignAssets(search, sourceType)) });
-  const link = useMutation({ mutationFn: async (asset: DesignAsset) => requireApiData(await api.linkDesignAsset(design.id, { ...asset, role })), onSuccess: onSaved });
-  const assets = query.data?.filter(asset => asset.sourceId !== design.parentNoteId) ?? [];
-  return <AppDialog title={`Link ${TABS.find(item => item.role === role)!.label.toLowerCase()}`} onClose={onClose}
-    actions={<button type="button" className="kh-btn-ghost" disabled={link.isPending} onClick={onClose}>Close</button>}>
-    <label className="kh-uc-field"><span className="kh-uc-field__label">Find existing {role === 'diagram' ? 'canvas' : 'document'}</span>
-      <input className="kh-uc-input" type="search" data-dialog-autofocus value={input} maxLength={200} onChange={event => { setInput(event.target.value); }} /></label>
-    {query.isFetching && <p className="kh-design-hint" role="status">Searching...</p>}
-    {query.isError && <p className="kh-uc-error" role="alert">{describeApiError(query.error)}</p>}
-    <ul className="kh-design-assets">{assets.map(asset => {
-      const linked = design.assets.some(item => item.sourceType === asset.sourceType && item.sourceId === asset.sourceId && item.role === role);
-      return <li key={asset.sourceId}><strong>{asset.title}</strong><button type="button" className="kh-btn-ghost" disabled={link.isPending || linked}
-        onClick={() => { link.mutate(asset); }}>{linked ? 'Linked' : 'Link'}</button></li>;
-    })}</ul>
-    {!query.isFetching && !query.isError && !assets.length && <p className="kh-design-hint">No matches. Refine the search.</p>}
-    {link.isError && <p className="kh-uc-error" role="alert">{describeApiError(link.error)}</p>}
-  </AppDialog>;
 };

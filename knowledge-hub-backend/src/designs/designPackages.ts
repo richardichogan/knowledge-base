@@ -93,7 +93,7 @@ Package ${manifest.id}. ${manifest.ready ? 'All supplied inputs are current.' : 
 ## Copilot reading order and authority
 
 1. Read manifest.json for exact original IDs, selected revisions, hashes, missing inputs and open decisions.
-2. Read design.md and the supplied use-case.md, specification.md and architecture.md. These Markdown files are the authoritative agreed requirements.
+2. Read ${['design.md', 'use-case.md', 'specification.md', 'architecture.md'].filter(path => path in files).join(', ')}. These supplied Markdown files are the authoritative agreed requirements.
 3. Explore visual-design.html locally for visual and interaction intent. It is a sandboxed review artifact, NOT production code and NOT a competing requirements source.
 4. Read diagram.json and diagram.svg for architecture and flow context.
 

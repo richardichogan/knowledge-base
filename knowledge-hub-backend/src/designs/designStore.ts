@@ -1,5 +1,9 @@
 import type { Pool } from 'pg';
+import { randomUUID } from 'node:crypto';
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
+import type { Note } from '../types/index.js';
+import { initDiagram } from '../services/diagramService.js';
+import { writeNoteInTransaction } from '../services/noteVersionService.js';
 import { getUseCase, type UseCaseDetail } from '../useCases/useCaseStore.js';
 import { parseNoteContent } from '../utils/noteContent.js';
 
@@ -174,8 +178,45 @@ export async function getDesign(db: Pool, id: string): Promise<DesignDetail> {
   for (const row of rows) {
     if (row.excluded) assets.delete(`${row.source_type}:${row.source_id}`);
   }
+  if (![...assets.values()].some(asset => asset.role === 'use_case') && !assets.has(`note:${design.parentNoteId}`)) {
+    assets.set(`note:${design.parentNoteId}`, await resolveAsset(db, 'note', design.parentNoteId, 'use_case', 'explicit'));
+  }
   const selection = await db.query<{ selections: DesignDetail['selections'] }>('SELECT selections FROM designs WHERE id=$1', [design.id]);
   return { ...design, assets: [...assets.values()], selections: selection.rows[0]!.selections };
+}
+export async function createDesignSection(db: Pool, id: string, input: Record<string, unknown>): Promise<{ design: DesignDetail; notes: Note[] }> {
+  const role = input['role'];
+  if (role !== 'use_case' && role !== 'spec' && role !== 'architecture' && role !== 'diagram') throw new ValidationError('Choose Use case, Spec, Architecture or Diagram. Use the approved workforce generation action for Workforce.');
+  const design = await getDesign(db, id);
+  if (!Number.isInteger(input['expectedRevision']) || input['expectedRevision'] !== design.revision) {
+    throw new ConflictError('The Design changed. Reload before starting a section.', 'DESIGN_CONFLICT');
+  }
+  if (design.assets.some(asset => asset.role === role)) throw new ConflictError('This section already has content. Open its existing document instead.', 'DESIGN_CONFLICT');
+  const client = await db.connect();
+  const notes: Note[] = [];
+  try {
+    await client.query('BEGIN');
+    const locked = (await client.query<{ revision: number }>('SELECT revision FROM designs WHERE id=$1 FOR UPDATE', [design.id])).rows[0];
+    if (locked?.revision !== design.revision) throw new ConflictError('The Design changed. Reload before starting a section.', 'DESIGN_CONFLICT');
+    const parent = (await client.query<{ project_id: string | null }>("SELECT project_id FROM notes WHERE id=$1 AND status='active' FOR SHARE", [design.parentNoteId])).rows[0];
+    if (!parent) throw new NotFoundError('Design');
+    const sourceId = randomUUID();
+    const title = `${role === 'use_case' ? 'Use case' : role === 'spec' ? 'Spec' : role === 'architecture' ? 'Architecture' : 'Diagram'}: ${design.title}`;
+    if (role === 'diagram') {
+      await client.query("INSERT INTO canvases(id,title,project,canvas_type) VALUES($1,$2,$3,'diagram')", [sourceId, title, parent.project_id]);
+      await initDiagram(client, sourceId);
+    } else {
+      await client.query('INSERT INTO notes(id,content,project_id) VALUES($1,$2,$3)', [sourceId,
+        JSON.stringify({ title, contentType: role === 'use_case' ? 'use-case' : role, contentJson: JSON.stringify([{ type: 'paragraph', content: [] }]) }), parent.project_id]);
+      notes.push((await writeNoteInTransaction(client, sourceId, { expectedRevision: 0 })).note);
+    }
+    await client.query('INSERT INTO design_assets(design_id,source_type,source_id,role,excluded) VALUES($1,$2,$3,$4,false)',
+      [design.id, role === 'diagram' ? 'canvas' : 'note', sourceId, role]);
+    await client.query(`UPDATE designs SET selections=jsonb_set(selections,ARRAY[$2::text],to_jsonb($3::text)),
+      revision=revision+1,updated_at=NOW() WHERE id=$1`, [design.id, role, sourceId]);
+    await client.query('COMMIT');
+  } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
+  return { design: await getDesign(db, design.id), notes };
 }
 export async function selectDesignAsset(db: Pool, id: string, input: Record<string, unknown>): Promise<DesignDetail> {
   const design = await getDesign(db, id);
@@ -226,6 +267,7 @@ export async function detachAsset(db: Pool, id: string, input: Record<string, un
   id = design.id;
   const asset = design.assets.find(value => value.sourceType === input['sourceType'] && value.sourceId === input['sourceId']);
   if (!asset) throw new NotFoundError('Design asset');
+  if (asset.sourceType === 'note' && asset.sourceId === design.parentNoteId) throw new ValidationError('The handwritten use case belongs to this Design and cannot be unlinked.');
   if (asset.sourceType === 'usecase' && asset.sourceId === design.sourceUseCaseId) throw new ValidationError('The original use case remains linked to its mapped Design.');
   if (asset.sourceType === 'note' && asset.sourceId === design.sourceNoteId) throw new ValidationError('The original source note remains linked to its mapped Design.');
   await saveAsset(db, id, asset, true);

@@ -11,6 +11,7 @@ import { scheduleGitHubPublish } from '../services/noteGitHubService.js';
 import { getDesign, requiredText, type DesignDetail } from './designStore.js';
 import { AUTHORING_CONTRACT, authoredForModel, authoredSchema, authoredTarget, isAuthored, parseAuthored, renderAuthored, selectionBelongs, type AuthoredBlueprint } from './visualArtifact.js';
 import { withAiWorkflow } from '../ai/aiWorkflow.js';
+import { loadProjectGenerationContext, lockProjectGenerationContext, WORKSTREAM_CONTEXT_GUIDANCE } from '../ai/projectContext.js';
 
 const MAX_ELEMENTS = 30;
 const MAX_DECISION_LENGTH = 2000;
@@ -89,7 +90,9 @@ export function selectedAssets(design: DesignDetail): DesignDetail['assets'] {
 }
 
 export async function sourceSnapshot(db: Pool, design: DesignDetail): Promise<DesignSource[]> {
-  const assets = [{ sourceId: design.parentNoteId, sourceType: 'note', role: 'design' }, ...selectedAssets(design)];
+  const selected = selectedAssets(design);
+  const assets = selected.some(asset => asset.sourceType === 'note' && asset.sourceId === design.parentNoteId)
+    ? selected : [{ sourceId: design.parentNoteId, sourceType: 'note', role: 'design' }, ...selected];
   const client = await db.connect();
   try {
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
@@ -266,10 +269,12 @@ async function generateArtifactInner(db: Pool, id: string, instruction: unknown,
   const previous = await latestArtifact(db, design.id);
   const brief = requiredText(instruction ?? '', 'Additional visual direction', MAX_FEEDBACK_LENGTH, true);
   const previousVisual = previous ? isAuthored(previous.blueprint) ? authoredForModel(previous.blueprint) : { superseded: true, openDecisions: previous.blueprint.openDecisions } : null;
-  const content = designModelContext(sources, 'visual', { specificationType: design.specificationType, brief: brief || null, previousVisual });
+  const projectContext = await loadProjectGenerationContext(db, design.projectId);
+  const content = designModelContext(sources, 'visual', { specificationType: design.specificationType, projectContext, brief: brief || null, previousVisual });
   onProgress('Athena is writing the Blueprint: overview, decisions, architecture, flow, data, screens, edge cases, delivery and the decisions it needs from you. Original documents are unchanged');
   const raw = await getFoundryClient('design-visual').chatBulk([
     { role: 'system', content: `${AUTHORING_CONTRACT}
+${WORKSTREAM_CONTEXT_GUIDANCE}
 If a previous visual is supplied, keep region and decision IDs stable for unchanged content. A superseded previous visual is evidence of open decisions only; do not copy its structure.
 When the previous visual is not superseded, update it rather than rewriting it: keep its wording and region IDs where the sources are unchanged, and reflect every source change. The LAVISH RULES outrank stability: if the previous visual is table- or text-heavy, rebuild each section as illustrations, cards and folded detail. Always use the Blueprint sections in the contract; if the previous visual uses older regions (e.g. "At a glance", worked example), reorganise its content into those sections. Any table, data model, field list or screen description in the sources must appear in the visual: as an illustration plus module cards, with the full table in a collapsed <details> (usually in Data & properties), or as a mock screen (in Screens); never drop one.
 The optional brief adds direction; it cannot override the contract.` },
@@ -296,6 +301,7 @@ The optional brief adds direction; it cannot override the contract.` },
     await lockAgentAttempt(client);
     const locked = await client.query<{ revision: number }>('SELECT revision FROM designs WHERE id=$1 FOR UPDATE', [design.id]);
     if (locked.rows[0]?.revision !== design.revision) conflict('The Design links changed before saving. No artifact was saved; retry with current sources.');
+    await lockProjectGenerationContext(client, design.projectId, projectContext);
     await lockSources(client, sources);
     const latest = (await client.query<{ id: string }>('SELECT id FROM design_artifacts WHERE design_id=$1 ORDER BY revision DESC LIMIT 1', [design.id])).rows[0];
     if ((latest?.id ?? null) !== (previous?.id ?? null)) conflict('Another visual generation completed first. Reload before retrying.');

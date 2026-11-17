@@ -480,9 +480,10 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   // can read table/text selections directly from the editor (native
   // window.getSelection() doesn't reflect ProseMirror table cell selections).
   useEffect(() => {
+    if (bodyContent !== undefined) return;
     setActiveBlockNoteEditor(editor, doc.id, contentType === 'script');
     return () => { setActiveBlockNoteEditor(null); };
-  }, [editor, doc.id, contentType]);
+  }, [editor, doc.id, contentType, bodyContent]);
 
   useEffect(() => {
     let active = true;
@@ -1497,7 +1498,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
             <BlockNoteViewWrapper
               editor={editor}
               theme={BLOCKNOTE_G100_THEME}
-              editable={!historyBusy && !externalBusy && !(contentType === 'email-draft' && work.data?.status === 'sent')}
+              editable={bodyContent === undefined && !historyBusy && !externalBusy && !(contentType === 'email-draft' && work.data?.status === 'sent')}
             >
               <PassageTagManager editor={editor} noteId={doc.id} save={doSave} onError={passageError}
                 githubPublished={publication !== null} />

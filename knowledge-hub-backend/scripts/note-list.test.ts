@@ -50,7 +50,12 @@ test('note summaries exhaust stable pages and filter saved writing, types and ex
   await db.query('INSERT INTO note_tags VALUES ($1,$2)', [id(105), otherChild]);
 
   const pool = getDb();
-  const query = mock.method(pool, 'query', (sql: string, values?: unknown[]) => db.query(sql, values));
+  const databaseListRows: Record<string, unknown>[][] = [];
+  const query = mock.method(pool, 'query', async (sql: string, values?: unknown[]) => {
+    const result = await db.query<Record<string, unknown>>(sql, values);
+    if (sql.includes(' AS list_metadata')) databaseListRows.push(result.rows);
+    return result;
+  });
   const connect = mock.method(pool, 'connect', async () => ({ query: (sql: string, values?: unknown[]) => db.query(sql, values), release() {} }));
   let queuedIndexing = 0;
   const originalTimeout = globalThis.setTimeout;
@@ -69,13 +74,20 @@ test('note summaries exhaust stable pages and filter saved writing, types and ex
   await new Promise<void>((resolve) => { server.once('listening', resolve); });
   const address = server.address();
   assert.ok(address && typeof address !== 'string');
-  type Page = { items: { id: string; title: string; contentType: string; content?: string; taxonomyTagIds: string[] }[];
+  type Page = { items: { id: string; title: string; contentType: string; preview: string; content?: string; taxonomyTagIds: string[] }[];
     total: number; page: number; hasMore: boolean };
   const read = async (params = ''): Promise<Page> => {
+    databaseListRows.length = 0;
     const response = await fetch(`http://127.0.0.1:${address.port}/api/notes?view=summary&pageSize=100&${params}`);
     assert.equal(response.status, 200);
     const envelope = await response.json() as { success: boolean; data: Page };
     assert.equal(envelope.success, true);
+    assert.equal(databaseListRows.length, 1);
+    for (const row of databaseListRows[0]!) {
+      assert.ok(!('content' in row), 'summary queries must not transfer full note bodies from the database');
+      assert.equal(typeof row.preview, 'string');
+      assert.ok([...String(row.preview)].length <= 200, 'the database preview itself must be bounded');
+    }
     return envelope.data;
   };
   try {
@@ -281,6 +293,41 @@ test('note summaries exhaust stable pages and filter saved writing, types and ex
     await db.query("UPDATE notes SET status='archived' WHERE id=$1", [id(130)]);
     assert.deepEqual((await read('status=archived&excludeTaskEmails=true&q=Shared%20email-list')).items.map(item => item.id), [id(130)],
       'Recovery lists must retain generated drafts');
+    const emoji = '\u{1F600}';
+    const longBody = `${'Saved evidence '.repeat(30)}${emoji.repeat(150)}`;
+    await db.query('INSERT INTO notes(id,content) VALUES($1,$2)', [id(140), JSON.stringify({
+      title: 'Large source-backed Design', contentType: 'design', contentJson: JSON.stringify([
+        { type: 'heading', content: [{ text: 'Large source-backed Design' }], children: [
+          { type: 'paragraph', content: [{ text: '\tLarge source-backed Design\u00a0' }] },
+          { type: 'paragraph', content: [{ text: 'First ' }, { text: 'requirement' }], children: [
+            { type: 'paragraph', content: [{ text: 'Nested evidence' }] },
+          ] },
+        ] },
+        { type: 'image', props: { url: `data:image/png;base64,${'a'.repeat(300_000)}` } },
+        { type: 'paragraph', content: [{ text: longBody }] },
+      ]),
+    })]);
+    const large = await read('structure=designs&q=Large%20source-backed');
+    assert.equal(large.total, 1);
+    assert.equal(large.items[0]?.preview,
+      `First requirement\nNested evidence\n${longBody}`.slice(0, 200),
+      'nested preview ordering and repeated-title removal survive the bounded database projection');
+    const complete = await fetch(`http://127.0.0.1:${address.port}/api/notes?pageSize=1&q=Large%20source-backed`);
+    assert.equal(complete.status, 200);
+    const completeBody = await complete.json() as { data: { items: { content: string }[] } };
+    assert.ok(completeBody.data.items[0]?.content.includes('a'.repeat(300_000)),
+      'full-note retrieval still supplies the complete saved body and embedded media');
+    await db.query('UPDATE notes SET content=$2 WHERE id=$1', [id(140), JSON.stringify({
+      title: 'Large source-backed Design', contentType: 'design', contentJson: JSON.stringify([
+        { type: 'paragraph', content: [{ text: emoji.repeat(150) }] },
+      ]),
+    })]);
+    assert.equal((await read('structure=designs&q=Large%20source-backed')).items[0]?.preview,
+      emoji.repeat(150).slice(0, 200), 'the public preview retains its existing JavaScript character limit');
+    await db.query('UPDATE notes SET content=$2 WHERE id=$1', [id(140),
+      JSON.stringify({ title: 'Large source-backed Design', contentType: 'design', contentJson: 'not valid JSON' })]);
+    assert.equal((await read('structure=designs&q=Large%20source-backed')).items[0]?.preview, '',
+      'malformed legacy bodies remain listable without failing the whole sidebar');
     const invalidEmailFilter = await fetch(`http://127.0.0.1:${address.port}/api/notes?excludeTaskEmails=invalid`);
     assert.equal(invalidEmailFilter.status, 422);
   } finally {

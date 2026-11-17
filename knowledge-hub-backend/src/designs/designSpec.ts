@@ -8,7 +8,7 @@ import { currentAgent, recordAiAuthoredNote } from '../ai/aiLedger.js';
 import { currentAgentAttempt, lockAgentAttempt } from '../agents/attempt.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { getDesign } from './designStore.js';
-import { lockSources, sourceSnapshot } from './designArtifacts.js';
+import { lockSources, sourceSnapshot, MAX_DESIGN_MODEL_CONTEXT } from './designArtifacts.js';
 import { LINK_TYPES, linkHref, linkNamedReferences, type LinkType } from '../services/noteLinks.js';
 import { parseWriting, writeNoteInTransaction } from '../services/noteVersionService.js';
 import { textToBlocks } from '../ai/markdownToNoteBlocks.js';
@@ -20,6 +20,7 @@ import { PRODUCT_SYSTEM, cleanDraft } from '../useCases/specDraft.js';
 import { AiError, ConflictError, ValidationError } from '../types/errors.js';
 import type { Note } from '../types/index.js';
 import { demoSpecificationForm, demoSpecificationResponseSchema, renderDemoSpecification, validateDemoSpecificationPart, DEMO_SPECIFICATION_VERSION, MAX_DEMO_SPECIFICATION_CHARS, type DemoSpecificationPart } from '../ai/demoSpecification.js';
+import { loadProjectGenerationContext, lockProjectGenerationContext, WORKSTREAM_CONTEXT_GUIDANCE } from '../ai/projectContext.js';
 
 const MAX_TOKENS = 16_000;
 const IMAGINE_SECTION_TOKENS = 16_000;
@@ -59,7 +60,8 @@ Use additionalRows for every required actor, digital worker, integration, workfl
 Use sectionDetails for detailed business rules, screen behaviour, data examples and lifecycle/edge cases that do not fit table cells.
 Unknown facts must be explicit unresolved blockers, not invented data or blanket empty filler. Supplied synthetic fixtures remain synthetic.
 Changing template does not authorise changing the delivery scope.
-${SELF_CONTAINED}`;
+${SELF_CONTAINED}
+${WORKSTREAM_CONTEXT_GUIDANCE}`;
 
 interface SpecCheckpoint { db: Pool; jobId: string; designId: string; fingerprint: string }
 
@@ -222,25 +224,30 @@ async function writeDesignSpecInner(db: Pool, designId: string, replace: boolean
   if (design.imagineDemo && design.specificationType !== 'imagine') throw new ValidationError('An Imagine demo harness requires the IMAGINE specification type. Choose it in Design properties before generating.');
   const sources = await sourceSnapshot(db, design);
   const useCase = sources.find(source => source.role === 'use_case');
-  if (!useCase?.markdown.trim()) throw new ValidationError('Link and write a use case before asking Athena for the spec.');
+  if (!useCase?.markdown.trim()) throw new ValidationError('Write the use case in the Use case tab before asking Athena for the spec.');
   const spec = sources.find(source => source.role === 'spec');
   if (spec && !replace && hasMedia(spec.blocks)) throw new ValidationError('The spec contains embedded images or files that a full rewrite would lose. Ask Athena in the chat for targeted changes instead.');
   const mentions = mentionsOf(spec?.blocks ?? []);
+  const projectContext = await loadProjectGenerationContext(db, design.projectId);
   const context = sources.filter(source => source.role === 'architecture' || source.role === 'diagram' || (source.role === 'design' && source.markdown.trim())).map(source => {
     if (source.role !== 'diagram') return `### ${source.role === 'design' ? 'Design' : 'Architecture'}: ${source.title}\n${sourceText(source.markdown, source.role === 'design' ? SOURCE_CHARS : ARCHITECTURE_CHARS)}`;
     try { return `### Diagram: ${source.title}\n${diagramEvidence(source.document as DiagramDocument, DIAGRAM_CHARS)}`; } catch { return ''; }
   }).filter(Boolean);
   const title = spec?.title ?? `Spec: ${design.title}`;
-  const system = design.specificationType === 'imagine' ? IMAGINE_SYSTEM : `${PRODUCT_SYSTEM}\n\n${SELF_CONTAINED}${spec ? `\n\n${REWRITE}` : ''}`;
+  const system = design.specificationType === 'imagine' ? IMAGINE_SYSTEM : `${PRODUCT_SYSTEM}\n\n${SELF_CONTAINED}\n\n${WORKSTREAM_CONTEXT_GUIDANCE}${spec ? `\n\n${REWRITE}` : ''}`;
   const user = [`Design: ${design.title}`, design.summary.trim() ? `Summary: ${design.summary.trim()}` : '',
+    projectContext ? `## Saved workstream background (not a replacement for the source requirements)\n${projectContext}` : '',
     `## Use case (authoritative): ${useCase.title}\n${sourceText(useCase.markdown, SOURCE_CHARS)}`,
     spec ? `## Current spec: ${spec.title} (revision ${String(spec.revision)})\n${sourceText(spec.markdown, SOURCE_CHARS)}` : '',
     context.length ? `## Supporting context\n${context.join('\n\n')}` : ''].filter(Boolean).join('\n\n');
+  if (user.length > MAX_DESIGN_MODEL_CONTEXT) {
+    throw new ValidationError(`The combined workstream and specification sources exceed the ${MAX_DESIGN_MODEL_CONTEXT.toLocaleString('en-US')}-character Design context limit. Nothing was truncated or saved.`);
+  }
   const imagine = design.specificationType === 'imagine';
   let markdown: string;
   if (imagine) {
     const fingerprint = createHash('sha256').update(JSON.stringify({ version: DEMO_SPECIFICATION_VERSION,
-      groups: IMAGINE_SECTION_GROUPS, designRevision: design.revision, sources })).digest('hex');
+      groups: IMAGINE_SECTION_GROUPS, designRevision: design.revision, sources, ...(projectContext ? { projectContext } : {}) })).digest('hex');
     const input = await imagineDraft(user, progress, signal, jobId ? { db, jobId, designId: design.id, fingerprint } : undefined, checkpointOnly);
     progress('Validating the complete IMAGINE specification');
     try {
@@ -270,6 +277,7 @@ async function writeDesignSpecInner(db: Pool, designId: string, replace: boolean
     await lockAgentAttempt(client);
     const locked = (await client.query<{ revision: number }>('SELECT revision FROM designs WHERE id=$1 FOR UPDATE', [design.id])).rows[0];
     if (locked?.revision !== design.revision) throw new ConflictError('The Design links changed while Athena was writing. Nothing was saved; retry.', 'DESIGN_CONFLICT');
+    await lockProjectGenerationContext(client, design.projectId, projectContext);
     await lockSources(client, sources);
     if (spec) {
       const row = (await client.query<{ content: string; revision: number }>("SELECT content,revision FROM notes WHERE id=$1 AND status='active' FOR UPDATE", [spec.id])).rows[0];

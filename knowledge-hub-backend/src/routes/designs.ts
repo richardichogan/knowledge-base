@@ -2,7 +2,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { recordAiDecision } from '../ai/aiLedger.js';
 import { getDb } from '../db/db.js';
 import { KnowledgeHubError, ValidationError } from '../types/errors.js';
-import { assetDesigns, attachAsset, detachAsset, getDesign, listDesigns, requiredText, searchAssets, selectDesignAsset, setSpecificationType, setImagineDemo } from '../designs/designStore.js';
+import { assetDesigns, attachAsset, createDesignSection, detachAsset, getDesign, listDesigns, requiredText, searchAssets, selectDesignAsset, setSpecificationType, setImagineDemo } from '../designs/designStore.js';
 import { approveImagineSpec, checkImagineWorkforce, readImagineHarness } from '../designs/imagineHarness.js';
 import { applyFeedback, collaboration, discardFeedback, editFeedback, generateArtifact, proposeFeedback, queueFeedback, resolveProposal } from '../designs/designArtifacts.js';
 import { createPackage, getPackage, packageArchive, preparePublication, publishPackage } from '../designs/designPackages.js';
@@ -38,6 +38,11 @@ designsRouter.get('/membership', wrap(req => {
   return assetDesigns(getDb(), type, requiredText(req.query['sourceId'], 'Source ID', MAX_ID_LENGTH));
 }));
 designsRouter.get('/:id', wrap(req => getDesign(getDb(), id(req))));
+designsRouter.post('/:id/sections', wrap(async req => {
+  const result = await createDesignSection(getDb(), id(req), body(req));
+  for (const note of result.notes) scheduleNoteIndexing(getDb(), note);
+  return result.design;
+}));
 designsRouter.post('/:id/assets', wrap(req => attachAsset(getDb(), id(req), body(req))));
 designsRouter.delete('/:id/assets', wrap(req => detachAsset(getDb(), id(req), body(req))));
 designsRouter.post('/:id/selection', wrap(req => selectDesignAsset(getDb(), id(req), body(req))));

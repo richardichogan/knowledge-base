@@ -269,7 +269,7 @@ export async function getToolDefinitions(): Promise<LlmToolDefinition[]> {
       type: 'function',
       function: {
         name: 'get_project_details',
-        description: 'Reads the current saved Workstreams record: work type, description, goal, role, ownership, state, dates, importance, deliverables, references and repositories. includeWork retrieves bounded commitments, blockers, evidence links, the first register page and review packet summaries; packetId reads the full saved packet. Use saved-content retrieval for full linked notes/outputs. Defaults to the conversation workstream when projectId is omitted.',
+        description: 'Reads the current saved Workstreams record, the single maintained home for project background: work type, description, goal, role, ownership, state, dates, importance, deliverables, references and repositories. Use it for project brainstorming and development context; each workstream remains distinct. References are source pointers, not a claim that their contents were read. includeWork retrieves bounded commitments, blockers, evidence links, the first register page and review packet summaries; packetId reads the full saved packet. Use saved-content retrieval for full linked notes/outputs. Defaults to the conversation workstream when projectId is omitted.',
         parameters: {
           type: 'object',
           properties: {

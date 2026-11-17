@@ -1,6 +1,54 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
+
+**Design sections, workstream context and sidebar release (2026-11-17):**
+- User requested deployment of the completed local changes. Reuse the existing
+  AZCLI application-only targets and subscription below; no infrastructure,
+  region, identity, credentials, RBAC, Desktop or migration changes.
+- Keep independent Design section documents and native handwritten Use cases,
+  preserve existing saved originals, share the maintained workstream context
+  with Athena and generation, and handle source captions during Markdown export.
+- Project bounded sidebar previews in PostgreSQL instead of transferring full
+  note bodies. Keep grouping, search, pagination, counts and full-note retrieval.
+- All validation checks pass:
+  - [x] Core validation: origin/main sync, both application typechecks and full
+    backend/frontend isolated release suites once; failed/blocked checks only
+    were rerun after narrow corrections.
+  - [x] Build verification: both production builds passed. The existing remote
+    ACR Docker build must succeed before the Container App image update.
+  - [x] Policy/static role validation: existing ingress 3000 and registry-secret
+    pulls unchanged; Azure reports zero applicable policies and identity roles.
+
+**Section 7: Validation Proof - Design sections, context and sidebar:**
+- Validation completed through azure-validate at approximately
+  2026-11-17T10:39Z. `git fetch origin` and `git merge --no-edit origin/main`
+  confirmed the worktree is current. Backend/frontend `npx tsc --noEmit` passed;
+  frontend types were checked again after extracting the pure section selector.
+- Full backend release run reported 1,061 passed and one failed. The new Design
+  fixture incorrectly expected Markdown export to omit provenance; it now checks
+  the actual empty editor body. Its legacy insert also now uses distinct UUID
+  and text parameters. All 17 checks in the affected file passed on rerun.
+  Other full-suite results, including the sidebar integration, are retained.
+- Frontend completed 397 checks before the new test imported browser-only editor
+  code. The unchanged section selector was extracted into a pure shared module,
+  not replaced with browser mocks. The affected and previously blocked files
+  passed another 12 checks. The full suite was not restarted.
+- Both production builds passed; frontend transformed 2,919 modules. Its entry
+  bundle `index-CSFnh625.js` was generated at 10:32:06Z, after the final shared
+  selector source at 10:30:50Z. No later application source changes followed.
+- Exact saved-note diagnostics preserved the first 100 sidebar IDs, ordering
+  and previews while reducing the database transfer from 6.61 MB / 10.49 seconds
+  to 50.6 KB / 0.97 seconds. User confirmed the local sidebar works again.
+  Existing Design records were read without copying or rewriting note bodies.
+- Azure CLI confirmed subscription c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28, image
+  v354, ingress 3000, registry-secret pulls and the existing SWA hostname
+  nice-mud-0f780fb03.7.azurestaticapps.net. Image tag v355 is unused. Dockerfile
+  retains Node 22, lockfile builds and all numbered migrations. No infrastructure
+  provisioning or role changes apply to this application-only release.
+- Local automatic scheduling remains disabled with the isolated specialist pool.
+  No browser automation, live approval, delivery or synthetic production edit
+  was performed as part of release validation.
 
 **Imagine handwritten design harness release (2026-11-17):**
 - User requested production deployment before local testing. Reuse the existing

@@ -3043,6 +3043,9 @@ export class KnowledgeHubApi {
   async getDesign(id: string): Promise<ApiResponse<DesignDetail>> {
     return (await this.client.get<ApiResponse<DesignDetail>>(`/api/designs/${encodeURIComponent(id)}`)).data;
   }
+  async createDesignSection(id: string, role: 'use_case' | 'spec' | 'architecture' | 'diagram', expectedRevision: number): Promise<ApiResponse<DesignDetail>> {
+    return (await this.client.post<ApiResponse<DesignDetail>>(`/api/designs/${encodeURIComponent(id)}/sections`, { role, expectedRevision })).data;
+  }
   async designMembership(type: 'note' | 'canvas', sourceId: string): Promise<ApiResponse<Array<{ id: string; parentNoteId: string; title: string; role: string }>>> {
     return (await this.client.get<ApiResponse<Array<{ id: string; parentNoteId: string; title: string; role: string }>>>('/api/designs/membership', { params: { type, sourceId } })).data;
   }

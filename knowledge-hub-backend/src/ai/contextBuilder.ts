@@ -18,7 +18,7 @@ import { formatMemoryContext } from './memoryRetriever.js';
 import { formatDefinitionsContext } from './definitions.js';
 import { isIcaEnabled } from './icaClient.js';
 import { getSessionProjectId } from './chatSessionStore.js';
-import { loadCurrentProjectContext, formatCurrentProjectContext, type CurrentProjectContext } from './projectContext.js';
+import { loadCurrentProjectContext, formatCurrentProjectContext, WORKSTREAM_CONTEXT_GUIDANCE, type CurrentProjectContext } from './projectContext.js';
 import { embedBatch, cosineSimilarity, isEmbeddingConfigured } from './embeddings.js';
 import type { AiContext, ConversationMessage, ChatPageContext } from '../types/aiContext.js';
 
@@ -29,6 +29,7 @@ const CONTEXT_BLOB_TIMEOUT_MS = 5_000;
  * Stable identity and product role, independent of retrieved content or editable memory.
  */
 const ASSISTANT_IDENTITY_BLURB = [
+  WORKSTREAM_CONTEXT_GUIDANCE,
   '## Your identity',
   'You are Athena, the AI assistant for this Knowledge Hub. Refer to yourself as Athena when it comes up ' +
     'naturally (e.g. introducing yourself) — do not force the name into every reply.',
@@ -1101,9 +1102,11 @@ export async function buildAiContext(
           ? [
               'Canonical workstream references:',
               ...projectReferences.map((link) => `- ${link.label}: ${link.url}`),
-              'These URLs are authoritative starting points for this product. When the question concerns the ' +
-                'product\'s capabilities, terminology, architecture, positioning, or current state, read the ' +
-                'relevant reference with fetch_web_page before answering. Do not infer its contents from the URL.',
+              'These are saved starting points, not proof that every reference is current or relevant. Respect ' +
+                'the source roles in the workstream background. For capabilities, terminology, architecture or ' +
+                'current state, read the relevant actual source before making factual claims: use the Library ' +
+                'and saved-record readers for indexed repository documents, or fetch_web_page for accessible ' +
+                'web references. Do not infer contents or deployed behavior from a URL.',
             ].join('\n')
           : '',
         'Keep the answer anchored in this client/workstream\'s goals and requirements, but use relevant knowledge ' +
@@ -1122,6 +1125,12 @@ export async function buildAiContext(
           'that a document or diagram is missing: broaden it before asking the user to supply something. ' +
           'Cross-workstream reading does not change this conversation\'s workstream or reassign notes/tasks. ' +
           'Task-board queries and new note filing default to the conversation workstream unless another is specified.',
+        'For project brainstorming or development advice, use the saved workstream background rather than treating ' +
+          'the project name as context. Use search_library for relevant repository documents, search_knowledge_base ' +
+          'for saved ideas and decisions, and read_knowledge_record for the actual selected source bodies. ' +
+          'Read relevant evidence before asserting implementation details, and distinguish a proposal from existing code. ' +
+          'Do not merge unrelated workstreams or assume a source belongs to one because it was mentioned alongside another. ' +
+          'Save maintained background on the existing workstream via update_project only when requested, not in a duplicate Think overview.',
       ].filter(Boolean).join('\n');
   const projectCatalog = !noBackground
     ? await db.query<{ id: string; name: string; importance: string | null; lifecycle_state: string | null; project_type: string; client: string | null; offering: string | null; relation: string | null }>(
@@ -1147,7 +1156,7 @@ export async function buildAiContext(
           return `- ${project.name} (id: ${project.id})${links !== '' ? ` [${links}]` : ''}${flags !== '' ? ` — ${flags}` : ''}`;
         }),
         'Workstreams overlap: something learned for one (a platform, a pattern, a client need) often bears on others. When an answer for one workstream has implications for another — especially a high-importance one — say so.',
-        'When discussing a named workstream, call get_project_details for its current saved goal, role, ownership, dates and expected outputs. Do not substitute old profile text or memories for current workstream information.',
+        'When discussing a named workstream, call get_project_details for its current saved goal, role, ownership, dates, expected outputs, background and source references. Do not substitute old profile text or memories for current workstream information. Workstreams are distinct contexts; mentioning several together does not merge them. Use the existing workstream record, not a second knowledge profile.',
       ].join('\n')
     : '';
   const projectContext = [activeProjectContext, catalogContext].filter((block) => block !== '').join('\n\n');

@@ -422,41 +422,59 @@ interface NoteSummary {
 
 const NOTE_PREVIEW_CHARS = 200;
 
-/** Joins block text, recursing into children (mirrors the web client's extractNoteBlockText). */
-function blockText(blocks: unknown[]): string[] {
-  const out: string[] = [];
-  for (const b of blocks) {
-    if (typeof b !== 'object' || b === null) continue;
-    const block = b as { content?: unknown; children?: unknown };
-    if (Array.isArray(block.content)) {
-      const t = (block.content as unknown[])
-        .map((c) => (typeof c === 'object' && c !== null && 'text' in c && typeof c.text === 'string' ? c.text : ''))
-        .join('')
-        .trim();
-      if (t !== '') out.push(t);
-    }
-    if (Array.isArray(block.children)) out.push(...blockText(block.children as unknown[]));
-  }
-  return out;
-}
+// Match String.trim(), including non-ASCII whitespace, before skipping repeated title lines.
+const PREVIEW_TRIM_SQL = [9, 10, 11, 12, 13, 32, 160, 5760, 8192, 8193, 8194, 8195, 8196, 8197,
+  8198, 8199, 8200, 8201, 8202, 8232, 8233, 8239, 8287, 12288, 65279].map(code => `chr(${code})`).join(' || ');
+
+/** Project only the sidebar preview across the DB connection, not complete writing or media. */
+export const NOTE_SUMMARY_PREVIEW_SQL = `(
+  WITH RECURSIVE payload AS MATERIALIZED (
+    SELECT CASE WHEN pg_input_is_valid(n.content, 'jsonb') THEN n.content::jsonb END AS value,
+      lower(btrim(note_list_metadata(n.content)->>'title', ${PREVIEW_TRIM_SQL})) AS title
+  ), body AS MATERIALIZED (
+    SELECT CASE
+      WHEN jsonb_typeof(value)='array' THEN value
+      WHEN jsonb_typeof(value->'contentJson')='string'
+        AND pg_input_is_valid(value->>'contentJson', 'jsonb') THEN (value->>'contentJson')::jsonb
+      ELSE '[]'::jsonb END AS value FROM payload
+  ), blocks AS (
+    SELECT entry.value AS block, ARRAY[entry.ordinality] AS path
+    FROM body CROSS JOIN LATERAL jsonb_array_elements(
+      CASE WHEN jsonb_typeof(body.value)='array' THEN body.value ELSE '[]'::jsonb END
+    ) WITH ORDINALITY entry
+    UNION ALL
+    SELECT child.value, blocks.path || child.ordinality
+    FROM blocks CROSS JOIN LATERAL jsonb_array_elements(
+      CASE WHEN jsonb_typeof(blocks.block->'children')='array'
+        THEN blocks.block->'children' ELSE '[]'::jsonb END
+    ) WITH ORDINALITY child
+  ), lines AS MATERIALIZED (
+    SELECT path, btrim(COALESCE((
+      SELECT string_agg(span.value->>'text', '' ORDER BY span.ordinality)
+      FROM jsonb_array_elements(CASE WHEN jsonb_typeof(block->'content')='array'
+        THEN block->'content' ELSE '[]'::jsonb END) WITH ORDINALITY span
+      WHERE jsonb_typeof(span.value->'text')='string'
+    ), ''), ${PREVIEW_TRIM_SQL}) AS text FROM blocks
+  ), visible AS (
+    SELECT path, text, bool_or(lower(text) <> (SELECT title FROM payload)) OVER (ORDER BY path) AS started
+    FROM lines WHERE text <> ''
+  )
+  SELECT left(COALESCE(string_agg(text, E'\\n' ORDER BY path) FILTER (WHERE started), ''), ${NOTE_PREVIEW_CHARS})
+  FROM visible
+)`;
 
 /**
  * Title / type / preview from the stored wrapper JSON — the same rules the
  * web client used when it derived these from full bodies (preview skips
  * leading lines that just repeat the title).
  */
-function summariseNote(row: { id: string; content: string; created_at: string; updated_at: string; project_id: string | null; taxonomy_tag_ids: string[]; list_metadata: { title: string; contentType: string } }): NoteSummary {
+function summariseNote(row: { id: string; preview: string; created_at: string; updated_at: string; project_id: string | null; taxonomy_tag_ids: string[]; list_metadata: { title: string; contentType: string } }): NoteSummary {
   const { title, contentType } = row.list_metadata;
-  const lines = blockText(parseNoteContent(row.content).blocks);
-  const t = title.trim().toLowerCase();
-  let start = 0;
-  while (start < lines.length && (lines[start] ?? '').trim().toLowerCase() === t) start += 1;
-  const preview = lines.slice(start).join('\n').slice(0, NOTE_PREVIEW_CHARS);
   return {
     id: row.id,
     title,
     contentType,
-    preview,
+    preview: row.preview.slice(0, NOTE_PREVIEW_CHARS),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     ...(row.project_id !== null && { projectId: row.project_id }),
@@ -602,11 +620,16 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
       const where = conditions.join(' AND ');
       const limitIndex = params.length + 1;
       const offsetIndex = limitIndex + 1;
+      const summary = req.query['view'] === 'summary';
+      const queryStarted = performance.now();
+      let rowsMs = 0;
+      let countMs = 0;
 
       const [rowsResult, countResult] = await Promise.all([
         db.query<{
           id: string;
           content: string;
+          preview: string;
           created_at: string;
           updated_at: string;
           tags: string[];
@@ -617,7 +640,7 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
           revision: number;
           list_metadata: { title: string; contentType: string };
         }>(
-          `${prefix} SELECT n.id, n.content, n.created_at, n.updated_at, n.tags, n.linked_items, n.status, n.project_id, n.revision,
+          `${prefix} SELECT n.id, ${summary ? `${NOTE_SUMMARY_PREVIEW_SQL} AS preview` : 'n.content'}, n.created_at, n.updated_at, n.tags, n.linked_items, n.status, n.project_id, n.revision,
                   note_list_metadata(n.content) AS list_metadata,
                   COALESCE(ARRAY_AGG(nt.tag_id ORDER BY nt.tag_id) FILTER (WHERE nt.tag_id IS NOT NULL), '{}') AS taxonomy_tag_ids
            FROM notes n
@@ -627,15 +650,21 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
            ORDER BY ${order}, n.id DESC
            LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
           [...params, pageSize, offset],
-        ),
+        ).then(result => { rowsMs = performance.now() - queryStarted; return result; }),
         db.query<{ count: string }>(
           `${prefix} SELECT COUNT(*) AS count FROM notes n WHERE ${where}`, params,
-        ),
+        ).then(result => { countMs = performance.now() - queryStarted; return result; }),
       ]);
+      if (Math.max(rowsMs, countMs) > 2000) {
+        console.warn('[notes:list] Slow listing', {
+          structure, summary, page, pageSize, rows: rowsResult.rows.length,
+          rowsMs: Math.round(rowsMs), countMs: Math.round(countMs),
+        });
+      }
 
       const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
 
-      if (req.query['view'] === 'summary') {
+      if (summary) {
         const items = rowsResult.rows.map(summariseNote);
         const summaryBody: ApiSuccess<PaginatedList<NoteSummary>> = {
           success: true,

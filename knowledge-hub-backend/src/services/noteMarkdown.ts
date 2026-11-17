@@ -39,7 +39,17 @@ export function noteMarkdown(content: string, noteId: string): Promise<string> {
       if (!Array.isArray(value)) return value;
       return value.map(block => {
         if (block === null || typeof block !== 'object') return block;
-        const record = block as Record<string, unknown>;
+        let record = block as Record<string, unknown>;
+        // Match the editor's sourceCaption external HTML without changing the saved block.
+        if (record.type === 'sourceCaption') {
+          if (!Array.isArray(record.content) && typeof record.content !== 'string') {
+            throw new ValidationError('Source caption must contain inline writing.');
+          }
+          const content = typeof record.content === 'string'
+            ? [{ type: 'text', text: record.content, styles: {} }] : record.content;
+          record = { ...record, type: 'paragraph', props: {},
+            content: [{ type: 'text', text: 'Source: ', styles: {} }, ...content] };
+        }
         const propSchema = typeof record.type === 'string' ? blockSchema[record.type]?.propSchema : undefined;
         const props = propSchema && record.props && typeof record.props === 'object'
           ? Object.fromEntries(Object.entries(record.props).filter(([prop]) => prop in propSchema))

@@ -9,7 +9,7 @@ import { getDb } from '../src/db/db.js';
 import { env } from '../src/config/env.js';
 import { getFoundryClient } from '../src/ai/foundryClient.js';
 import { GitHubClient } from '../src/integrations/github/githubClient.js';
-import { assetDesigns, assetRole, attachAsset, DESIGN_NOTE_MEMBERSHIPS_SQL, detachAsset, getDesign, listDesigns, parseAsset, selectDesignAsset, setSpecificationType, setImagineDemo } from '../src/designs/designStore.js';
+import { assetDesigns, assetRole, attachAsset, createDesignSection, DESIGN_NOTE_MEMBERSHIPS_SQL, detachAsset, getDesign, listDesigns, parseAsset, selectDesignAsset, setSpecificationType, setImagineDemo } from '../src/designs/designStore.js';
 import { approveImagineSpec, readImagineHarness, requireImagineSpecApproval } from '../src/designs/imagineHarness.js';
 import { parseImagineWorkforce, renderImagineWorkforce, validateImagineWorkforce, type ImagineWorkforce } from '../src/designs/imagineWorkforce.js';
 import { textToBlocks } from '../src/ai/markdownToNoteBlocks.js';
@@ -73,6 +73,20 @@ test('editable workforce Markdown survives the real note conversion without losi
   assert.deepEqual(parseImagineWorkforce(await noteMarkdown(content, OTHER), sources, blocks), data);
   assert.throws(() => parseImagineWorkforce(markdown.replace('Claim ID \\| grounded evidence', 'Claim ID | grounded evidence'), sources), /invalid table width/);
   assert.throws(() => parseImagineWorkforce(markdown.replace('## Journey', '## Missing journey'), sources), /Journey/);
+});
+test('Design source export preserves nested source captions and citation links', async () => {
+  const blocks = [{ id: 'parent', type: 'paragraph', content: [{ type: 'text', text: 'Business requirement', styles: {} }], children: [
+    { id: 'source', type: 'sourceCaption', props: {}, content: [
+      { type: 'text', text: 'Reviewed ', styles: { italic: true } },
+      { type: 'link', href: 'https://example.com/policy', content: [{ type: 'text', text: 'policy evidence', styles: {} }] },
+    ], children: [] },
+  ] }];
+  const content = JSON.stringify({ title: 'Source-backed Design', contentType: 'design', contentJson: JSON.stringify(blocks) });
+  const markdown = await noteMarkdown(content, ROOT);
+  assert.match(markdown, /Business requirement/);
+  assert.match(markdown, /Source: /);
+  assert.match(markdown, /Reviewed/);
+  assert.match(markdown, /\[policy evidence\]\(https:\/\/example.com\/policy\)/);
 });
 const reviewCoverage = (passageId: string, gap = false) => ['scenario', 'actors', 'fixtures', 'permissions', 'workforce', 'dependencies',
   'lifecycle', 'responses', 'screens', 'acceptance', 'traceability', 'authority'].map(obligation => ({
@@ -450,6 +464,7 @@ test('real parent conversion, source identity, persisted feedback, atomic accept
     CREATE TABLE use_case_sources(use_case_id UUID,source_type TEXT,source_id TEXT);
     CREATE TABLE canvases(id UUID PRIMARY KEY,title TEXT,project TEXT,canvas_type TEXT,deleted_at TIMESTAMPTZ,updated_at TIMESTAMPTZ DEFAULT NOW());
     CREATE TABLE canvas_diagrams(canvas_id UUID PRIMARY KEY,revision INTEGER,document JSONB);
+    CREATE TABLE canvas_diagram_revisions(canvas_id UUID,revision INTEGER,document JSONB,PRIMARY KEY(canvas_id,revision));
     CREATE TABLE canvas_notes(canvas_id UUID,note_id TEXT);
     CREATE TABLE diagram_element_notes(canvas_id UUID,note_id TEXT);
     CREATE TABLE ai_chat_sessions(id UUID PRIMARY KEY,note_id TEXT,from_think BOOLEAN,project_id TEXT,title TEXT,updated_at TIMESTAMPTZ DEFAULT NOW());
@@ -541,6 +556,34 @@ test('real parent conversion, source identity, persisted feedback, atomic accept
     const real = await getDesign(getDb(), OTHER);
     assert.equal(real.parentNoteId, OTHER, 'type changes preserve the original ID');
     assert.equal(JSON.parse(String((await local.query('SELECT content FROM notes WHERE id=$1', [OTHER])).rows[0]?.content)).contentJson, JSON.parse(populated).contentJson);
+    const handwritten = await sourceSnapshot(getDb(), real);
+    assert.equal(handwritten.length, 1, 'the handwritten original is not duplicated as Design background');
+    assert.equal(handwritten[0]?.id, OTHER);
+    assert.equal(handwritten[0]?.role, 'use_case');
+    assert.match(handwritten[0]!.markdown, /Never lose this writing/);
+    await assert.rejects(detachAsset(getDb(), real.id, { sourceType: 'note', sourceId: OTHER }), /cannot be unlinked/);
+    const startedSpec = await createDesignSection(getDb(), real.id, { role: 'spec', expectedRevision: real.revision });
+    const startedArchitecture = await createDesignSection(getDb(), real.id, { role: 'architecture', expectedRevision: startedSpec.design.revision });
+    const startedDiagram = await createDesignSection(getDb(), real.id, { role: 'diagram', expectedRevision: startedArchitecture.design.revision });
+    const sectionIds = startedDiagram.design.assets.map(asset => asset.sourceId);
+    assert.equal(new Set(sectionIds).size, 4, 'each section has its own stable identity');
+    assert.equal(startedSpec.notes.length, 1);
+    assert.equal(startedArchitecture.notes.length, 1);
+    assert.equal(startedDiagram.notes.length, 0);
+    assert.deepEqual((await sourceSnapshot(getDb(), startedDiagram.design)).find(source => source.role === 'spec')?.blocks,
+      [{ type: 'paragraph', content: [] }], 'new section writing is empty; Markdown export still includes provenance');
+    assert.equal((await sourceSnapshot(getDb(), startedDiagram.design)).find(source => source.role === 'use_case')?.markdown, handwritten[0]!.markdown);
+    await assert.rejects(createDesignSection(getDb(), real.id, { role: 'spec', expectedRevision: real.revision }), /Design changed/);
+    await assert.rejects(createDesignSection(getDb(), real.id, { role: 'spec', expectedRevision: startedDiagram.design.revision }), /already has content/);
+    const legacyParentId = randomUUID();
+    const legacySpecification = writing('Existing specification', 'design', 'Preserve the specification in its existing original.');
+    await local.query('INSERT INTO notes(id,content) VALUES($1,$2)', [legacyParentId, legacySpecification]);
+    await local.query("INSERT INTO design_assets(design_id,source_type,source_id,role) VALUES($1,'note',$2,'spec')", [legacyParentId, legacyParentId]);
+    const legacy = await getDesign(getDb(), legacyParentId);
+    assert.equal(legacy.assets.find(asset => asset.sourceId === legacyParentId)?.role, 'spec', 'a pre-existing Spec is never relabelled as a Use case');
+    const withUseCase = await createDesignSection(getDb(), legacy.id, { role: 'use_case', expectedRevision: legacy.revision });
+    assert.notEqual(withUseCase.design.assets.find(asset => asset.role === 'use_case')?.sourceId, legacyParentId);
+    assert.equal((await local.query('SELECT content FROM notes WHERE id=$1', [legacyParentId])).rows[0]?.content, legacySpecification);
 
     const sources = await sourceSnapshot(getDb(), design);
     const visual = parseBlueprint(JSON.stringify(blueprint), sources);
@@ -695,13 +738,35 @@ test('real parent conversion, source identity, persisted feedback, atomic accept
       }, {}, chatState), /source changed/);
     } finally { failSecondWrite = false; mock.timers.reset(); }
 
+    await local.exec(`
+      ALTER TABLE projects
+        ADD COLUMN description TEXT DEFAULT '', ADD COLUMN goal TEXT DEFAULT '',
+        ADD COLUMN role TEXT DEFAULT '', ADD COLUMN ownership TEXT DEFAULT '',
+        ADD COLUMN start_date DATE, ADD COLUMN target_end_date DATE,
+        ADD COLUMN importance TEXT DEFAULT 'normal', ADD COLUMN priority TEXT DEFAULT 'normal',
+        ADD COLUMN category TEXT DEFAULT 'work', ADD COLUMN project_type TEXT DEFAULT 'project',
+        ADD COLUMN expected_outputs TEXT[] DEFAULT '{}', ADD COLUMN links JSONB DEFAULT '[]',
+        ADD COLUMN gitlab_paths TEXT[] DEFAULT '{}', ADD COLUMN github_repos TEXT[] DEFAULT '{}',
+        ADD COLUMN tags TEXT[] DEFAULT '{}', ADD COLUMN has_ica_document_collection BOOLEAN DEFAULT false,
+        ADD COLUMN ica_document_collection_name TEXT DEFAULT '', ADD COLUMN ica_document_collection_id TEXT DEFAULT '';
+      CREATE TABLE company_projects(company_id UUID,project_id TEXT,role TEXT);
+      CREATE TABLE project_offering_links(project_id TEXT,offering_id TEXT,relation TEXT);
+      INSERT INTO projects(id,name,description) VALUES('imagine-context','Imagine','The fixture platform separates workforce designs from runtime agents.');
+    `);
+    await local.query('UPDATE notes SET project_id=$1 WHERE id=$2', ['imagine-context', design.parentNoteId]);
     let response: string | null = null;
     let lastCall: unknown[] = [];
     const requestedSections: number[][] = [];
     let timeoutOnce = true;
     let changeTypeDuringGeneration = false;
+    let changeContextDuringGeneration = false;
     const writerMock = mock.method(getFoundryClient('use-case-spec'), 'chatBulk', async (...args: unknown[]) => {
       lastCall = args;
+      assert.ok((args[0] as { content: string }[])[1]!.content.includes('The fixture platform separates workforce designs from runtime agents.')
+        || (args[0] as { content: string }[])[1]!.content.includes('The platform context has changed.'));
+      if (changeContextDuringGeneration) {
+        await local.query('UPDATE projects SET description=$1 WHERE id=$2', ['The platform context has changed.', 'imagine-context']);
+      }
       if (changeTypeDuringGeneration) {
         const current = await getDesign(getDb(), design.id);
         await setSpecificationType(getDb(), design.id, { specificationType: 'imagine', expectedRevision: current.revision });
@@ -736,6 +801,10 @@ test('real parent conversion, source identity, persisted feedback, atomic accept
       await writeDesignSpec(getDb(), design.id, true);
       assert.equal(lastCall[4], undefined, 'Standard retains the product-spec writer');
       const beforeConflict = (await local.query('SELECT content,revision FROM notes WHERE id=$1', [SPEC])).rows;
+      changeContextDuringGeneration = true;
+      await assert.rejects(writeDesignSpec(getDb(), design.id, true), /workstream context changed/);
+      assert.deepEqual((await local.query('SELECT content,revision FROM notes WHERE id=$1', [SPEC])).rows, beforeConflict);
+      changeContextDuringGeneration = false;
       changeTypeDuringGeneration = true;
       await assert.rejects(writeDesignSpec(getDb(), design.id, true), /Design.*changed/);
       assert.deepEqual((await local.query('SELECT content,revision FROM notes WHERE id=$1', [SPEC])).rows, beforeConflict);

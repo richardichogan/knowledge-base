@@ -8,11 +8,42 @@ import { CONTENT_TYPE_OPTIONS } from '../src/notes/constants';
 import type { DesignArtifact, DesignDetail, ImagineHarnessView } from '../src/types/designs';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ImagineHarness } from '../src/features/designs/ImagineHarness';
+import { resolveDesignTab } from '../src/features/designs/designSections';
 
 const artifact: DesignArtifact = { id: 'artifact', revision: 3, sources: [], html: '<p>Fixture</p>',
   blueprint: { title: 'Fixture', explanation: '', openDecisions: [], elements: [{ id: 'review', title: 'Review', content: 'Approve the evidence',
     sourceIds: ['note'], choices: ['Manual review'], components: [] }] } };
 const message = { channel: 'athena-design', token: 'session-token', artifactId: 'artifact', revision: 3, elementId: 'review', selection: 'evidence', choice: null };
+test('Design tabs never substitute the Use case for missing, unavailable or ambiguous section content', () => {
+  const design: DesignDetail = { id: 'design', parentNoteId: 'parent', title: 'Claims', summary: '', projectId: null,
+    sourceUseCaseId: null, sourceNoteId: null, status: 'draft', revision: 1, mapped: false, updatedAt: '',
+    specificationType: 'imagine', imagineDemo: true,
+    assets: [{ sourceId: 'parent', sourceType: 'note', role: 'use_case', available: true, origin: 'explicit', href: '', title: 'Claims' }],
+    selections: {} };
+  assert.equal(resolveDesignTab(design, 'use_case', null).noteId, 'parent');
+  for (const role of ['spec', 'architecture', 'diagram', 'workforce'] as const) {
+    assert.equal(resolveDesignTab(design, role, 'parent').noteId, null);
+  }
+  design.assets.push({ ...design.assets[0]!, sourceId: 'spec', role: 'spec' });
+  assert.equal(resolveDesignTab(design, 'spec', 'parent').noteId, 'spec');
+  design.assets.push({ ...design.assets[0]!, sourceId: 'other-spec', role: 'spec' });
+  assert.equal(resolveDesignTab(design, 'spec', null).noteId, null);
+  design.selections.spec = 'spec';
+  assert.equal(resolveDesignTab(design, 'spec', null).noteId, 'spec');
+  design.assets[1]!.available = false;
+  assert.equal(resolveDesignTab(design, 'spec', null).noteId, null);
+  design.assets.push({ ...design.assets[0]!, sourceId: 'canvas', sourceType: 'canvas', role: 'diagram' });
+  assert.equal(resolveDesignTab(design, 'diagram', null).noteId, null, 'a diagram uses its own canvas, never a note editor');
+  design.parentNoteId = 'legacy-design-parent';
+  design.assets = [
+    { sourceId: 'original-use-case', sourceType: 'note', role: 'use_case', available: true, origin: 'explicit', href: '', title: 'Original use case' },
+    { sourceId: 'original-spec', sourceType: 'note', role: 'spec', available: true, origin: 'manual', href: '', title: 'Original spec' },
+  ];
+  design.selections = { spec: 'original-spec' };
+  assert.equal(resolveDesignTab(design, 'use_case', null).noteId, 'original-use-case', 'older mapped Designs retain their original writing');
+  assert.equal(resolveDesignTab(design, 'spec', null).noteId, 'original-spec');
+  assert.equal(resolveDesignTab(design, 'architecture', 'legacy-design-parent').noteId, null);
+});
 test('Imagine harness keeps unflagged Designs unchanged and gates workforce controls on actual approval', () => {
   const design: DesignDetail = { id: 'design', parentNoteId: 'parent', title: 'Claims', summary: '', projectId: null,
     sourceUseCaseId: null, sourceNoteId: null, status: 'draft', revision: 1, mapped: false, updatedAt: '',

@@ -2,7 +2,7 @@ import 'dotenv/config';
 import assert from 'node:assert/strict';
 import { mock, test } from 'node:test';
 import { Pool } from 'pg';
-import { loadCurrentProjectContext, formatCurrentProjectContext, type CurrentProjectContext } from '../src/ai/projectContext.js';
+import { loadCurrentProjectContext, formatCurrentProjectContext, loadProjectGenerationContext, lockProjectGenerationContext, type CurrentProjectContext } from '../src/ai/projectContext.js';
 import { buildAiContext, assembleMessages } from '../src/ai/contextBuilder.js';
 import { executeToolCall } from '../src/ai/chatTools.js';
 import { describeToolActivity } from '../src/ai/turnActivity.js';
@@ -139,4 +139,41 @@ test('legacy JSON arrays normalize without hiding database failures or truncatin
   assert.ok(formatCurrentProjectContext(project).includes(output));
   mock.method(db, 'query', async () => { throw new Error('database unavailable'); });
   await assert.rejects(loadCurrentProjectContext(db, project.id), /database unavailable/);
+});
+
+test('generation uses the same current workstream background and detects edits without blending projects', async () => {
+  const db = new Pool();
+  let saved = { ...project, description: 'Digital workforce platform', links: [{ label: 'Platform source', url: 'https://github.com/team/imagine' }] };
+  const blog = { ...project, id: 'microsoft-cloud-blog', name: 'Microsoft Cloud Blog', description: 'Independent publishing website',
+    githubRepos: ['team/blog'], gitlabPaths: [], links: [{ label: 'Website', url: 'https://themicrosoftcloudblog.com' }] };
+  const queries: string[] = [];
+  mock.method(db, 'query', async (sql: string, values: unknown[] = []) => {
+    queries.push(sql);
+    return { rows: values[0] === saved.id ? [saved] : values[0] === blog.id ? [blog] : [] };
+  });
+  const imagine = await loadProjectGenerationContext(db, project.id);
+  assert.equal(imagine, formatCurrentProjectContext((await loadCurrentProjectContext(db, project.id))!));
+  assert.ok(imagine.includes(saved.description));
+  assert.ok(imagine.includes(saved.links[0]!.url));
+  assert.ok(!imagine.includes('themicrosoftcloudblog.com'));
+  const blogging = await loadProjectGenerationContext(db, blog.id);
+  assert.ok(blogging.includes(blog.description));
+  assert.ok(blogging.includes(blog.links[0]!.url));
+  assert.ok(!blogging.includes(saved.links[0]!.url));
+  await lockProjectGenerationContext(db, project.id, imagine);
+  assert.ok(queries.some(sql => sql.includes('FOR SHARE')));
+  saved = { ...saved, description: 'Changed platform constraints' };
+  await assert.rejects(lockProjectGenerationContext(db, project.id, imagine), /workstream context changed/);
+  assert.ok((await loadProjectGenerationContext(db, project.id)).includes(saved.description));
+});
+
+test('generation preserves unassigned scope and reports missing records and source-read failures explicitly', async () => {
+  const db = new Pool();
+  const query = mock.method(db, 'query', async () => ({ rows: [] }));
+  assert.equal(await loadProjectGenerationContext(db, null), '');
+  await lockProjectGenerationContext(db, null, '');
+  assert.equal(query.mock.callCount(), 0);
+  await assert.rejects(loadProjectGenerationContext(db, 'missing'), /Workstream/);
+  mock.method(db, 'query', async () => { throw new Error('workstream source unavailable'); });
+  await assert.rejects(loadProjectGenerationContext(db, project.id), /workstream source unavailable/);
 });
