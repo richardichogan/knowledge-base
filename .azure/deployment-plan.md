@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Imagine handwritten design harness release (2026-11-17):**
 - User requested production deployment before local testing. Reuse the existing
@@ -50,6 +50,26 @@
   with worker pool imagine-local-5d5e18f9; startup confirms pool warmed 8/8
   and scheduled jobs disabled. The existing frontend serves this worktree on
   port 5173. End-to-end local testing is deferred until after deployment.
+
+**Deployment proof - Imagine handwritten design harness (2026-11-17):**
+- Release source `794d6d00` was pushed to the session branch and main. ACR run
+  `cab4` successfully built and pushed `kh-prod-api:v354` from main, completing
+  at 08:20:01 UTC before the Container App image update.
+- Revision `kh-prod-api-vnet--0000353` is Healthy and latest-ready; ingress
+  routes 100% of traffic to the latest revision. Startup applied migration
+  `160_imagine_design_harness.sql`, completed migrations and warmed 8/8 database
+  connections without migration/configuration errors.
+- Read-only database verification confirms migration 160 was recorded at
+  `2026-11-17T08:20:45.482Z` and both non-null Design columns are present:
+  `imagine_demo` (boolean) and `imagine_harness` (jsonb).
+- Static Web Apps production deployment succeeded. The public site
+  https://athena.themicrosoftcloudblog.com returns HTTP 200 and references
+  `/assets/index-CyBekFqo.js`; the served bundle exactly matches the local build
+  SHA-256 `b092d8a1cc19cfc30617af7a58fb80e881964073165bd08ae4818224f97b44d2`.
+- Local backend was restarted from the released source: port 3000 listening,
+  production data in development, pool warmed 8/8, isolated specialist worker
+  and automatic scheduling disabled. Frontend remains listening on port 5173.
+  Browser/Athena end-to-end testing and live content mutations remain deferred.
 
 **Publishing commitments and package recovery release (2026-11-17):**
 - User requested a quick deployment of the completed publishing repair. Reuse
