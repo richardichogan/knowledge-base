@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Design sections, workstream context and sidebar release (2026-11-17):**
 - User requested deployment of the completed local changes. Reuse the existing
@@ -49,6 +49,27 @@
 - Local automatic scheduling remains disabled with the isolated specialist pool.
   No browser automation, live approval, delivery or synthetic production edit
   was performed as part of release validation.
+
+**Deployment proof - Design sections, context and sidebar (2026-11-17):**
+- Implementation commit `670e2e51` was pushed to the session branch and main.
+  ACR run `cab5` confirms that exact Git revision and successfully built/pushed
+  `kh-prod-api:v355` at 10:44:22Z before the production image update.
+- Revision `kh-prod-api-vnet--0000354` is active, Healthy, RunningAtMaxScale and
+  latest-ready; ingress sends 100% of production traffic to the latest revision.
+  Startup confirms migration completion, pool warmed 8/8, the production
+  specialist worker and scheduler, without migration or configuration errors.
+- Static Web Apps production deployment succeeded. At 10:47:18Z,
+  https://athena.themicrosoftcloudblog.com returned HTTP 200 and referenced
+  `/assets/index-CSFnh625.js`. The served bundle matches the local production
+  build byte-for-byte, SHA-256
+  `068d7f7bea3dd61e59139d528998d4a4dae9e163ff31a5b134f3d329bfe07d9a`.
+- Live role verification: `az role assignment list --all` filtered to existing
+  principal `33431199-d9a7-4bdc-a894-54eb77964f6a` still returns no assignments.
+  Registry-secret authentication and the application's existing credential
+  configuration are unchanged; no new roles are required for this release.
+- No Desktop rebuild, infrastructure provisioning, manual production content
+  rewrite, approval or delivery was performed. Local servers remain available
+  with automatic local scheduling disabled.
 
 **Imagine handwritten design harness release (2026-11-17):**
 - User requested production deployment before local testing. Reuse the existing
