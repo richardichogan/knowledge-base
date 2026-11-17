@@ -2,7 +2,8 @@ import type { Pool } from 'pg';
 import { recordAiAuthoredNote } from './aiLedger.js';
 import { randomUUID } from 'node:crypto';
 import type { LlmToolDefinition } from './foundryClient.js';
-import { getDesign, requiredText } from '../designs/designStore.js';
+import { getDesign, requiredText, setImagineDemo } from '../designs/designStore.js';
+import { checkImagineWorkforce, readImagineHarness, requireImagineSpecApproval } from '../designs/imagineHarness.js';
 import { collaboration, hasProtectedContent, lockSources, parseChanges, replaceBlock, selectedAssets, sourceSnapshot, type DesignSource } from '../designs/designArtifacts.js';
 import { parseWriting, writeNoteInTransaction } from '../services/noteVersionService.js';
 import { textToBlocks } from './markdownToNoteBlocks.js';
@@ -27,9 +28,26 @@ export interface DesignTurnState {
   read?: { revision: number; sources: DesignSource[] };
   changedNoteIds: string[];
 }
-export const DESIGN_READINESS_WRITE_TOOLS = ['check_design_readiness', 'prepare_design_readiness_repair', 'discard_design_readiness_repair'];
+export const DESIGN_READINESS_WRITE_TOOLS = ['check_design_readiness', 'prepare_design_readiness_repair', 'discard_design_readiness_repair', 'set_design_imagine_demo', 'check_imagine_workforce'];
 
 export const DESIGN_CHAT_TOOLS: LlmToolDefinition[] = [
+  { type: 'function', function: {
+    name: 'check_imagine_workforce',
+    description: 'On request, validate the saved Workforce document against its schema, graph and exact approved-spec citations. Saves a revision-bound design-contract check, never runtime/UI acceptance. Requires the user’s existing current spec approval; cannot grant approval.',
+    parameters: { type: 'object', additionalProperties: false, properties: {} },
+  } },
+  { type: 'function', function: {
+    name: 'read_imagine_harness',
+    description: 'Read this Design’s separate Imagine demo flag, actual revision-bound specification approval, validation blockers and workforce validation freshness. Read actual documents with read_design_package. Human spec approval is available only in Design properties; never claim it or bypass it.',
+    parameters: { type: 'object', additionalProperties: false, properties: {} },
+  } },
+  { type: 'function', function: {
+    name: 'set_design_imagine_demo',
+    description: 'Only when explicitly requested, set the separate Imagine demo flag using the current Design revision. Does not change specification type, generate content or approve the spec. Changing the flag clears prior harness approvals.',
+    parameters: { type: 'object', additionalProperties: false, properties: {
+      imagineDemo: { type: 'boolean' }, expectedRevision: { type: 'integer' },
+    }, required: ['imagineDemo', 'expectedRevision'] },
+  } },
   { type: 'function', function: {
     name: 'read_design_readiness_repair',
     description: 'Retrieve the actual proposed Markdown for one pending readiness block change in bounded character chunks. Follow nextOffset and then next changeIndex until complete. Original blocks remain readable through the normal knowledge/document tools. Reading does not Apply the proposal.',
@@ -79,7 +97,7 @@ export const DESIGN_CHAT_TOOLS: LlmToolDefinition[] = [
       expectedDesignRevision: { type: 'integer' },
       documents: { type: 'array', minItems: 1, maxItems: 3, items: { type: 'object', additionalProperties: false,
         properties: {
-          role: { type: 'string', enum: ['use_case', 'spec', 'architecture'] },
+          role: { type: 'string', enum: ['use_case', 'spec', 'architecture', 'workforce'] },
           noteId: { type: ['string', 'null'], description: 'Exact selected note ID from read_design_package; null only for a genuinely empty section.' },
           expectedRevision: { type: ['integer', 'null'], description: 'Exact note revision just read; null only for a new document.' },
           title: { type: 'string' },
@@ -103,7 +121,7 @@ export async function executeDesignTool(db: Pool, name: string, owner: string, a
   if (access.exclusionsFailed || access.excludedIds?.has(owner)
     || access.strictProjectId && design.projectId !== access.strictProjectId) throw new ValidationError('This Design is unavailable in the current conversation scope.');
   const selected = selectedAssets(design);
-  const accessedAssets = name.includes('design_readiness')
+  const accessedAssets = name.includes('design_readiness') || name === 'read_imagine_harness' || name === 'check_imagine_workforce'
     ? [...selected, ...design.assets.filter(asset => asset.role === 'reference' && asset.sourceType === 'note')] : selected;
   if (accessedAssets.some(asset => access.excludedIds?.has(asset.sourceId))) throw new ValidationError('A selected Design document or assessment reference is excluded from this conversation.');
   if (access.strictProjectId) {
@@ -113,6 +131,17 @@ export async function executeDesignTool(db: Pool, name: string, owner: string, a
       accessedAssets.filter(asset => asset.sourceType === 'canvas').map(asset => asset.sourceId),
     ]);
     if (outOfScope.rows.length) throw new ValidationError('A selected original is outside the enforced workstream scope.');
+  }
+  if (name === 'read_imagine_harness') return readImagineHarness(db, design.id);
+  if (name === 'check_imagine_workforce') {
+    const checked = await checkImagineWorkforce(db, design.id);
+    state?.changedNoteIds.push(design.parentNoteId);
+    return checked;
+  }
+  if (name === 'set_design_imagine_demo') {
+    const updated = await setImagineDemo(db, design.id, args);
+    state?.changedNoteIds.push(design.parentNoteId);
+    return { imagineDemo: updated.imagineDemo, revision: updated.revision, note: 'Flag saved; no generation or approval performed.' };
   }
   if (name.includes('design_readiness')) {
     const offset = args['offset'] ?? 0;
@@ -176,11 +205,12 @@ export async function executeDesignTool(db: Pool, name: string, owner: string, a
     const visual = await collaboration(db, design.id);
     if (state) state.read = { revision: design.revision, sources };
     return { designId: design.id, parentNoteId: owner, title: design.title, revision: design.revision,
+      imagineDemo: design.imagineDemo, specificationType: design.specificationType,
       selections: design.selections, assets: design.assets.filter(asset => !access.excludedIds?.has(asset.sourceId)), sources,
       visual: visual.artifact ? { id: visual.artifact.id, revision: visual.artifact.revision, stale: visual.stale, sourceError: visual.sourceError } : null,
       pendingProposal: visual.proposal ? { id: visual.proposal.id, explanation: visual.proposal.explanation, status: visual.proposal.status } : null,
       feedback: visual.feedback.slice(-RECENT_FEEDBACK_COUNT), earlierFeedbackCount: Math.max(0, visual.feedback.length - RECENT_FEEDBACK_COUNT),
-      instructions: 'The Design is the parent. The four tabs open these exact originals. Empty sections need a new linked original, not a chat-only deliverable or standalone note. Preserve reference documents. HTML is one shared visual under Spec; Diagram is the original canvas. IMAGINE readiness is separate revision-bound data: read_design_readiness retrieves findings, and its repairs require the Spec-tab preview Apply/Discard. A direct document edit makes readiness stale; it does not close findings.' };
+      instructions: 'The Design is the parent. Its tabs open these exact originals; Imagine demo Designs also have Workforce. Empty sections need a new linked original, not a chat-only deliverable or standalone note. Preserve reference documents. HTML is one shared visual under Spec; Diagram is the original canvas. IMAGINE readiness is separate revision-bound data: read_design_readiness retrieves findings, and its repairs require the Spec-tab preview Apply/Discard. A direct document edit makes readiness stale; it does not close findings. For Imagine demos, read_imagine_harness reports stage gates. The user must approve the validated spec in Design properties before imagine-workforce-designer can run. Never infer approval from chat or a tool call. Workforce writing is design only, not Imagine deployment or UI/runtime evidence.' };
   }
   if (name !== 'save_design_documents') throw new ValidationError('Unknown Design operation.');
   const read = state?.read;
@@ -192,7 +222,8 @@ export async function executeDesignTool(db: Pool, name: string, owner: string, a
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new ValidationError('Invalid Design document.');
     const input = raw as Record<string, unknown>;
     const role = input['role'];
-    if (typeof role !== 'string' || !['use_case', 'spec', 'architecture'].includes(role) || seen.has(role)) throw new ValidationError('Choose each document section at most once.');
+    if (typeof role !== 'string' || !['use_case', 'spec', 'architecture', 'workforce'].includes(role) || seen.has(role)
+      || role === 'workforce' && !design.imagineDemo) throw new ValidationError('Choose each available document section at most once.');
     seen.add(role);
     const existing = selected.find(asset => asset.role === role);
     if (existing ? input['noteId'] !== existing.sourceId || !Number.isInteger(input['expectedRevision'])
@@ -209,6 +240,7 @@ export async function executeDesignTool(db: Pool, name: string, owner: string, a
       title: requiredText(input['title'], 'Document title', MAX_DOCUMENT_TITLE),
       markdown: targeted ? null : requiredText(input['markdown'], 'Document Markdown', MAX_DOCUMENT_MARKDOWN), changes };
   }).sort((a, b) => a.id.localeCompare(b.id));
+  if (writes.some(write => write.role === 'workforce' && !write.existing)) await requireImagineSpecApproval(db, design.id);
   const client = await db.connect();
   const notes: Note[] = [];
   const publish: string[] = [];
@@ -218,7 +250,7 @@ export async function executeDesignTool(db: Pool, name: string, owner: string, a
     if (locked?.revision !== design.revision) throw new ConflictError('Design links changed; no documents saved.', 'DESIGN_CONFLICT');
     await lockSources(client, read.sources);
     for (const write of writes) {
-      const contentType = write.role === 'use_case' ? 'use-case' : write.role;
+      const contentType = write.role === 'use_case' ? 'use-case' : write.role === 'workforce' ? 'architecture' : write.role;
       let blocks: unknown[] = write.markdown === null ? [] : textToBlocks(write.markdown);
       if (write.markdown !== null && !blocks.length) throw new ValidationError('Document Markdown produced no writing. Nothing was saved.');
       if (write.existing) {

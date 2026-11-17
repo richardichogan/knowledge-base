@@ -9,16 +9,20 @@ import { getDb } from '../src/db/db.js';
 import { env } from '../src/config/env.js';
 import { getFoundryClient } from '../src/ai/foundryClient.js';
 import { GitHubClient } from '../src/integrations/github/githubClient.js';
-import { assetDesigns, assetRole, attachAsset, DESIGN_NOTE_MEMBERSHIPS_SQL, detachAsset, getDesign, listDesigns, parseAsset, selectDesignAsset, setSpecificationType } from '../src/designs/designStore.js';
+import { assetDesigns, assetRole, attachAsset, DESIGN_NOTE_MEMBERSHIPS_SQL, detachAsset, getDesign, listDesigns, parseAsset, selectDesignAsset, setSpecificationType, setImagineDemo } from '../src/designs/designStore.js';
+import { approveImagineSpec, readImagineHarness, requireImagineSpecApproval } from '../src/designs/imagineHarness.js';
+import { parseImagineWorkforce, renderImagineWorkforce, validateImagineWorkforce, type ImagineWorkforce } from '../src/designs/imagineWorkforce.js';
+import { textToBlocks } from '../src/ai/markdownToNoteBlocks.js';
+import { noteMarkdown } from '../src/services/noteMarkdown.js';
 import { writeDesignSpec } from '../src/designs/designSpec.js';
-import { demoSpecificationForm, demoSpecificationResponseSchema } from '../src/ai/demoSpecification.js';
+import { demoSpecificationForm, demoSpecificationResponseSchema, DEMO_SPECIFICATION_VERSION } from '../src/ai/demoSpecification.js';
 import { AiError } from '../src/types/errors.js';
 import { collaboration, designModelContext, MAX_DESIGN_MODEL_CONTEXT, digest, parseBlueprint, parseChanges, queueFeedback, renderArtifact, resolveProposal, proposeFeedback, sameSources, sourceSnapshot } from '../src/designs/designArtifacts.js';
 import { createPackage, packageArchive, preparePublication, publishPackage, validateDiagramSvg } from '../src/designs/designPackages.js';
 import { AUTHORING_CONTRACT, authoredForModel, authoredTarget, parseAuthored, renderAuthored, selectionBelongs } from '../src/designs/visualArtifact.js';
 import { DESIGN_CHAT_TOOLS, executeDesignTool, type DesignTurnState } from '../src/ai/designTools.js';
 import { validateConsistencyFindings } from '../src/designs/designConsistency.js';
-import { mechanicalReadiness, pageReadiness, parseReadinessReview, readinessPassages, READINESS_RULE_VERSION, type ReadinessReport } from '../src/designs/designReadiness.js';
+import { mechanicalReadiness, pageReadiness, parseReadinessReview, readinessPassages, readinessSnapshot, READINESS_RULE_VERSION, type ReadinessReport } from '../src/designs/designReadiness.js';
 import { DEMO_SPECIFICATION_TEMPLATE } from '../src/ai/demoSpecificationTemplate.js';
 
 const ROOT = 'b028adff-5851-4203-915f-67f2ab889433';
@@ -26,6 +30,50 @@ const SPEC = '00000000-0000-4000-8000-000000000002';
 const OTHER = '00000000-0000-4000-8000-000000000003';
 const checkedAt = '2026-11-01T21:37:00Z';
 const readinessSource = (markdown: string) => ({ id: SPEC, role: 'spec', revision: 2, title: 'Demo specification', markdown, blocks: [] });
+const workforceFixture = (): ImagineWorkforce => ({
+  scope: 'Proposed review workflow; no runtime deployment.',
+  members: ['triage', 'reviewer'].map((id, index): ImagineWorkforce['members'][number] => ({ id, kind: index ? 'human' : 'agent', name: id, realAgentId: null,
+    purpose: 'Review the supplied claim.', inputs: 'Claim and policy evidence.', outputs: 'Decision receipt for the customer.',
+    tools: 'Proposed read-only policy search.', ownership: 'Claim owner; exact identity is an execution prerequisite.',
+    authority: 'Only the reviewer can approve; the agent cannot publish.', escalation: 'Wait for human review if evidence is missing.',
+    governance: 'Retain decision evidence; enforce claim scope.', observability: 'Proposed correlation ID and audit receipt.',
+    evaluation: 'Assert no publication before review.', fidelity: index ? 'Human review' : 'Proposed synthetic policy agent',
+    evidence: 'A policy agent hands the claim to a human reviewer before publication.' })),
+  stages: [{ id: 'review', mode: 'journey', members: ['triage', 'reviewer'], entry: 'A new claim exists.',
+    exit: 'The reviewer records a decision.', failure: 'Missing evidence waits for correction.' }],
+  handoffs: [{ id: 'request-review', from: 'triage', to: 'reviewer', payload: 'Claim ID | grounded evidence',
+    trigger: 'Triage completes.', mechanism: 'Proposed durable review task.', acceptance: 'Reviewer acknowledges the claim.',
+    recovery: 'Retry the same task ID without duplicates.', protection: 'Reviewer-only decision, no agent approval.' }],
+  prerequisites: ['Exact live identities and UI/runtime receipts remain unverified.'],
+});
+test('workforce contracts reject invented citations, bindings, graph references and unstable identities', () => {
+  const data = workforceFixture();
+  const sources = [readinessSource(data.members[0]!.evidence)];
+  assert.deepEqual(validateImagineWorkforce(data, sources), data);
+  const invalid = [
+    { ...data, members: data.members.map(member => ({ ...member, evidence: 'An invented source quotation that was never supplied.' })) },
+    { ...data, members: data.members.map(member => ({ ...member, realAgentId: 'invented-runtime-id' })) },
+    { ...data, members: [data.members[0]!, data.members[0]!] },
+    { ...data, stages: [{ ...data.stages[0]!, members: ['absent'] }] },
+    { ...data, handoffs: [{ ...data.handoffs[0]!, to: 'absent' }] },
+    { ...data, handoffs: [{ ...data.handoffs[0]!, recovery: 'TBD' }] },
+    { ...data, handoffs: [] },
+  ];
+  for (const value of invalid) assert.throws(() => validateImagineWorkforce(value, sources), /Workforce validation/);
+  const renamed = { ...data, members: [{ ...data.members[0]!, id: 'renamed' }, data.members[1]!] };
+  assert.throws(() => validateImagineWorkforce(renamed, sources, data), /preserve the existing ID triage/);
+});
+test('editable workforce Markdown survives the real note conversion without losing handoff contracts', async () => {
+  const data = workforceFixture();
+  const sources = [readinessSource(data.members[0]!.evidence)];
+  const markdown = renderImagineWorkforce(data);
+  assert.deepEqual(parseImagineWorkforce(markdown, sources), data);
+  const blocks = textToBlocks(markdown);
+  const content = JSON.stringify({ title: 'Workforce', contentType: 'architecture', contentJson: JSON.stringify(blocks) });
+  assert.deepEqual(parseImagineWorkforce(await noteMarkdown(content, OTHER), sources, blocks), data);
+  assert.throws(() => parseImagineWorkforce(markdown.replace('Claim ID \\| grounded evidence', 'Claim ID | grounded evidence'), sources), /invalid table width/);
+  assert.throws(() => parseImagineWorkforce(markdown.replace('## Journey', '## Missing journey'), sources), /Journey/);
+});
 const reviewCoverage = (passageId: string, gap = false) => ['scenario', 'actors', 'fixtures', 'permissions', 'workforce', 'dependencies',
   'lifecycle', 'responses', 'screens', 'acceptance', 'traceability', 'authority'].map(obligation => ({
   obligation, status: gap && obligation === 'fixtures' ? 'gap' : 'covered', explanation: 'Located the relevant agreed content.',
@@ -334,7 +382,7 @@ test('reference notes stay independent while document roles consistently drive g
   await local.exec(`
     CREATE TABLE notes(id UUID PRIMARY KEY,content TEXT,status TEXT DEFAULT 'active',project_id TEXT,updated_at TIMESTAMPTZ DEFAULT NOW());
     CREATE TABLE designs(id UUID PRIMARY KEY,parent_note_id UUID,source_note_id UUID,source_use_case_id UUID,
-      summary TEXT DEFAULT '',status TEXT DEFAULT 'draft',revision INTEGER DEFAULT 1,specification_type TEXT,selections JSONB DEFAULT '{}');
+      summary TEXT DEFAULT '',status TEXT DEFAULT 'draft',revision INTEGER DEFAULT 1,specification_type TEXT,imagine_demo BOOLEAN DEFAULT false,selections JSONB DEFAULT '{}');
     CREATE TABLE design_assets(design_id UUID,source_type TEXT,source_id TEXT,role TEXT,excluded BOOLEAN DEFAULT false,
       added_at TIMESTAMPTZ DEFAULT NOW(),PRIMARY KEY(design_id,source_type,source_id));
     CREATE TABLE note_links(source_note_id UUID,target_note_id UUID);
@@ -417,7 +465,7 @@ test('real parent conversion, source identity, persisted feedback, atomic accept
   }
   const original = writing('Claims', 'use-case', 'Original requirement');
   await local.query('INSERT INTO notes(id,content) VALUES($1,$2),($3,$4)', [ROOT, original, SPEC, writing('Claims spec', 'spec', 'Original specification')]);
-  for (const file of ['104_design_note_artifacts.sql', '105_design_note_parent_trigger.sql', '111_design_specification_type.sql', '133_design_specification_readiness.sql']) await local.exec(await readFile(new URL(`../src/db/migrations/${file}`, import.meta.url), 'utf8'));
+  for (const file of ['104_design_note_artifacts.sql', '105_design_note_parent_trigger.sql', '111_design_specification_type.sql', '133_design_specification_readiness.sql', '160_imagine_design_harness.sql']) await local.exec(await readFile(new URL(`../src/db/migrations/${file}`, import.meta.url), 'utf8'));
   let failSecondWrite = false;
   const query = async (sql: string, values?: unknown[]) => {
     if (failSecondWrite && sql.includes('UPDATE notes SET content') && values?.[0] === ROOT) throw new Error('Injected second-source failure');
@@ -458,6 +506,34 @@ test('real parent conversion, source identity, persisted feedback, atomic accept
     await assert.rejects(detachAsset(getDb(), design.id, { sourceType: 'note', sourceId: ROOT }), /original source note remains linked/);
     await assert.rejects(selectDesignAsset(getDb(), design.id, { role: 'spec', sourceId: SPEC, expectedRevision: 0 }), /changed/);
     design = await selectDesignAsset(getDb(), design.id, { role: 'spec', sourceId: SPEC, expectedRevision: design.revision });
+    assert.equal(design.imagineDemo, false, 'existing Designs do not opt into the new workflow');
+    await assert.rejects(setImagineDemo(getDb(), design.id, { imagineDemo: 'yes', expectedRevision: design.revision }), /whether this Design/);
+    const beforeFlag = design.revision;
+    design = await setImagineDemo(getDb(), design.id, { imagineDemo: true, expectedRevision: beforeFlag });
+    assert.equal(design.specificationType, 'imagine', 'the separate flag preserves the specification setting');
+    await assert.rejects(setImagineDemo(getDb(), design.id, { imagineDemo: false, expectedRevision: beforeFlag }), /Design changed/);
+    await assert.rejects(requireImagineSpecApproval(getDb(), design.id), /user must approve/);
+    assert.equal((await readImagineHarness(getDb(), design.id)).canApprove, false);
+    const checkedSources = await readinessSnapshot(getDb(), design);
+    const report: ReadinessReport = { id: randomUUID(), specId: SPEC, designRevision: design.revision, checkedAt,
+      ruleVersion: READINESS_RULE_VERSION, templateVersion: DEMO_SPECIFICATION_VERSION,
+      fingerprint: digest(JSON.stringify(checkedSources)), complete: true, coverage: [], limitations: [], sources: [], findings: [] };
+    await local.query('INSERT INTO design_readiness_assessments(id,design_id,report,snapshots) VALUES($1,$2,$3,$4)',
+      [report.id, design.id, JSON.stringify(report), JSON.stringify(checkedSources)]);
+    const gate = await readImagineHarness(getDb(), design.id);
+    assert.equal(gate.canApprove, true);
+    await assert.rejects(approveImagineSpec(getDb(), design.id, {
+      expectedRevision: design.revision, expectedSpecRevision: -1, assessmentId: report.id,
+    }), /current, fully validated/);
+    const approved = await approveImagineSpec(getDb(), design.id, {
+      expectedRevision: design.revision, expectedSpecRevision: gate.specRevision, assessmentId: report.id,
+    });
+    assert.equal(approved.specApproved, true);
+    await requireImagineSpecApproval(getDb(), design.id);
+    await local.query('UPDATE notes SET revision=revision+1 WHERE id=$1', [ROOT]);
+    assert.equal((await readImagineHarness(getDb(), design.id)).specApproved, false, 'a handwritten source edit invalidates approval even when the spec itself is unchanged');
+    await assert.rejects(requireImagineSpecApproval(getDb(), design.id), /Changed sources require/);
+    design = await setImagineDemo(getDb(), design.id, { imagineDemo: false, expectedRevision: design.revision });
     const populated = writing('Populated', 'note', 'Never lose this writing');
     await local.query('INSERT INTO notes(id,content) VALUES($1,$2)', [OTHER, populated]);
     const converted = { ...JSON.parse(populated), contentType: 'design' };
@@ -563,6 +639,7 @@ test('real parent conversion, source identity, persisted feedback, atomic accept
     } finally { credential.mock.restore(); ghGet.mock.restore(); ghGetOptional.mock.restore(); ghPost.mock.restore(); ghPatch.mock.restore(); }
 
     assert.deepEqual(DESIGN_CHAT_TOOLS.map(tool => tool.function.name), [
+      'check_imagine_workforce', 'read_imagine_harness', 'set_design_imagine_demo',
       'read_design_readiness_repair', 'read_design_readiness', 'read_design_readiness_history',
       'check_design_readiness', 'prepare_design_readiness_repair', 'discard_design_readiness_repair',
       'read_design_package', 'save_design_documents',

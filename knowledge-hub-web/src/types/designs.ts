@@ -1,22 +1,27 @@
-export const DESIGN_ROLES = ['use_case', 'spec', 'architecture', 'diagram', 'reference'] as const;
+export const DESIGN_ROLES = ['use_case', 'spec', 'architecture', 'diagram', 'reference', 'workforce'] as const;
 export const DESIGN_STATUSES = ['draft', 'in_review', 'ready', 'archived'] as const;
 export type DesignRole = typeof DESIGN_ROLES[number];
 export type SpecificationType = 'standard' | 'imagine';
 export const DESIGN_ROLE_LABELS: Record<DesignRole, string> = {
-  use_case: 'Use case', spec: 'Specification', architecture: 'Architecture', diagram: 'Diagrams', reference: 'References',
+  use_case: 'Use case', spec: 'Specification', architecture: 'Architecture', diagram: 'Diagrams', reference: 'References', workforce: 'Workforce',
 };
 export const DESIGN_STATUS_LABELS: Record<typeof DESIGN_STATUSES[number], string> = {
   draft: 'Draft', in_review: 'In review', ready: 'Ready', archived: 'Archived',
 };
 export interface Design {
   id: string; parentNoteId: string; title: string; summary: string; projectId: string | null; sourceUseCaseId: string | null; sourceNoteId: string | null;
-  status: typeof DESIGN_STATUSES[number]; revision: number; mapped: boolean; updatedAt: string; specificationType: SpecificationType | null;
+  status: typeof DESIGN_STATUSES[number]; revision: number; mapped: boolean; updatedAt: string; specificationType: SpecificationType | null; imagineDemo: boolean;
 }
 export interface DesignAsset {
   sourceType: 'note' | 'canvas' | 'usecase' | 'link'; sourceId: string; title: string; role: DesignRole;
   href: string; origin: 'explicit' | 'manual'; available: boolean;
 }
 export interface DesignDetail extends Design { assets: DesignAsset[]; selections: Partial<Record<DesignRole, string>> }
+export interface ImagineHarnessView {
+  enabled: boolean; specId: string | null; specRevision: number | null;
+  specApproved: boolean; canApprove: boolean; assessmentId: string | null; validationFingerprint: string | null; approvedAt: string | null;
+  blockers: string[]; blockerCount: number; workforce: { noteId: string; revision: number; validated: boolean } | null;
+}
 export interface DesignConsistencyReport {
   requestedChange: string | null;
   checkedAt: string; designRevision: number; complete: boolean;

@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../../services/api';
 import { describeApiError, requireApiData } from '../../services/apiError';
 
-const labels: Record<string, string> = { use_case: 'Use case', spec: 'Spec', architecture: 'Architecture', diagram: 'Diagram' };
+const labels: Record<string, string> = { use_case: 'Use case', spec: 'Spec', architecture: 'Architecture', diagram: 'Diagram', workforce: 'Workforce' };
 
 export const DesignConsistency: React.FC<{ id: string; busy: boolean; prepare: () => Promise<void> }> = ({ id, busy, prepare }) => {
   const [change, setChange] = useState('');

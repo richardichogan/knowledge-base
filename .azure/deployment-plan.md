@@ -1,6 +1,55 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
+
+**Imagine handwritten design harness release (2026-11-17):**
+- User requested production deployment before local testing. Reuse the existing
+  AZCLI application-only targets and subscription documented below. No new
+  infrastructure, credentials, RBAC, region, identity or Desktop changes.
+- Add the separate Imagine demo flag, conditional Workforce tab, saved
+  specification readiness/user approval gate and revision-bound workforce
+  contract generation/checks. Outputs remain in Think; no Imagine records,
+  demo implementation or runtime acceptance are claimed.
+- Production startup applies additive migration 160 for the two Design columns
+  and workforce asset role. Local development deliberately skips migrations
+  against the shared production database; local scheduling remains disabled.
+- All validation checks pass:
+  - [x] Core validation: synced main, both application typechecks and existing
+    backend/frontend isolated release suites once; failed checks rerun only.
+  - [x] Build verification: backend/frontend production builds passed. ACR
+    remote Docker build must succeed before updating the Container App.
+  - [x] Policy/static role scope: existing ingress 3000 and registry-secret
+    authentication are unchanged; Azure reports zero applicable assignments.
+
+**Section 7: Validation Proof - Imagine handwritten design harness:**
+- `git fetch origin` / `git merge --no-edit origin/main` confirmed the worktree
+  is current before this release. Both package `npx tsc --noEmit` checks passed
+  for the implementation; no source changes followed those checks before
+  release validation began.
+- Full isolated release suites ran once: backend reported 1,054 passed and one
+  failed; all 410 frontend checks passed. The one failure exposed the new
+  workforce parser's mismatch with the real note exporter: list markers change
+  and Markdown export loses pipe boundaries inside native table cells.
+  The narrow correction accepts standard list markers, reads saved native table
+  cells rather than reparsing lossy Markdown, and rejects shifted table widths.
+  The affected Design file then passed all 16 checks, including the actual
+  note round trip and persisted approval invalidation. The declared test count
+  matches the executed count. All other full-suite results are retained.
+- Backend `npx tsc --noEmit` and `npm run build` passed after the correction.
+  Frontend `npm run build` passed, transforming 2,918 modules; no frontend
+  source changes followed its successful typecheck, suite or build.
+- Dockerfile inspection confirms Node 22, the existing lockfile-based build
+  and copying every numbered SQL migration into the runtime image. Migration
+  160 will run through the existing transactional startup migration runner;
+  no manual production schema or content patch was performed.
+- Azure CLI confirms subscription c1547b0a-dbbe-4dfe-a9ff-26c6eb9f7a28,
+  existing image v353, ingress 3000, registry-secret pulls and existing SWA
+  hostname nice-mud-0f780fb03.7.azurestaticapps.net. No infrastructure or
+  role-assignment changes are part of this release.
+- Local backend is running in development/production-data mode on port 3000
+  with worker pool imagine-local-5d5e18f9; startup confirms pool warmed 8/8
+  and scheduled jobs disabled. The existing frontend serves this worktree on
+  port 5173. End-to-end local testing is deferred until after deployment.
 
 **Publishing commitments and package recovery release (2026-11-17):**
 - User requested a quick deployment of the completed publishing repair. Reuse

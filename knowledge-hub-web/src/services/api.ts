@@ -3052,6 +3052,18 @@ export class KnowledgeHubApi {
   async setDesignSpecificationType(id: string, specificationType: 'standard' | 'imagine', expectedRevision: number): Promise<ApiResponse<DesignDetail>> {
     return (await this.client.post<ApiResponse<DesignDetail>>(`/api/designs/${encodeURIComponent(id)}/specification-type`, { specificationType, expectedRevision })).data;
   }
+  async setDesignImagineDemo(id: string, imagineDemo: boolean, expectedRevision: number): Promise<ApiResponse<DesignDetail>> {
+    return (await this.client.post<ApiResponse<DesignDetail>>(`/api/designs/${encodeURIComponent(id)}/imagine-demo`, { imagineDemo, expectedRevision })).data;
+  }
+  async getImagineHarness(id: string): Promise<ApiResponse<import('../types/designs').ImagineHarnessView>> {
+    return (await this.client.get<ApiResponse<import('../types/designs').ImagineHarnessView>>(`/api/designs/${encodeURIComponent(id)}/imagine-harness`)).data;
+  }
+  async approveImagineSpec(id: string, input: { expectedRevision: number; expectedSpecRevision: number; assessmentId: string }): Promise<ApiResponse<import('../types/designs').ImagineHarnessView>> {
+    return (await this.client.post<ApiResponse<import('../types/designs').ImagineHarnessView>>(`/api/designs/${encodeURIComponent(id)}/imagine-harness/approve-spec`, input)).data;
+  }
+  async checkImagineWorkforce(id: string): Promise<ApiResponse<import('../types/designs').ImagineHarnessView>> {
+    return (await this.client.post<ApiResponse<import('../types/designs').ImagineHarnessView>>(`/api/designs/${encodeURIComponent(id)}/imagine-harness/check-workforce`)).data;
+  }
   async designCollaboration(id: string): Promise<ApiResponse<DesignCollaboration>> {
     return (await this.client.get<ApiResponse<DesignCollaboration>>(`/api/designs/${encodeURIComponent(id)}/collaboration`)).data;
   }

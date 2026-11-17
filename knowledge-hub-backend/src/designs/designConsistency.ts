@@ -65,7 +65,7 @@ export async function checkDesignConsistency(db: Pool, id: string, change?: unkn
   const requestedChange = typeof change === 'string' ? change.trim() || null : null;
   return withAiWorkflow(db, { feature: requestedChange ? 'design-impact' : 'design-consistency' }, async () => {
     const design = await getDesign(db, id);
-    const coverage: DesignConsistencyReport['coverage'] = ROLES.map(role => {
+    const coverage: DesignConsistencyReport['coverage'] = [...ROLES, ...(design.imagineDemo ? ['workforce'] as const : [])].map(role => {
       const candidates = design.assets.filter(asset => asset.role === role);
       const selectedId = design.selections[role];
       const selected = selectedId ? candidates.find(asset => asset.sourceId === selectedId) : candidates.length === 1 ? candidates[0] : undefined;

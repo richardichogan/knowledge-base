@@ -3,14 +3,14 @@ import { ConflictError, NotFoundError, ValidationError } from '../types/errors.j
 import { getUseCase, type UseCaseDetail } from '../useCases/useCaseStore.js';
 import { parseNoteContent } from '../utils/noteContent.js';
 
-export const DESIGN_ROLES = ['use_case', 'spec', 'architecture', 'diagram', 'reference'] as const;
+export const DESIGN_ROLES = ['use_case', 'spec', 'architecture', 'diagram', 'reference', 'workforce'] as const;
 export const DESIGN_STATUSES = ['draft', 'in_review', 'ready', 'archived'] as const;
 export type DesignRole = typeof DESIGN_ROLES[number];
 export type SpecificationType = 'standard' | 'imagine';
 export type AssetType = 'note' | 'canvas' | 'usecase' | 'link';
 export interface Design {
   id: string; parentNoteId: string; title: string; summary: string; projectId: string | null; sourceUseCaseId: string | null; sourceNoteId: string | null;
-  status: typeof DESIGN_STATUSES[number]; revision: number; mapped: boolean; updatedAt: string; specificationType: SpecificationType | null;
+  status: typeof DESIGN_STATUSES[number]; revision: number; mapped: boolean; updatedAt: string; specificationType: SpecificationType | null; imagineDemo: boolean;
 }
 export interface DesignAsset {
   sourceType: AssetType; sourceId: string; title: string; role: DesignRole; href: string;
@@ -19,15 +19,15 @@ export interface DesignAsset {
 export interface DesignDetail extends Design { assets: DesignAsset[]; selections: Partial<Record<DesignRole, string>> }
 interface Row {
   id: string; parent_note_id: string; title: string; summary: string; project_id: string | null; source_use_case_id: string | null; source_note_id: string | null;
-  status: Design['status']; revision: number; mapped: boolean; updated_at: Date; specification_type: SpecificationType | null;
+  status: Design['status']; revision: number; mapped: boolean; updated_at: Date; specification_type: SpecificationType | null; imagine_demo: boolean;
 }
 const view = (row: Row): Design => ({
   id: row.id, parentNoteId: row.parent_note_id, title: row.title, summary: row.summary, projectId: row.project_id, sourceUseCaseId: row.source_use_case_id, sourceNoteId: row.source_note_id,
-  status: row.status, revision: row.revision, mapped: row.mapped, updatedAt: row.updated_at.toISOString(), specificationType: row.specification_type,
+  status: row.status, revision: row.revision, mapped: row.mapped, updatedAt: row.updated_at.toISOString(), specificationType: row.specification_type, imagineDemo: row.imagine_demo,
 });
 const ALL_DESIGNS = `
   SELECT d.id,d.parent_note_id,note_list_metadata(n.content)->>'title' AS title,d.summary,n.project_id,
-    d.source_use_case_id,d.source_note_id,d.status,d.revision,false AS mapped,n.updated_at,d.specification_type
+    d.source_use_case_id,d.source_note_id,d.status,d.revision,false AS mapped,n.updated_at,d.specification_type,d.imagine_demo
   FROM designs d JOIN notes n ON n.id=d.parent_note_id
   WHERE n.status='active' AND note_list_metadata(n.content)->>'contentType'='design'`;
 const MAX_ASSETS = 200;
@@ -66,7 +66,7 @@ export const DESIGN_NOTE_MEMBERSHIPS_SQL = `
         WHEN 'spec' THEN 'spec'
         WHEN 'architecture' THEN 'architecture'
         ELSE 'reference'
-      END) IN ('use_case','spec','architecture')`;
+      END) IN ('use_case','spec','architecture','workforce')`;
 
 export function requiredText(value: unknown, field: string, max: number, empty = false): string {
   if (typeof value !== 'string' || value.length > max || (!empty && !value.trim())) throw new ValidationError(`${field} must contain ${empty ? '0' : '1'}-${max} characters.`);
@@ -194,15 +194,26 @@ export async function setSpecificationType(db: Pool, id: string, input: Record<s
   const revision = input['expectedRevision'];
   if (typeof revision !== 'number' || !Number.isInteger(revision) || revision < 0) throw new ValidationError('A valid Design revision is required.');
   const design = await getDesign(db, id);
-  const result = await db.query(`UPDATE designs SET specification_type=$2,revision=revision+1,updated_at=NOW()
+  const result = await db.query(`UPDATE designs SET specification_type=$2,imagine_harness='{}',revision=revision+1,updated_at=NOW()
     WHERE id=$1 AND revision=$3 RETURNING id`, [design.id, type, revision]);
   if (!result.rows.length) throw new ConflictError('The Design changed. Reload before choosing the specification type.', 'DESIGN_CONFLICT');
+  return getDesign(db, design.id);
+}
+export async function setImagineDemo(db: Pool, id: string, input: Record<string, unknown>): Promise<DesignDetail> {
+  if (typeof input['imagineDemo'] !== 'boolean') throw new ValidationError('Choose whether this Design is an Imagine demo.');
+  const revision = input['expectedRevision'];
+  if (typeof revision !== 'number' || !Number.isInteger(revision) || revision < 0) throw new ValidationError('A valid Design revision is required.');
+  const design = await getDesign(db, id);
+  const result = await db.query(`UPDATE designs SET imagine_demo=$2,imagine_harness='{}',revision=revision+1,updated_at=NOW()
+    WHERE id=$1 AND revision=$3 RETURNING id`, [design.id, input['imagineDemo'], revision]);
+  if (!result.rows.length) throw new ConflictError('The Design changed. Reload before changing its Imagine demo flag.', 'DESIGN_CONFLICT');
   return getDesign(db, design.id);
 }
 export async function attachAsset(db: Pool, id: string, input: Record<string, unknown>): Promise<DesignDetail> {
   const design = await getDesign(db, id);
   id = design.id;
   const asset = parseAsset(input);
+  if (asset.role === 'workforce' && !design.imagineDemo) throw new ValidationError('Enable Imagine demo before linking a workforce document.');
   if (asset.sourceType === 'note' && asset.sourceId === design.parentNoteId) throw new ValidationError('The Design parent cannot link itself as a child document.');
   const existing = design.assets.some(value => value.sourceType === asset.sourceType && value.sourceId === asset.sourceId);
   if (!existing && design.assets.length >= MAX_ASSETS) throw new ValidationError('A Design supports up to 200 linked assets.');

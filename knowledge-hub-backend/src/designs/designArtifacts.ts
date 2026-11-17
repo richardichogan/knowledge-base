@@ -76,7 +76,7 @@ const uuid = (value: unknown): string => {
 };
 
 export function selectedAssets(design: DesignDetail): DesignDetail['assets'] {
-  return ['use_case', 'spec', 'architecture', 'diagram'].flatMap(role => {
+  return ['use_case', 'spec', 'architecture', 'diagram', ...(design.imagineDemo ? ['workforce'] : [])].flatMap(role => {
     const assets = design.assets.filter(asset => asset.role === role);
     if (!assets.length) return [];
     const selected = design.selections[role as keyof DesignDetail['selections']];

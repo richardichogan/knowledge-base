@@ -2,7 +2,8 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { recordAiDecision } from '../ai/aiLedger.js';
 import { getDb } from '../db/db.js';
 import { KnowledgeHubError, ValidationError } from '../types/errors.js';
-import { assetDesigns, attachAsset, detachAsset, getDesign, listDesigns, requiredText, searchAssets, selectDesignAsset, setSpecificationType } from '../designs/designStore.js';
+import { assetDesigns, attachAsset, detachAsset, getDesign, listDesigns, requiredText, searchAssets, selectDesignAsset, setSpecificationType, setImagineDemo } from '../designs/designStore.js';
+import { approveImagineSpec, checkImagineWorkforce, readImagineHarness } from '../designs/imagineHarness.js';
 import { applyFeedback, collaboration, discardFeedback, editFeedback, generateArtifact, proposeFeedback, queueFeedback, resolveProposal } from '../designs/designArtifacts.js';
 import { createPackage, getPackage, packageArchive, preparePublication, publishPackage } from '../designs/designPackages.js';
 import { scheduleNoteIndexing } from './notes.js';
@@ -41,6 +42,10 @@ designsRouter.post('/:id/assets', wrap(req => attachAsset(getDb(), id(req), body
 designsRouter.delete('/:id/assets', wrap(req => detachAsset(getDb(), id(req), body(req))));
 designsRouter.post('/:id/selection', wrap(req => selectDesignAsset(getDb(), id(req), body(req))));
 designsRouter.post('/:id/specification-type', wrap(req => setSpecificationType(getDb(), id(req), body(req))));
+designsRouter.post('/:id/imagine-demo', wrap(req => setImagineDemo(getDb(), id(req), body(req))));
+designsRouter.get('/:id/imagine-harness', wrap(req => readImagineHarness(getDb(), id(req))));
+designsRouter.post('/:id/imagine-harness/approve-spec', wrap(req => approveImagineSpec(getDb(), id(req), body(req))));
+designsRouter.post('/:id/imagine-harness/check-workforce', wrap(req => checkImagineWorkforce(getDb(), id(req))));
 designsRouter.get('/:id/collaboration', wrap(req => collaboration(getDb(), id(req))));
 designsRouter.post('/:id/consistency', wrap(req => checkDesignConsistency(getDb(), id(req), body(req)['requestedChange'])));
 const pageOffset = (req: Request): number => {

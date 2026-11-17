@@ -15,7 +15,7 @@ import type { BackgroundWorkContext } from '../types/agentJobs';
 
 export interface AthenaPageContext {
   designId?: string;
-  designTab?: 'use_case' | 'spec' | 'architecture' | 'diagram';
+  designTab?: 'use_case' | 'spec' | 'architecture' | 'diagram' | 'workforce';
   revision?: number;
   selectedIds?: { nodes: string[]; edges: string[] };
   saveState?: string;

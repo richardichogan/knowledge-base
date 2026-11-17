@@ -18,7 +18,7 @@ export interface PackageManifest {
   files: Array<{ path: string; role: string; sha256: string }>;
 }
 export interface DesignPackage { id: string; files: Record<string, string>; manifest: PackageManifest }
-const filenames: Record<string, string> = { design: 'design.md', use_case: 'use-case.md', spec: 'specification.md', architecture: 'architecture.md', diagram: 'diagram.json' };
+const filenames: Record<string, string> = { design: 'design.md', use_case: 'use-case.md', spec: 'specification.md', architecture: 'architecture.md', diagram: 'diagram.json', workforce: 'agent-workforce.md' };
 const JSON_INDENT = 2;
 const MAX_SVG_LENGTH = 6_000_000;
 const ATTRIBUTE_PREFIX_LENGTH = 2;

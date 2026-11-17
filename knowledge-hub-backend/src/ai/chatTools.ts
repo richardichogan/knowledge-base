@@ -1220,7 +1220,8 @@ export async function executeToolCall(
   if (turn.podcastOwner && ['create_note_draft', 'update_note', 'save_output'].includes(name)) {
     return { error: 'Do not create a disconnected note. Use propose_note_edit for the episode prep note body, or read_podcast_script and update_podcast_script for script fields.' };
   }
-  if (name === 'read_design_package' || name === 'save_design_documents' || name.includes('design_readiness')) {
+  if (name === 'read_design_package' || name === 'save_design_documents' || name.includes('design_readiness')
+    || name === 'read_imagine_harness' || name === 'set_design_imagine_demo' || name === 'check_imagine_workforce') {
     if (isOutsideCollectionTool(name, turn.retrievalScope)) return { error: 'Design operations are outside this request’s enforced collection scope.', code: 'scope_mismatch' };
     if (!turn.designOwner) return { error: 'Open the Design in Think before working with its package.' };
     try { return await executeDesignTool(db, name, turn.designOwner, args, turn, turn.designState); }

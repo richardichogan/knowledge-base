@@ -116,8 +116,8 @@ const sourceRefs = (design: DesignDetail, sources: DesignSource[]): ReadinessRep
 const evidenceFor = (source: DesignSource, quote: string): ReadinessEvidence[] =>
   quote ? [{ sourceId: source.id, revision: source.revision, quote, elementId: null }] : [];
 
-async function readinessSnapshot(db: Pool, design: DesignDetail): Promise<DesignSource[]> {
-  const sources = await sourceSnapshot(db, design);
+export async function readinessSnapshot(db: Pool, design: DesignDetail): Promise<DesignSource[]> {
+  const sources = (await sourceSnapshot(db, design)).filter(source => source.role !== 'workforce');
   for (const asset of design.assets.filter(item => item.role === 'reference' && item.sourceType === 'note' && item.available)) {
     if (sources.some(source => source.id === asset.sourceId)) continue;
     const row = (await db.query<{ content: string; revision: number }>("SELECT content,revision FROM notes WHERE id::text=$1 AND status='active'", [asset.sourceId])).rows[0];

@@ -219,6 +219,7 @@ export async function writeDesignSpec(db: Pool, designId: string, replace = fals
 async function writeDesignSpecInner(db: Pool, designId: string, replace: boolean, signal: AbortSignal | undefined, progress: (message: string) => void, jobId: string | undefined, checkpointOnly: boolean): Promise<{ noteId: string; title: string; created: boolean; notes: Note[]; publish: string[] }> {
   const design = await getDesign(db, designId);
   if (!design.specificationType) throw new ValidationError('Choose Standard or IMAGINE beside Generate spec in the Design before continuing.');
+  if (design.imagineDemo && design.specificationType !== 'imagine') throw new ValidationError('An Imagine demo harness requires the IMAGINE specification type. Choose it in Design properties before generating.');
   const sources = await sourceSnapshot(db, design);
   const useCase = sources.find(source => source.role === 'use_case');
   if (!useCase?.markdown.trim()) throw new ValidationError('Link and write a use case before asking Athena for the spec.');

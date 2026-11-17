@@ -14,6 +14,8 @@ import { scheduleNoteIndexing } from '../../routes/notes.js';
 import { scheduleGitHubPublish } from '../../services/noteGitHubService.js';
 import { registerSpecialist, type Prerequisite } from '../registry.js';
 import { ValidationError } from '../../types/errors.js';
+import { checkDesignReadiness } from '../../designs/designReadiness.js';
+import { requireImagineSpecApproval, writeImagineWorkforce } from '../../designs/imagineHarness.js';
 
 export const SPEC_WRITER = 'spec-writer';
 export const BLUEPRINT_DESIGNER = 'blueprint-designer';
@@ -52,11 +54,37 @@ registerSpecialist({
     for (const note of result.notes) scheduleNoteIndexing(getDb(), note);
     for (const noteId of result.publish) scheduleGitHubPublish(getDb(), noteId);
     progress(result.created ? 'Spec saved and linked to the Design' : 'Spec saved; the previous version is in note history');
+    if ((await getDesign(db, subjectId)).imagineDemo) {
+      progress('Checking the saved IMAGINE spec against the handwritten use case');
+      const readiness = await checkDesignReadiness(db, subjectId, result.noteId, signal);
+      return {
+        data: { noteId: result.noteId, title: result.title, created: result.created, readiness: readiness.state },
+        summary: readiness.state === 'ready'
+          ? 'Spec saved and validated. Stopped for your approval in Design properties; no workforce was generated.'
+          : `Spec saved, but validation is ${readiness.state}. Resolve the findings in the Spec tab before approval. No workforce was generated.`,
+      };
+    }
     return {
       data: { noteId: result.noteId, title: result.title, created: result.created },
       summary: `${result.created ? 'Wrote' : 'Rewrote'} “${result.title}” from the use case. The Blueprint was not changed.`,
     };
   },
+});
+
+registerSpecialist({
+  id: 'imagine-workforce-designer',
+  name: 'Imagine workforce designer',
+  description: 'For Imagine demo Designs only: writes a validated Agent Workforce Design after the user approves the current validated IMAGINE spec in Design properties. Stops for review; never creates Imagine records or implements a demo.',
+  subjectType: 'design',
+  resolveSubject: async (db, id) => {
+    const { design } = await requireImagineSpecApproval(db, id);
+    return { id: design.id, title: design.title, url: `/think?design=${encodeURIComponent(design.id)}&tab=workforce` };
+  },
+  overwrites: async (db, id) => (await getDesign(db, id)).assets.some(asset => asset.role === 'workforce'),
+  run: async ({ db, subjectId, progress, signal }) => ({
+    data: await writeImagineWorkforce(db, subjectId, progress, signal),
+    summary: 'Agent Workforce Design saved and contract-validated in the Workforce tab. Stopped for review. No Imagine records, deployment or runtime/UI acceptance are claimed.',
+  }),
 });
 
 registerSpecialist({

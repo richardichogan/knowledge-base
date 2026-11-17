@@ -24,7 +24,10 @@ export const DesignReadiness: React.FC<{
   const [synthetic, setSynthetic] = useState(false);
   const query = useQuery({ queryKey: ['design-readiness', id, revision, designRevision, offset, status],
     queryFn: async () => requireApiData(await api.getDesignReadiness(id, offset, status)) });
-  const refresh = async (): Promise<void> => { await qc.invalidateQueries({ queryKey: ['design-readiness', id] }); };
+  const refresh = async (): Promise<void> => {
+    await Promise.all([qc.invalidateQueries({ queryKey: ['design-readiness', id] }),
+      qc.invalidateQueries({ queryKey: ['imagine-harness'] })]);
+  };
   const check = useMutation({
     mutationFn: async () => {
       await prepare();
