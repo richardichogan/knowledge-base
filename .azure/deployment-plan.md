@@ -1,6 +1,6 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Validated
+**Status:** Deployed
 
 **Publishing commitments and package recovery release (2026-11-17):**
 - User requested a quick deployment of the completed publishing repair. Reuse
@@ -44,6 +44,21 @@
 - Optional whole-test-project typechecks encounter existing repository test
   configuration/type errors; both production application typechecks pass.
   The existing isolated runners are the actual executable release gates.
+- Release source `bfd717a5` was pushed to the session branch and main. ACR run
+  `cab3` successfully built and pushed `kh-prod-api:v353` from main at
+  2026-11-17T01:01:31Z before the production image update.
+- At 01:02:57 UTC, revision `kh-prod-api-vnet--0000352` is active, Healthy,
+  RunningAtMaxScale and Provisioned with one replica; it is latest-ready and
+  receives 100% latest-revision traffic. Startup logs confirm migration
+  completion, database pool warmed 8/8, production specialist worker and scheduler.
+  The existing application identity still has no role assignments.
+- Static Web Apps production deployment succeeded.
+  https://athena.themicrosoftcloudblog.com serves `/assets/index-JdPRgWoR.js`
+  with HTTP 200 and matches the validated local build byte-for-byte, SHA-256
+  `50cbbb1073d8e6df5daa479c342f5644ab127cb4896a013d02ac7e17b3521fd9`.
+- No Desktop rebuild, infrastructure change, manual post approval, manual
+  schedule rewrite or manual delivery was performed. Existing production
+  automation resumes under the deployed publishing rules.
 
 **Publishing scheduler and Updates release (2026-11-14, previous):**
 - User requested deployment of the completed changes. Reuse the existing AZCLI
