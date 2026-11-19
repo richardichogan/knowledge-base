@@ -3035,6 +3035,14 @@ export class KnowledgeHubApi {
   async reviewDocument(input: { document: string; selection: string; instruction: string; matchMode: 'text' | 'markdown' }): Promise<ApiResponse<{ find: string; replacement: string; summary: string }>> {
     return (await this.client.post<ApiResponse<{ find: string; replacement: string; summary: string }>>(
       '/api/ai/document-review', input, { timeout: 120_000 })).data;
+  }
+
+  async listDesigns(): Promise<ApiResponse<{ items: Design[]; hasMore: boolean }>> {
+    return (await this.client.get<ApiResponse<{ items: Design[]; hasMore: boolean }>>('/api/designs')).data;
+  }
+  async getDesign(id: string): Promise<ApiResponse<DesignDetail>> {
+    return (await this.client.get<ApiResponse<DesignDetail>>(`/api/designs/${encodeURIComponent(id)}`)).data;
+  }
   async getDesignBuilds(id: string): Promise<ApiResponse<import('../types/designs').DesignBuildSummary[]>> {
     return (await this.client.get<ApiResponse<import('../types/designs').DesignBuildSummary[]>>(`/api/designs/${encodeURIComponent(id)}/builds`)).data;
   }
@@ -3060,14 +3068,6 @@ export class KnowledgeHubApi {
   }
   async buildDesignPackage(id: string, packageId: string, publicationId: string): Promise<ApiResponse<BuildSpec>> {
     return (await this.client.post<ApiResponse<BuildSpec>>(`/api/designs/${encodeURIComponent(id)}/packages/${encodeURIComponent(packageId)}/build`, { publicationId })).data;
-  }
-  }
-
-  async listDesigns(): Promise<ApiResponse<{ items: Design[]; hasMore: boolean }>> {
-    return (await this.client.get<ApiResponse<{ items: Design[]; hasMore: boolean }>>('/api/designs')).data;
-  }
-  async getDesign(id: string): Promise<ApiResponse<DesignDetail>> {
-    return (await this.client.get<ApiResponse<DesignDetail>>(`/api/designs/${encodeURIComponent(id)}`)).data;
   }
   async createDesignSection(id: string, role: 'use_case' | 'spec' | 'architecture' | 'diagram', expectedRevision: number): Promise<ApiResponse<DesignDetail>> {
     return (await this.client.post<ApiResponse<DesignDetail>>(`/api/designs/${encodeURIComponent(id)}/sections`, { role, expectedRevision })).data;

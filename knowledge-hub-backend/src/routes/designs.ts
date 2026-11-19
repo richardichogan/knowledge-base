@@ -137,8 +137,8 @@ designsRouter.delete('/:id/feedback/:feedbackId', wrap(req => discardFeedback(ge
 designsRouter.post('/:id/proposals', wrap(req => proposeFeedback(getDb(), id(req))));
 const reindex = async (noteIds: string[]): Promise<void> => {
   for (const noteId of noteIds) {
-    const row = (await getDb().query<{ id: string; content: string; created_at: Date; updated_at: Date; revision: number; linked_items: string[]; status: Note['status']; project_id: string | null }>('SELECT id, content, created_at, updated_at, revision, linked_items, status, project_id FROM notes WHERE id=$1', [noteId])).rows[0]!;
-    scheduleNoteIndexing(getDb(), { id: row.id, content: row.content, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(), revision: row.revision, linkedItems: row.linked_items, status: row.status, ...(row.project_id ? { projectId: row.project_id } : {}) });
+    const row = (await getDb().query<{ id: string; content: string; created_at: Date; updated_at: Date; revision: number; tags: string[]; linked_items: string[]; status: Note['status']; project_id: string | null }>('SELECT id, content, created_at, updated_at, revision, tags, linked_items, status, project_id FROM notes WHERE id=$1', [noteId])).rows[0]!;
+    scheduleNoteIndexing(getDb(), { id: row.id, content: row.content, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(), revision: row.revision, tags: row.tags, linkedItems: row.linked_items, status: row.status, ...(row.project_id ? { projectId: row.project_id } : {}) });
   }
 };
 designsRouter.post('/:id/apply', wrap(async req => {
