@@ -34,6 +34,8 @@ import { getDb } from '../db/db.js';
 import { ValidationError, NotFoundError, ConflictError } from '../types/errors.js';
 import * as store from '../build/buildStore.js';
 import { createSpecFromNote } from '../build/specFromNote.js';
+import { designBuildSource } from '../build/designSource.js';
+import { MAX_DESIGN_MODEL_CONTEXT } from '../designs/designArtifacts.js';
 import { decomposeSpec, validateTaskGraph, type TaskDraft } from '../build/decompose.js';
 import { BUILD_AGENTS, getAgentGitHub, type BuildAgent } from '../build/githubAgents.js';
 import { ensureWorkBranch, mergeFinalPullRequest, runSpecLocked } from '../build/buildRunner.js';
@@ -202,7 +204,11 @@ buildRouter.post('/specs/:id/decompose', handle(async (req, res) => {
   await store.updateSpec(spec.id, { status: 'decomposing', lastError: null });
   try {
     const context = str(body(req)['context'], 'context', { max: 4000 });
-    const result = await decomposeSpec({ title: spec.title, specMarkdown: spec.specMarkdown, repo: spec.repo, context });
+    const sourceContext = await designBuildSource(getDb(), spec);
+    if (sourceContext && sourceContext.length + spec.specMarkdown.length + (context?.length ?? 0) > MAX_DESIGN_MODEL_CONTEXT) {
+      throw new ValidationError(`The complete Design exceeds the ${MAX_DESIGN_MODEL_CONTEXT.toLocaleString()}-character planning limit. Reduce the source package before decomposition; nothing was truncated.`);
+    }
+    const result = await decomposeSpec({ title: spec.title, specMarkdown: spec.specMarkdown, repo: spec.repo, context, sourceContext });
     await store.replaceTasks(spec.id, result.tasks);
     await store.updateSpec(spec.id, { status: 'decomposed', planNotes: result.planNotes });
     await store.addEvent(spec.id, null, 'decomposed', `Decomposed into ${result.tasks.length.toString()} tasks`,

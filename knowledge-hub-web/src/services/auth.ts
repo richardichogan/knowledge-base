@@ -190,6 +190,33 @@ export function getApiToken(): Promise<string> {
 
 let inFlight: Promise<string> | null = null;
 
+/** Get a fresh ID token for the existing active account and registered /signin redirect. */
+export async function acquireRegisteredIdToken(clientId: string, tenantId: string): Promise<string> {
+  if (!msal || CLIENT_ID.toLowerCase() !== clientId || TENANT_ID.toLowerCase() !== tenantId) {
+    throw new Error('The active Microsoft registration does not match Imagine.');
+  }
+  const account = msal.getActiveAccount();
+  if (!account || signingOut || authSession.isExpired()) throw new SessionExpiredError();
+  try {
+    const result = await msal.acquireTokenSilent({ account, scopes: API_SCOPES, forceRefresh: true,
+      cacheLookupPolicy: CacheLookupPolicy.RefreshToken });
+    const claims = result.idTokenClaims;
+    if (!result.idToken || !claims || !('aud' in claims) || claims.aud !== clientId ||
+        !('tid' in claims) || claims.tid !== tenantId ||
+        result.account?.localAccountId !== account.localAccountId ||
+        msal.getActiveAccount()?.homeAccountId !== account.homeAccountId || signingOut) {
+      throw new Error();
+    }
+    return result.idToken;
+  } catch (error) {
+    if (error instanceof InteractionRequiredAuthError) {
+      authSession.setExpired(true);
+      throw new SessionExpiredError();
+    }
+    throw new Error('Could not obtain an Imagine identity token. Sign in to Athena again.');
+  }
+}
+
 async function renewToken(): Promise<string> {
   if (msal === null) return '';
   const account = msal.getActiveAccount();

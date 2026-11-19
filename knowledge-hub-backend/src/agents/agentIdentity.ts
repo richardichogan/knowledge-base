@@ -32,7 +32,8 @@ const OWNERS: Record<RoleId, readonly string[]> = {
   ],
   daedalus: [
     'use-case-spec', 'spec-draft', 'spec-writer', 'design-feedback', 'design-readiness', 'design-readiness-repair',
-    'design-consistency', 'design-impact', 'design',
+    'design-consistency', 'design-impact', 'design-architecture', 'design',
+    'design-readiness-check', 'design-finding-fix', 'imagine-workforce-designer',
   ],
   // The diagram specialist keeps its historical job id 'daedalus'; it is Ariadne's work.
   ariadne: ['design-visual', 'blueprint-designer', 'diagram-designer', 'script-visual-designer', 'daedalus'],

@@ -110,7 +110,7 @@ export interface ChatTurnResult {
 }
 
 /** Runs one chat turn from a /chat request body: saves it to the session and returns the reply payload. */
-export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = {}, userId?: string): Promise<ChatTurnResult> {
+export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnHooks = {}, userId?: string, browserOrigin?: string): Promise<ChatTurnResult> {
   hooks.signal?.throwIfAborted();
   const { sessionId: providedSessionId, message, model, persona: requestedPersona, projectId, pageContext: requestedPageContext, noteId, itemKey, screenReview, outputsPanel, localFolders: requestedLocalFolders } = reqBody as {
     sessionId?: string;
@@ -285,7 +285,7 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   const modelReply = await handleConversationTurn(
     db, modelHistory, message, effectiveModel, persona, effectiveSessionId, alreadyHeld ? undefined : pageContext,
     (toolName) => { toolsUsed.add(toolName); },
-    { userId, noteId: openNoteId, designOwner, designState, podcastOwner, podcastState, workState,
+    { userId, browserOrigin, noteId: openNoteId, designOwner, designState, podcastOwner, podcastState, workState,
       buildSpecId, buildState, useCaseId, useCaseState, taskStatusChanges, noteEdits, mapChanges, localFolders, localFileWrites, demoBookends, beforeNoteEdit },
     { ...hooks, contextUsed, onAudit: (row) => { audit.row = row; } },
   );
@@ -440,7 +440,7 @@ router.post('/chat', (req: Request, res: Response, next: NextFunction): void => 
     try {
       const input: unknown = req.body;
       if (!input || typeof input !== 'object' || Array.isArray(input)) throw new ValidationError('The chat request must be an object.');
-      const data = await runChatTurn(input as Record<string, unknown>, {}, 'userId' in req && typeof req.userId === 'string' ? req.userId : undefined);
+      const data = await runChatTurn(input as Record<string, unknown>, {}, 'userId' in req && typeof req.userId === 'string' ? req.userId : undefined, req.get('origin'));
       const body: ApiSuccess<ChatTurnResult> = { success: true, data };
       res.status(HTTP_STATUS.OK).json(body);
     } catch (err) {
@@ -471,7 +471,7 @@ router.post('/chat/turns', (req: Request, res: Response, next: NextFunction): vo
         turnId, sessionId, shown,
         async (hooks) => {
           const result = await runChatTurn({ ...reqBody, sessionId }, { ...hooks, budgetMs: AI_BACKGROUND_TURN_BUDGET_MS },
-            'userId' in req && typeof req.userId === 'string' ? req.userId : undefined);
+            'userId' in req && typeof req.userId === 'string' ? req.userId : undefined, req.get('origin'));
           if (claimDelivery(turnId) === 'foreground') return result;
           const noteId = result.noteEditsFor;
           // A background task saves its own edits: the chat that asked may have moved on or closed.

@@ -8,6 +8,8 @@ import { ConflictError, NotFoundError, ValidationError } from '../types/errors.j
 import { getDesign, requiredText } from './designStore.js';
 import { assertCurrent, digest, latestArtifact, lockSources, selectedAssets, sourceSnapshot } from './designArtifacts.js';
 import { readDesignReadiness, type ReadinessView } from './designReadiness.js';
+import * as builds from '../build/buildStore.js';
+import { HANDOFF_CONTRACT } from '../build/handoffContract.js';
 
 export interface PackageManifest {
   id: string; version: 1; designId: string; parentNoteId: string; title: string; createdAt: string;
@@ -55,6 +57,9 @@ export function validateDiagramSvg(svg: unknown): string {
 
 export async function createPackage(db: Pool, id: string, input: Record<string, unknown>): Promise<DesignPackage> {
   const design = await getDesign(db, id);
+  if (design.imagineScope === 'workforce-definition') {
+    throw new ValidationError('This Design stops at an undeployed Imagine workforce blueprint. Software-build packaging is outside its definition-only scope.');
+  }
   selectedAssets(design);
   const sources = await sourceSnapshot(db, design);
   const artifact = await latestArtifact(db, design.id);
@@ -68,7 +73,9 @@ export async function createPackage(db: Pool, id: string, input: Record<string, 
   }
   if (artifact) files['visual-design.html'] = artifact.html;
   const pendingFeedback = Number((await db.query<{ count: string }>("SELECT count(*) FROM design_feedback WHERE design_id=$1 AND status IN ('queued','proposed')", [design.id])).rows[0]!.count);
-  const missingInputs = ['use_case', 'spec', 'architecture', 'diagram'].filter(role => !sources.some(source => source.role === role));
+  const requiredRoles = design.imagineDemo ? ['use_case', 'spec', 'workforce', 'architecture'] : ['use_case', 'spec', 'architecture', 'diagram'];
+  const missingInputs = requiredRoles.filter(role => !sources.some(source => source.role === role
+    && (!design.imagineDemo || design.assets.find(asset => asset.sourceId === source.id)?.hasContent !== false)));
   if (!artifact) missingInputs.push('visual-design');
   const readiness = design.specificationType === 'imagine' ? await readDesignReadiness(db, design.id) : null;
   // Export is still model-free and never gated by this assessment.
@@ -93,9 +100,9 @@ Package ${manifest.id}. ${manifest.ready ? 'All supplied inputs are current.' : 
 ## Copilot reading order and authority
 
 1. Read manifest.json for exact original IDs, selected revisions, hashes, missing inputs and open decisions.
-2. Read ${['design.md', 'use-case.md', 'specification.md', 'architecture.md'].filter(path => path in files).join(', ')}. These supplied Markdown files are the authoritative agreed requirements.
+2. Read ${['design.md', 'use-case.md', 'specification.md', 'agent-workforce.md', 'architecture.md'].filter(path => path in files).join(', ')}. These supplied Markdown files are the authoritative agreed requirements.
 3. Explore visual-design.html locally for visual and interaction intent. It is a sandboxed review artifact, NOT production code and NOT a competing requirements source.
-4. Read diagram.json and diagram.svg for architecture and flow context.
+4. Read diagram.json and diagram.svg for architecture and flow context when supplied.${design.imagineDemo ? ' The Diagram stage is optional; do not invent a missing diagram.' : ''}
 
 If requirements, visual intent or diagrams conflict, flag the conflict and ask before deciding. Do not implement missing inputs or resolve open decisions by guessing.
 Pending or discarded feedback is NOT an accepted requirement. Only accepted Markdown changes belong in the authoritative files.
@@ -109,6 +116,16 @@ ${missingInputs.length ? missingInputs.map(role => `- ${role}`).join('\n') : 'No
 ${manifest.openDecisions.length ? manifest.openDecisions.map(item => `- ${item}`).join('\n') : 'None recorded.'}
 
 ${pendingFeedback} feedback item(s) remain unaccepted. Their text is intentionally excluded from requirements.
+${design.imagineDemo ? `
+## IMAGINE workflow and execution boundary
+
+Use case → Spec → Architecture → optional Diagram → Blueprint → Build.
+The same IMAGINE generation action writes Spec and recommended Architecture together. The existing required supporting Workforce design remains in the package, not an extra main navigation stage. Runtime Verify & Accept remains an execution obligation, not a claim made by the Build stage.
+Retain the original scenario and starting fixtures throughout. Keep agents, humans, rules and systems distinct; preserve each member's identity, hierarchy, ownership, permissions, dependencies, typed inputs/outputs, handoff and recovery contracts.
+Track every requirement through implementation and evidence. Disclose live, approved simulation and unintegrated dependencies; never silently replace a failed live operation with a mock.
+Use the repository's existing version-1 G0–G7 acceptance contract and evaluator. Do not invent another gate system. Retain the resulting phase report and supporting evidence in the demo repository and provide their file references.
+Build completion, a passing test, published agents and a source-controlled report do not independently prove live operation or genuine owner acceptance. Deployment, real agent evaluations, channel messages, access changes and downstream writes require separate explicit authorization. Preserve failures, unknowns and stale evidence.
+` : ''}
 ${readiness ? `\n## IMAGINE specification readiness\n\nAssessment: ${readiness.state}. Read specification-readiness.json for exact checked revisions and findings. Handoff remains available with open findings. Package completeness is not specification readiness, successful implementation, live approval or acceptance.\n` : ''}
 `;
   manifest.files = Object.entries(files).map(([path, content]) => ({ path, role: path === 'specification-readiness.json' ? 'readiness-evidence' : path === 'visual-design.html' ? 'visual-intent' : path.startsWith('diagram.') ? 'diagram-context' : path === 'README.md' ? 'copilot-instructions' : 'authoritative-markdown', sha256: digest(content) }));
@@ -143,6 +160,63 @@ export async function packageArchive(snapshot: DesignPackage): Promise<Buffer> {
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 interface Publication { id: string; package_id: string; repo: string; branch: string; folder: string; base_sha: string; status: string; commit_sha: string | null }
+export async function buildPublishedPackage(db: Pool, id: string, packageId: string, publicationId: string): Promise<builds.BuildSpec> {
+  const design = await getDesign(db, id);
+  if (design.imagineScope === 'workforce-definition') {
+    throw new ValidationError('This Design creates an undeployed Imagine workforce blueprint, not a software Build. Its definition-only scope cannot create a software-build draft.');
+  }
+  const snapshot = await getPackage(db, id, packageId);
+  if (!design.imagineDemo) throw new ValidationError('This connected Build workflow is available for Imagine demo Designs.');
+  const spec = snapshot.manifest.sources.find(source => source.role === 'spec');
+  if (!spec) throw new ValidationError('The published snapshot needs its own specification before creating a Build draft.');
+  const marker = `Design package snapshot: ${snapshot.id}`;
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT id FROM design_packages WHERE id=$1 FOR UPDATE', [packageId]);
+    const publication = (await client.query<Publication>(
+      'SELECT * FROM design_publications WHERE id::text=$1 AND package_id=$2 FOR UPDATE', [publicationId, packageId])).rows[0];
+    if (!publication || publication.status !== 'published' || !publication.commit_sha) {
+      throw new ValidationError('Publish and verify this exact snapshot before sending it to Build.');
+    }
+    const previous = (await client.query<{ id: string }>(
+      `SELECT b.id FROM build_specs b JOIN build_events e ON e.spec_id=b.id
+       WHERE e.kind='created' AND e.payload->>'packageId'=$1 AND e.payload->>'publicationRepo'=$2 ORDER BY e.id LIMIT 1`,
+      [packageId, publication.repo])).rows[0];
+    if (previous) {
+      const existing = await builds.getSpec(previous.id, client);
+      if (!existing) throw new ValidationError('The previously created Build draft is unavailable.');
+      await client.query('COMMIT');
+      return existing;
+    }
+    const files = Object.keys(snapshot.files).map(path => `${publication.folder}/${path}`);
+    const markdown = `# Implement ${snapshot.manifest.title}
+
+${marker}
+Original Design ID: ${design.id}
+Repository: ${publication.repo}
+Immutable package commit: ${publication.commit_sha}
+
+Read EVERY package file at that exact commit, not a moving branch or only the copied specification:
+${files.map(path => `- ${path}`).join('\n')}
+
+Start with manifest.json and README.md. Verify the file hashes and original IDs/revisions; keep the use case, specification, workforce, architecture, optional diagram and Blueprint consistent.
+${snapshot.manifest.ready ? 'The package inputs were complete at snapshot time; this is not runtime acceptance.' : `Unresolved package inputs: ${snapshot.manifest.missingInputs.join(', ') || 'none missing'}. Open decisions: ${snapshot.manifest.openDecisions.join('; ') || 'none recorded'}. ${snapshot.manifest.pendingFeedback} feedback items were not accepted. Do not fill gaps by guessing.`}
+
+## Implementation handoff
+
+${HANDOFF_CONTRACT}
+`;
+    const created = await builds.createSpec({ title: snapshot.manifest.title.slice(0, 200), specMarkdown: markdown,
+      repo: publication.repo, baseBranch: publication.branch, projectId: design.projectId, noteId: spec.id }, client);
+    await client.query(`INSERT INTO build_events(spec_id,kind,message,payload) VALUES($1,'created',$2,$3)`,
+      [created.id, 'Build draft created from a verified immutable Design package', JSON.stringify({ designId: design.id, packageId, publicationId,
+        publicationRepo: publication.repo, commit: publication.commit_sha })]);
+    await client.query('COMMIT');
+    return created;
+  } catch (error) { await client.query('ROLLBACK'); throw error; }
+  finally { client.release(); }
+}
 interface Commit { sha: string; tree: { sha: string } }
 interface Tree { sha: string; truncated: boolean; tree: Array<{ path: string; sha: string; type: string; mode: string }> }
 const packagePaths = new Set([...Object.values(filenames), 'README.md', 'manifest.json', 'visual-design.html', 'diagram.svg', 'specification-readiness.json']);
@@ -176,6 +250,9 @@ function folderPath(value: unknown): string {
   return folder;
 }
 export async function preparePublication(db: Pool, id: string, packageId: string, input: Record<string, unknown>, gh = new GitHubClient()): Promise<Publication> {
+  if ((await getDesign(db, id)).imagineScope === 'workforce-definition') {
+    throw new ValidationError('Software-build publication is outside this Design’s workforce-definition-only scope.');
+  }
   const snapshot = await getPackage(db, id, packageId);
   const repo = await writableRepository(input['repo'], gh);
   const folder = folderPath(input['folder']);
@@ -193,6 +270,9 @@ async function verifyFiles(gh: GitHubClient, publication: Publication, snapshot:
   }
 }
 export async function publishPackage(db: Pool, id: string, packageId: string, publicationId: string, confirmed: unknown, gh = new GitHubClient()): Promise<{ commitUrl: string }> {
+  if ((await getDesign(db, id)).imagineScope === 'workforce-definition') {
+    throw new ValidationError('Software-build publication is outside this Design’s workforce-definition-only scope.');
+  }
   if (confirmed !== true) throw new ValidationError('Confirm the exact repository, folder and package before publishing.');
   const snapshot = await getPackage(db, id, packageId);
   const row = (await db.query<Publication>('SELECT * FROM design_publications WHERE id::text=$1 AND package_id=$2', [publicationId, packageId])).rows[0];

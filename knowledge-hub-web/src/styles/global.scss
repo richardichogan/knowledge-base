@@ -16701,12 +16701,33 @@ fieldset.proj-modal-body {
   pre { padding: 12px; margin: 0 0 12px; white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; max-height: 260px; background: var(--cds-background); font: var(--kh-text-meta)/1.6 'IBM Plex Mono', monospace; }
 }
 .kh-design-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.kh-design-workflow {
+  padding: 16px 24px; font-size: var(--kh-text-body); line-height: 1.6; overflow-wrap: anywhere;
+  h3 { margin: 24px 0 12px; font-size: var(--kh-section-title); font-weight: 600; }
+  > h3:first-child { margin-top: 0; }
+  p, .kh-uc-field, > .kh-design-actions, dl { margin: 0 0 16px; }
+  p, dd { color: var(--cds-text-secondary); }
+  dt { font-weight: 600; } dd { margin: 0 0 12px; }
+  ul { padding-inline-start: var(--kh-list-indent); margin: 12px 0; }
+  li { margin-bottom: 12px; } li p { margin: 4px 0; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button:focus-visible, summary:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 2px; }
+  &__builds { list-style: none; padding: 0 !important; }
+  &__builds li { padding: 8px 0; border-bottom: 1px solid var(--cds-border-subtle-01); }
+  &__builds span { display: block; color: var(--cds-text-secondary); }
+  &__boundary { padding: 12px; background: var(--cds-layer-01); border: 1px solid var(--cds-border-subtle-01); border-radius: 4px; }
+  &__phase { padding: 12px 0; border-bottom: 1px solid var(--cds-border-subtle-01);
+    summary { cursor: pointer; font-weight: 600; }
+    summary:hover { color: var(--kh-accent); }
+  }
+}
 .kh-design-diagram-body { display: flex; min-width: 0; min-height: 500px; height: 100%; }
 .kh-design-diagram-empty {
   padding: 16px 24px; font-size: var(--kh-text-body); line-height: 1.6;
   h3 { margin: 0 0 12px; font-size: var(--kh-section-title); font-weight: 600; }
   p { margin: 0; color: var(--cds-text-secondary); }
-  > button { margin-top: 16px;
+  > button, > .kh-design-actions { margin-top: 16px; }
+  button {
     &:disabled { opacity: .5; cursor: not-allowed; }
     &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 2px; }
   }

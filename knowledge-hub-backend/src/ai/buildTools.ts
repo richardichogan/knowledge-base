@@ -4,6 +4,7 @@ import type { LlmToolDefinition } from './foundryClient.js';
 import { ConflictError, NotFoundError, ValidationError } from '../types/errors.js';
 import * as store from '../build/buildStore.js';
 import { editBuildSpec, type BuildSpecRevision } from '../build/buildSpecService.js';
+import { designBuildSource } from '../build/designSource.js';
 
 const MARKDOWN_PAGE_CHARS = 10_000;
 const TASK_BODY_PAGE_CHARS = 10_000;
@@ -30,11 +31,16 @@ export interface BuildTurnState {
   changed: boolean;
 }
 
-export const BUILD_READ_TOOLS = ['read_build_spec', 'read_build_tasks', 'read_build_task', 'read_build_events'] as const;
+export const BUILD_READ_TOOLS = ['read_build_spec', 'read_build_tasks', 'read_build_task', 'read_build_events', 'read_build_source_package'] as const;
 export const BUILD_WRITE_TOOLS = ['update_build_spec'];
 export const BUILD_TOOL_NAMES = new Set<string>([...BUILD_READ_TOOLS, ...BUILD_WRITE_TOOLS]);
 
 export const BUILD_CHAT_TOOLS: LlmToolDefinition[] = [
+  { type: 'function', function: {
+    name: 'read_build_source_package',
+    description: 'Read the complete immutable published Design package behind this Build, including actual source Markdown, workforce, architecture, Blueprint and optional diagrams, in 10,000-character JSON chunks. Follow nextOffset to null. Not a current mutable Design or title-only reference; returns null for Builds without a package. Does not publish or execute anything.',
+    parameters: { type: 'object', additionalProperties: false, properties: { offset: { type: 'integer', minimum: 0 } } },
+  } },
   { type: 'function', function: {
     name: 'read_build_spec',
     description: 'Read the selected Build spec’s saved settings and complete Markdown in bounded 10,000-character pages. Start at offset 0, then follow nextOffset exactly until null before claiming a complete read or editing. This reads saved data, not unsaved editor changes.',
@@ -112,6 +118,15 @@ export async function executeBuildTool(db: Pool, name: string, args: Record<stri
   readOnly?: boolean;
 }, state: BuildTurnState): Promise<unknown> {
   const spec = await selectedSpec(db, access.selectedSpecId, access);
+  if (name === 'read_build_source_package') {
+    const json = await designBuildSource(db, spec, access);
+    if (json === null) return { specId: spec.id, sourcePackage: null };
+    const offset = assertOffset(args['offset']);
+    if (offset >= json.length) throw new ValidationError('The requested source-package chunk is unavailable.');
+    const end = offset + MARKDOWN_PAGE_CHARS;
+    return { specId: spec.id, json: json.slice(offset, end), nextOffset: json.length > end ? end : null,
+      note: 'This is immutable source-package content. Read every chunk before claiming a complete read. No runtime acceptance is implied.' };
+  }
   if (name === 'read_build_spec') {
     const offset = assertOffset(args['offset']);
     const snapshot = toRevision(spec);

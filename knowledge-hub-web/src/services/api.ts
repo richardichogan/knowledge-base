@@ -3035,6 +3035,32 @@ export class KnowledgeHubApi {
   async reviewDocument(input: { document: string; selection: string; instruction: string; matchMode: 'text' | 'markdown' }): Promise<ApiResponse<{ find: string; replacement: string; summary: string }>> {
     return (await this.client.post<ApiResponse<{ find: string; replacement: string; summary: string }>>(
       '/api/ai/document-review', input, { timeout: 120_000 })).data;
+  async getDesignBuilds(id: string): Promise<ApiResponse<import('../types/designs').DesignBuildSummary[]>> {
+    return (await this.client.get<ApiResponse<import('../types/designs').DesignBuildSummary[]>>(`/api/designs/${encodeURIComponent(id)}/builds`)).data;
+  }
+  async getImagineCreation(id: string): Promise<ApiResponse<import('../types/designs').ImagineCreationView>> {
+    return (await this.client.get<ApiResponse<import('../types/designs').ImagineCreationView>>(`/api/designs/${encodeURIComponent(id)}/imagine-blueprint`)).data;
+  }
+  async connectImagine(id: string, idToken: string): Promise<void> {
+    await this.client.post(`/api/designs/${encodeURIComponent(id)}/imagine-connection`, { idToken }, { timeout: 60_000 });
+  }
+  async prepareImagineCreation(id: string, expectedRevision: number): Promise<ApiResponse<import('../types/designs').ImagineCreationView>> {
+    return (await this.client.post<ApiResponse<import('../types/designs').ImagineCreationView>>(`/api/designs/${encodeURIComponent(id)}/imagine-blueprint/prepare`,
+      { expectedRevision }, { timeout: 600_000 })).data;
+  }
+  async createImagineBlueprint(id: string, expectedRevision: number, binding: string): Promise<ApiResponse<import('../types/designs').ImagineCreationView>> {
+    return (await this.client.post<ApiResponse<import('../types/designs').ImagineCreationView>>(`/api/designs/${encodeURIComponent(id)}/imagine-blueprint`,
+      { expectedRevision, binding, confirmed: true }, { timeout: 600_000 })).data;
+  }
+  async getDesignAcceptance(id: string): Promise<ApiResponse<import('../types/designs').DesignAcceptance>> {
+    return (await this.client.get<ApiResponse<import('../types/designs').DesignAcceptance>>(`/api/designs/${encodeURIComponent(id)}/acceptance`)).data;
+  }
+  async setDesignAcceptanceSource(id: string, url: string, expectedRevision: number): Promise<ApiResponse<DesignDetail>> {
+    return (await this.client.post<ApiResponse<DesignDetail>>(`/api/designs/${encodeURIComponent(id)}/acceptance-source`, { url, expectedRevision })).data;
+  }
+  async buildDesignPackage(id: string, packageId: string, publicationId: string): Promise<ApiResponse<BuildSpec>> {
+    return (await this.client.post<ApiResponse<BuildSpec>>(`/api/designs/${encodeURIComponent(id)}/packages/${encodeURIComponent(packageId)}/build`, { publicationId })).data;
+  }
   }
 
   async listDesigns(): Promise<ApiResponse<{ items: Design[]; hasMore: boolean }>> {
@@ -3059,7 +3085,7 @@ export class KnowledgeHubApi {
     return (await this.client.post<ApiResponse<DesignDetail>>(`/api/designs/${encodeURIComponent(id)}/imagine-demo`, { imagineDemo, expectedRevision })).data;
   }
   async getImagineHarness(id: string): Promise<ApiResponse<import('../types/designs').ImagineHarnessView>> {
-    return (await this.client.get<ApiResponse<import('../types/designs').ImagineHarnessView>>(`/api/designs/${encodeURIComponent(id)}/imagine-harness`)).data;
+    return (await this.client.get<ApiResponse<import('../types/designs').ImagineHarnessView>>(`/api/designs/${encodeURIComponent(id)}/imagine-harness`, { timeout: 60_000 })).data;
   }
   async approveImagineSpec(id: string, input: { expectedRevision: number; expectedSpecRevision: number; assessmentId: string }): Promise<ApiResponse<import('../types/designs').ImagineHarnessView>> {
     return (await this.client.post<ApiResponse<import('../types/designs').ImagineHarnessView>>(`/api/designs/${encodeURIComponent(id)}/imagine-harness/approve-spec`, input)).data;
@@ -3077,14 +3103,6 @@ export class KnowledgeHubApi {
   async getDesignReadiness(id: string, offset = 0, status: 'open' | 'resolved' = 'open'): Promise<ApiResponse<import('../types/designs').DesignReadiness>> {
     return (await this.client.get<ApiResponse<import('../types/designs').DesignReadiness>>(
       `/api/designs/${encodeURIComponent(id)}/readiness`, { params: { offset, status } })).data;
-  }
-  async checkDesignReadiness(id: string, specId: string): Promise<ApiResponse<import('../types/designs').DesignReadiness>> {
-    return (await this.client.post<ApiResponse<import('../types/designs').DesignReadiness>>(
-      `/api/designs/${encodeURIComponent(id)}/readiness`, { specId }, { timeout: 150_000 })).data;
-  }
-  async prepareDesignReadinessRepair(id: string, assessmentId: string, findingId: string, instruction: string, allowSyntheticFixtures: boolean): Promise<ApiResponse<import('../types/designs').DesignReadiness>> {
-    return (await this.client.post<ApiResponse<import('../types/designs').DesignReadiness>>(
-      `/api/designs/${encodeURIComponent(id)}/readiness/repairs`, { assessmentId, findingId, instruction, allowSyntheticFixtures }, { timeout: 150_000 })).data;
   }
   async resolveDesignReadinessRepair(id: string, proposalId: string, accept: boolean): Promise<ApiResponse<{ noteIds: string[] }>> {
     return (await this.client.post<ApiResponse<{ noteIds: string[] }>>(
@@ -3241,8 +3259,8 @@ export class KnowledgeHubApi {
       }
     } finally { void reader.cancel().catch(() => undefined); }
   }
-  async writeDesignSpec(id: string, replace = false): Promise<ApiResponse<{ noteId: string; title: string; created: boolean }>> {
-    return (await this.client.post<ApiResponse<{ noteId: string; title: string; created: boolean }>>(`/api/designs/${encodeURIComponent(id)}/spec`, { replace }, { timeout: 300_000 })).data;
+  async writeDesignSpec(id: string, replace = false): Promise<ApiResponse<{ noteId: string; architectureNoteId: string | null; title: string; created: boolean }>> {
+    return (await this.client.post<ApiResponse<{ noteId: string; architectureNoteId: string | null; title: string; created: boolean }>>(`/api/designs/${encodeURIComponent(id)}/spec`, { replace }, { timeout: 300_000 })).data;
   }
   async editDesignFeedback(id: string, feedbackId: string, instruction: string): Promise<ApiResponse<DesignFeedback>> {
     return (await this.client.patch<ApiResponse<DesignFeedback>>(`/api/designs/${encodeURIComponent(id)}/feedback/${encodeURIComponent(feedbackId)}`, { instruction })).data;

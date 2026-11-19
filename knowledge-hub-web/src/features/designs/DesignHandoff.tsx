@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { AppDialog } from '../../components/AppDialog';
 import { api } from '../../services/api';
 import { describeApiError, requireApiData } from '../../services/apiError';
@@ -7,6 +8,7 @@ import { diagramSvg } from '../diagram/diagramExport';
 import type { DesignDetail, DesignPackage, DesignPublication } from '../../types/designs';
 
 export const DesignHandoff: React.FC<{ design: DesignDetail; prepare: () => Promise<void>; onClose: () => void }> = ({ design, prepare, onClose }) => {
+  const navigate = useNavigate();
   const [snapshot, setSnapshot] = useState<DesignPackage | null>(null);
   const [repo, setRepo] = useState('');
   const [folder, setFolder] = useState('design');
@@ -59,8 +61,15 @@ export const DesignHandoff: React.FC<{ design: DesignDetail; prepare: () => Prom
     },
     onSuccess: result => { setCommitUrl(result.commitUrl); },
   });
-  const busy = create.isPending || download.isPending || preparePublication.isPending || publish.isPending;
-  const error = create.error ?? download.error ?? preparePublication.error ?? publish.error;
+  const build = useMutation({
+    mutationFn: async () => {
+      if (!snapshot || !confirmation || !commitUrl) throw new Error('Publish and verify the snapshot first.');
+      return requireApiData(await api.buildDesignPackage(design.id, snapshot.id, confirmation.id));
+    },
+    onSuccess: result => { onClose(); navigate(`/build?spec=${encodeURIComponent(result.id)}`); },
+  });
+  const busy = create.isPending || download.isPending || preparePublication.isPending || publish.isPending || build.isPending;
+  const error = create.error ?? download.error ?? preparePublication.error ?? publish.error ?? build.error;
   return <AppDialog title="Copilot Design package" wide onClose={onClose} actions={
     <button type="button" className="kh-btn-ghost" disabled={busy} onClick={onClose}>Close</button>}>
     <div className="kh-design-handoff">
@@ -104,6 +113,11 @@ export const DesignHandoff: React.FC<{ design: DesignDetail; prepare: () => Prom
           <button type="button" className="kh-btn-accent" disabled={busy} onClick={() => { publish.mutate(); }}>{publish.isPending ? 'Publishing and verifying...' : 'Confirm and publish package'}</button>
         </div>}
         {commitUrl && <p role="status">Package published and verified. <a className="kh-uc-link" href={commitUrl} target="_blank" rel="noreferrer">Open the commit</a></p>}
+        {commitUrl && design.imagineDemo && <>
+          <p>Send every file in this exact published snapshot to the existing Build pipeline. This creates a draft only; it does not dispatch coding agents or authorize live operations.</p>
+          <button type="button" className="kh-btn-accent" disabled={busy} onClick={() => { build.mutate(); }}>
+            {build.isPending ? 'Creating Build draft...' : 'Create Build draft from this snapshot'}</button>
+        </>}
       </>}
       {error && <p className="kh-uc-error" role="alert">{describeApiError(error)}</p>}
     </div>

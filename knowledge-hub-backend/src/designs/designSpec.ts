@@ -21,6 +21,12 @@ import { AiError, ConflictError, ValidationError } from '../types/errors.js';
 import type { Note } from '../types/index.js';
 import { demoSpecificationForm, demoSpecificationResponseSchema, renderDemoSpecification, validateDemoSpecificationPart, DEMO_SPECIFICATION_VERSION, MAX_DEMO_SPECIFICATION_CHARS, type DemoSpecificationPart } from '../ai/demoSpecification.js';
 import { loadProjectGenerationContext, lockProjectGenerationContext, WORKSTREAM_CONTEXT_GUIDANCE } from '../ai/projectContext.js';
+import { ARCHITECTURE_CONTRACT_VERSION, readImagineArchitectureBaseline, recommendImagineArchitecture } from './imagineArchitecture.js';
+import { reconcileWorkforceDrafts } from './workforceConsistency.js';
+import {
+  generateWorkforceSpecification, validateConfirmedDecisions, validateWorkforceSpecificationMarkdown,
+} from './workforceSpecification.js';
+import { WORKFORCE_DEFINITION_BOUNDARY, WORKFORCE_DEFINITION_MARKER, WORKFORCE_DEFINITION_VERSION } from './workforceDefinitionScope.js';
 
 const MAX_TOKENS = 16_000;
 const IMAGINE_SECTION_TOKENS = 16_000;
@@ -31,8 +37,9 @@ const IMAGINE_SECTION_GROUPS = Array.from({ length: IMAGINE_SECTION_COUNT / IMAG
   (_, index) => [index * IMAGINE_GROUP_SIZE + 1, (index + 1) * IMAGINE_GROUP_SIZE] as const);
 const TIMEOUT_MS = 270_000;
 const SOURCE_CHARS = MAX_DEMO_SPECIFICATION_CHARS;
-const ARCHITECTURE_CHARS = 15_000;
+const ARCHITECTURE_CHARS = MAX_DEMO_SPECIFICATION_CHARS;
 const DIAGRAM_CHARS = 10_000;
+const SCOPED_ARCHITECTURE_LINK_FOOTER = /\n\nWorkforce Specification: \[[^\n]*\]\(\/think\?noteId=[^)]+\)\n\nSource Use Case: \[[^\n]*\]\(\/think\?noteId=[^)]+\)\s*$/;
 
 const REWRITE = `You are regenerating an EXISTING spec from its use case. The use case is authoritative for what the feature must do and why.
 - Keep the current spec's structure, section numbering, headings and level of detail wherever it is still consistent with the use case.
@@ -112,7 +119,7 @@ async function imagineDraft(user: string, progress: (message: string) => void, s
     if (!attempt || attempt.jobId !== checkpoint.jobId) throw new ConflictError('The specification checkpoint has no current worker owner.', 'AGENT_ATTEMPT_CONFLICT');
     signal?.throwIfAborted();
     const saved = await checkpoint.db.query(
-      `UPDATE agent_jobs SET result=jsonb_build_object('specificationCheckpoint',$2::jsonb),updated_at=NOW()
+      `UPDATE agent_jobs SET result=jsonb_set(COALESCE(result,'{}'),'{specificationCheckpoint}',$2::jsonb),updated_at=NOW()
         WHERE id=$1 AND subject_id=$3 AND specialist='spec-writer' AND status='running'
           AND attempts=$4 AND lease_owner=$5 AND lease_until>clock_timestamp() RETURNING id`,
       [checkpoint.jobId, JSON.stringify({ fingerprint: checkpoint.fingerprint, parts, sections: sectionParts }), checkpoint.designId, attempt.attempt, attempt.owner]);
@@ -214,38 +221,115 @@ const sourceText = (text: string, limit: number): string => {
   return text;
 };
 
-export async function writeDesignSpec(db: Pool, designId: string, replace = false, signal?: AbortSignal, progress: (message: string) => void = () => {}, jobId?: string, checkpointOnly = false): Promise<{ noteId: string; title: string; created: boolean; notes: Note[]; publish: string[] }> {
-  return withAiWorkflow(db, { feature: 'use-case-spec', ...(signal ? { signal } : {}) },
-    () => writeDesignSpecInner(db, designId, replace, signal, progress, jobId, checkpointOnly));
+function isWorkforceContractBlock(block: unknown): boolean {
+  if (!isObj(block)) return false;
+  return block['type'] === 'heading' || (block['type'] === 'paragraph' && Array.isArray(block['content'])
+    && block['content'].length === 1 && isObj(block['content'][0])
+    && block['content'][0]['text'] === WORKFORCE_DEFINITION_MARKER);
 }
-async function writeDesignSpecInner(db: Pool, designId: string, replace: boolean, signal: AbortSignal | undefined, progress: (message: string) => void, jobId: string | undefined, checkpointOnly: boolean): Promise<{ noteId: string; title: string; created: boolean; notes: Note[]; publish: string[] }> {
+
+async function linkWorkforceSpecWriting(db: Pick<Pool, 'query'>, title: string, blocks: unknown[], noteId: string): Promise<string> {
+  // Named links must not rewrite the literal contract consumed by readiness.
+  const linked = await linkNamedReferences(db, JSON.stringify({
+    title, contentType: 'spec', contentJson: JSON.stringify(blocks.filter(block => !isWorkforceContractBlock(block))),
+  }), noteId);
+  const body: unknown[] = JSON.parse(parseWriting(linked).contentJson) as unknown[];
+  let index = 0;
+  return JSON.stringify({ ...JSON.parse(linked) as object,
+    contentJson: JSON.stringify(blocks.map(block => isWorkforceContractBlock(block) ? block : body[index++])) });
+}
+
+interface SpecResult { noteId: string; title: string; created: boolean; architectureNoteId: string | null; notes: Note[]; publish: string[] }
+export async function writeDesignSpec(
+  db: Pool, designId: string, replace = false, signal?: AbortSignal, progress: (message: string) => void = () => {},
+  jobId?: string, checkpointOnly = false, confirmedDecisions?: readonly string[],
+): Promise<SpecResult> {
+  return withAiWorkflow(db, { feature: 'use-case-spec', ...(signal ? { signal } : {}) },
+    () => writeDesignSpecInner(db, designId, replace, signal, progress, jobId, checkpointOnly, confirmedDecisions));
+}
+async function writeDesignSpecInner(
+  db: Pool, designId: string, replace: boolean, signal: AbortSignal | undefined, progress: (message: string) => void,
+  jobId: string | undefined, checkpointOnly: boolean, confirmedDecisions: readonly string[] | undefined,
+): Promise<SpecResult> {
   const design = await getDesign(db, designId);
   if (!design.specificationType) throw new ValidationError('Choose Standard or IMAGINE beside Generate spec in the Design before continuing.');
   if (design.imagineDemo && design.specificationType !== 'imagine') throw new ValidationError('An Imagine demo harness requires the IMAGINE specification type. Choose it in Design properties before generating.');
+  const imagine = design.specificationType === 'imagine';
+  const definitionOnly = imagine && design.imagineScope === 'workforce-definition';
+  const scopedDecisions = definitionOnly ? validateConfirmedDecisions(confirmedDecisions) : undefined;
+  if (design.imagineScope === 'workforce-definition' && !imagine) {
+    throw new ValidationError('The workforce-definition scope requires the IMAGINE specification type.');
+  }
   const sources = await sourceSnapshot(db, design);
   const useCase = sources.find(source => source.role === 'use_case');
-  if (!useCase?.markdown.trim()) throw new ValidationError('Write the use case in the Use case tab before asking Athena for the spec.');
-  const spec = sources.find(source => source.role === 'spec');
+  if (!useCase?.markdown.trim() || design.assets.find(asset => asset.role === 'use_case' && asset.sourceId === useCase.id)?.hasContent === false) {
+    throw new ValidationError('Write the use case in the Use case tab before asking Athena for the spec.');
+  }
+  const selectedSpec = sources.find(source => source.role === 'spec');
+  const selectedArchitecture = sources.find(source => source.role === 'architecture');
+  const spec = definitionOnly ? undefined : selectedSpec;
+  const architecture = definitionOnly ? undefined : selectedArchitecture;
   if (spec && !replace && hasMedia(spec.blocks)) throw new ValidationError('The spec contains embedded images or files that a full rewrite would lose. Ask Athena in the chat for targeted changes instead.');
   const mentions = mentionsOf(spec?.blocks ?? []);
+  if (imagine && architecture && !replace
+    && design.assets.find(asset => asset.role === 'architecture' && asset.sourceId === architecture.id)?.hasContent !== false) {
+    throw new ValidationError('The IMAGINE action regenerates both Spec and Architecture. Confirm replacement first; existing documents were not changed.');
+  }
+  if (imagine) progress('Retrieving the actual IMAGINE base architecture at one immutable GitHub revision');
+  const baseline = imagine ? await readImagineArchitectureBaseline(db, design.projectId, signal) : null;
   const projectContext = await loadProjectGenerationContext(db, design.projectId);
-  const context = sources.filter(source => source.role === 'architecture' || source.role === 'diagram' || (source.role === 'design' && source.markdown.trim())).map(source => {
+  const context = definitionOnly ? [] : sources.filter(source => source.role === 'architecture' || source.role === 'diagram' || (source.role === 'design' && source.markdown.trim())).map(source => {
     if (source.role !== 'diagram') return `### ${source.role === 'design' ? 'Design' : 'Architecture'}: ${source.title}\n${sourceText(source.markdown, source.role === 'design' ? SOURCE_CHARS : ARCHITECTURE_CHARS)}`;
     try { return `### Diagram: ${source.title}\n${diagramEvidence(source.document as DiagramDocument, DIAGRAM_CHARS)}`; } catch { return ''; }
   }).filter(Boolean);
-  const title = spec?.title ?? `Spec: ${design.title}`;
+  const title = definitionOnly ? `Workforce Specification: ${design.title}` : spec?.title ?? `Spec: ${design.title}`;
   const system = design.specificationType === 'imagine' ? IMAGINE_SYSTEM : `${PRODUCT_SYSTEM}\n\n${SELF_CONTAINED}\n\n${WORKSTREAM_CONTEXT_GUIDANCE}${spec ? `\n\n${REWRITE}` : ''}`;
-  const user = [`Design: ${design.title}`, design.summary.trim() ? `Summary: ${design.summary.trim()}` : '',
+  const user = definitionOnly ? '' : [`Design: ${design.title}`, design.summary.trim() ? `Summary: ${design.summary.trim()}` : '',
     projectContext ? `## Saved workstream background (not a replacement for the source requirements)\n${projectContext}` : '',
     `## Use case (authoritative): ${useCase.title}\n${sourceText(useCase.markdown, SOURCE_CHARS)}`,
     spec ? `## Current spec: ${spec.title} (revision ${String(spec.revision)})\n${sourceText(spec.markdown, SOURCE_CHARS)}` : '',
     context.length ? `## Supporting context\n${context.join('\n\n')}` : ''].filter(Boolean).join('\n\n');
-  if (user.length > MAX_DESIGN_MODEL_CONTEXT) {
+  if (!definitionOnly && user.length > MAX_DESIGN_MODEL_CONTEXT) {
     throw new ValidationError(`The combined workstream and specification sources exceed the ${MAX_DESIGN_MODEL_CONTEXT.toLocaleString('en-US')}-character Design context limit. Nothing was truncated or saved.`);
   }
-  const imagine = design.specificationType === 'imagine';
   let markdown: string;
-  if (imagine) {
+  if (definitionOnly) {
+    const fingerprint = createHash('sha256').update(JSON.stringify({
+      scope: design.imagineScope, profileVersion: WORKFORCE_DEFINITION_VERSION, designRevision: design.revision,
+      sources, projectContext, confirmedDecisions: scopedDecisions ?? [],
+    })).digest('hex');
+    const checkpoint = jobId ? (await db.query<{ checkpoint: unknown }>(
+      `SELECT result->'scopedSpecCheckpoint' AS checkpoint FROM agent_jobs
+        WHERE specialist='spec-writer' AND subject_id=$1
+          AND result->'scopedSpecCheckpoint'->>'fingerprint'=$2
+        ORDER BY updated_at DESC LIMIT 1`, [design.id, fingerprint])).rows[0]?.checkpoint : undefined;
+    if (checkpoint !== undefined) {
+      if (!isObj(checkpoint) || checkpoint['fingerprint'] !== fingerprint
+        || checkpoint['scope'] !== 'workforce-definition' || checkpoint['profileVersion'] !== WORKFORCE_DEFINITION_VERSION) {
+        throw new ValidationError('The retained workforce specification checkpoint is not bound to the current scope and sources.');
+      }
+      progress('Reusing the complete workforce specification checkpoint for these exact sources and confirmed decisions');
+      markdown = validateWorkforceSpecificationMarkdown(checkpoint['markdown']);
+    } else {
+      if (checkpointOnly) throw new ValidationError('A complete matching workforce specification checkpoint is unavailable. No generation was started and nothing was saved.');
+      progress('Writing a bounded workforce specification from the authoritative Use Case only');
+      markdown = await generateWorkforceSpecification({
+        title: design.title, designId: design.id, useCaseId: useCase.id, useCaseTitle: useCase.title, useCase: useCase.markdown,
+        ...(scopedDecisions ? { confirmedDecisions: scopedDecisions } : {}),
+      }, signal);
+      if (jobId) {
+        const attempt = currentAgentAttempt();
+        if (!attempt || attempt.jobId !== jobId) throw new ConflictError('The workforce specification checkpoint has no current worker owner.', 'AGENT_ATTEMPT_CONFLICT');
+        signal?.throwIfAborted();
+        const retained = await db.query(`UPDATE agent_jobs SET result=jsonb_set(COALESCE(result,'{}'),'{scopedSpecCheckpoint}',$2::jsonb),updated_at=NOW()
+          WHERE id=$1 AND subject_id=$3 AND specialist='spec-writer' AND status='running'
+            AND attempts=$4 AND lease_owner=$5 AND lease_until>clock_timestamp() RETURNING id`,
+          [jobId, JSON.stringify({ fingerprint, scope: 'workforce-definition', profileVersion: WORKFORCE_DEFINITION_VERSION, markdown }),
+            design.id, attempt.attempt, attempt.owner]);
+        if (!retained.rows.length) throw new ConflictError('The Spec writer stopped before its workforce specification checkpoint was retained. No documents were saved.', 'DESIGN_CONFLICT');
+      }
+    }
+  } else if (imagine) {
     const fingerprint = createHash('sha256').update(JSON.stringify({ version: DEMO_SPECIFICATION_VERSION,
       groups: IMAGINE_SECTION_GROUPS, designRevision: design.revision, sources, ...(projectContext ? { projectContext } : {}) })).digest('hex');
     const input = await imagineDraft(user, progress, signal, jobId ? { db, jobId, designId: design.id, fingerprint } : undefined, checkpointOnly);
@@ -263,12 +347,72 @@ async function writeDesignSpecInner(db: Pool, designId: string, replace: boolean
     markdown = cleanDraft(await getFoundryClient('use-case-spec').chatBulk(
       [{ role: 'system', content: system }, { role: 'user', content: user }], MAX_TOKENS, TIMEOUT_MS, 'medium', undefined, signal));
   }
-  const blocks = restoreMentions(textToBlocks(markdown), mentions);
+  let blocks = restoreMentions(textToBlocks(markdown), mentions);
   if (!blocks.length) throw new ValidationError('Athena returned an empty spec. Nothing was saved; retry.');
+  const noteId = definitionOnly ? randomUUID() : spec?.id ?? randomUUID();
+  const architectureNoteId = baseline ? (definitionOnly ? randomUUID() : architecture?.id ?? randomUUID()) : null;
+  const architectureTitle = definitionOnly
+    ? `Recommended Architecture: ${design.title}`
+    : architecture?.title ?? `Architecture: ${design.title}`;
+  let architectureBlocks: unknown[] | null = null;
+  if (baseline) {
+    const checkpointIdentity = definitionOnly
+      ? { version: ARCHITECTURE_CONTRACT_VERSION, consistency: 1, scope: design.imagineScope, profileVersion: WORKFORCE_DEFINITION_VERSION,
+        confirmedDecisions: scopedDecisions ?? [], baseline, markdown, sources, projectContext }
+      : { version: ARCHITECTURE_CONTRACT_VERSION, baseline, markdown, sources, projectContext };
+    const fingerprint = createHash('sha256').update(JSON.stringify(checkpointIdentity)).digest('hex');
+    const checkpoint = jobId ? (await db.query<{ checkpoint: unknown }>(
+      `SELECT result->'architectureCheckpoint' AS checkpoint FROM agent_jobs WHERE subject_id=$1 AND specialist='spec-writer'
+       AND result->'architectureCheckpoint'->>'fingerprint'=$2 ORDER BY updated_at DESC LIMIT 1`, [design.id, fingerprint])).rows[0]?.checkpoint : undefined;
+    let architectureMarkdown: string;
+    if (checkpoint !== undefined) {
+      if (!isObj(checkpoint) || typeof checkpoint['markdown'] !== 'string' || !checkpoint['markdown'].trim()) {
+        throw new ValidationError('The retained architecture checkpoint is invalid. Neither document was saved.');
+      }
+      progress('Reusing the validated recommended architecture for these exact sources');
+      architectureMarkdown = definitionOnly
+        ? checkpoint['markdown'].replace(SCOPED_ARCHITECTURE_LINK_FOOTER, '').trim()
+        : checkpoint['markdown'];
+      if (definitionOnly) blocks = restoreMentions(textToBlocks(validateWorkforceSpecificationMarkdown(checkpoint['consistentSpec'])), mentions);
+    } else {
+      if (checkpointOnly) throw new ValidationError('A matching recommended architecture checkpoint is not available. Neither document was saved; generation is required to complete both documents.');
+      progress('Writing the recommended architecture from the new spec and actual IMAGINE base contracts');
+      const architectureTokens = definitionOnly ? 8_000 : 16_000;
+      const architectureTimeout = definitionOnly ? 540_000 : 270_000;
+      const architectureReasoning = definitionOnly ? 'low' : 'medium';
+      architectureMarkdown = await recommendImagineArchitecture({ title: architectureTitle, useCase: useCase.markdown,
+        specification: markdown, currentArchitecture: architecture?.markdown ?? null, projectContext, baseline,
+        ...(definitionOnly ? { scope: 'workforce-definition' as const, scopeBoundary: WORKFORCE_DEFINITION_BOUNDARY } : {}) },
+      signal, { maxTokens: architectureTokens, timeoutMs: architectureTimeout, reasoningEffort: architectureReasoning });
+      if (definitionOnly) {
+        progress('Checking both drafts and correcting contradictions against the Use Case');
+        const checked = await reconcileWorkforceDrafts({ spec: markdown, architecture: architectureMarkdown }, useCase.markdown, scopedDecisions ?? [], signal);
+        markdown = checked.spec;
+        blocks = restoreMentions(textToBlocks(markdown), mentions);
+        architectureMarkdown = checked.architecture;
+      }
+      if (jobId) {
+        const attempt = currentAgentAttempt();
+        if (!attempt || attempt.jobId !== jobId) throw new ConflictError('The architecture checkpoint has no current worker owner.', 'AGENT_ATTEMPT_CONFLICT');
+        signal?.throwIfAborted();
+        const retained = await db.query(`UPDATE agent_jobs SET result=jsonb_set(COALESCE(result,'{}'),'{architectureCheckpoint}',$2::jsonb),updated_at=NOW()
+          WHERE id=$1 AND subject_id=$3 AND specialist='spec-writer' AND status='running'
+            AND attempts=$4 AND lease_owner=$5 AND lease_until>clock_timestamp() RETURNING id`,
+          [jobId, JSON.stringify({ fingerprint, markdown: architectureMarkdown, ...(definitionOnly && { consistentSpec: markdown }) }), design.id, attempt.attempt, attempt.owner]);
+        if (!retained.rows.length) throw new ConflictError('The Spec writer stopped before its architecture checkpoint was retained. Neither document was saved.', 'DESIGN_CONFLICT');
+      }
+    }
+    if (definitionOnly) {
+      architectureMarkdown = `${architectureMarkdown.replace(SCOPED_ARCHITECTURE_LINK_FOOTER, '').trim()}\n\nWorkforce Specification: [${title}](/think?noteId=${encodeURIComponent(noteId)})\n\nSource Use Case: [${useCase.title}](/think?noteId=${encodeURIComponent(useCase.id)})`;
+    }
+    architectureBlocks = restoreMentions(textToBlocks(architectureMarkdown), mentionsOf(architecture?.blocks ?? []));
+    if (!architectureBlocks.length) throw new ValidationError('The recommended architecture is empty. Neither document was saved.');
+  }
   signal?.throwIfAborted();
-  progress('Saving the validated specification and preserving the previous version');
+  progress(definitionOnly ? 'Saving new Workforce Specification and recommended Architecture together; prior documents remain separate'
+    : baseline ? 'Saving Spec and recommended Architecture together, preserving their previous versions'
+      : 'Saving the validated specification and preserving the previous version');
 
-  const noteId = spec?.id ?? randomUUID();
   const client = await db.connect();
   const notes: Note[] = [];
   const publish: string[] = [];
@@ -279,7 +423,15 @@ async function writeDesignSpecInner(db: Pool, designId: string, replace: boolean
     if (locked?.revision !== design.revision) throw new ConflictError('The Design links changed while Athena was writing. Nothing was saved; retry.', 'DESIGN_CONFLICT');
     await lockProjectGenerationContext(client, design.projectId, projectContext);
     await lockSources(client, sources);
-    if (spec) {
+    if (definitionOnly) {
+      await client.query('INSERT INTO notes(id,content,project_id) VALUES($1,$2,$3)',
+        [noteId, await linkWorkforceSpecWriting(client, title, blocks, noteId), design.projectId]);
+      notes.push((await writeNoteInTransaction(client, noteId, { expectedRevision: 0 })).note);
+      await client.query(`INSERT INTO design_assets(design_id,source_type,source_id,role,excluded) VALUES($1,'note',$2,'spec',false)
+        ON CONFLICT(design_id,source_type,source_id) DO UPDATE SET role=EXCLUDED.role,excluded=false`, [design.id, noteId]);
+      await client.query(`UPDATE designs SET selections=jsonb_set(selections,'{spec}',to_jsonb($2::text)),revision=revision+1,updated_at=NOW() WHERE id=$1`,
+        [design.id, noteId]);
+    } else if (spec) {
       const row = (await client.query<{ content: string; revision: number }>("SELECT content,revision FROM notes WHERE id=$1 AND status='active' FOR UPDATE", [spec.id])).rows[0];
       if (row?.revision !== spec.revision) throw new ConflictError('The spec was edited while Athena was writing. Nothing was saved; retry.', 'DESIGN_CONFLICT');
       const result = await writeNoteInTransaction(client, spec.id, { expectedRevision: spec.revision, protectBefore: true,
@@ -294,9 +446,27 @@ async function writeDesignSpecInner(db: Pool, designId: string, replace: boolean
         ON CONFLICT(design_id,source_type,source_id) DO UPDATE SET role=EXCLUDED.role,excluded=false`, [design.id, noteId]);
       await client.query(`UPDATE designs SET selections=jsonb_set(selections,'{spec}',to_jsonb($2::text)),revision=revision+1,updated_at=NOW() WHERE id=$1`, [design.id, noteId]);
     }
+    if (architectureNoteId && architectureBlocks) {
+      if (architecture) {
+        const row = (await client.query<{ content: string; revision: number }>("SELECT content,revision FROM notes WHERE id=$1 AND status='active' FOR UPDATE", [architecture.id])).rows[0];
+        if (row?.revision !== architecture.revision) throw new ConflictError('The Architecture was edited while Athena was writing. Neither document was saved.', 'DESIGN_CONFLICT');
+        const updated = await writeNoteInTransaction(client, architecture.id, { expectedRevision: architecture.revision, protectBefore: true,
+          content: JSON.stringify({ ...JSON.parse(row.content) as object, contentJson: JSON.stringify(architectureBlocks) }) });
+        notes.push(updated.note); if (updated.publish) publish.push(architecture.id);
+      } else {
+        await client.query('INSERT INTO notes(id,content,project_id) VALUES($1,$2,$3)', [architectureNoteId,
+          await linkNamedReferences(client, JSON.stringify({ title: architectureTitle, contentType: 'architecture',
+            contentJson: JSON.stringify(architectureBlocks) }), architectureNoteId), design.projectId]);
+        notes.push((await writeNoteInTransaction(client, architectureNoteId, { expectedRevision: 0 })).note);
+        await client.query(`INSERT INTO design_assets(design_id,source_type,source_id,role,excluded) VALUES($1,'note',$2,'architecture',false)
+          ON CONFLICT(design_id,source_type,source_id) DO UPDATE SET role=EXCLUDED.role,excluded=false`, [design.id, architectureNoteId]);
+        await client.query(`UPDATE designs SET selections=jsonb_set(selections,'{architecture}',to_jsonb($2::text)),revision=revision+1,updated_at=NOW() WHERE id=$1`,
+          [design.id, architectureNoteId]);
+      }
+    }
     await lockAgentAttempt(client);
     await client.query('COMMIT');
   } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
   for (const note of notes) recordAiAuthoredNote(db, note.id, note.content, currentAgent() ?? 'design');
-  return { noteId, title, created: !spec, notes, publish };
+  return { noteId, title, created: !spec, architectureNoteId, notes, publish };
 }

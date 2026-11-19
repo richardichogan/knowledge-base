@@ -16,7 +16,7 @@ import { USE_CASE_CHAT_TOOLS } from '../src/ai/useCaseTools.js';
 
 test('Build and Use Case Athena tools expose bounded reading and safe content-only edits', () => {
   const buildNames = BUILD_CHAT_TOOLS.map(tool => tool.function.name);
-  assert.deepEqual(buildNames, ['read_build_spec', 'read_build_tasks', 'read_build_task', 'read_build_events', 'update_build_spec']);
+  assert.deepEqual(buildNames, ['read_build_source_package', 'read_build_spec', 'read_build_tasks', 'read_build_task', 'read_build_events', 'update_build_spec']);
   const buildUpdate = BUILD_CHAT_TOOLS.find(tool => tool.function.name === 'update_build_spec')!.function;
   assert.ok('expectedRevision' in buildUpdate.parameters.properties);
   assert.ok(!('status' in buildUpdate.parameters.properties));

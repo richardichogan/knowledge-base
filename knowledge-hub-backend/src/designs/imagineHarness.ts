@@ -9,17 +9,18 @@ import { scheduleGitHubPublish } from '../services/noteGitHubService.js';
 import { noteMarkdown } from '../services/noteMarkdown.js';
 import { parseWriting, writeNoteInTransaction } from '../services/noteVersionService.js';
 import { AiError, ConflictError, ValidationError } from '../types/errors.js';
-import { designModelContext, digest, hasProtectedContent, lockSources, sourceSnapshot, type DesignSource } from './designArtifacts.js';
-import { READINESS_RULE_VERSION, readinessSnapshot, readDesignReadiness } from './designReadiness.js';
-import { getDesign, type DesignDetail } from './designStore.js';
+import { designModelContext, hasProtectedContent, lockSources, sourceSnapshot, type DesignSource } from './designArtifacts.js';
+import { readinessFingerprint, readinessSnapshot, readinessVersions, readDesignReadinessForSources } from './designReadiness.js';
+import { getDesign, type DesignDetail, type ImagineScope } from './designStore.js';
 import { parseImagineWorkforce, renderImagineWorkforce, validateImagineWorkforce, WORKFORCE_SCHEMA, type ImagineWorkforce } from './imagineWorkforce.js';
 import { loadProjectGenerationContext, lockProjectGenerationContext, WORKSTREAM_CONTEXT_GUIDANCE } from '../ai/projectContext.js';
 
 const WORKFORCE_RULE_VERSION = 'imagine-workforce-v1';
-interface SpecApproval { specId: string; specRevision: number; fingerprint: string; approvedAt: string; ruleVersion: string }
+interface SpecApproval { specId: string; specRevision: number; fingerprint: string; approvedAt: string; ruleVersion: string; assessmentId?: string }
 interface WorkforceValidation { noteId: string; revision: number; fingerprint: string; ruleVersion: string }
 interface HarnessState { approval?: SpecApproval; workforce?: WorkforceValidation }
 export interface ImagineHarnessView {
+  findingActions?: Array<{ index: number; assessmentId: string; findingId: string; pending: boolean; otherPending: boolean }>;
   enabled: boolean; specId: string | null; specRevision: number | null;
   specApproved: boolean; canApprove: boolean; assessmentId: string | null; validationFingerprint: string | null; approvedAt: string | null;
   blockers: string[]; blockerCount: number; workforce: { noteId: string; revision: number; validated: boolean } | null;
@@ -29,40 +30,56 @@ async function state(db: Pool, design: DesignDetail): Promise<HarnessState> {
 }
 async function inputs(db: Pool, design: DesignDetail): Promise<{ sources: DesignSource[]; fingerprint: string; spec: DesignSource | undefined }> {
   const sources = await readinessSnapshot(db, design);
-  return { sources, fingerprint: digest(JSON.stringify(sources)), spec: sources.find(source => source.role === 'spec') };
+  return { sources, fingerprint: readinessFingerprint(sources, design.imagineScope), spec: sources.find(source => source.role === 'spec') };
 }
-export function currentSpecApproval(approval: SpecApproval | undefined, fingerprint: string, spec: DesignSource | undefined): boolean {
-  return !!spec && !!approval && approval.ruleVersion === READINESS_RULE_VERSION && approval.fingerprint === fingerprint
-    && approval.specId === spec.id && approval.specRevision === spec.revision;
+export function currentSpecApproval(approval: SpecApproval | undefined, fingerprint: string, spec: DesignSource | undefined,
+  scope?: ImagineScope, currentAssessmentId?: string): boolean {
+  return !!spec && !!approval && approval.ruleVersion === readinessVersions(scope).ruleVersion && approval.fingerprint === fingerprint
+    && approval.specId === spec.id && approval.specRevision === spec.revision
+    && (scope !== 'workforce-definition' || (!!currentAssessmentId && approval.assessmentId === currentAssessmentId));
 }
 export async function readImagineHarness(db: Pool, id: string): Promise<ImagineHarnessView> {
   const design = await getDesign(db, id);
-  const view: ImagineHarnessView = { enabled: design.imagineDemo, specId: null, specRevision: null,
+  const scoped = design.imagineScope === 'workforce-definition';
+  const view: ImagineHarnessView = { enabled: scoped || design.imagineDemo, specId: null, specRevision: null,
     specApproved: false, canApprove: false, assessmentId: null, validationFingerprint: null, approvedAt: null, blockers: [], blockerCount: 0, workforce: null };
-  if (!design.imagineDemo) return view;
+  if (!view.enabled) return view;
   if (design.specificationType !== 'imagine') return { ...view, blockers: ['Choose IMAGINE as the specification type to use this harness.'], blockerCount: 1 };
   const { sources, fingerprint, spec } = await inputs(db, design);
   const saved = await state(db, design);
   view.specId = spec?.id ?? null;
   view.specRevision = spec?.revision ?? null;
-  view.specApproved = currentSpecApproval(saved.approval, fingerprint, spec);
+  const scopedReadiness = scoped && spec ? await readDesignReadinessForSources(db, design, sources) : undefined;
+  const scopedCurrent = scopedReadiness?.state === 'ready' && scopedReadiness.report?.fingerprint === fingerprint
+    && scopedReadiness.report?.designRevision === design.revision ? scopedReadiness.report.id : undefined;
+  view.specApproved = currentSpecApproval(saved.approval, fingerprint, spec, design.imagineScope, scopedCurrent);
   view.approvedAt = view.specApproved ? saved.approval!.approvedAt : null;
+  if (scopedCurrent) {
+    view.assessmentId = scopedCurrent;
+    view.validationFingerprint = fingerprint;
+  }
   if (!sources.some(source => source.role === 'use_case' && source.markdown.trim())) view.blockers.push('Write the handwritten use case in the Use case tab.');
-  if (!spec) view.blockers.push('Generate the IMAGINE specification first.');
+  if (!spec) view.blockers.push(scoped ? 'Generate the Workforce Spec first.' : 'Generate the IMAGINE specification first.');
   if (spec && !view.specApproved) {
-    const readiness = await readDesignReadiness(db, design.id);
-    view.assessmentId = readiness.report?.id ?? null;
-    view.validationFingerprint = readiness.report?.fingerprint ?? null;
-    view.canApprove = readiness.state === 'ready' && !view.blockers.length;
+    const readiness = scopedReadiness ?? await readDesignReadinessForSources(db, design, sources);
+    view.assessmentId = scoped ? scopedCurrent ?? null : readiness.report?.id ?? null;
+    view.validationFingerprint = scoped && !scopedCurrent ? null : readiness.report?.fingerprint ?? null;
+    view.canApprove = (scoped ? !!scopedCurrent : readiness.state === 'ready') && !view.blockers.length;
     if (!view.canApprove) {
-      if (readiness.state === 'blocked') view.blockers.push(...(readiness.report?.findings
-        .filter(finding => finding.status === 'open' && finding.kind === 'blocker')
-        .map(finding => `${finding.target}: ${finding.explanation}`) ?? []));
+      if (readiness.state === 'blocked' && readiness.report) {
+        view.findingActions = [];
+        for (const finding of readiness.report.findings.filter(f => f.status === 'open' && f.kind === 'blocker')) {
+          const index = view.blockers.push(`${finding.target}: ${finding.explanation}`) - 1;
+          if (index < 20) view.findingActions.push({ index, assessmentId: readiness.report.id, findingId: finding.id,
+            pending: readiness.proposal?.findingId === finding.id, otherPending: !!readiness.proposal && readiness.proposal.findingId !== finding.id });
+        }
+      }
       if (readiness.state !== 'blocked') view.blockers.push(readiness.sourceError
-        ?? `Specification validation is ${readiness.state}. Check readiness in the Spec tab before approving.`);
+        ?? (scoped && readiness.state === 'ready' ? 'The Workforce Spec assessment no longer matches the current sources.'
+          : `Specification validation is ${readiness.state}. Check readiness in the Spec tab before approving.`));
     }
   }
-  const workforce = (await sourceSnapshot(db, design)).find(source => source.role === 'workforce');
+  const workforce = scoped ? undefined : (await sourceSnapshot(db, design)).find(source => source.role === 'workforce');
   if (workforce) {
     view.workforce = { noteId: workforce.id, revision: workforce.revision,
       validated: view.specApproved && saved.workforce?.noteId === workforce.id && saved.workforce.revision === workforce.revision
@@ -72,7 +89,8 @@ export async function readImagineHarness(db: Pool, id: string): Promise<ImagineH
 }
 export async function approveImagineSpec(db: Pool, id: string, input: Record<string, unknown>): Promise<ImagineHarnessView> {
   const design = await getDesign(db, id);
-  if (!design.imagineDemo || design.specificationType !== 'imagine') throw new ValidationError('Enable Imagine demo and choose the IMAGINE specification type first.');
+  const scoped = design.imagineScope === 'workforce-definition';
+  if ((!scoped && !design.imagineDemo) || design.specificationType !== 'imagine') throw new ValidationError('Enable Imagine demo and choose the IMAGINE specification type first.');
   const view = await readImagineHarness(db, design.id);
   const snapshot = await inputs(db, design);
   if (!view.canApprove || !snapshot.spec || input['expectedRevision'] !== design.revision
@@ -88,9 +106,10 @@ export async function approveImagineSpec(db: Pool, id: string, input: Record<str
     await lockSources(client, snapshot.sources);
     const latest = (await client.query<{ id: string }>(
       'SELECT id FROM design_readiness_assessments WHERE design_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1', [design.id])).rows[0];
-    if (latest?.id !== view.assessmentId) throw new ConflictError('A newer specification assessment is available. Review it before approving.', 'IMAGINE_SPEC_NOT_READY');
+    if (!latest || latest.id !== view.assessmentId) throw new ConflictError('A newer specification assessment is available. Review it before approving.', 'IMAGINE_SPEC_NOT_READY');
     const approval: SpecApproval = { specId: snapshot.spec.id, specRevision: snapshot.spec.revision,
-      fingerprint: snapshot.fingerprint, approvedAt: new Date().toISOString(), ruleVersion: READINESS_RULE_VERSION };
+      fingerprint: snapshot.fingerprint, approvedAt: new Date().toISOString(), ruleVersion: readinessVersions(design.imagineScope).ruleVersion,
+      ...(scoped ? { assessmentId: latest.id } : {}) };
     await client.query(`UPDATE designs SET imagine_harness=jsonb_build_object('approval',$2::jsonb),updated_at=NOW() WHERE id=$1`,
       [design.id, JSON.stringify(approval)]);
     await client.query('COMMIT');
@@ -98,19 +117,27 @@ export async function approveImagineSpec(db: Pool, id: string, input: Record<str
   return readImagineHarness(db, design.id);
 }
 export async function requireImagineSpecApproval(db: Pool, id: string): Promise<{
-  design: DesignDetail; sources: DesignSource[]; fingerprint: string;
+  design: DesignDetail; sources: DesignSource[]; fingerprint: string; assessmentId?: string;
 }> {
   const design = await getDesign(db, id);
-  if (!design.imagineDemo || design.specificationType !== 'imagine') throw new ValidationError('This specialist requires an Imagine demo Design with an IMAGINE specification.');
+  const scoped = design.imagineScope === 'workforce-definition';
+  if ((!scoped && !design.imagineDemo) || design.specificationType !== 'imagine') throw new ValidationError('This specialist requires an Imagine demo Design with an IMAGINE specification.');
   const snapshot = await inputs(db, design);
-  if (!currentSpecApproval((await state(db, design)).approval, snapshot.fingerprint, snapshot.spec)) {
-    throw new ValidationError('Stop: the user must approve the current validated specification in Design properties before workforce generation. Changed sources require fresh validation and approval.');
+  const approval = (await state(db, design)).approval;
+  const readiness = scoped ? await readDesignReadinessForSources(db, design, snapshot.sources) : undefined;
+  const assessmentId = readiness?.state === 'ready' && readiness.report?.fingerprint === snapshot.fingerprint
+    && readiness.report?.designRevision === design.revision ? readiness.report.id : undefined;
+  if (!currentSpecApproval(approval, snapshot.fingerprint, snapshot.spec, design.imagineScope, assessmentId)) {
+    throw new ValidationError(scoped
+      ? 'Stop: the user must approve the current assessed Workforce Spec in Design properties before blueprint creation.'
+      : 'Stop: the user must approve the current validated specification in Design properties before workforce generation. Changed sources require fresh validation and approval.');
   }
-  return { design, sources: snapshot.sources, fingerprint: snapshot.fingerprint };
+  return { design, sources: snapshot.sources, fingerprint: snapshot.fingerprint, ...(assessmentId ? { assessmentId } : {}) };
 }
 
 export async function checkImagineWorkforce(db: Pool, id: string): Promise<ImagineHarnessView> {
   const { design, sources, fingerprint } = await requireImagineSpecApproval(db, id);
+  if (design.imagineScope === 'workforce-definition') throw new ValidationError('The full-demo workforce check is not applicable. Check Workforce Spec definition readiness instead.');
   const workforce = (await sourceSnapshot(db, design)).find(source => source.role === 'workforce');
   if (!workforce) throw new ValidationError('Generate or link a workforce document before checking it.');
   parseImagineWorkforce(workforce.markdown, sources, workforce.blocks);
@@ -134,6 +161,7 @@ export async function checkImagineWorkforce(db: Pool, id: string): Promise<Imagi
 
 export async function writeImagineWorkforce(db: Pool, id: string, progress: (message: string) => void, signal: AbortSignal): Promise<{ noteId: string }> {
   const { design, sources, fingerprint } = await requireImagineSpecApproval(db, id);
+  if (design.imagineScope === 'workforce-definition') throw new ValidationError('This Design uses the separate Imagine workforce blueprint creation workflow, not the full-demo workforce generator.');
   const previous = (await sourceSnapshot(db, design)).find(source => source.role === 'workforce');
   if (previous && hasProtectedContent(previous.blocks)) throw new ValidationError('The workforce document contains native references or media. Use targeted edits to preserve them instead of regenerating.');
   let prior: ImagineWorkforce | undefined;

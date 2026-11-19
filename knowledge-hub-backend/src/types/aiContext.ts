@@ -32,7 +32,7 @@ export type AthenaPersona = 'general' | 'brainstorming' | 'copilot_coach' | 'blo
 export interface ChatPageContext {
   conversationId?: string;
   designId?: string;
-  designTab?: 'use_case' | 'spec' | 'architecture' | 'diagram' | 'workforce';
+  designTab?: 'use_case' | 'spec' | 'architecture' | 'diagram' | 'workforce' | 'blueprint' | 'build' | 'verify';
   revision?: number;
   selectedIds?: { nodes: string[]; edges: string[] };
   saveState?: string;

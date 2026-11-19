@@ -95,8 +95,8 @@ function readDraft(key: string): Draft {
 }
 export const DesignVisual: React.FC<{
   designId: string; subjectId: string; agentJob: AgentJob | undefined; parentNoteId: string; prepare: () => Promise<void>; onAccepted: () => Promise<void>;
-  onBusyChange: (busy: boolean, status?: string) => void;
-}> = ({ designId, subjectId, agentJob, parentNoteId, prepare, onAccepted, onBusyChange }) => {
+  onBusyChange: (busy: boolean, status?: string) => void; imagineDemo?: boolean;
+}> = ({ designId, subjectId, agentJob, parentNoteId, prepare, onAccepted, onBusyChange, imagineDemo = false }) => {
   const qc = useQueryClient();
   const frame = useRef<HTMLIFrameElement>(null);
   const [identity] = useState(() => noteDraftIdentity.get());
@@ -309,17 +309,22 @@ export const DesignVisual: React.FC<{
   const brief = <>
     <label className="kh-uc-field"><span className="kh-uc-field__label">Additional direction (optional)</span>
       <textarea className="kh-uc-input kh-uc-input--area" rows={2} maxLength={8000} value={draft.brief} disabled={busy}
-        placeholder="The linked requirements are already included. Add anything Athena should emphasise."
+        placeholder={imagineDemo ? 'The saved Design sources are included. Name the scenario or handoff Athena should emphasise.'
+          : 'The linked requirements are already included. Add anything Athena should emphasise.'}
         onChange={event => { setDraft(current => ({ ...current, brief: event.target.value })); }} /></label>
     <button type="button" className={artifact ? 'kh-btn-ghost' : 'kh-btn-accent'} disabled={busy || !!agentJob || !!state.proposal}
-      onClick={() => { generate.mutate(); }}>{generate.isPending ? 'Handing off...' : agentJob ? 'The Blueprint designer is working...' : artifact ? 'Regenerate Blueprint' : 'Create Blueprint'}</button>
+      onClick={() => { generate.mutate(); }}>{generate.isPending ? 'Handing off...' : agentJob ? 'The Blueprint designer is working...'
+        : artifact ? imagineDemo ? 'Regenerate scenario Blueprint' : 'Regenerate Blueprint'
+          : imagineDemo ? 'Create scenario Blueprint' : 'Create Blueprint'}</button>
   </>;
   return <div className="kh-design-visual">
     <header className="kh-design-visual__intro">
       <h3>Blueprint</h3>
       <p className="kh-design-hint">{artifact
         ? 'Answer the decisions or click any part of the Blueprint to comment. Everything collects in your queue below; nothing changes until you review the queue and press Apply. Every applied change can be undone from note history.'
-        : 'Athena explains what this spec does, which steps are automatic and which need you, walks through an example and asks only the decisions the spec leaves open.'}</p>
+        : imagineDemo
+          ? 'Walk one scenario from trigger to outcome: the same records, each worker’s actions, human handoffs, state changes and exception paths. Uses the saved use case, spec and available workforce design. This is an illustrative walkthrough, not live execution.'
+          : 'Athena explains what this spec does, which steps are automatic and which need you, walks through an example and asks only the decisions the spec leaves open.'}</p>
       {!artifact && brief}
     </header>
     {agentJob && <section className="kh-design-progress" aria-label="Specialist progress" aria-busy="true">
@@ -332,7 +337,7 @@ export const DesignVisual: React.FC<{
     </section>}
     {state.stale && !agentJob && <p className="kh-uc-error" role="alert">{state.sourceError ?? 'The spec has changed since this Blueprint was made. The Blueprint stays as it is until you choose Regenerate Blueprint.'}</p>}
     {artifact && <section className="kh-design-visual__regenerate" aria-label="Regenerate the Blueprint">
-      <p className="kh-design-hint">Creates a new revision from the current spec. Revision {artifact.revision} stays in history.</p>{brief}</section>}
+      <p className="kh-design-hint">{imagineDemo ? 'Creates a new scenario walkthrough from the current Design sources.' : 'Creates a new revision from the current spec.'} Revision {artifact.revision} stays in history.</p>{brief}</section>}
     {draftError && <p className="kh-uc-error" role="alert">{draftError}</p>}
     {error && <p className="kh-uc-error" role="alert">{describeApiError(error)}</p>}
     {state.proposal && <section className="kh-design-visual__panel kh-design-visual__panel--proposal" aria-label="Athena's proposed spec changes">

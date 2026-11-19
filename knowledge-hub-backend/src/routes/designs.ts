@@ -1,17 +1,22 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { recordAiDecision } from '../ai/aiLedger.js';
 import { getDb } from '../db/db.js';
+import { readImagineHandoff, writeImagineHandoff } from '../designs/imagineHandoff.js';
+import { connectImagine } from '../services/imagineConnection.js';
+import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { KnowledgeHubError, ValidationError } from '../types/errors.js';
-import { assetDesigns, attachAsset, createDesignSection, detachAsset, getDesign, listDesigns, requiredText, searchAssets, selectDesignAsset, setSpecificationType, setImagineDemo } from '../designs/designStore.js';
+import { assetDesigns, attachAsset, createDesignSection, detachAsset, getDesign, listDesigns, requiredText, searchAssets, selectDesignAsset, setSpecificationType, setImagineDemo, setImagineScope } from '../designs/designStore.js';
 import { approveImagineSpec, checkImagineWorkforce, readImagineHarness } from '../designs/imagineHarness.js';
 import { applyFeedback, collaboration, discardFeedback, editFeedback, generateArtifact, proposeFeedback, queueFeedback, resolveProposal } from '../designs/designArtifacts.js';
-import { createPackage, getPackage, packageArchive, preparePublication, publishPackage } from '../designs/designPackages.js';
+import { buildPublishedPackage, createPackage, getPackage, packageArchive, preparePublication, publishPackage } from '../designs/designPackages.js';
+import { listDesignBuilds, readDesignAcceptance, setDesignAcceptanceSource } from '../designs/designWorkflow.js';
 import { scheduleNoteIndexing } from './notes.js';
 import { writeDesignSpec } from '../designs/designSpec.js';
 import { scheduleGitHubPublish } from '../services/noteGitHubService.js';
 import type { Note } from '../types/index.js';
 import { checkDesignConsistency } from '../designs/designConsistency.js';
-import { checkDesignReadiness, pageReadiness, prepareReadinessRepair, readDesignReadiness, readinessHistory, resolveReadinessRepair } from '../designs/designReadiness.js';
+import { pageReadiness, readDesignReadiness, readinessHistory, resolveReadinessRepair } from '../designs/designReadiness.js';
+import { handOff } from '../agents/engine.js';
 
 export const designsRouter = Router();
 const MAX_ID_LENGTH = 100;
@@ -48,7 +53,20 @@ designsRouter.delete('/:id/assets', wrap(req => detachAsset(getDb(), id(req), bo
 designsRouter.post('/:id/selection', wrap(req => selectDesignAsset(getDb(), id(req), body(req))));
 designsRouter.post('/:id/specification-type', wrap(req => setSpecificationType(getDb(), id(req), body(req))));
 designsRouter.post('/:id/imagine-demo', wrap(req => setImagineDemo(getDb(), id(req), body(req))));
+designsRouter.post('/:id/imagine-scope', wrap(req => setImagineScope(getDb(), id(req), body(req))));
 designsRouter.get('/:id/imagine-harness', wrap(req => readImagineHarness(getDb(), id(req))));
+designsRouter.get('/:id/imagine-blueprint', wrap(req => readImagineHandoff(getDb(), id(req), (req as AuthenticatedRequest).userId)));
+designsRouter.post('/:id/imagine-connection', wrap(async req => {
+  const design = await getDesign(getDb(), id(req));
+  if (design.imagineScope !== 'workforce-definition') throw new ValidationError('Choose a workforce-definition Design.');
+  await connectImagine(getDb(), (req as AuthenticatedRequest).userId, body(req)['idToken'], req.get('origin'));
+  return { connected: true };
+}));
+designsRouter.post('/:id/imagine-blueprint/prepare', wrap(req => writeImagineHandoff(getDb(), id(req), (req as AuthenticatedRequest).userId, req.get('origin'), body(req), true)));
+designsRouter.post('/:id/imagine-blueprint', wrap(req => writeImagineHandoff(getDb(), id(req), (req as AuthenticatedRequest).userId, req.get('origin'), body(req), false)));
+designsRouter.get('/:id/builds', wrap(req => listDesignBuilds(getDb(), id(req))));
+designsRouter.get('/:id/acceptance', wrap(req => readDesignAcceptance(getDb(), id(req))));
+designsRouter.post('/:id/acceptance-source', wrap(req => setDesignAcceptanceSource(getDb(), id(req), body(req))));
 designsRouter.post('/:id/imagine-harness/approve-spec', wrap(req => approveImagineSpec(getDb(), id(req), body(req))));
 designsRouter.post('/:id/imagine-harness/check-workforce', wrap(req => checkImagineWorkforce(getDb(), id(req))));
 designsRouter.get('/:id/collaboration', wrap(req => collaboration(getDb(), id(req))));
@@ -64,8 +82,8 @@ designsRouter.get('/:id/readiness', wrap(async req => {
   return pageReadiness(await readDesignReadiness(getDb(), id(req)), pageOffset(req), status);
 }));
 designsRouter.get('/:id/readiness/history', wrap(req => readinessHistory(getDb(), id(req), pageOffset(req))));
-designsRouter.post('/:id/readiness', wrap(async req => pageReadiness(await checkDesignReadiness(getDb(), id(req), body(req)['specId']))));
-designsRouter.post('/:id/readiness/repairs', wrap(async req => pageReadiness(await prepareReadinessRepair(getDb(), id(req), body(req)))));
+designsRouter.post('/:id/readiness', wrap(req => handOff(getDb(), { specialist: 'design-readiness-check', subjectId: id(req), input: body(req), requestedBy: 'app' })));
+designsRouter.post('/:id/readiness/repairs', wrap(req => handOff(getDb(), { specialist: 'design-finding-fix', subjectId: id(req), input: body(req), requestedBy: 'app' })));
 designsRouter.post('/:id/readiness/repairs/:proposalId/resolve', wrap(req => {
   const input = body(req);
   if (typeof input['accept'] !== 'boolean') throw new ValidationError('Choose Apply or Discard.');
@@ -119,8 +137,8 @@ designsRouter.delete('/:id/feedback/:feedbackId', wrap(req => discardFeedback(ge
 designsRouter.post('/:id/proposals', wrap(req => proposeFeedback(getDb(), id(req))));
 const reindex = async (noteIds: string[]): Promise<void> => {
   for (const noteId of noteIds) {
-    const row = (await getDb().query<{ id: string; content: string; created_at: Date; updated_at: Date; revision: number; tags: string[]; linked_items: string[]; status: Note['status']; project_id: string | null }>('SELECT * FROM notes WHERE id=$1', [noteId])).rows[0]!;
-    scheduleNoteIndexing(getDb(), { id: row.id, content: row.content, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(), revision: row.revision, tags: row.tags, linkedItems: row.linked_items, status: row.status, ...(row.project_id ? { projectId: row.project_id } : {}) });
+    const row = (await getDb().query<{ id: string; content: string; created_at: Date; updated_at: Date; revision: number; linked_items: string[]; status: Note['status']; project_id: string | null }>('SELECT id, content, created_at, updated_at, revision, linked_items, status, project_id FROM notes WHERE id=$1', [noteId])).rows[0]!;
+    scheduleNoteIndexing(getDb(), { id: row.id, content: row.content, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(), revision: row.revision, linkedItems: row.linked_items, status: row.status, ...(row.project_id ? { projectId: row.project_id } : {}) });
   }
 };
 designsRouter.post('/:id/apply', wrap(async req => {
@@ -132,7 +150,7 @@ designsRouter.post('/:id/spec', wrap(async req => {
   const result = await writeDesignSpec(getDb(), id(req), body(req)['replace'] === true);
   for (const note of result.notes) scheduleNoteIndexing(getDb(), note);
   for (const noteId of result.publish) scheduleGitHubPublish(getDb(), noteId);
-  return { noteId: result.noteId, title: result.title, created: result.created };
+  return { noteId: result.noteId, architectureNoteId: result.architectureNoteId, title: result.title, created: result.created };
 }));
 designsRouter.post('/:id/proposals/:proposalId/resolve', wrap(async req => {
   const input = body(req);
@@ -144,6 +162,8 @@ designsRouter.post('/:id/proposals/:proposalId/resolve', wrap(async req => {
   return result;
 }));
 designsRouter.post('/:id/packages', wrap(req => createPackage(getDb(), id(req), body(req))));
+designsRouter.post('/:id/packages/:packageId/build', wrap(req => buildPublishedPackage(getDb(), id(req),
+  requiredText(req.params['packageId'], 'Package ID', MAX_ID_LENGTH), requiredText(body(req)['publicationId'], 'Publication ID', MAX_ID_LENGTH))));
 designsRouter.get('/:id/packages/:packageId/download', (req, res, next) => {
   void getPackage(getDb(), id(req), requiredText(req.params['packageId'], 'Package ID', MAX_ID_LENGTH)).then(packageArchive).then(buffer => {
     res.setHeader('Content-Type', 'application/zip');

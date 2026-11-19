@@ -5,6 +5,7 @@ import { api } from '../../services/api';
 import { describeApiError, requireApiData } from '../../services/apiError';
 import type { DesignReadiness as ReadinessData, ReadinessEvidence } from '../../types/designs';
 import { extractNoteBlockText } from '../../notes/noteText';
+import { rememberAgentJob } from '../../services/agentJobStore';
 
 const labels: Record<ReadinessData['state'], string> = {
   'not-assessed': 'Not assessed', blocked: 'Specification gaps open', ready: 'Checked specification complete',
@@ -13,9 +14,9 @@ const labels: Record<ReadinessData['state'], string> = {
 
 export const DesignReadiness: React.FC<{
   id: string; specId: string | undefined; currentSpecId: string | undefined; revision: number | undefined;
-  designRevision: number; busy: boolean; prepare: () => Promise<void>;
+  designRevision: number; definitionOnly?: boolean; busy: boolean; prepare: () => Promise<void>;
   onBusyChange: (busy: boolean) => void; onApplied: () => Promise<void>;
-}> = ({ id, specId, currentSpecId, revision, designRevision, busy, prepare, onBusyChange, onApplied }) => {
+}> = ({ id, specId, currentSpecId, revision, designRevision, definitionOnly = false, busy, prepare, onBusyChange, onApplied }) => {
   const qc = useQueryClient();
   const [offset, setOffset] = useState(0);
   const [status, setStatus] = useState<'open' | 'resolved'>('open');
@@ -35,15 +36,21 @@ export const DesignReadiness: React.FC<{
       const candidates = current.assets.filter(item => item.role === 'spec');
       const selected = current.selections.spec ?? (candidates.length === 1 ? candidates[0]?.sourceId : undefined);
       if (!selected || selected !== specId) throw new Error('Select this specification for handoff before checking readiness.');
-      return requireApiData(await api.checkDesignReadiness(id, selected));
+      const result = requireApiData(await api.handOffToSpecialist('design-readiness-check', current.id, { specId: selected }, true));
+      if (result.status === 'needs_confirmation') throw new Error(result.message);
+      rememberAgentJob(result.job);
     },
     onSuccess: async () => { setOffset(0); setStatus('open'); await refresh(); },
   });
   const repair = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (findingId: string) => {
       await prepare();
-      if (!query.data?.report || !target) throw new Error('Choose a finding in the current assessment.');
-      return requireApiData(await api.prepareDesignReadinessRepair(id, query.data.report.id, target, instruction.trim(), synthetic));
+      if (!query.data?.report) throw new Error('Choose a finding in the current assessment.');
+      const result = requireApiData(await api.handOffToSpecialist('design-finding-fix', id, {
+        assessmentId: query.data.report.id, findingId, ...(instruction.trim() && { instruction: instruction.trim() }), allowSyntheticFixtures: synthetic,
+      }, true));
+      if (result.status === 'needs_confirmation') throw new Error(result.message);
+      rememberAgentJob(result.job);
     },
     onSuccess: async () => { setTarget(null); setInstruction(''); setSynthetic(false); await refresh(); },
   });
@@ -72,11 +79,13 @@ export const DesignReadiness: React.FC<{
     </div>;
   };
   return <section className="kh-design-readiness" aria-label="IMAGINE specification readiness">
-    <h3>IMAGINE readiness</h3>
-    <p>Check the saved specification against its selected sources. Handoff stays available with warnings; this does not certify implementation or live approval.</p>
+    <h3>{definitionOnly ? 'Workforce definition completeness' : 'IMAGINE readiness'}</h3>
+    <p>{definitionOnly ? 'Check only the authored definition against the Use Case. No deployment, runtime evidence or native G1 pass is required or claimed. Imagine creation has its own authoring-connection prerequisites.'
+      : 'Check the saved specification against its selected sources. Handoff stays available with warnings; this does not certify implementation or live approval.'}</p>
     {!isSelected && <p className="kh-design-readiness__warning">Select this specification for handoff before checking or preparing a repair.</p>}
     <button type="button" className="kh-btn-accent" disabled={busy || working || !isSelected || !!view?.proposal}
-      onClick={() => { check.reset(); repair.reset(); resolve.reset(); check.mutate(); }}>{check.isPending ? 'Checking readiness…' : 'Check readiness'}</button>
+      onClick={() => { check.reset(); repair.reset(); resolve.reset(); check.mutate(); }}>{check.isPending ? 'Checking readiness…'
+        : definitionOnly ? 'Check definition completeness' : 'Check readiness'}</button>
     {working && <p role="status">{check.isPending ? 'Reading saved sources and checking actual completeness. One bounded review; no automatic retries.'
       : repair.isPending ? 'Preparing a targeted preview. Your writing is unchanged.' : 'Resolving the reviewed repair…'}</p>}
     {query.isLoading && <p role="status">Loading saved assessment…</p>}
@@ -110,18 +119,18 @@ export const DesignReadiness: React.FC<{
             {finding.resolution && <details className="kh-design-readiness__details"><summary>Recorded resolution</summary>
               <p>{finding.resolution.explanation}</p>{finding.resolution.evidence.map(evidence)}</details>}
             {finding.status === 'open' && <button type="button" className="kh-btn-ghost" disabled={busy || !canRepair || !!view.proposal}
-              onClick={() => { setTarget(finding.id); setInstruction(''); setSynthetic(false); repair.reset(); }}>Prepare repair</button>}
+              onClick={() => { if (definitionOnly) { repair.mutate(finding.id); return; } setTarget(finding.id); setInstruction(''); setSynthetic(false); repair.reset(); }}>{definitionOnly ? 'Fix with Athena' : 'Prepare repair'}</button>}
             {target === finding.id && <form className="kh-design-readiness__repair" onSubmit={event => {
-              event.preventDefault(); if (canRepair && instruction.trim()) repair.mutate();
+              event.preventDefault(); if (canRepair && instruction.trim()) repair.mutate(finding.id);
             }}>
               <label>Confirmed answer or repair instruction
                 <textarea value={instruction} maxLength={4000} rows={4} disabled={busy || !canRepair} required
                   onChange={event => { setInstruction(event.target.value); }} />
               </label>
-              <label className="kh-design-readiness__checkbox">
+              {!definitionOnly && <label className="kh-design-readiness__checkbox">
                 <input type="checkbox" checked={synthetic} disabled={busy || !canRepair} onChange={event => { setSynthetic(event.target.checked); }} />
                 <span>I authorise synthetic fixtures for this repair only; label them illustrative, never live evidence.</span>
-              </label>
+              </label>}
               <p>No writing is saved until you review and Apply the preview. Unanswered decisions stay open.</p>
               <div className="kh-design-readiness__actions">
                 <button type="submit" className="kh-btn-accent" disabled={busy || !canRepair || !instruction.trim()}>Prepare preview</button>
@@ -136,7 +145,7 @@ export const DesignReadiness: React.FC<{
           <button type="button" className="kh-btn-ghost" disabled={view.nextOffset === null || query.isFetching} onClick={() => { if (view.nextOffset !== null) setOffset(view.nextOffset); }}>More findings</button>
         </div>
       </>}
-      {view.proposal && <div className="kh-design-readiness__proposal">
+      {view.proposal && <div id="design-pending-fix" className="kh-design-readiness__proposal">
         <h4>Review pending repair</h4>
         <p><strong>Your instruction:</strong> {view.proposal.instruction}</p>
         <p>{view.proposal.explanation}</p>
@@ -149,7 +158,7 @@ export const DesignReadiness: React.FC<{
         </details>)}
         <p>Apply saves only these changes with note history. Readiness then becomes stale; recheck to establish which findings are resolved.</p>
         <div className="kh-design-readiness__actions">
-          <button type="button" className="kh-btn-accent" disabled={busy || !canRepair} onClick={() => { resolve.reset(); resolve.mutate(true); }}>Apply reviewed repair</button>
+          {canRepair && <button type="button" className="kh-btn-accent" disabled={busy} onClick={() => { resolve.reset(); resolve.mutate(true); }}>Apply reviewed repair</button>}
           <button type="button" className="kh-btn-ghost" disabled={busy} onClick={() => { resolve.reset(); resolve.mutate(false); }}>Discard</button>
         </div>
       </div>}

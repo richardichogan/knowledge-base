@@ -8,6 +8,7 @@ import { BUILD_CHAT_TOOLS, BUILD_READ_TOOLS, BUILD_WRITE_TOOLS, type BuildTurnSt
 import { USE_CASE_CHAT_TOOLS, USE_CASE_WRITE_TOOLS, type UseCaseTurnState } from './useCaseTools.js';
 import type { TaskStatusProposal } from '../work/taskStatusChange.js';
 import { getDesign } from '../designs/designStore.js';
+import { WORKFORCE_DEFINITION_BOUNDARY } from '../designs/workforceDefinitionScope.js';
 import { buildStandingInstructionsBlock } from './athenaMemory.js';
 import type { Pool } from 'pg';
 import { getFoundryClient, AiStoppedError } from './foundryClient.js';
@@ -259,6 +260,7 @@ async function conversationTurn(
   /** Per-turn tool context: the open Think note, and a collector for proposed edits to it. */
   toolContext: {
     userId?: string | undefined;
+    browserOrigin?: string | undefined;
     noteId?: string | undefined; designOwner?: string | undefined; designState?: DesignTurnState;
     podcastOwner?: string | undefined; podcastState?: PodcastTurnState;
     noteEdits?: NoteEditProposal[]; mapChanges?: MapChangeProposal[];
@@ -387,9 +389,14 @@ It proves persistence of that revision, not visual correctness or that the open 
   const design = toolContext.designOwner ? await getDesign(db, toolContext.designOwner) : undefined;
   const designBlock = design ? `## Working Design package (server-resolved)
 The conversation belongs to Design ${JSON.stringify(design.title)} (parent ${design.parentNoteId}), not an independent note.
+Current persisted Imagine scope: ${design.imagineScope}.
+${design.imagineScope === 'workforce-definition' ? `${WORKFORCE_DEFINITION_BOUNDARY}
+For this scoped Design, the main stages are Use Case → Workforce Spec → Architecture → Diagram → Blueprint → Create Imagine Workforce Blueprint. This boundary overrides the full-demo stage guidance below. Software-build handoff is not permitted. Use read_design_workflow to distinguish missing review, required sign-in, partially saved member definitions, and a verified Imagine workforce. Keep normal user sign-in and human approval separate. Never claim destination records exist without read-back, fabricate a workforce URL, or treat a request to create a blueprint as permission to deploy.` : ''}
 Active original: ${toolContext.noteId ?? 'none'}. Authoritative section links: ${JSON.stringify(design.selections)}.
-A Design is a COMPOUND content type: a parent Think note that only links its sections, which are separate originals: Use Case, Spec and Architecture (each its own Think note with its own revision) and Diagram (a linked native canvas). The parent body is not a section and holds none of their content. Work out which section the request concerns (the active original above is the default), read that section with read_design_package, and write it with save_design_documents using that section's own id and revision. Diagram changes go through the diagram tools or specialist hand-off, never through the document tools. Never put one section's content into another or into the parent.
+A Design is a COMPOUND content type: each section has its own selected original and revision. A handwritten Design's parent writing is normally its Use case; preserve the actual saved role and ID reported by read_design_package, including older explicit Spec mappings. Never require a separate use-case link or duplicate that writing. Spec and Architecture have their own originals; Diagram is a linked native canvas. Work out which section the request concerns (the active original above is the default), read that section with read_design_package, and write it with save_design_documents using that section's own id and revision. Diagram changes go through the diagram tools or specialist hand-off, never through the document tools. Never use another section's content or the parent body as a fallback for a missing section.
 Use read_design_package to read the current originals and revisions before work. Use save_design_documents when asked to revise/create/save sections; it updates those originals or atomically creates and links a genuinely missing section.
+For Blueprint questions, read the actual saved visual with read_design_blueprint and follow its nextOffset chunks; package metadata is not the visual's content. For requested visual changes, queue_design_blueprint_feedback adds to the existing review queue only. Never claim the Blueprint changed until the user applies that queue. For Imagine demos, the Blueprint follows one concrete scenario through workers, human handoffs and record/state changes; it is not runtime execution evidence.
+Imagine demo main stages are Use case → Spec → Architecture → Diagram → Blueprint → Build, inside the existing Design shell. The IMAGINE Spec writer also generates recommended Architecture using actual configured imagine-base documents at one immutable revision; both save together with revision guards and history. Existing Spec/Architecture replacement requires confirmation. Workforce remains an existing supporting document/action, not an extra main stage, and generation/contract approval boundaries remain unchanged. Repository acceptance tools remain available but are not an extra main stage. read_design_workflow retrieves real linked Build/harness state; read_design_acceptance retrieves repository-reported G0–G7 results at an exact report commit, with the candidate identity and full criteria in bounded chunks. Never treat a saved report as independent authentication of human acceptance, current live runtime state, candidate freshness or authorization for any external operation. Do not equate merged code or Build completion with acceptance. Only change the report source or create an already-published-package Build draft when asked; publication still requires the existing user confirmation.
 Do not use generic draft creation, demo-specification generation, Outputs, chat-only deliverables, or edit the parent to stand in for a section. "Save in the Spec tab" means save the Spec original in this Design. Do not ask again for permission already given.
 Use case = actors, goals, journey and outcomes; Spec = detailed behaviours, constraints and acceptance; Architecture = technical structure; Diagram = the linked native canvas. HTML is the shared interactive visual within Spec, not an extra document for every tab.
 Separate Imagine demo flag: ${design.imagineDemo}. When enabled, Workforce is an additional tab holding its own editable Agent Workforce Design note, not Architecture or executable agents. Use read_imagine_harness for actual gates and freshness. The Spec writer generates then checks readiness and stops. Only the user's explicit Approve this spec action in Design properties unlocks imagine-workforce-designer; never infer or grant this approval yourself. Source edits invalidate it. Workforce generation stops for review, without Imagine writes, build or deployment. Use save_design_documents for targeted workforce edits, then check_imagine_workforce for design-contract checks. These are never runtime or UI acceptance evidence.
@@ -473,7 +480,7 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
     if (name === 'fetch_web_page') return filtered && projectId === null;
     // Other readers do not enforce content filters. Structured queries and Design reads enforce project IDs only.
     return !filtered && (BUILD_READ_TOOLS.includes(name as typeof BUILD_READ_TOOLS[number]) || name === 'read_use_case'
-      || STRUCTURED_TOOL_NAMES.has(name) || name === 'read_project_progress_reviews' || name === 'read_design_package' || name === 'read_podcast_script' || name === 'read_work_content' || name === 'list_drafts');
+      || STRUCTURED_TOOL_NAMES.has(name) || name === 'read_project_progress_reviews' || name === 'read_design_package' || name === 'read_design_blueprint' || name === 'read_design_workflow' || name === 'read_design_build' || name === 'read_design_acceptance' || name === 'read_podcast_script' || name === 'read_work_content' || name === 'list_drafts');
   };
   if (design) catalog.load(['read_design_package']);
   if (toolContext.podcastOwner) catalog.load(['read_podcast_script', 'read_podcast_campaign']);

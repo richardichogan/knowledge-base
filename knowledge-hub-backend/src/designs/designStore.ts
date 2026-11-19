@@ -5,33 +5,35 @@ import type { Note } from '../types/index.js';
 import { initDiagram } from '../services/diagramService.js';
 import { writeNoteInTransaction } from '../services/noteVersionService.js';
 import { getUseCase, type UseCaseDetail } from '../useCases/useCaseStore.js';
-import { parseNoteContent } from '../utils/noteContent.js';
+import { hasNoteWriting, parseNoteContent } from '../utils/noteContent.js';
 
 export const DESIGN_ROLES = ['use_case', 'spec', 'architecture', 'diagram', 'reference', 'workforce'] as const;
 export const DESIGN_STATUSES = ['draft', 'in_review', 'ready', 'archived'] as const;
+export const IMAGINE_SCOPES = ['full-demo', 'workforce-definition'] as const;
 export type DesignRole = typeof DESIGN_ROLES[number];
 export type SpecificationType = 'standard' | 'imagine';
+export type ImagineScope = typeof IMAGINE_SCOPES[number];
 export type AssetType = 'note' | 'canvas' | 'usecase' | 'link';
 export interface Design {
   id: string; parentNoteId: string; title: string; summary: string; projectId: string | null; sourceUseCaseId: string | null; sourceNoteId: string | null;
-  status: typeof DESIGN_STATUSES[number]; revision: number; mapped: boolean; updatedAt: string; specificationType: SpecificationType | null; imagineDemo: boolean;
+  status: typeof DESIGN_STATUSES[number]; revision: number; mapped: boolean; updatedAt: string; specificationType: SpecificationType | null; imagineDemo: boolean; imagineScope: ImagineScope;
 }
 export interface DesignAsset {
   sourceType: AssetType; sourceId: string; title: string; role: DesignRole; href: string;
-  origin: 'explicit' | 'manual'; available: boolean;
+  origin: 'explicit' | 'manual'; available: boolean; hasContent?: boolean;
 }
 export interface DesignDetail extends Design { assets: DesignAsset[]; selections: Partial<Record<DesignRole, string>> }
 interface Row {
   id: string; parent_note_id: string; title: string; summary: string; project_id: string | null; source_use_case_id: string | null; source_note_id: string | null;
-  status: Design['status']; revision: number; mapped: boolean; updated_at: Date; specification_type: SpecificationType | null; imagine_demo: boolean;
+  status: Design['status']; revision: number; mapped: boolean; updated_at: Date; specification_type: SpecificationType | null; imagine_demo: boolean; imagine_scope: ImagineScope;
 }
 const view = (row: Row): Design => ({
   id: row.id, parentNoteId: row.parent_note_id, title: row.title, summary: row.summary, projectId: row.project_id, sourceUseCaseId: row.source_use_case_id, sourceNoteId: row.source_note_id,
-  status: row.status, revision: row.revision, mapped: row.mapped, updatedAt: row.updated_at.toISOString(), specificationType: row.specification_type, imagineDemo: row.imagine_demo,
+  status: row.status, revision: row.revision, mapped: row.mapped, updatedAt: row.updated_at.toISOString(), specificationType: row.specification_type, imagineDemo: row.imagine_demo, imagineScope: row.imagine_scope,
 });
 const ALL_DESIGNS = `
   SELECT d.id,d.parent_note_id,note_list_metadata(n.content)->>'title' AS title,d.summary,n.project_id,
-    d.source_use_case_id,d.source_note_id,d.status,d.revision,false AS mapped,n.updated_at,d.specification_type,d.imagine_demo
+    d.source_use_case_id,d.source_note_id,d.status,d.revision,false AS mapped,n.updated_at,d.specification_type,d.imagine_demo,d.imagine_scope
   FROM designs d JOIN notes n ON n.id=d.parent_note_id
   WHERE n.status='active' AND note_list_metadata(n.content)->>'contentType'='design'`;
 const MAX_ASSETS = 200;
@@ -111,7 +113,8 @@ async function resolveAsset(db: Pool, sourceType: AssetType, sourceId: string, r
   if (sourceType === 'note') {
     const { rows } = await db.query<{ content: string }>("SELECT content FROM notes WHERE id::text=$1 AND status='active'", [sourceId]);
     return { ...base, title: rows[0] ? parseNoteContent(rows[0].content).title ?? 'Untitled note' : 'Unavailable note',
-      href: `/think?noteId=${encodeURIComponent(sourceId)}`, available: !!rows[0] };
+      href: `/think?noteId=${encodeURIComponent(sourceId)}`, available: !!rows[0],
+      ...(rows[0] ? { hasContent: hasNoteWriting(rows[0].content) } : {}) };
   }
   if (sourceType === 'canvas') {
     const { rows } = await db.query<{ title: string }>("SELECT title FROM canvases WHERE id::text=$1 AND canvas_type='diagram' AND deleted_at IS NULL", [sourceId]);
@@ -248,6 +251,19 @@ export async function setImagineDemo(db: Pool, id: string, input: Record<string,
   const result = await db.query(`UPDATE designs SET imagine_demo=$2,imagine_harness='{}',revision=revision+1,updated_at=NOW()
     WHERE id=$1 AND revision=$3 RETURNING id`, [design.id, input['imagineDemo'], revision]);
   if (!result.rows.length) throw new ConflictError('The Design changed. Reload before changing its Imagine demo flag.', 'DESIGN_CONFLICT');
+  return getDesign(db, design.id);
+}
+export async function setImagineScope(db: Pool, id: string, input: Record<string, unknown>): Promise<DesignDetail> {
+  const scope = input['imagineScope'];
+  if (scope !== 'full-demo' && scope !== 'workforce-definition') {
+    throw new ValidationError('Choose full-demo or workforce-definition as the Imagine scope.');
+  }
+  const revision = input['expectedRevision'];
+  if (typeof revision !== 'number' || !Number.isInteger(revision) || revision < 0) throw new ValidationError('A valid Design revision is required.');
+  const design = await getDesign(db, id);
+  const result = await db.query(`UPDATE designs SET imagine_scope=$2,imagine_harness='{}',revision=revision+1,updated_at=NOW()
+    WHERE id=$1 AND revision=$3 RETURNING id`, [design.id, scope, revision]);
+  if (!result.rows.length) throw new ConflictError('The Design changed. Reload before changing its Imagine scope.', 'DESIGN_CONFLICT');
   return getDesign(db, design.id);
 }
 export async function attachAsset(db: Pool, id: string, input: Record<string, unknown>): Promise<DesignDetail> {

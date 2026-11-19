@@ -81,6 +81,7 @@ const tests = frontend ? [
   'scripts/think-output-export.test.ts',
   'scripts/managed-jobs.test.ts',
   'scripts/designs.test.ts',
+  'scripts/workforce-definition-readiness.test.ts',
   'scripts/turn-trace.test.ts',
   'scripts/document-review.test.ts',
   'scripts/publishing.test.ts',

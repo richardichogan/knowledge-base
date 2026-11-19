@@ -41,7 +41,7 @@ export interface ChatPageContext {
   id?: string;
   conversationId?: string;
   designId?: string;
-  designTab?: 'use_case' | 'spec' | 'architecture' | 'diagram' | 'workforce';
+  designTab?: 'use_case' | 'spec' | 'architecture' | 'diagram' | 'workforce' | 'blueprint' | 'build' | 'verify';
   revision?: number;
   selectedIds?: { nodes: string[]; edges: string[] };
   saveState?: string;

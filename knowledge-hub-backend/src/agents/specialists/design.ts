@@ -14,12 +14,41 @@ import { scheduleNoteIndexing } from '../../routes/notes.js';
 import { scheduleGitHubPublish } from '../../services/noteGitHubService.js';
 import { registerSpecialist, type Prerequisite } from '../registry.js';
 import { ValidationError } from '../../types/errors.js';
-import { checkDesignReadiness } from '../../designs/designReadiness.js';
+import { checkDesignReadiness, prepareReadinessRepair } from '../../designs/designReadiness.js';
 import { requireImagineSpecApproval, writeImagineWorkforce } from '../../designs/imagineHarness.js';
+import { validateConfirmedDecisions } from '../../designs/workforceSpecification.js';
 
 export const SPEC_WRITER = 'spec-writer';
 export const BLUEPRINT_DESIGNER = 'blueprint-designer';
 const MAX_INSTRUCTION = 4_000;
+
+registerSpecialist({
+  id: 'design-readiness-check', name: 'Spec readiness reviewer', subjectType: 'design',
+  description: 'Check the selected saved specification and record findings. Does not approve or change the specification.',
+  resolveSubject: resolveDesign,
+  parseInput: input => ({ specId: requiredText(input.specId, 'Selected specification', 100) }),
+  run: async ({ db, subjectId, input, signal, progress }) => {
+    progress('Checking the saved specification and its sources');
+    const view = await checkDesignReadiness(db, subjectId, input.specId, signal);
+    return { data: { assessmentId: view.report?.id, state: view.state }, summary: `Specification review saved: ${view.state}.` };
+  },
+});
+
+registerSpecialist({
+  id: 'design-finding-fix', name: 'Athena finding repair', subjectType: 'design',
+  description: 'Suggest a specific fix for one saved finding. Leaves the proposed edit for Apply or Discard.',
+  resolveSubject: resolveDesign,
+  parseInput: input => ({
+    assessmentId: requiredText(input.assessmentId, 'Assessment', 100), findingId: requiredText(input.findingId, 'Finding', 100),
+    instruction: requiredText(input.instruction ?? 'Suggest the concrete correction from the existing roles, evidence and authority boundaries. For handoffs identify sender, receiver, trigger, shared payload, human wait and return path. Use consistent field names on both sides. Do not ask the user to design the handoff or change business policy.', 'Repair direction', MAX_INSTRUCTION),
+    allowSyntheticFixtures: input.allowSyntheticFixtures === true,
+  }),
+  run: async ({ db, subjectId, input, signal, progress }) => {
+    progress('Preparing a proposed correction from the saved finding and specification');
+    const view = await prepareReadinessRepair(db, subjectId, input, signal);
+    return { data: { proposalId: view.proposal?.id }, summary: 'Athena’s proposed fix is ready for review in the Spec. Nothing has been applied.' };
+  },
+});
 
 async function resolveDesign(db: Pool, id: string, requireSpecificationType = false): Promise<{ id: string; title: string; url: string }> {
   const design = await getDesign(db, id);
@@ -33,7 +62,7 @@ async function specState(db: Pool, designId: string): Promise<'missing' | 'stale
   const selected = selectedAssets(design);
   const useCase = selected.find((asset) => asset.role === 'use_case');
   const spec = selected.find((asset) => asset.role === 'spec');
-  if (!spec) return 'missing';
+  if (!spec || spec.hasContent === false) return 'missing';
   if (!useCase || useCase.sourceType !== 'note' || spec.sourceType !== 'note') return 'current';
   const { rows } = await db.query<{ id: string; updated_at: Date }>(
     `SELECT id::text, updated_at FROM notes WHERE id::text = ANY($1)`, [[useCase.sourceId, spec.sourceId]]);
@@ -44,29 +73,46 @@ async function specState(db: Pool, designId: string): Promise<'missing' | 'stale
 registerSpecialist({
   id: SPEC_WRITER,
   name: 'Spec writer',
-  description: 'Writes or rewrites a Design\'s spec from its use case. Earlier versions stay in note history.',
+  description: 'Writes a Design spec from its use case. For full-demo IMAGINE, it also regenerates the selected spec and recommended Architecture after replacement confirmation. For workforce-definition scope, it creates and selects new definition-only Spec and Architecture documents without overwriting prior documents.',
   subjectType: 'design',
   resolveSubject: (db, id) => resolveDesign(db, id, true),
-  overwrites: async (db, designId) => (await specState(db, designId)) !== 'missing',
+  overwrites: async (db, designId) => {
+    const design = await getDesign(db, designId);
+    if (design.imagineScope === 'workforce-definition') return false;
+    return (await specState(db, designId)) !== 'missing'
+      || design.specificationType === 'imagine' && selectedAssets(design).some(asset => asset.role === 'architecture' && asset.hasContent !== false);
+  },
   run: async ({ db, jobId, subjectId, input, progress, signal }) => {
-    progress('Reading the use case, architecture and diagrams');
-    const result = await writeDesignSpec(db, subjectId, true, signal, progress, jobId, input['checkpointOnly'] === true);
+    const design = await getDesign(db, subjectId);
+    const definitionOnly = design.imagineScope === 'workforce-definition';
+    const confirmedDecisions = definitionOnly ? validateConfirmedDecisions(input['confirmedDecisions']) : undefined;
+    progress(definitionOnly ? 'Reading the authoritative Use Case and preparing new definition documents'
+      : 'Reading the use case, architecture and diagrams');
+    const result = await writeDesignSpec(db, subjectId, true, signal, progress, jobId, input['checkpointOnly'] === true, confirmedDecisions);
     for (const note of result.notes) scheduleNoteIndexing(getDb(), note);
     for (const noteId of result.publish) scheduleGitHubPublish(getDb(), noteId);
-    progress(result.created ? 'Spec saved and linked to the Design' : 'Spec saved; the previous version is in note history');
+    progress(definitionOnly ? 'New Workforce Specification and recommended Architecture saved together; prior documents remain separate'
+      : result.architectureNoteId ? 'Spec and recommended Architecture saved together; earlier versions remain in note history'
+      : result.created ? 'Spec saved and linked to the Design' : 'Spec saved; the previous version is in note history');
+    if (definitionOnly) {
+      return {
+        data: { noteId: result.noteId, architectureNoteId: result.architectureNoteId, title: result.title, created: true, definitionOnly: true },
+        summary: 'Created and selected a new workforce-definition Spec and recommended Architecture. Earlier full-demo documents were preserved. Definition completeness is not native G1 acceptance; no workforce was generated or deployed.',
+      };
+    }
     if ((await getDesign(db, subjectId)).imagineDemo) {
       progress('Checking the saved IMAGINE spec against the handwritten use case');
       const readiness = await checkDesignReadiness(db, subjectId, result.noteId, signal);
       return {
-        data: { noteId: result.noteId, title: result.title, created: result.created, readiness: readiness.state },
+        data: { noteId: result.noteId, architectureNoteId: result.architectureNoteId, title: result.title, created: result.created, readiness: readiness.state },
         summary: readiness.state === 'ready'
-          ? 'Spec saved and validated. Stopped for your approval in Design properties; no workforce was generated.'
-          : `Spec saved, but validation is ${readiness.state}. Resolve the findings in the Spec tab before approval. No workforce was generated.`,
+          ? 'Spec and recommended Architecture saved; Spec validated. Stopped for your approval in Design properties; no workforce was generated.'
+          : `Spec and recommended Architecture saved, but Spec validation is ${readiness.state}. Review the findings in the Spec tab before approval. No workforce was generated.`,
       };
     }
     return {
-      data: { noteId: result.noteId, title: result.title, created: result.created },
-      summary: `${result.created ? 'Wrote' : 'Rewrote'} “${result.title}” from the use case. The Blueprint was not changed.`,
+      data: { noteId: result.noteId, architectureNoteId: result.architectureNoteId, title: result.title, created: result.created },
+      summary: `${result.created ? 'Wrote' : 'Rewrote'} “${result.title}” from the use case.${result.architectureNoteId ? ' Saved its IMAGINE-grounded recommended Architecture in the same transaction.' : ''} The Blueprint was not changed.`,
     };
   },
 });
@@ -101,13 +147,21 @@ registerSpecialist({
     const state = await specState(db, designId);
     if (state === 'current') return [];
     await resolveDesign(db, designId, true);
+    const design = await getDesign(db, designId);
+    if (design.imagineScope === 'workforce-definition') return [{
+      specialist: SPEC_WRITER,
+      input: {},
+      overwrites: false,
+      reason: 'The Use Case changed or has no current Workforce Specification. The Spec writer creates and selects new definition-only Spec and Architecture documents; earlier documents remain unchanged.',
+    }];
     return [{
       specialist: SPEC_WRITER,
       input: {},
-      overwrites: state === 'stale',
+      overwrites: state === 'stale' || design.specificationType === 'imagine'
+        && selectedAssets(design).some(asset => asset.role === 'architecture' && asset.hasContent !== false),
       reason: state === 'missing'
-        ? 'There is no spec yet, so the Spec writer writes one from the use case first.'
-        : 'The use case changed after the spec, so the Spec writer rewrites the spec first. The current spec is replaced; earlier versions stay in note history.',
+        ? 'There is no spec yet, so the Spec writer writes one from the use case first. For IMAGINE it also writes the recommended Architecture; existing Architecture requires confirmation.'
+        : 'The use case changed after the spec, so the Spec writer rewrites the spec first. For IMAGINE it also regenerates Architecture. Earlier versions stay in note history.',
     }];
   },
   run: async ({ db, subjectId, input, progress, signal }) => {

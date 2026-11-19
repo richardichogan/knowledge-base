@@ -9,26 +9,133 @@ import { getDb } from '../src/db/db.js';
 import { env } from '../src/config/env.js';
 import { getFoundryClient } from '../src/ai/foundryClient.js';
 import { GitHubClient } from '../src/integrations/github/githubClient.js';
-import { assetDesigns, assetRole, attachAsset, createDesignSection, DESIGN_NOTE_MEMBERSHIPS_SQL, detachAsset, getDesign, listDesigns, parseAsset, selectDesignAsset, setSpecificationType, setImagineDemo } from '../src/designs/designStore.js';
+import { assetDesigns, assetRole, attachAsset, createDesignSection, DESIGN_NOTE_MEMBERSHIPS_SQL, detachAsset, getDesign, listDesigns, parseAsset, selectDesignAsset, setSpecificationType, setImagineDemo, setImagineScope } from '../src/designs/designStore.js';
 import { approveImagineSpec, readImagineHarness, requireImagineSpecApproval } from '../src/designs/imagineHarness.js';
 import { parseImagineWorkforce, renderImagineWorkforce, validateImagineWorkforce, type ImagineWorkforce } from '../src/designs/imagineWorkforce.js';
 import { textToBlocks } from '../src/ai/markdownToNoteBlocks.js';
 import { noteMarkdown } from '../src/services/noteMarkdown.js';
 import { writeDesignSpec } from '../src/designs/designSpec.js';
+import { architectureDraft, type ImagineArchitectureBaseline } from '../src/designs/imagineArchitecture.js';
+import { generateWorkforceSpecification, validateConfirmedDecisions } from '../src/designs/workforceSpecification.js';
+import { WORKFORCE_DEFINITION_AREAS, WORKFORCE_DEFINITION_MARKER } from '../src/designs/workforceDefinitionScope.js';
 import { demoSpecificationForm, demoSpecificationResponseSchema, DEMO_SPECIFICATION_VERSION } from '../src/ai/demoSpecification.js';
 import { AiError } from '../src/types/errors.js';
 import { collaboration, designModelContext, MAX_DESIGN_MODEL_CONTEXT, digest, parseBlueprint, parseChanges, queueFeedback, renderArtifact, resolveProposal, proposeFeedback, sameSources, sourceSnapshot } from '../src/designs/designArtifacts.js';
-import { createPackage, packageArchive, preparePublication, publishPackage, validateDiagramSvg } from '../src/designs/designPackages.js';
+import { buildPublishedPackage, createPackage, packageArchive, preparePublication, publishPackage, validateDiagramSvg } from '../src/designs/designPackages.js';
+import { acceptanceLocation, parseAcceptanceReport, readDesignAcceptance, setDesignAcceptanceSource } from '../src/designs/designWorkflow.js';
+import { designBuildSource } from '../src/build/designSource.js';
 import { AUTHORING_CONTRACT, authoredForModel, authoredTarget, parseAuthored, renderAuthored, selectionBelongs } from '../src/designs/visualArtifact.js';
 import { DESIGN_CHAT_TOOLS, executeDesignTool, type DesignTurnState } from '../src/ai/designTools.js';
 import { validateConsistencyFindings } from '../src/designs/designConsistency.js';
 import { mechanicalReadiness, pageReadiness, parseReadinessReview, readinessPassages, readinessSnapshot, READINESS_RULE_VERSION, type ReadinessReport } from '../src/designs/designReadiness.js';
 import { DEMO_SPECIFICATION_TEMPLATE } from '../src/ai/demoSpecificationTemplate.js';
+import { hasNoteWriting } from '../src/utils/noteContent.js';
+
+test('blank Design sections are distinct from writing, structured content and opaque saved data', () => {
+  const note = (blocks: unknown[]) => JSON.stringify({ title: 'Spec', contentType: 'spec', contentJson: JSON.stringify(blocks) });
+  assert.equal(hasNoteWriting(note([{ type: 'paragraph', content: [] }])), false);
+  assert.equal(hasNoteWriting(note([{ type: 'paragraph', content: [{ type: 'text', text: '  ', styles: {} }] }])), false);
+  for (const block of [
+    { type: 'heading', content: [{ type: 'text', text: 'Authored heading' }] },
+    { type: 'paragraph', content: [], children: [{ type: 'paragraph', content: 'Nested writing' }] },
+    { type: 'image', props: { url: '/images/kept.png' } },
+    { type: 'table', content: { rows: [] } },
+    { type: 'paragraph', content: [{ type: 'noteMention', props: { id: ROOT } }] },
+    { type: 'paragraph', content: [], props: { scriptDemo: '{"scenes":[]}' } },
+  ]) assert.equal(hasNoteWriting(note([block])), true, JSON.stringify(block));
+  assert.equal(hasNoteWriting('Saved legacy text'), true);
+  assert.equal(hasNoteWriting('{"contentJson":"invalid"}'), true);
+});
 
 const ROOT = 'b028adff-5851-4203-915f-67f2ab889433';
 const SPEC = '00000000-0000-4000-8000-000000000002';
 const OTHER = '00000000-0000-4000-8000-000000000003';
 const checkedAt = '2026-11-01T21:37:00Z';
+const baselineText = '# Platform contract\n\nStatus: proposed\n\nConsumer-owned deployment with service-owned data. Fabric SQL stores governed relational records; Cosmos DB stores operational documents. Foundry IQ supplies procedural knowledge; Fabric IQ supplies domain semantics.';
+test('recommended Architecture only retains citations and quotations grounded in the actual pinned baseline', () => {
+  const baseline: ImagineArchitectureBaseline = { repo: 'owner/imagine-base', commit: 'a'.repeat(40),
+    sources: [{ id: 'BASE-1', path: 'infra/README.md', blob: 'b'.repeat(40), url: `https://github.com/owner/imagine-base/blob/${'a'.repeat(40)}/infra/README.md`, markdown: baselineText }] };
+  const draft = { markdown: `# Recommended Architecture\n\n${'Proposed consumer-owned deployment; retain human authority and unresolved approval identities. '.repeat(3)}[BASE-1]`,
+    evidence: [{ sourceId: 'BASE-1', quote: 'Consumer-owned deployment with service-owned data.' }] };
+  const saved = architectureDraft(draft, baseline);
+  assert.ok(saved.includes(baseline.sources[0]!.url));
+  assert.match(saved, /not approval or a claim that services are deployed/);
+  assert.throws(() => architectureDraft({ ...draft, evidence: [{ sourceId: 'BASE-1', quote: 'A deployment claim that is not in the supplied source.' }] }, baseline), /quotation absent/);
+  assert.throws(() => architectureDraft({ ...draft, markdown: `${draft.markdown} [BASE-2]` }, baseline), /no verified baseline evidence/);
+});
+test('workforce specification uses only the bounded authoritative Use Case and server-authored scope structure', async () => {
+  const useCase = `Northbridge Office Supplies / Pennfield Packaging.
+PO-10482 is 100 kits at £10 each (£1,000). INV-20816 is 100 kits at £12 each (£1,200).
+GR-10482 confirms all 100 kits received. The £200 price variance is 20%; there is no approved amendment.
+A supplier claim is not approval. Analyze and compare, assess evidence, and recommend/draft a human request.
+Never approve payment, amend the PO, accept the price, change bank details or send externally.
+Prefer two or three digital workers, with justification.`;
+  const confirmedDecisions = [
+    'Propose six total members: orchestrator, Invoice Comparison, Evidence Assessment, Recommendation and Drafting, Accounts Payable Analyst, and Purchasing Owner.',
+    'These are approved proposed members, not roles prescribed by the original Use Case. Keep the two human owners distinct from digital workers.',
+  ];
+  let request = '';
+  let routeOptions: unknown;
+  const model = mock.method(getFoundryClient('use-case-spec'), 'chatBulk', async (...args: unknown[]) => {
+    request = (args[0] as { content: string }[])[1]!.content;
+    routeOptions = args[6];
+    return JSON.stringify({ sections: Object.fromEntries(WORKFORCE_DEFINITION_AREAS.map(area => [
+      area, `Proposed design definition for ${area}. Preserve PO-10482, INV-20816, GR-10482, the £200 (20%) variance and human approval boundary.`,
+    ])) });
+  });
+  try {
+    const markdown = await generateWorkforceSpecification({
+      title: 'Invoice Mismatch Resolution', designId: 'design-id', useCaseId: 'use-case-id',
+      useCaseTitle: 'Invoice Use Case', useCase, confirmedDecisions,
+    });
+    const payload = JSON.parse(request) as {
+      title: string; useCase: { title: string; markdown: string }; confirmedDecisions: string[];
+    };
+    assert.deepEqual(Object.keys(payload), ['title', 'useCase', 'confirmedDecisions'], 'prior derived Spec/Architecture are not included');
+    assert.equal(payload.useCase.markdown, useCase, 'source facts are passed verbatim, not summarized or truncated');
+    assert.deepEqual(payload.confirmedDecisions, confirmedDecisions, 'confirmed decisions are ordinary per-request generation input');
+    assert.deepEqual(routeOptions, { requireDedicatedRoute: true }, 'workforce specification cannot fall back to the light bulk route');
+    assert.deepEqual(validateConfirmedDecisions(confirmedDecisions), confirmedDecisions);
+    assert.throws(() => validateConfirmedDecisions(['']), /non-empty string/);
+    assert.throws(() => validateConfirmedDecisions(Array.from({ length: 13 }, () => 'decision')), /at most 12/);
+    assert.ok(markdown.includes(WORKFORCE_DEFINITION_MARKER));
+    for (const area of WORKFORCE_DEFINITION_AREAS) assert.ok(markdown.includes(`## ${area}\n`));
+    assert.match(markdown, /PO-10482/);
+    assert.match(markdown, /GR-10482/);
+    assert.match(markdown, /£200 \(20%\)/);
+    assert.match(markdown, /Source Use Case: \[Invoice Use Case\]/);
+  } finally { model.mock.restore(); }
+});
+const acceptanceFixture = () => ({ version: 1, binding: null, scenario: 'claim-review', evidenceBasis: 'Saved repository report, not independent identity proof.',
+  canPublish: false, candidate: { commit: 'a'.repeat(40), environment: 'demo', configurationFingerprint: 'config-1',
+    backendRevision: 'api-1', frontendArtifact: 'web-1', workforceMemberIds: ['triage'],
+    agents: [{ catalogueId: 'triage', deploymentId: 'deployment-1', definitionFingerprint: 'definition-1' }] },
+  phases: ['initiation', 'workforce', 'offline', 'release', 'foundry', 'channels', 'operations', 'acceptance'].map(id => ({
+    id, title: id, state: 'unknown', criteria: [{ id: `${id}:proof`, phase: id, title: 'Evidence required', kinds: ['receipt'],
+      state: 'unknown', reasons: ['No verified receipt recorded.'], sources: [] }],
+  })) });
+test('repository acceptance preserves actual reported states and candidate identity without evaluating raw builder state', () => {
+  const report = acceptanceFixture();
+  report.phases[0]!.state = 'failed';
+  assert.deepEqual(parseAcceptanceReport(report), report);
+  assert.deepEqual(parseAcceptanceReport({ acceptance: { report, issues: [] } }), report);
+  for (const invalid of [{ candidate: report.candidate, evidence: [] }, { ...report, phases: report.phases.slice(1) },
+    { ...report, phases: report.phases.map(phase => ({ ...phase, state: 'approved' })) },
+    { ...report, candidate: { ...report.candidate, commit: 'main' } },
+    { ...report, candidate: { ...report.candidate, workforceMemberIds: [] } },
+    { acceptance: { report: null } }]) assert.throws(() => parseAcceptanceReport(invalid), /No acceptance was inferred/);
+});
+test('report source URLs cannot redirect credentialed reads outside a GitHub repository file', () => {
+  assert.deepEqual(acceptanceLocation('https://github.com/owner/repo/blob/feature%2Fdemo/evidence/report.json'), {
+    repo: 'owner/repo', ref: 'feature/demo', path: 'evidence/report.json',
+    url: 'https://github.com/owner/repo/blob/feature%2Fdemo/evidence/report.json',
+  });
+  for (const url of ['http://github.com/owner/repo/blob/main/report.json', 'https://example.com/owner/repo/blob/main/report.json',
+    'https://github.com/owner/repo/blob/main/report.json?ref=other', 'https://github.com/owner/repo/blob/main/dir%2Freport.json',
+    'https://github.com/owner/repo/blob/main/report.md', 'https://github.com:444/owner/repo/blob/main/report.json']) {
+    assert.throws(() => acceptanceLocation(url), /Use an HTTPS/);
+  }
+});
 const readinessSource = (markdown: string) => ({ id: SPEC, role: 'spec', revision: 2, title: 'Demo specification', markdown, blocks: [] });
 const workforceFixture = (): ImagineWorkforce => ({
   scope: 'Proposed review workflow; no runtime deployment.',
@@ -396,7 +503,8 @@ test('reference notes stay independent while document roles consistently drive g
   await local.exec(`
     CREATE TABLE notes(id UUID PRIMARY KEY,content TEXT,status TEXT DEFAULT 'active',project_id TEXT,updated_at TIMESTAMPTZ DEFAULT NOW());
     CREATE TABLE designs(id UUID PRIMARY KEY,parent_note_id UUID,source_note_id UUID,source_use_case_id UUID,
-      summary TEXT DEFAULT '',status TEXT DEFAULT 'draft',revision INTEGER DEFAULT 1,specification_type TEXT,imagine_demo BOOLEAN DEFAULT false,selections JSONB DEFAULT '{}');
+      summary TEXT DEFAULT '',status TEXT DEFAULT 'draft',revision INTEGER DEFAULT 1,specification_type TEXT,imagine_demo BOOLEAN DEFAULT false,
+      imagine_scope TEXT NOT NULL DEFAULT 'full-demo',selections JSONB DEFAULT '{}');
     CREATE TABLE design_assets(design_id UUID,source_type TEXT,source_id TEXT,role TEXT,excluded BOOLEAN DEFAULT false,
       added_at TIMESTAMPTZ DEFAULT NOW(),PRIMARY KEY(design_id,source_type,source_id));
     CREATE TABLE note_links(source_note_id UUID,target_note_id UUID);
@@ -448,13 +556,62 @@ test('reference notes stay independent while document roles consistently drive g
   } finally { query.mock.restore(); await local.close(); }
 });
 
+test('SCOPE-CONTRACT: Imagine scope defaults to full-demo and is explicitly revision-checked and persisted', async () => {
+  const local = new PGlite();
+  await local.exec(`
+    CREATE TABLE notes(id UUID PRIMARY KEY,content TEXT NOT NULL,status TEXT DEFAULT 'active',project_id TEXT,updated_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE TABLE designs(id UUID PRIMARY KEY,parent_note_id UUID,title TEXT,summary TEXT DEFAULT '',project_id TEXT,
+      source_use_case_id UUID,source_note_id UUID,status TEXT DEFAULT 'draft',revision INTEGER DEFAULT 1,updated_at TIMESTAMPTZ DEFAULT NOW(),
+      specification_type TEXT,imagine_demo BOOLEAN NOT NULL DEFAULT false,imagine_harness JSONB NOT NULL DEFAULT '{}',selections JSONB NOT NULL DEFAULT '{}');
+    CREATE TABLE design_assets(design_id UUID,source_type TEXT,source_id TEXT,role TEXT,excluded BOOLEAN DEFAULT false,added_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE TABLE note_links(source_note_id UUID,target_note_id UUID);
+    CREATE TABLE note_entity_links(source_note_id UUID,target_type TEXT,target_id TEXT);
+    CREATE TABLE use_cases(id UUID,spec_note_id UUID);
+    CREATE TABLE use_case_sources(use_case_id UUID,source_type TEXT,source_id TEXT);
+    CREATE TABLE canvases(id UUID,title TEXT,canvas_type TEXT,deleted_at TIMESTAMPTZ);
+    CREATE TABLE canvas_notes(canvas_id UUID,note_id TEXT);
+    CREATE TABLE diagram_element_notes(canvas_id UUID,note_id TEXT);
+  `);
+  await local.exec(await readFile(new URL('../src/db/migrations/064_note_list_metadata.sql', import.meta.url), 'utf8'));
+  await local.query('INSERT INTO notes(id,content) VALUES($1,$2)', [OTHER, writing('Invoice Design', 'design', 'Preserve the source definition.')]);
+  await local.query('INSERT INTO designs(id,parent_note_id,title,imagine_harness) VALUES($1,$1,$2,$3)',
+    [OTHER, 'Invoice Design', JSON.stringify({ approval: { approved: true } })]);
+  await local.exec(await readFile(new URL('../src/db/migrations/162_imagine_design_scope.sql', import.meta.url), 'utf8'));
+  const query = mock.method(getDb(), 'query', async (sql: string, values?: unknown[]) => {
+    const result = await local.query(sql, values);
+    return { rows: result.rows, rowCount: result.affectedRows ?? result.rows.length };
+  });
+  try {
+    let design = await getDesign(getDb(), OTHER);
+    assert.equal(design.imagineScope, 'full-demo', 'existing Designs retain the full-demo scope by default');
+    await assert.rejects(setImagineScope(getDb(), design.id, { imagineScope: 'custom', expectedRevision: design.revision }), /Choose full-demo or workforce-definition/);
+    await assert.rejects(setImagineScope(getDb(), design.id, { imagineScope: 'workforce-definition' }), /valid Design revision/);
+    const before = design.revision;
+    design = await setImagineScope(getDb(), design.id, { imagineScope: 'workforce-definition', expectedRevision: before });
+    assert.equal(design.imagineScope, 'workforce-definition');
+    await assert.rejects(createPackage(getDb(), design.id, {}), /outside its definition-only scope/);
+    await assert.rejects(preparePublication(getDb(), design.id, SPEC, {}), /publication is outside/);
+    await assert.rejects(publishPackage(getDb(), design.id, SPEC, ROOT, true), /publication is outside/);
+    await assert.rejects(buildPublishedPackage(getDb(), design.id, SPEC, ROOT), /cannot create a software-build draft/);
+    assert.deepEqual((await local.query('SELECT imagine_harness FROM designs WHERE id=$1', [OTHER])).rows[0]?.imagine_harness, {},
+      'changing scope clears scope-bound approvals');
+    await assert.rejects(setImagineScope(getDb(), design.id, { imagineScope: 'full-demo', expectedRevision: before }), /Design changed/);
+
+    design = await setImagineDemo(getDb(), design.id, { imagineDemo: true, expectedRevision: design.revision });
+    assert.equal(design.imagineScope, 'workforce-definition', 'demo-flag approval resets preserve explicit scope');
+    await local.query('UPDATE notes SET content=$2,updated_at=NOW() WHERE id=$1',
+      [OTHER, writing('Invoice Design', 'design', 'Edited source content.')]);
+    assert.equal((await getDesign(getDb(), design.id)).imagineScope, 'workforce-definition', 'editor saves preserve explicit scope');
+  } finally { query.mock.restore(); await local.close(); }
+});
+
 test('real parent conversion, source identity, persisted feedback, atomic acceptance and byte-identical coherent handoff', async () => {
   const local = new PGlite();
   await local.exec(`
     CREATE TABLE projects(id TEXT PRIMARY KEY,name TEXT,lifecycle_state TEXT DEFAULT 'active',updated_at TIMESTAMPTZ DEFAULT NOW());
     CREATE TABLE sparks(id UUID PRIMARY KEY,body TEXT,created_at TIMESTAMPTZ DEFAULT NOW());
     CREATE TABLE tasks(id UUID PRIMARY KEY,title TEXT,archived BOOLEAN DEFAULT false,updated_at TIMESTAMPTZ DEFAULT NOW());
-    CREATE TABLE people(id UUID PRIMARY KEY,name TEXT,updated_at TIMESTAMPTZ DEFAULT NOW());
+    CREATE TABLE people(id UUID PRIMARY KEY,name TEXT,organisation TEXT,emails TEXT[],updated_at TIMESTAMPTZ DEFAULT NOW());
     CREATE TABLE companies(id UUID PRIMARY KEY,name TEXT,updated_at TIMESTAMPTZ DEFAULT NOW());
     CREATE TABLE content_items(id UUID PRIMARY KEY,title TEXT,url TEXT,source TEXT,published_at TIMESTAMPTZ,indexed_at TIMESTAMPTZ);
     CREATE TABLE notes(id UUID PRIMARY KEY DEFAULT gen_random_uuid(),content TEXT NOT NULL,status TEXT DEFAULT 'active',
@@ -475,15 +632,17 @@ test('real parent conversion, source identity, persisted feedback, atomic accept
   for (const file of ['054_ai_usage_log.sql', '067_ai_usage_measured.sql', '117_ai_workflow_attribution.sql']) {
     await local.exec(await readFile(new URL(`../src/db/migrations/${file}`, import.meta.url), 'utf8'));
   }
-  for (const file of ['060_note_history.sql', '061_note_github_publications.sql', '064_note_list_metadata.sql', '082_note_links.sql', '102_designs.sql', '103_design_note_origins.sql', '158_note_version_task_audit.sql']) {
+  for (const file of ['056_build_pipeline.sql', '057_build_integration_branch.sql', '060_note_history.sql', '061_note_github_publications.sql', '064_note_list_metadata.sql', '082_note_links.sql', '102_designs.sql', '103_design_note_origins.sql', '158_note_version_task_audit.sql']) {
     await local.exec(await readFile(new URL(`../src/db/migrations/${file}`, import.meta.url), 'utf8'));
   }
   const original = writing('Claims', 'use-case', 'Original requirement');
   await local.query('INSERT INTO notes(id,content) VALUES($1,$2),($3,$4)', [ROOT, original, SPEC, writing('Claims spec', 'spec', 'Original specification')]);
-  for (const file of ['104_design_note_artifacts.sql', '105_design_note_parent_trigger.sql', '111_design_specification_type.sql', '133_design_specification_readiness.sql', '160_imagine_design_harness.sql']) await local.exec(await readFile(new URL(`../src/db/migrations/${file}`, import.meta.url), 'utf8'));
+  for (const file of ['104_design_note_artifacts.sql', '105_design_note_parent_trigger.sql', '111_design_specification_type.sql', '133_design_specification_readiness.sql', '160_imagine_design_harness.sql', '162_imagine_design_scope.sql']) await local.exec(await readFile(new URL(`../src/db/migrations/${file}`, import.meta.url), 'utf8'));
   let failSecondWrite = false;
+  let failArchitectureWrite: string | null = null;
   const query = async (sql: string, values?: unknown[]) => {
     if (failSecondWrite && sql.includes('UPDATE notes SET content') && values?.[0] === ROOT) throw new Error('Injected second-source failure');
+    if (failArchitectureWrite && sql.includes('UPDATE notes SET content') && values?.[0] === failArchitectureWrite) throw new Error('Injected Architecture save failure');
     const result = await local.query(sql, values);
     return { rows: result.rows, rowCount: result.affectedRows ?? result.rows.length };
   };
@@ -568,6 +727,8 @@ test('real parent conversion, source identity, persisted feedback, atomic accept
     const sectionIds = startedDiagram.design.assets.map(asset => asset.sourceId);
     assert.equal(new Set(sectionIds).size, 4, 'each section has its own stable identity');
     assert.equal(startedSpec.notes.length, 1);
+    assert.equal(startedSpec.design.assets.find(asset => asset.role === 'spec')?.hasContent, false, 'a blank section is not a generated specification');
+    assert.equal(startedSpec.design.assets.find(asset => asset.sourceId === OTHER)?.hasContent, true, 'the handwritten use case remains real writing');
     assert.equal(startedArchitecture.notes.length, 1);
     assert.equal(startedDiagram.notes.length, 0);
     assert.deepEqual((await sourceSnapshot(getDb(), startedDiagram.design)).find(source => source.role === 'spec')?.blocks,
@@ -590,8 +751,26 @@ test('real parent conversion, source identity, persisted feedback, atomic accept
     const artifactId = randomUUID();
     await local.query('INSERT INTO design_artifacts(id,design_id,revision,sources,blueprint,html) VALUES($1,$2,1,$3,$4,$5)',
       [artifactId, design.id, JSON.stringify(sources), JSON.stringify(visual), renderArtifact(visual, artifactId, 1)]);
+    let visualContent = '';
+    let visualOffset: number | null = 0;
+    do {
+      const page = await executeDesignTool(getDb(), 'read_design_blueprint', design.parentNoteId, { artifactId, offset: visualOffset }, {}) as {
+        content: string; nextOffset: number | null; revision: number;
+      };
+      assert.ok(page.content.length <= 12_000, 'Blueprint retrieval remains bounded');
+      assert.equal(page.revision, 1);
+      visualContent += page.content;
+      visualOffset = page.nextOffset;
+    } while (visualOffset !== null);
+    assert.deepEqual(JSON.parse(visualContent), visual, 'Athena reads the actual saved visual, not title-only context');
+    await assert.rejects(executeDesignTool(getDb(), 'read_design_blueprint', design.parentNoteId, { artifactId: randomUUID() }, {}), /Blueprint changed/);
+    await assert.rejects(executeDesignTool(getDb(), 'read_design_blueprint', design.parentNoteId, { artifactId, offset: -1 }, {}), /offset/);
     const feedbackInput = { requestId: randomUUID(), artifactId, elementId: 'entry', selection: '', instruction: '  Require approval before submission.  ' };
+    await assert.rejects(executeDesignTool(getDb(), 'queue_design_blueprint_feedback', design.parentNoteId, feedbackInput, { readOnly: true }), /read-only/);
+    const queued = await executeDesignTool(getDb(), 'queue_design_blueprint_feedback', design.parentNoteId, feedbackInput, {}) as { feedbackId: string; note: string };
     const feedback = await queueFeedback(getDb(), design.id, feedbackInput);
+    assert.equal(queued.feedbackId, feedback.id, 'Athena and the normal review queue share the same saved feedback');
+    assert.match(queued.note, /No Blueprint or source writing changed/);
     assert.equal(feedback.instruction, feedbackInput.instruction, 'retain exact user input');
     assert.equal((await queueFeedback(getDb(), design.id, feedbackInput)).id, feedback.id);
     await assert.rejects(queueFeedback(getDb(), design.id, { ...feedbackInput, instruction: 'Changed retry' }), /different input/);
@@ -650,6 +829,11 @@ test('real parent conversion, source identity, persisted feedback, atomic accept
     const credential = mock.getter(env, 'GITHUB_ACCESS_TOKEN', () => 'fixture-token');
     const ghGetOptional = mock.method(gh, 'getOptional', async (path: string) => {
       if (path === '/repos/owner/repo') return { full_name: 'owner/repo', default_branch: 'main', permissions: { push: true } };
+      const prefix = '/repos/owner/repo/contents/design/';
+      if (path.startsWith(prefix)) {
+        const content = postedFiles[path.slice(prefix.length)];
+        return content === undefined ? null : { encoding: 'base64', content: Buffer.from(content).toString('base64') };
+      }
       throw new Error(`Unexpected mocked optional GET ${path}`);
     });
     const ghPost = mock.method(gh, 'post', async (path: string, body: { base_tree?: string; tree?: Array<{ path: string; content: string }>; parents?: string[] }) => {
@@ -679,9 +863,30 @@ test('real parent conversion, source identity, persisted feedback, atomic accept
       assert.equal(patches, 1);
       await publishPackage(getDb(), design.id, snapshot.id, publication.id, true, gh);
       assert.equal(patches, 1, 'retry verifies the prior commit without republishing');
+      design = await setImagineDemo(getDb(), design.id, { imagineDemo: true, expectedRevision: (await getDesign(getDb(), design.id)).revision });
+      const imagineSnapshot = await createPackage(getDb(), design.id, {});
+      assert.ok(!imagineSnapshot.manifest.missingInputs.includes('diagram'), 'Imagine diagrams are optional');
+      assert.ok(imagineSnapshot.manifest.missingInputs.includes('workforce'), 'the separate workforce design is required');
+      const unconfirmed = await preparePublication(getDb(), design.id, imagineSnapshot.id, { repo: 'owner/repo', folder: 'design' }, gh);
+      await assert.rejects(buildPublishedPackage(getDb(), design.id, imagineSnapshot.id, unconfirmed.id), /Publish and verify/);
+      const build = await buildPublishedPackage(getDb(), design.id, snapshot.id, publication.id);
+      assert.equal(build.status, 'draft');
+      assert.ok(build.specMarkdown.includes(snapshot.id) && build.specMarkdown.includes('published-commit'));
+      for (const path of Object.keys(snapshot.files)) assert.ok(build.specMarkdown.includes(`design/${path}`), path);
+      const sourceContent = await designBuildSource(getDb(), build);
+      assert.deepEqual(JSON.parse(sourceContent!).files, snapshot.files, 'planning gets actual full package content, not links alone');
+      await assert.rejects(designBuildSource(getDb(), build, { excludedIds: new Set([SPEC]) }), /excluded/);
+      await assert.rejects(designBuildSource(getDb(), { ...build, repo: 'another/repo' }), /no longer matches/);
+      await local.query("UPDATE build_specs SET spec_markdown='Manually revised draft' WHERE id=$1", [build.id]);
+      assert.equal((await buildPublishedPackage(getDb(), design.id, snapshot.id, publication.id)).id, build.id,
+        'retry cannot duplicate a draft after its user edits');
+      design = await setImagineDemo(getDb(), design.id, { imagineDemo: false, expectedRevision: design.revision });
     } finally { credential.mock.restore(); ghGet.mock.restore(); ghGetOptional.mock.restore(); ghPost.mock.restore(); ghPatch.mock.restore(); }
 
     assert.deepEqual(DESIGN_CHAT_TOOLS.map(tool => tool.function.name), [
+      'read_imagine_blueprint_mapping', 'create_imagine_workforce_blueprint', 'set_design_imagine_scope',
+      'read_design_build', 'read_design_workflow', 'read_design_acceptance', 'set_design_acceptance_source', 'create_design_build_draft',
+      'read_design_blueprint', 'queue_design_blueprint_feedback',
       'check_imagine_workforce', 'read_imagine_harness', 'set_design_imagine_demo',
       'read_design_readiness_repair', 'read_design_readiness', 'read_design_readiness_history',
       'check_design_readiness', 'prepare_design_readiness_repair', 'discard_design_readiness_repair',
@@ -754,6 +959,78 @@ test('real parent conversion, source identity, persisted feedback, atomic accept
       INSERT INTO projects(id,name,description) VALUES('imagine-context','Imagine','The fixture platform separates workforce designs from runtime agents.');
     `);
     await local.query('UPDATE notes SET project_id=$1 WHERE id=$2', ['imagine-context', design.parentNoteId]);
+    await local.query("UPDATE projects SET github_repos=ARRAY['owner/repo'] WHERE id='imagine-context'");
+    let evidenceDesign = await getDesign(getDb(), design.id);
+    evidenceDesign = await setImagineDemo(getDb(), design.id, { imagineDemo: true, expectedRevision: evidenceDesign.revision });
+    const reportUrl = 'https://github.com/owner/repo/blob/main/evidence/report.json';
+    await assert.rejects(setDesignAcceptanceSource(getDb(), design.id, { url: reportUrl, expectedRevision: -1 }), /Design changed/);
+    await assert.rejects(setDesignAcceptanceSource(getDb(), design.id, {
+      url: 'https://github.com/elsewhere/repo/blob/main/report.json', expectedRevision: evidenceDesign.revision,
+    }), /configured GitHub repositories/);
+    evidenceDesign = await setDesignAcceptanceSource(getDb(), design.id, { url: reportUrl, expectedRevision: evidenceDesign.revision });
+    assert.equal(evidenceDesign.selections.reference, reportUrl);
+    const repoReport = acceptanceFixture();
+    repoReport.phases[0]!.criteria[0]!.reasons = ['A retained repository explanation. '.repeat(400)];
+    const bytes = JSON.stringify(repoReport);
+    const evidenceGet = mock.method(GitHubClient.prototype, 'get', async (path: string, params?: Record<string, string>) => {
+      if (path === '/repos/owner/repo/commits/main') return { sha: 'f'.repeat(40) };
+      assert.equal(path, '/repos/owner/repo/contents/evidence/report.json');
+      assert.equal(params?.['ref'], 'f'.repeat(40), 'report content is pinned to the resolved commit, not a moving main');
+      return { type: 'file', encoding: 'base64', content: Buffer.from(bytes).toString('base64'), size: Buffer.byteLength(bytes), sha: 'b'.repeat(40) };
+    });
+    try {
+      const read = await readDesignAcceptance(getDb(), design.id);
+      assert.deepEqual(read.report, repoReport);
+      assert.equal(read.source?.commit, 'f'.repeat(40));
+      const evidenceState: DesignTurnState = { changedNoteIds: [] };
+      let offset: number | null = 0;
+      let sourceCommit: string | null = null;
+      let json = '';
+      do {
+        const page = await executeDesignTool(getDb(), 'read_design_acceptance', design.parentNoteId,
+          { offset, sourceCommit }, {}, evidenceState) as { json: string; sourceCommit: string; nextOffset: number | null };
+        assert.ok(page.json.length <= 12_000);
+        json += page.json; offset = page.nextOffset; sourceCommit = page.sourceCommit;
+      } while (offset !== null);
+      assert.deepEqual(JSON.parse(json).report, repoReport, 'Athena retrieves actual criterion content across immutable report chunks');
+      await assert.rejects(executeDesignTool(getDb(), 'set_design_acceptance_source', design.parentNoteId, {
+        url: reportUrl, expectedRevision: evidenceDesign.revision,
+      }, { readOnly: true }), /read-only/);
+      await assert.rejects(executeDesignTool(getDb(), 'read_design_acceptance', design.parentNoteId, { offset: 0, sourceCommit: null },
+        { excludedIds: new Set([reportUrl]) }), /excluded/);
+    } finally { evidenceGet.mock.restore(); }
+    await setImagineDemo(getDb(), design.id, { imagineDemo: false, expectedRevision: evidenceDesign.revision });
+    await assert.rejects(writeDesignSpec(getDb(), design.id, true), /exactly one imagine-base repository/);
+    await local.query("UPDATE projects SET github_repos=ARRAY['owner/repo','owner/imagine-base'] WHERE id='imagine-context'");
+    const architectureId = (await sourceSnapshot(getDb(), await getDesign(getDb(), design.id))).find(item => item.role === 'architecture')!.id;
+    const architectureBefore = (await local.query<{ content: string }>('SELECT content FROM notes WHERE id=$1', [architectureId])).rows[0]!;
+    const baselineGet = mock.method(GitHubClient.prototype, 'get', async (path: string, params?: Record<string, string>) => {
+      if (path === '/repos/owner/imagine-base/commits/HEAD') return { sha: 'a'.repeat(40) };
+      assert.match(path, /^\/repos\/owner\/imagine-base\/contents\/(?:infra|docs\/decisions)\//);
+      assert.equal(params?.['ref'], 'a'.repeat(40), 'all baseline files come from the same immutable commit');
+      return { type: 'file', encoding: 'base64', content: Buffer.from(baselineText).toString('base64'),
+        size: Buffer.byteLength(baselineText), sha: 'b'.repeat(40) };
+    });
+    let architectureFailure = false;
+    let architectureCalls = 0;
+    const architectureMock = mock.method(getFoundryClient('design-architecture'), 'chatBulk', async (...args: unknown[]) => {
+      architectureCalls++;
+      const input = JSON.parse((args[0] as { content: string }[])[1]!.content) as {
+        specification: string; baseline: ImagineArchitectureBaseline; scope?: string;
+      };
+      if (input.scope === 'workforce-definition') {
+        assert.ok(input.specification.includes('Specification contract: imagine-workforce-specification-v1'));
+        assert.equal((input.specification.match(/^## /gm) ?? []).length, 9);
+        assert.doesNotMatch(input.specification, /LEGACY_FULL_DEMO_SPEC_DO_NOT_FEED/);
+      } else {
+        assert.equal((input.specification.match(/^## \d+\./gm) ?? []).length, 10, 'Architecture receives the complete newly generated Spec');
+      }
+      assert.equal(input.baseline.sources.length, 9);
+      assert.ok(input.baseline.sources.every(source => source.markdown === baselineText));
+      if (architectureFailure) throw new AiError('Injected Architecture generation failure');
+      return JSON.stringify({ markdown: `# Recommended Architecture\n\n${'Proposed service-owned records, consumer-owned deployment and human approval; no deployed identities are inferred. '.repeat(3)}[BASE-1]`,
+        evidence: [{ sourceId: 'BASE-1', quote: 'Consumer-owned deployment with service-owned data.' }] });
+    });
     let response: string | null = null;
     let lastCall: unknown[] = [];
     const requestedSections: number[][] = [];
@@ -762,6 +1039,19 @@ test('real parent conversion, source identity, persisted feedback, atomic accept
     let changeContextDuringGeneration = false;
     const writerMock = mock.method(getFoundryClient('use-case-spec'), 'chatBulk', async (...args: unknown[]) => {
       lastCall = args;
+      const messages = args[0] as { content: string }[];
+      if (messages[0]!.content.includes('bounded, design-time Imagine workforce specification')) {
+        const request = JSON.parse(messages[1]!.content) as { title: string; useCase: { title: string; markdown: string } };
+        assert.deepEqual(Object.keys(request), ['title', 'useCase']);
+        assert.ok(request.useCase.markdown.includes('Northbridge Office Supplies / Pennfield Packaging'));
+        assert.ok(request.useCase.markdown.includes('PO-10482'));
+        assert.ok(request.useCase.markdown.includes('INV-20816'));
+        assert.ok(request.useCase.markdown.includes('GR-10482'));
+        assert.ok(!messages[1]!.content.includes('LEGACY_FULL_DEMO_SPEC_DO_NOT_FEED'));
+        return JSON.stringify({ sections: Object.fromEntries(WORKFORCE_DEFINITION_AREAS.map(area => [
+          area, `Proposed design definition for ${area}. Preserve PO-10482, INV-20816, GR-10482, the £200 (20%) variance and human approval boundary.`,
+        ])) });
+      }
       assert.ok((args[0] as { content: string }[])[1]!.content.includes('The fixture platform separates workforce designs from runtime agents.')
         || (args[0] as { content: string }[])[1]!.content.includes('The platform context has changed.'));
       if (changeContextDuringGeneration) {
@@ -786,11 +1076,29 @@ test('real parent conversion, source identity, persisted feedback, atomic accept
     try {
       const imagined = await writeDesignSpec(getDb(), design.id, true);
       assert.equal(imagined.noteId, SPEC, 'regeneration updates the selected spec in place');
+      assert.equal(imagined.architectureNoteId, architectureId, 'regeneration preserves the selected Architecture ID');
+      assert.deepEqual(new Set(imagined.notes.map(note => note.id)), new Set([SPEC, architectureId]), 'both saved documents reach the normal indexing/publication caller');
+      assert.ok((await local.query("SELECT 1 FROM note_versions WHERE note_id=$1 AND writing->>'contentJson'=$2",
+        [architectureId, (JSON.parse(architectureBefore.content) as { contentJson: string }).contentJson])).rows.length,
+        'the previous Architecture remains in normal note history');
+      assert.match((await sourceSnapshot(getDb(), await getDesign(getDb(), design.id))).find(item => item.id === architectureId)!.markdown,
+        /Verified baseline references/);
       assert.deepEqual(lastCall[4], demoSpecificationResponseSchema([10]));
       assert.deepEqual(requestedSections, [[1], [2], [3], [3], [4], [5], [6], [7], [8], [9], [10]], 'only the timed-out section is regenerated');
       const imaginedSource = (await sourceSnapshot(getDb(), await getDesign(getDb(), design.id))).find(item => item.id === SPEC)!;
       assert.equal((imaginedSource.markdown.match(/^## \d+\./gm) ?? []).length, 10);
       assert.doesNotMatch(imaginedSource.markdown, /Source conversation:/);
+      const beforePairFailure = (await local.query('SELECT id,content,revision FROM notes WHERE id=ANY($1::uuid[]) ORDER BY id', [[SPEC, architectureId]])).rows;
+      architectureFailure = true;
+      await assert.rejects(writeDesignSpec(getDb(), design.id, true), /Injected Architecture generation failure/);
+      architectureFailure = false;
+      assert.deepEqual((await local.query('SELECT id,content,revision FROM notes WHERE id=ANY($1::uuid[]) ORDER BY id', [[SPEC, architectureId]])).rows,
+        beforePairFailure, 'Architecture generation failure leaves both saved originals unchanged');
+      failArchitectureWrite = architectureId;
+      await assert.rejects(writeDesignSpec(getDb(), design.id, true), /Injected Architecture save failure/);
+      failArchitectureWrite = null;
+      assert.deepEqual((await local.query('SELECT id,content,revision FROM notes WHERE id=ANY($1::uuid[]) ORDER BY id', [[SPEC, architectureId]])).rows,
+        beforePairFailure, 'a failure saving Architecture rolls back the preceding Spec save');
       response = '{}';
       const beforeInvalid = (await local.query('SELECT content,revision FROM notes WHERE id=$1', [SPEC])).rows;
       await assert.rejects(writeDesignSpec(getDb(), design.id, true), /incomplete or invalid/);
@@ -798,7 +1106,9 @@ test('real parent conversion, source identity, persisted feedback, atomic accept
       const current = await getDesign(getDb(), design.id);
       await setSpecificationType(getDb(), design.id, { specificationType: 'standard', expectedRevision: current.revision });
       response = '# Standard claims specification\n\n## Requirements\n\nThe reviewer must approve the evidence before submission.';
-      await writeDesignSpec(getDb(), design.id, true);
+      const beforeStandard = architectureCalls;
+      assert.equal((await writeDesignSpec(getDb(), design.id, true)).architectureNoteId, null);
+      assert.equal(architectureCalls, beforeStandard, 'Standard generation never generates Architecture');
       assert.equal(lastCall[4], undefined, 'Standard retains the product-spec writer');
       const beforeConflict = (await local.query('SELECT content,revision FROM notes WHERE id=$1', [SPEC])).rows;
       changeContextDuringGeneration = true;
@@ -808,6 +1118,51 @@ test('real parent conversion, source identity, persisted feedback, atomic accept
       changeTypeDuringGeneration = true;
       await assert.rejects(writeDesignSpec(getDb(), design.id, true), /Design.*changed/);
       assert.deepEqual((await local.query('SELECT content,revision FROM notes WHERE id=$1', [SPEC])).rows, beforeConflict);
-    } finally { writerMock.mock.restore(); }
+      changeTypeDuringGeneration = false;
+      response = null;
+      const invoiceUseCase = `Northbridge Office Supplies / Pennfield Packaging.
+PO-10482: 100 kits at £10 each = £1,000. INV-20816: 100 kits at £12 each = £1,200.
+GR-10482 confirms all 100 kits were received. Price variance: £200 (20%). There is no approved amendment.
+A supplier claim is not approval. Analyze and compare, assess evidence, and recommend/draft a human request.
+Never approve payment, amend the PO, accept the price, change bank details or send externally.
+Prefer two or three digital workers, with justification.`;
+      await local.query('UPDATE notes SET content=$1,revision=revision+1 WHERE id=$2', [
+        JSON.stringify({ title: 'Invoice Mismatch Resolution', contentType: 'use-case',
+          contentJson: JSON.stringify(textToBlocks(invoiceUseCase)) }), ROOT,
+      ]);
+      const priorDocuments = await local.query<{ id: string; content: string; revision: number }>(
+        'SELECT id,content,revision FROM notes WHERE id=ANY($1::uuid[]) ORDER BY id', [[SPEC, architectureId]]);
+      let beforeScopeDesign = await getDesign(getDb(), design.id);
+      if (beforeScopeDesign.specificationType !== 'imagine') {
+        beforeScopeDesign = await setSpecificationType(getDb(), design.id, {
+          specificationType: 'imagine', expectedRevision: beforeScopeDesign.revision,
+        });
+      }
+      await setImagineScope(getDb(), design.id, {
+        imagineScope: 'workforce-definition', expectedRevision: (await getDesign(getDb(), design.id)).revision,
+      });
+      const consistency = mock.method(getFoundryClient('design-readiness'), 'chatBulk', async () => JSON.stringify({ unresolved: [], edits: [] }));
+      const scoped = await writeDesignSpec(getDb(), design.id, true).finally(() => consistency.mock.restore());
+      assert.notEqual(scoped.noteId, SPEC, 'workforce-definition always creates a distinct Spec');
+      assert.notEqual(scoped.architectureNoteId, architectureId, 'workforce-definition always creates a distinct Architecture');
+      assert.equal(scoped.created, true);
+      assert.deepEqual(new Set(scoped.notes.map(note => note.id)), new Set([scoped.noteId, scoped.architectureNoteId]));
+      assert.deepEqual((await local.query<{ id: string; content: string; revision: number }>(
+        'SELECT id,content,revision FROM notes WHERE id=ANY($1::uuid[]) ORDER BY id', [[SPEC, architectureId]])).rows,
+      priorDocuments.rows, 'the previous full-demo Spec and Architecture are preserved byte-for-byte');
+      const selectedScopedDesign = await getDesign(getDb(), design.id);
+      assert.equal(selectedScopedDesign.selections.spec, scoped.noteId);
+      assert.equal(selectedScopedDesign.selections.architecture, scoped.architectureNoteId);
+      assert.ok(selectedScopedDesign.assets.some(asset => asset.sourceId === SPEC && asset.role === 'spec'));
+      assert.ok(selectedScopedDesign.assets.some(asset => asset.sourceId === architectureId && asset.role === 'architecture'));
+      const scopedSources = await sourceSnapshot(getDb(), selectedScopedDesign);
+      const scopedSpec = scopedSources.find(source => source.id === scoped.noteId)!;
+      assert.equal(scopedSpec.markdown.split('\n').filter(line => line === WORKFORCE_DEFINITION_MARKER).length, 1,
+        'the literal contract marker survives named linking to the Imagine project and the saved note Markdown export');
+      assert.deepEqual((scopedSpec.markdown.match(/^## (?:Member properties|Governance and refusal rules|Orchestration and handoffs|Hierarchy|Ownership|Observability definitions|Dependencies and composition|Design-time coverage and maturity|Evaluation definitions)$/gm) ?? []).length, 9);
+      assert.match(scopedSpec.markdown, /£200 \(20%\)/);
+      assert.match(scopedSpec.markdown, /Source Use Case: /);
+      assert.equal(architectureCalls, beforeStandard + 1, 'scoped generation creates its own recommended Architecture');
+    } finally { failArchitectureWrite = null; writerMock.mock.restore(); architectureMock.mock.restore(); baselineGet.mock.restore(); }
   } finally { modelMock.mock.restore(); queryMock.mock.restore(); connectionMock.mock.restore(); await local.close(); }
 });

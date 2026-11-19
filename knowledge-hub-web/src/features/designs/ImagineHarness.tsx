@@ -9,12 +9,14 @@ import type { DesignDetail } from '../../types/designs';
 
 export const ImagineHarness: React.FC<{
   design: DesignDetail; busy: boolean; prepare: () => Promise<void>;
+  showSpec: () => Promise<void>;
   onChanged: (design: DesignDetail) => void; onBusyChange: (busy: boolean) => void;
-}> = ({ design, busy, prepare, onChanged, onBusyChange }) => {
+}> = ({ design, busy, prepare, showSpec, onChanged, onBusyChange }) => {
   const qc = useQueryClient();
+  const definitionOnly = design.imagineScope === 'workforce-definition';
   const [error, setError] = useState<string | null>(null);
   const key = ['imagine-harness', design.id];
-  const query = useQuery({ queryKey: key, enabled: design.imagineDemo,
+  const query = useQuery({ queryKey: key, enabled: design.imagineDemo || definitionOnly,
     queryFn: async () => requireApiData(await api.getImagineHarness(design.id)) });
   const harness = query.data;
   const flag = useMutation({
@@ -50,7 +52,19 @@ export const ImagineHarness: React.FC<{
     onSuccess: result => { qc.setQueryData(key, result); },
     onError: err => { setError(describeApiError(err)); },
   });
-  const pending = flag.isPending || approve.isPending || generate.isPending || check.isPending;
+  const fix = useMutation({ mutationFn: async (action: { assessmentId: string; findingId: string; pending: boolean }) => {
+    await prepare();
+    if (action.pending) {
+      await showSpec();
+      requestAnimationFrame(() => document.getElementById('design-pending-fix')?.scrollIntoView({ block: 'center' }));
+      return;
+    }
+    const result = requireApiData(await api.handOffToSpecialist('design-finding-fix', design.id,
+      { assessmentId: action.assessmentId, findingId: action.findingId }, true));
+    if (result.status === 'needs_confirmation') throw new Error(result.message);
+    rememberAgentJob(result.job);
+  }, onError: err => setError(describeApiError(err)) });
+  const pending = flag.isPending || approve.isPending || generate.isPending || check.isPending || fix.isPending;
   useEffect(() => { onBusyChange(pending); return () => { onBusyChange(false); }; }, [pending, onBusyChange]);
   const start = async (): Promise<void> => {
     setError(null);
@@ -59,36 +73,47 @@ export const ImagineHarness: React.FC<{
     requestCompletionNotifications();
     generate.mutate();
   };
-  return <section className="kh-imagine-harness" aria-label="Imagine demo harness">
-    <h3>Imagine demo</h3>
-    <label className="kh-imagine-harness__flag">
+  return <section className="kh-imagine-harness" aria-label={definitionOnly ? 'Imagine workforce definition' : 'Imagine demo harness'}>
+    <h3>{definitionOnly ? 'Workforce definition' : 'Imagine demo'}</h3>
+    {!definitionOnly && <><label className="kh-imagine-harness__flag">
       <input type="checkbox" checked={design.imagineDemo} disabled={busy || pending}
         onChange={event => { setError(null); flag.mutate(event.target.checked); }} />
       <span>Use the Imagine demo harness</span>
     </label>
-    <p>The flag enables gated design work, not generation or deployment.</p>
-    {design.imagineDemo && <>
-      <p>Use case → validated Spec → your approval → Workforce → review.</p>
+    <p>The flag enables gated design work, not generation or deployment.</p></>}
+    {(design.imagineDemo || definitionOnly) && <>
+      <p>{definitionOnly
+        ? 'Use Case → Workforce Spec → Architecture → Diagram (optional) → Blueprint → Create Imagine Workforce Blueprint. Stops at undeployed definition records; runtime execution and demo creation are later decisions.'
+        : 'Use case → Spec → Architecture → Diagram → Blueprint → Build. Spec generation also recommends the Architecture. Existing workforce generation still requires your approval of the validated Spec.'}</p>
       {query.isLoading && <p role="status">Loading harness state...</p>}
       {query.isError && <p role="alert" className="kh-design-work__error">{describeApiError(query.error)}{' '}
         <button type="button" className="kh-btn-ghost" onClick={() => { void query.refetch(); }}>Retry</button></p>}
       {harness && <>
         <p role="status">{harness.workforce?.validated ? 'Workforce contract validated. Stopped for your review.'
-          : harness.specApproved ? 'Current specification approved. Workforce generation is unlocked.'
+          : harness.specApproved ? definitionOnly ? 'Current workforce definition approved. The final stage creates its undeployed Imagine blueprint.'
+            : 'Current specification approved. Workforce generation is unlocked.'
             : harness.canApprove ? 'Specification validated. Waiting for your approval.'
               : 'Specification not yet approved. Workforce generation is locked.'}</p>
         {harness.blockers.length > 0 && <ul className="kh-imagine-harness__blockers">
-          {harness.blockers.map((blocker, index) => <li key={index}>{blocker}</li>)}</ul>}
+          {harness.blockers.map((blocker, index) => {
+            const action = harness.findingActions?.find(item => item.index === index);
+            return <li key={action?.findingId ?? index}>{blocker}{action && <div><button type="button" className="kh-btn-ghost"
+              disabled={busy || pending || action.otherPending} onClick={() => { setError(null); fix.mutate(action); }}>
+              {action.pending ? 'Review Athena’s fix' : 'Fix with Athena'}</button></div>}</li>;
+          })}</ul>}
         {harness.blockerCount > harness.blockers.length && <p>Showing {harness.blockers.length} of {harness.blockerCount} blockers. Read the remaining findings in the Spec tab.</p>}
         {!harness.specApproved && <button type="button" className="kh-btn-accent" disabled={busy || pending || !harness.canApprove}
           onClick={() => { setError(null); approve.mutate(); }}>{approve.isPending ? 'Approving...' : 'Approve this spec'}</button>}
-        <button type="button" className="kh-btn-accent" disabled={busy || pending || !harness.specApproved}
+        {!definitionOnly && <button type="button" className="kh-btn-accent" disabled={busy || pending || !harness.specApproved}
           onClick={() => { void start(); }}>{generate.isPending ? 'Starting...' : harness.workforce ? 'Regenerate workforce' : 'Generate workforce'}</button>
-        {harness.workforce && <button type="button" className="kh-btn-ghost" disabled={busy || pending || !harness.specApproved}
+        }
+        {!definitionOnly && harness.workforce && <button type="button" className="kh-btn-ghost" disabled={busy || pending || !harness.specApproved}
           onClick={() => { setError(null); check.mutate(); }}>{check.isPending ? 'Checking...' : 'Check workforce contract'}</button>}
-        {harness.workforce && !harness.workforce.validated && <p>The workforce is not validated against the current approved sources. Check saved edits or regenerate it after spec approval.</p>}
+        {!definitionOnly && harness.workforce && !harness.workforce.validated && <p>The workforce is not validated against the current approved sources. Check saved edits or regenerate it after spec approval.</p>}
       </>}
-      <p>Design checks only. No Imagine records, runtime execution or UI acceptance are claimed.</p>
+      <p>{definitionOnly
+        ? 'These are definition checks, not native runtime G1 acceptance. A saved Think document does not mean an Imagine blueprint has been created; the final stage must confirm actual persistence.'
+        : 'Design checks only. No Imagine records, runtime execution or UI acceptance are claimed.'}</p>
     </>}
     {flag.isPending && <p role="status">Saving Imagine demo flag...</p>}
     {error && <p role="alert" className="kh-design-work__error">{error}</p>}

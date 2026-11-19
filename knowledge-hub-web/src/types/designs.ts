@@ -2,6 +2,7 @@ export const DESIGN_ROLES = ['use_case', 'spec', 'architecture', 'diagram', 'ref
 export const DESIGN_STATUSES = ['draft', 'in_review', 'ready', 'archived'] as const;
 export type DesignRole = typeof DESIGN_ROLES[number];
 export type SpecificationType = 'standard' | 'imagine';
+export type ImagineScope = 'full-demo' | 'workforce-definition';
 export const DESIGN_ROLE_LABELS: Record<DesignRole, string> = {
   use_case: 'Use case', spec: 'Specification', architecture: 'Architecture', diagram: 'Diagrams', reference: 'References', workforce: 'Workforce',
 };
@@ -10,14 +11,26 @@ export const DESIGN_STATUS_LABELS: Record<typeof DESIGN_STATUSES[number], string
 };
 export interface Design {
   id: string; parentNoteId: string; title: string; summary: string; projectId: string | null; sourceUseCaseId: string | null; sourceNoteId: string | null;
-  status: typeof DESIGN_STATUSES[number]; revision: number; mapped: boolean; updatedAt: string; specificationType: SpecificationType | null; imagineDemo: boolean;
+  status: typeof DESIGN_STATUSES[number]; revision: number; mapped: boolean; updatedAt: string; specificationType: SpecificationType | null; imagineDemo: boolean; imagineScope: ImagineScope;
 }
 export interface DesignAsset {
   sourceType: 'note' | 'canvas' | 'usecase' | 'link'; sourceId: string; title: string; role: DesignRole;
-  href: string; origin: 'explicit' | 'manual'; available: boolean;
+  href: string; origin: 'explicit' | 'manual'; available: boolean; hasContent?: boolean;
 }
 export interface DesignDetail extends Design { assets: DesignAsset[]; selections: Partial<Record<DesignRole, string>> }
+export interface DesignBuildSummary { id: string; title: string; status: string; repo: string; updatedAt: string }
+export interface DesignAcceptance {
+  source: { url: string; repo: string; path: string; commit: string; blob: string; immutableUrl: string; readAt: string } | null;
+  report: {
+    version: 1; binding: string | null; scenario: string | null; evidenceBasis: string; canPublish: boolean;
+    candidate?: { commit: string; environment: string; configurationFingerprint: string; backendRevision: string;
+      frontendArtifact: string; workforceMemberIds: string[]; agents: Array<{ catalogueId: string; deploymentId: string; definitionFingerprint: string }> };
+    phases: Array<{ id: string; title: string; state: 'blocked' | 'passed' | 'failed' | 'stale' | 'unknown';
+      criteria: Array<{ id: string; phase: string; title: string; kinds: string[]; state: string; reasons: string[]; sources: string[] }> }>;
+  } | null;
+}
 export interface ImagineHarnessView {
+  findingActions?: Array<{ index: number; assessmentId: string; findingId: string; pending: boolean; otherPending: boolean }>;
   enabled: boolean; specId: string | null; specRevision: number | null;
   specApproved: boolean; canApprove: boolean; assessmentId: string | null; validationFingerprint: string | null; approvedAt: string | null;
   blockers: string[]; blockerCount: number; workforce: { noteId: string; revision: number; validated: boolean } | null;
@@ -94,3 +107,13 @@ export interface DesignReadiness {
   } | null;
 }
 export interface DesignPublication { id: string; repo: string; branch: string; folder: string; base_sha: string }
+export interface ImagineCreationView {
+  connected: boolean;
+  binding: string | null;
+  state: 'not-started' | 'in-progress' | 'partial' | 'verified';
+  canCreate: boolean;
+  detail: string;
+  workforceUrl: string | null;
+  savedAgentCount: number;
+  savedEvalCount: number;
+}
