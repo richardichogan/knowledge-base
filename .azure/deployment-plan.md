@@ -1,18 +1,34 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Pending validation (workforce definition candidate; prior release deployed)
+**Status:** Pending validation (concise workforce documents and accumulated session fixes)
 
-**Section 7: Validation Proof — workforce definition candidate (2026-11-19, local):**
+**Current release scope (2026-11-19):**
+- User approved shortening the Invoice Workforce Spec and deploying the existing
+  application changes. Keep the saved Architecture decision record, rich-text
+  editing, human approval boundaries and the optional Diagram unchanged.
+- Reuse the existing application-only AZCLI targets, subscription and locations.
+  No new infrastructure, RBAC, identity, credentials or Desktop changes.
+- Preserve the completed prior full-suite evidence below; rerun affected checks
+  for subsequent source changes and build both packages before rollout.
+- Invoice content changes are revision-checked edits, not Spec approval,
+  Imagine creation, workforce execution or a deployment of that workforce.
+
+**Earlier local validation — workforce definition candidate (2026-11-19):**
 - `git fetch origin` and `git merge --no-edit origin/main` confirmed the base is current.
 - Backend and web `npx tsc --noEmit` and `npm run build` passed. `git diff --check` passed.
 - `node scripts/run-isolated-tests.mjs` initially reported 1,037 passed and two failed.
   Corrected the publication and workforce-generation fixtures and the Atlas query expectation.
   Reruns with `--test-file=designs.test.ts` (23 passed) and `--test-file=graph-atlas.test.ts`
   (3 passed) passed. The frontend release log contained 392 passes and no failures.
-- Release remains on hold. The saved Invoice Spec has one unresolved handoff finding
+- At that checkpoint, the saved Invoice Spec had one unresolved handoff finding
   and a pending proposal, not an approved Spec or prepared Imagine mapping. Isolated
   generation uses a mock model and is not proof of a complete live blueprint.
-  No Azure rollout or Imagine write was performed for this candidate.
+  No Imagine write was performed.
+
+**Section 7: Validation Proof — workforce definition application release (2026-11-19 UTC):**
+- Application source `8f6ff512`, isolated from unrelated note taxonomy work. Both TypeScript checks and production builds passed. The earlier full release suites passed with affected reruns; the interrupted isolated full run is not counted as a pass. Isolated Design integration (23), workforce readiness (3), Build (3), and web Design checks (4) passed.
+- Preflight: `az bicep build --file infra/main.bicep` passed. No infrastructure changes are being deployed. Account, registry, port 3000, pre-release image v355, unused v356 tag, and production Static Web App were verified; zero applicable resource-group policies. Registry-secret pull configuration is unchanged; no role or identity changes are required.
+- Release only the application. Do not approve the Invoice Spec or publish a workforce in Imagine as part of deployment.
 
 **Design sections, workstream context and sidebar release (2026-11-17):**
 - User requested deployment of the completed local changes. Reuse the existing
