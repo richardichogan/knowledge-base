@@ -1,6 +1,11 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Validated
+
+**Section 7: Validation Proof — workforce definition application release (2026-11-19 UTC):**
+- Application source `8f6ff512`, isolated from unrelated note taxonomy work. Both TypeScript checks and production builds passed. The earlier full release suites passed with affected reruns; the interrupted isolated full run is not counted as a pass. Isolated Design integration (23), workforce readiness (3), Build (3), and web Design checks (4) passed.
+- Preflight: `az bicep build --file infra/main.bicep` passed. No infrastructure changes are being deployed. Account, registry, port 3000, pre-release image v355, unused v356 tag, and production Static Web App were verified; zero applicable resource-group policies. Registry-secret pull configuration is unchanged; no role or identity changes are required.
+- Release only the application. Do not approve the Invoice Spec or publish a workforce in Imagine as part of deployment.
 
 **Design sections, workstream context and sidebar release (2026-11-17):**
 - User requested deployment of the completed local changes. Reuse the existing
