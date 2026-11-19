@@ -24,7 +24,7 @@ import { loadProjectGenerationContext, lockProjectGenerationContext, WORKSTREAM_
 import { ARCHITECTURE_CONTRACT_VERSION, WORKFORCE_ARCHITECTURE_CONTRACT_VERSION, readImagineArchitectureBaseline, recommendImagineArchitecture } from './imagineArchitecture.js';
 import { reconcileWorkforceDrafts } from './workforceConsistency.js';
 import {
-  generateWorkforceSpecification, validateConfirmedDecisions, validateWorkforceSpecificationMarkdown,
+  generateWorkforceSpecification, validateConfirmedDecisions, validateWorkforceSpecificationMarkdown, WORKFORCE_SPECIFICATION_STYLE_VERSION,
 } from './workforceSpecification.js';
 import { WORKFORCE_DEFINITION_BOUNDARY, WORKFORCE_DEFINITION_MARKER, WORKFORCE_DEFINITION_VERSION } from './workforceDefinitionScope.js';
 
@@ -295,7 +295,7 @@ async function writeDesignSpecInner(
   let markdown: string;
   if (definitionOnly) {
     const fingerprint = createHash('sha256').update(JSON.stringify({
-      scope: design.imagineScope, profileVersion: WORKFORCE_DEFINITION_VERSION, designRevision: design.revision,
+      scope: design.imagineScope, profileVersion: WORKFORCE_DEFINITION_VERSION, styleVersion: WORKFORCE_SPECIFICATION_STYLE_VERSION, designRevision: design.revision,
       sources, projectContext, confirmedDecisions: scopedDecisions ?? [],
     })).digest('hex');
     const checkpoint = jobId ? (await db.query<{ checkpoint: unknown }>(

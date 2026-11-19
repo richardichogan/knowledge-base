@@ -1,6 +1,31 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Pending validation (concise workforce documents and accumulated session fixes)
+**Status:** Validated
+
+**Section 7: Validation Proof — concise workforce documents release (2026-11-19 UTC):**
+- Synced `origin/main`, preserving the existing application work. The user
+  approved consolidating the deployment-record conflict; application changes
+  merged without a content conflict.
+- Backend and frontend `npx tsc --noEmit` and production builds passed. A narrow
+  source syntax correction and removal of the merged legacy `tags` property
+  from Design reindexing passed the subsequent backend check/build.
+- Reused the completed earlier full-suite evidence for unchanged functionality.
+  Affected isolated checks passed: Design (23), workstream context (7),
+  graph atlas (3), note history (2), note list (1), workforce readiness (3)
+  and frontend Design artifacts (4). Failed-to-load checks were rerun only
+  after correcting the source syntax. Reported counts match declared checks.
+- `az bicep build --file infra/main.bicep --stdout` passed. Verified existing
+  Alliance Tenant Reporting subscription, backend v356, port 3000, ACR registry,
+  Static Web App and unused v357 tag. Zero resource-group policy assignments
+  and no applicable principal role assignments; registry-secret image pulls,
+  existing identity, dependencies, Dockerfile and deployment topology unchanged.
+- Saved Invoice Spec revision 3 through the protected note-writing service:
+  4,817 to 1,332 words, with three native editable tables. Read-back confirmed
+  exact saved content, a recoverable prior version, unchanged Architecture,
+  Use Case and Design selection. No approval or Imagine creation was performed.
+- Production rollout: ACR must build v357 from the pushed matching main revision
+  before the existing Container App update. Deploy the synced frontend build;
+  verify startup/migrations, healthy revision and the served frontend bundle.
 
 **Current release scope (2026-11-19):**
 - User approved shortening the Invoice Workforce Spec and deploying the existing

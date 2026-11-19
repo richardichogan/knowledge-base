@@ -3,7 +3,6 @@ import { withAiStage } from '../ai/aiWorkflow.js';
 import { ValidationError } from '../types/errors.js';
 import {
   WORKFORCE_DEFINITION_AREAS,
-  WORKFORCE_DEFINITION_BOUNDARY,
   WORKFORCE_DEFINITION_MARKER,
 } from './workforceDefinitionScope.js';
 
@@ -13,6 +12,7 @@ const MAX_SPECIFICATION_CHARS = 50_000;
 const MAX_CONFIRMED_DECISIONS = 12;
 const MAX_CONFIRMED_DECISION_CHARS = 1_000;
 const MAX_CONFIRMED_DECISIONS_TOTAL_CHARS = 5_000;
+export const WORKFORCE_SPECIFICATION_STYLE_VERSION = 'concise-definition-v2';
 
 const areaProperties = Object.fromEntries(WORKFORCE_DEFINITION_AREAS.map(area => [area, {
   type: 'string',
@@ -69,6 +69,8 @@ Return JSON matching the supplied schema. The server authors the title, scope ma
 Preserve every real business fact, identifier, example, amount, date, threshold, role, authority limit, exception and unresolved decision supplied by the Use Case. Do not replace concrete source facts with generic summaries, invent values or import requirements from prior derived documents.
 Describe a proposed workforce, not a prescribed original roster: distinguish source-required roles from recommendations, explain the member-count trade-off, and retain any stated preference for two or three digital workers unless the source explicitly resolves it otherwise. Treat separately supplied confirmed decisions as proposals, not original Use Case facts. Separate digital workers from human decision owners.
 Define member capabilities, limitations and typed inputs/outputs; governance and refusal behavior; trigger, ordering/parallelism, typed handoffs, human waits and specified failure/recovery paths; reporting hierarchy distinct from step order; execution ownership, decision authority and escalation; proposed observability event/correlation fields; dependencies, services, composition and a design-time bill of materials; design-time coverage and maturity; and evaluation cases/assertions.
+Keep the complete specification concise: aim for 1,500-2,000 words across all nine sections. Use compact Markdown tables for member comparisons, typed handoffs and acceptance cases; these become editable rich-text tables in the document editor. Define each packet and shared rule once and reference it elsewhere. Sender outputs must match receiver inputs, including human clarification.
+Keep each supplied example's concrete facts together in one acceptance case instead of repeating them per member. State the minimum useful audit trail rather than exhaustive telemetry fields, event taxonomies, operational metrics or runtime schemas. Keep technology decisions in the Architecture and defer speculative infrastructure.
 Budget the Member properties section across all proposed members before writing. Give each digital and human member the same concise property set (purpose, responsibilities, typed inputs and outputs, permitted sources, authority limits, escalation). Put shared rules and worked examples in their relevant other sections instead of repeating them per member. Finish every member and sentence within the section limit.
 Use only the nine requested areas. Do not produce a full demo or software specification, deployment/build instructions, runtime implementation, generated telemetry, execution results, synthetic records, UI/channel implementation or claims that runtime controls are enforced. Proposed tools, services and data integrations are design definitions, not connected or provisioned resources. Human approval remains authoritative for consequential actions.`;
 
@@ -96,7 +98,7 @@ export function renderWorkforceSpecification(
   const markdown = [
     `# Workforce Specification: ${input.title}`,
     WORKFORCE_DEFINITION_MARKER,
-    WORKFORCE_DEFINITION_BOUNDARY,
+    'Define an undeployed Imagine workforce: its members, evidence, handoffs, human decisions and acceptance cases. This document does not authorise deployment, execution, evaluation runs or demo creation.',
     `Source Use Case: [${input.useCaseTitle}](/think?noteId=${encodeURIComponent(input.useCaseId)})`,
     `Design: [${input.title}](/think?design=${encodeURIComponent(input.designId)})`,
     areaText,
