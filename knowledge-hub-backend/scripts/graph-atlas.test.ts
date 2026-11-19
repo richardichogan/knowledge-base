@@ -30,7 +30,7 @@ test('atlas binds filters and exposes cap truncation without any write query', a
     assert.match(sql, /'tag:'\|\|t\.id/);
     assert.match(sql, /tag_memberships AS MATERIALIZED/);
     assert.match(sql, /'tagged_with',1,jsonb_build_object\('evidence','Saved taxonomy membership'/);
-    assert.match(sql, /SELECT t\.name FROM note_tags nt JOIN tags t/);
+    assert.match(sql, /SELECT DISTINCT t\.name FROM note_tags nt JOIN tags t/);
     assert.match(sql, /walk_distances AS MATERIALIZED/);
     assert.match(sql, /SELECT id,MIN\(depth\) AS hop FROM walk GROUP BY id/);
     assert.match(sql, /JOIN walk_distances w ON w.id=n.id/);

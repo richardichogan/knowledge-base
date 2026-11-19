@@ -528,7 +528,7 @@ export async function runChatResearch(context: SpecialistContext): Promise<Speci
       [context.jobId, content, projectId]);
     if (saved.rows[0]) note = { id: context.jobId, content, createdAt: saved.rows[0].created_at.toISOString(),
       updatedAt: saved.rows[0].updated_at.toISOString(), revision: saved.rows[0].revision,
-      tags: [], linkedItems: [], status: 'active', ...(projectId ? { projectId } : {}) };
+      linkedItems: [], status: 'active', ...(projectId ? { projectId } : {}) };
     await client.query('COMMIT');
   } catch (error) { await client.query('ROLLBACK'); throw error; }
   finally { client.release(); }

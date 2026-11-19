@@ -280,9 +280,9 @@ export async function createWorkContent(db: Pool, type: WorkContentType, input: 
   return getWorkContent(db, id);
 }
 async function createdNote(db: Pool, id: string): Promise<Note> {
-  const row = (await db.query<{ id: string; content: string; created_at: Date; updated_at: Date; revision: number; project_id: string | null }>('SELECT * FROM notes WHERE id=$1', [id])).rows[0]!;
+  const row = (await db.query<{ id: string; content: string; created_at: Date; updated_at: Date; revision: number; project_id: string | null }>('SELECT id, content, created_at, updated_at, revision, project_id FROM notes WHERE id=$1', [id])).rows[0]!;
   return { id: row.id, content: row.content, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
-    revision: row.revision, tags: [], linkedItems: [], status: 'active' as const, ...(row.project_id && { projectId: row.project_id }) };
+    revision: row.revision, linkedItems: [], status: 'active' as const, ...(row.project_id && { projectId: row.project_id }) };
 }
 export async function markEmailSent(db: Pool, id: string, input: Record<string, unknown>): Promise<WorkContent> {
   const current = await getWorkContent(db, id);

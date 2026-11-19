@@ -58,7 +58,7 @@ let persisted: Note = reloading ? JSON.parse(sessionStorage.getItem('recovery-fi
   id: noteId, content: JSON.stringify({ title: 'Newer saved writing', contentType: 'note', githubPath: 'keep.md',
     contentJson: JSON.stringify([{ type: 'heading', props: { level: 1 }, content: 'Newer saved writing' },
       { type: 'paragraph', content: 'Server-only writing to preserve' }]) }),
-  createdAt: now, updatedAt: now, revision: 2, tags: ['keep-tag'], linkedItems: ['keep-link'], status: 'active', projectId: 'keep-project',
+  createdAt: now, updatedAt: now, revision: 2, taxonomyTagIds: ['11111111-1111-4111-8111-111111111111'], linkedItems: ['keep-link'], status: 'active', projectId: 'keep-project',
 };
 if (!reloading) {
   clearAllNoteDrafts(localStorage);
@@ -113,7 +113,7 @@ api.getNote = async (id, status = 'active') => {
   if (id !== noteId) throw new Error('Wrong note requested');
   return { success: true, data: persisted };
 };
-api.patchNote = async (id, content, _tags, _project, expected) => {
+api.patchNote = async (id, content, _project, expected) => {
   if (id !== noteId) throw new Error('Wrong note save');
   patchCount++;
   if (holdPatch) await new Promise<void>(resolve => { releasePatch = resolve; });
@@ -139,7 +139,7 @@ api.getNoteSummaries = async (page = 1, pageSize = 25, filters) => {
   const available = archived.filter(note => note.status === 'archived' && JSON.parse(note.content).title.includes(filters.q ?? ''));
   return { success: true, data: { items: available.slice((page - 1) * pageSize, page * pageSize).map(note => ({
     id: note.id, title: JSON.parse(note.content).title as string, contentType: 'note', preview: '', revision: note.revision ?? 0,
-    createdAt: now, updatedAt: now, tags: note.tags, linkedItems: note.linkedItems, taxonomyTagIds: [],
+    createdAt: now, updatedAt: now, linkedItems: note.linkedItems, taxonomyTagIds: note.taxonomyTagIds ?? [],
   })), total: available.length, page, pageSize, hasMore: page * pageSize < available.length } };
 };
 api.restoreArchivedNote = async (id, expected) => {
@@ -227,7 +227,7 @@ async function runNoteRecoveryChecks(): Promise<string[]> {
   await restoreSelected();
   await waitFor(() => JSON.stringify(editor.document).includes('Exact rich local body') && editor.isEditable);
   check(JSON.parse(persisted.content).contentJson === localWriting.contentJson, 'Recovered JSON is exact, including rich text, link and table');
-  check(persisted.projectId === 'keep-project' && persisted.tags[0] === 'keep-tag' && persisted.linkedItems[0] === 'keep-link'
+  check(persisted.projectId === 'keep-project' && persisted.taxonomyTagIds?.[0] === '11111111-1111-4111-8111-111111111111' && persisted.linkedItems[0] === 'keep-link'
     && JSON.parse(persisted.content).githubPath === 'keep.md', 'Writing recovery preserves metadata');
   check(versions[0]?.writing.contentJson.includes('Server-only writing'), 'Previous saved writing retained before restore');
   check(listNoteDrafts(localStorage, owner).drafts.some(draft => draft.writing.contentJson.includes('Live unsaved writing')), 'Replaced unsaved writing retained under a separate local writer ID');

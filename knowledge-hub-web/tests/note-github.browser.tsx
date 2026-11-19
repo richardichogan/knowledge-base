@@ -18,7 +18,7 @@ let persisted: Note = {
     contentJson: JSON.stringify([{ type: 'heading', props: { level: 1 }, content: 'Publishing test' },
       { type: 'paragraph', content: 'Original writing' }]) }),
   createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-  tags: [], linkedItems: [], status: 'active',
+  linkedItems: [], status: 'active',
 };
 let publication: GitHubPublication | null = null;
 let publishError = true;
@@ -49,7 +49,7 @@ api.getNoteGitHubFolders = async (repo, folder) => {
     folders: folder === '' ? ['docs'] : folder === 'docs' ? ['docs/use-cases'] : [], branch: 'develop',
   } };
 };
-api.patchNote = async (_id, content, _tags, _project, expected) => {
+api.patchNote = async (_id, content, _project, expected) => {
   if (expected !== persisted.revision) throw new Error('Wrong saved note revision');
   persisted = { ...persisted, content, revision: (persisted.revision ?? 0) + 1, updatedAt: new Date().toISOString() };
   if (publication && publication.status !== 'conflict') publication = { ...publication, status: 'pending' };

@@ -12,7 +12,7 @@ import { queueAutoTag } from '../services/autoTagging.js';
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { getDb } from '../db/db.js';
 import { upsertContentItem } from '../db/queries.js';
-import { upsertTags } from '../db/tagHelpers.js';
+import { readNoteTags } from '../services/noteTagService.js';
 import { upsertNode } from '../services/nodeService.js';
 import { parseNoteContent, blockContentSpans } from '../utils/noteContent.js';
 import { notePassageTags } from '../utils/notePassageTags.js';
@@ -349,7 +349,6 @@ export interface IndexableNote {
   id: string;
   content: string;
   projectId?: string | null;
-  tags: string[];
   updatedAt: string;
 }
 
@@ -376,6 +375,7 @@ export async function buildNoteIndexPayload(
   const typeLabel = contentTypeLabel(contentType);
   const rawSummary = extractNoteSummary(note.content);
   const noteText = await renderNoteAsText(db, note.content);
+  const taxonomyTags = await readNoteTags(db, note.id);
 
   return {
     source: 'note',
@@ -386,8 +386,8 @@ export async function buildNoteIndexPayload(
     publishedAt: note.updatedAt,
     url: `${env.FRONTEND_BASE_URL}/think?noteId=${note.id}`,
     projectContext: note.projectId ?? 'personal',
-    metadata: { noteId: note.id, contentType: contentType ?? 'note', tags: note.tags },
-    tags: [...new Set([...(note.projectId ? [note.projectId] : []), ...note.tags])],
+    metadata: { noteId: note.id, contentType: contentType ?? 'note', taxonomyTagIds: taxonomyTags.map(tag => tag.id) },
+    tags: taxonomyTags.map(tag => tag.name),
   };
 }
 
@@ -418,6 +418,26 @@ interface NoteSummary {
   updatedAt: string;
   projectId?: string;
   taxonomyTagIds: string[];
+}
+
+interface NoteListBaseRow {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  project_id: string | null;
+  taxonomy_tag_ids: string[];
+}
+
+interface NoteSummaryRow extends NoteListBaseRow {
+  preview: string;
+  list_metadata: { title: string; contentType: string };
+}
+
+interface NoteListRow extends NoteListBaseRow {
+  content: string;
+  linked_items: string[];
+  status: Note['status'];
+  revision: number;
 }
 
 const NOTE_PREVIEW_CHARS = 200;
@@ -468,7 +488,7 @@ export const NOTE_SUMMARY_PREVIEW_SQL = `(
  * web client used when it derived these from full bodies (preview skips
  * leading lines that just repeat the title).
  */
-function summariseNote(row: { id: string; preview: string; created_at: string; updated_at: string; project_id: string | null; taxonomy_tag_ids: string[]; list_metadata: { title: string; contentType: string } }): NoteSummary {
+function summariseNote(row: NoteSummaryRow): NoteSummary {
   const { title, contentType } = row.list_metadata;
   return {
     id: row.id,
@@ -493,9 +513,6 @@ export function scheduleNoteIndexing(db: ReturnType<typeof getDb>, note: Note): 
   if (existing !== undefined) clearTimeout(existing);
   const timer = setTimeout(() => {
     pendingIndexTimers.delete(note.id);
-    upsertTags(db, note.tags).catch((e: unknown) => {
-      console.error('[notes] Failed to upsert tags:', e);
-    });
     syncNoteToTimeline(db, note).catch((e: unknown) => {
       console.error('[notes] Failed to sync updated note to timeline:', e);
     });
@@ -504,7 +521,8 @@ export function scheduleNoteIndexing(db: ReturnType<typeof getDb>, note: Note): 
       try {
         let title = 'Untitled Note';
         try { const p = JSON.parse(note.content) as { title?: string }; title = p.title ?? title; } catch { /* ignore */ }
-        await upsertNode(db, note.id, 'note', title, note.tags);
+        const tags = await readNoteTags(db, note.id);
+        await upsertNode(db, note.id, 'note', title, tags.map(tag => tag.name));
       } catch (e: unknown) {
         console.error('[notes] Failed to upsert graph node on update:', e);
       }
@@ -625,76 +643,56 @@ router.get('/', (req: Request, res: Response, next: NextFunction): void => {
       let rowsMs = 0;
       let countMs = 0;
 
-      const [rowsResult, countResult] = await Promise.all([
-        db.query<{
-          id: string;
-          content: string;
-          preview: string;
-          created_at: string;
-          updated_at: string;
-          tags: string[];
-          linked_items: string[];
-          status: string;
-          project_id: string | null;
-          taxonomy_tag_ids: string[];
-          revision: number;
-          list_metadata: { title: string; contentType: string };
-        }>(
-          `${prefix} SELECT n.id, ${summary ? `${NOTE_SUMMARY_PREVIEW_SQL} AS preview` : 'n.content'}, n.created_at, n.updated_at, n.tags, n.linked_items, n.status, n.project_id, n.revision,
-                  note_list_metadata(n.content) AS list_metadata,
+      const listSql = (projection: string): string =>
+          `${prefix} SELECT n.id, n.created_at, n.updated_at, n.project_id, ${projection},
                   COALESCE(ARRAY_AGG(nt.tag_id ORDER BY nt.tag_id) FILTER (WHERE nt.tag_id IS NOT NULL), '{}') AS taxonomy_tag_ids
            FROM notes n
            LEFT JOIN note_tags nt ON nt.note_id = n.id
            WHERE ${where}
            GROUP BY n.id
            ORDER BY ${order}, n.id DESC
-           LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
-          [...params, pageSize, offset],
-        ).then(result => { rowsMs = performance.now() - queryStarted; return result; }),
+           LIMIT $${limitIndex} OFFSET $${offsetIndex}`;
+      const listParams = [...params, pageSize, offset];
+      const rowsRequest = summary
+        ? db.query<NoteSummaryRow>(
+          listSql(`${NOTE_SUMMARY_PREVIEW_SQL} AS preview, note_list_metadata(n.content) AS list_metadata`), listParams,
+        ).then(result => result.rows.map(summariseNote))
+        : db.query<NoteListRow>(
+          listSql('n.content, n.linked_items, n.status, n.revision'), listParams,
+        ).then(result => result.rows.map((row): Note => ({
+          id: row.id,
+          content: row.content,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          linkedItems: row.linked_items,
+          status: row.status,
+          ...(row.project_id !== null && { projectId: row.project_id }),
+          taxonomyTagIds: row.taxonomy_tag_ids,
+          revision: row.revision,
+        })));
+      const [items, countResult] = await Promise.all([
+        rowsRequest.then(result => { rowsMs = performance.now() - queryStarted; return result; }),
         db.query<{ count: string }>(
           `${prefix} SELECT COUNT(*) AS count FROM notes n WHERE ${where}`, params,
         ).then(result => { countMs = performance.now() - queryStarted; return result; }),
       ]);
       if (Math.max(rowsMs, countMs) > 2000) {
         console.warn('[notes:list] Slow listing', {
-          structure, summary, page, pageSize, rows: rowsResult.rows.length,
+          structure, summary, page, pageSize, rows: items.length,
           rowsMs: Math.round(rowsMs), countMs: Math.round(countMs),
         });
       }
 
       const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
 
-      if (summary) {
-        const items = rowsResult.rows.map(summariseNote);
-        const summaryBody: ApiSuccess<PaginatedList<NoteSummary>> = {
-          success: true,
-          data: { items, total, page, pageSize, hasMore: offset + items.length < total },
-        };
-        res.status(HTTP_STATUS.OK).json(summaryBody);
-        return;
-      }
-
-      const notes: Note[] = rowsResult.rows.map((row) => ({
-        id: row.id,
-        content: row.content,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-        tags: row.tags,
-        linkedItems: row.linked_items,
-        status: row.status as Note['status'],
-        ...(row.project_id !== null && { projectId: row.project_id }),
-        taxonomyTagIds: row.taxonomy_tag_ids ?? [],
-        revision: row.revision,
-      }));
-
-      const body: ApiSuccess<PaginatedList<Note>> = {
+      const body: ApiSuccess<PaginatedList<Note | NoteSummary>> = {
         success: true,
         data: {
-          items: notes,
+          items,
           total,
           page,
           pageSize,
-          hasMore: offset + notes.length < total,
+          hasMore: offset + items.length < total,
         },
       };
       res.status(HTTP_STATUS.OK).json(body);
@@ -716,14 +714,13 @@ router.get('/:id', (req: Request, res: Response, next: NextFunction): void => {
         content: string;
         created_at: string;
         updated_at: string;
-        tags: string[];
         linked_items: string[];
         status: string;
         project_id: string | null;
         taxonomy_tag_ids: string[];
         revision: number;
       }>(
-        `SELECT n.id, n.content, n.created_at, n.updated_at, n.tags, n.linked_items, n.status, n.project_id, n.revision,
+        `SELECT n.id, n.content, n.created_at, n.updated_at, n.linked_items, n.status, n.project_id, n.revision,
                 COALESCE(ARRAY_AGG(nt.tag_id) FILTER (WHERE nt.tag_id IS NOT NULL), '{}') AS taxonomy_tag_ids
            FROM notes n
            LEFT JOIN note_tags nt ON nt.note_id = n.id
@@ -738,7 +735,6 @@ router.get('/:id', (req: Request, res: Response, next: NextFunction): void => {
         content: row.content,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
-        tags: row.tags,
         linkedItems: row.linked_items,
         status: row.status as Note['status'],
         ...(row.project_id !== null && { projectId: row.project_id }),
@@ -824,19 +820,18 @@ export async function createNoteRecord(
     content: string;
     created_at: string;
     updated_at: string;
-    tags: string[];
     linked_items: string[];
     status: string;
     project_id: string | null;
   }>(
-    stableId ? `INSERT INTO notes (content, tags, project_id, id)
-     VALUES ($1, $2, $3, COALESCE($4::uuid, gen_random_uuid()))
+    stableId ? `INSERT INTO notes (content, project_id, id)
+     VALUES ($1, $2, COALESCE($3::uuid, gen_random_uuid()))
      ON CONFLICT (id) DO UPDATE SET id=notes.id
-     RETURNING id, content, created_at, updated_at, tags, linked_items, status, project_id`
-      : `INSERT INTO notes (content, tags, project_id)
-     VALUES ($1, $2, $3)
-     RETURNING id, content, created_at, updated_at, tags, linked_items, status, project_id`,
-    stableId ? [content, input.tags ?? [], projectId, stableId] : [content, input.tags ?? [], projectId],
+     RETURNING id, content, created_at, updated_at, linked_items, status, project_id`
+      : `INSERT INTO notes (content, project_id)
+     VALUES ($1, $2)
+     RETURNING id, content, created_at, updated_at, linked_items, status, project_id`,
+    stableId ? [content, projectId, stableId] : [content, projectId],
   );
 
   const row = result.rows[0];
@@ -847,16 +842,11 @@ export async function createNoteRecord(
     content: row.content,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    tags: row.tags,
     linkedItems: row.linked_items,
     status: row.status as Note['status'],
     ...(row.project_id !== null && { projectId: row.project_id }),
   };
 
-  // Auto-upsert tags into global_tags (fire-and-forget)
-  upsertTags(db, note.tags).catch((e: unknown) => {
-    console.error('[notes] Failed to upsert tags:', e);
-  });
   // Mirror note into content_items for timeline visibility (fire-and-forget)
   syncNoteToTimeline(db, note).catch((e: unknown) => {
     console.error('[notes] Failed to sync new note to timeline:', e);
@@ -868,7 +858,8 @@ export async function createNoteRecord(
     try {
       let title = 'Untitled Note';
       try { const p = JSON.parse(note.content) as { title?: string }; title = p.title ?? title; } catch { /* ignore */ }
-      await upsertNode(db, note.id, 'note', title, note.tags);
+      const tags = await readNoteTags(db, note.id);
+      await upsertNode(db, note.id, 'note', title, tags.map(tag => tag.name));
     } catch (e: unknown) {
       console.error('[notes] Failed to upsert graph node:', e);
     }
@@ -1022,7 +1013,7 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
         throw new ValidationError('id is required', {});
       }
 
-      const input = req.body as Partial<{ content: string; tags: string[]; projectId: string | null; expectedRevision: number; passageTagsSupported: boolean; author: string }>;
+      const input = req.body as Partial<{ content: string; projectId: string | null; expectedRevision: number; passageTagsSupported: boolean; author: string }>;
 
       if (typeof input.content !== 'string' || input.content.trim() === '') {
         throw new ValidationError('content is required', { content: 'must be a non-empty string' });
@@ -1037,7 +1028,6 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       const note = await writeNote(db, id, {
         content: input.content.trim(), expectedRevision: input.expectedRevision,
         passageTagsSupported: input.passageTagsSupported === true,
-        ...(Array.isArray(input.tags) && { tags: input.tags }),
         ...(hasProjectId && { projectId: projectId ?? null }),
       });
 

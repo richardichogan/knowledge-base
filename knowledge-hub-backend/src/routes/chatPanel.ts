@@ -118,7 +118,6 @@ router.post('/outputs/:outputId/save-to-think', route(async (req, res) => {
   const projectId = await getSessionProjectId(db, output.sessionId);
   const note = await createNoteRecord(db, {
     content: JSON.stringify({ title: output.title, contentType: 'note', contentJson: JSON.stringify(blocks) }),
-    tags: ['athena-output'],
     ...(projectId !== null && { projectId }),
   });
   ok(res, { noteId: note.id, title: output.title, url: `${env.FRONTEND_BASE_URL}/think?noteId=${note.id}` }, HTTP_STATUS.CREATED);

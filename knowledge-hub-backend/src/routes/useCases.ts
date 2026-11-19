@@ -101,7 +101,7 @@ export const draftDeps: DraftDeps = {
   generate: (system, user) => getFoundryClient('use-case-spec').chatBulk(
     [{ role: 'system', content: system }, { role: 'user', content: user }], SPEC_DRAFT_LIMITS.maxTokens, SPEC_DRAFT_TIMEOUT_MS, 'medium'),
   createNote: async (db, content, projectId) => {
-    const note = await createNoteRecord(db, { content, tags: ['spec'], ...(projectId !== null ? { projectId } : {}) });
+    const note = await createNoteRecord(db, { content, ...(projectId !== null ? { projectId } : {}) });
     scheduleNoteIndexing(db, note);
     return note.id;
   },

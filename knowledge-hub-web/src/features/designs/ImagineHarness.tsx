@@ -82,18 +82,18 @@ export const ImagineHarness: React.FC<{
     </label>
     <p>The flag enables gated design work, not generation or deployment.</p></>}
     {(design.imagineDemo || definitionOnly) && <>
-      <p>{definitionOnly
-        ? 'Use Case → Workforce Spec → Architecture → Diagram (optional) → Blueprint → Create Imagine Workforce Blueprint. Stops at undeployed definition records; runtime execution and demo creation are later decisions.'
-        : 'Use case → Spec → Architecture → Diagram → Blueprint → Build. Spec generation also recommends the Architecture. Existing workforce generation still requires your approval of the validated Spec.'}</p>
-      {query.isLoading && <p role="status">Loading harness state...</p>}
+      {!definitionOnly && <p>Use case → Spec → Architecture → Diagram → Blueprint → Build. Spec generation also recommends the Architecture. Existing workforce generation still requires your approval of the validated Spec.</p>}
+      {query.isLoading && <p role="status">{definitionOnly ? 'Loading Spec approval…' : 'Loading harness state...'}</p>}
       {query.isError && <p role="alert" className="kh-design-work__error">{describeApiError(query.error)}{' '}
         <button type="button" className="kh-btn-ghost" onClick={() => { void query.refetch(); }}>Retry</button></p>}
       {harness && <>
-        <p role="status">{harness.workforce?.validated ? 'Workforce contract validated. Stopped for your review.'
-          : harness.specApproved ? definitionOnly ? 'Current workforce definition approved. The final stage creates its undeployed Imagine blueprint.'
-            : 'Current specification approved. Workforce generation is unlocked.'
-            : harness.canApprove ? 'Specification validated. Waiting for your approval.'
-              : 'Specification not yet approved. Workforce generation is locked.'}</p>
+        {definitionOnly ? (harness.specApproved || harness.canApprove || !harness.blockers.length) &&
+          <p role="status">{harness.specApproved ? 'Workforce Spec approved.' : harness.canApprove
+            ? 'Workforce Spec ready for approval.' : 'Workforce Spec not yet approved.'}</p>
+          : <p role="status">{harness.workforce?.validated ? 'Workforce contract validated. Stopped for your review.'
+            : harness.specApproved ? 'Current specification approved. Workforce generation is unlocked.'
+              : harness.canApprove ? 'Specification validated. Waiting for your approval.'
+                : 'Specification not yet approved. Workforce generation is locked.'}</p>}
         {harness.blockers.length > 0 && <ul className="kh-imagine-harness__blockers">
           {harness.blockers.map((blocker, index) => {
             const action = harness.findingActions?.find(item => item.index === index);
@@ -111,9 +111,7 @@ export const ImagineHarness: React.FC<{
           onClick={() => { setError(null); check.mutate(); }}>{check.isPending ? 'Checking...' : 'Check workforce contract'}</button>}
         {!definitionOnly && harness.workforce && !harness.workforce.validated && <p>The workforce is not validated against the current approved sources. Check saved edits or regenerate it after spec approval.</p>}
       </>}
-      <p>{definitionOnly
-        ? 'These are definition checks, not native runtime G1 acceptance. A saved Think document does not mean an Imagine blueprint has been created; the final stage must confirm actual persistence.'
-        : 'Design checks only. No Imagine records, runtime execution or UI acceptance are claimed.'}</p>
+      {!definitionOnly && <p>Design checks only. No Imagine records, runtime execution or UI acceptance are claimed.</p>}
     </>}
     {flag.isPending && <p role="status">Saving Imagine demo flag...</p>}
     {error && <p role="alert" className="kh-design-work__error">{error}</p>}

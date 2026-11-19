@@ -172,7 +172,7 @@ export async function ensureEpisodeForPrep(db: Pool, recordingDate: string, prep
   const projectId = await showProjectId(db);
   const note = await createNoteRecord(db, {
     content: JSON.stringify({ title, contentType: 'podcast-episode', contentJson: '[]' }),
-    tags: ['podcast'], ...(projectId ? { projectId } : {}),
+    ...(projectId ? { projectId } : {}),
   });
   // The note trigger has already created the row; the unique recording date guards a concurrent run.
   try {
@@ -430,7 +430,7 @@ export async function saveShowNotes(db: Pool, noteId: string, input: Record<stri
   if (!outputs) throw new ValidationError('Athena has not saved any Show Notes outputs yet. Ask her to draft them first.');
   const note = await createNoteRecord(db, {
     content: JSON.stringify({ title: noteTitle(current.content), contentType: 'podcast-show-notes', contentJson: JSON.stringify(textToBlocks(outputs.bodyMarkdown)) }),
-    tags: ['podcast'], ...(current.project_id ? { projectId: current.project_id } : {}),
+    ...(current.project_id ? { projectId: current.project_id } : {}),
   });
   const client = await db.connect();
   try {

@@ -57,7 +57,6 @@ export interface Note {
   content: string;
   createdAt: string;
   updatedAt: string;
-  tags: string[];
   linkedItems: string[];
   status: 'active' | 'archived';
   /** Optional FK to projects.id */
@@ -81,7 +80,6 @@ export interface NoteSummary {
 
 export interface CreateNoteInput {
   content: string;
-  tags?: string[];
   projectId?: string;
 }
 

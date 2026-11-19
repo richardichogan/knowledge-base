@@ -358,7 +358,7 @@ export async function generateWeeklyMicrosoftDigest(db: Pool, now = new Date()):
     const title = blogTitle(blog, `Microsoft this week: ${label}`);
     const body = blog.replace(/^# .*\n+/, '');
     const wrapper = { title, contentType: 'blog', contentJson: JSON.stringify(textToBlocks(body)) };
-    const note = await createNoteRecord(db, { content: JSON.stringify(wrapper), tags: ['weekly-digest', 'microsoft'], projectId: DIGEST_PROJECT_ID });
+    const note = await createNoteRecord(db, { content: JSON.stringify(wrapper), projectId: DIGEST_PROJECT_ID });
     scheduleNoteIndexing(db, note);
     noteId = note.id;
     noteUrl = `${env.FRONTEND_BASE_URL}/think?noteId=${note.id}`;

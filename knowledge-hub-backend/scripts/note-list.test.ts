@@ -19,7 +19,7 @@ test('note summaries exhaust stable pages and filter saved writing, types and ex
   });
   await db.exec(`CREATE TABLE notes (
     id UUID PRIMARY KEY, content TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT '2026-10-01',
-    updated_at TIMESTAMPTZ DEFAULT '2026-10-02', tags TEXT[] DEFAULT '{}',
+    updated_at TIMESTAMPTZ DEFAULT '2026-10-02',
     linked_items TEXT[] DEFAULT '{}', status TEXT DEFAULT 'active', project_id TEXT, revision INTEGER DEFAULT 1);
     CREATE TABLE tags (id UUID PRIMARY KEY, parent_id UUID);
     CREATE TABLE note_tags (note_id UUID REFERENCES notes(id), tag_id UUID REFERENCES tags(id),
@@ -53,7 +53,7 @@ test('note summaries exhaust stable pages and filter saved writing, types and ex
   const databaseListRows: Record<string, unknown>[][] = [];
   const query = mock.method(pool, 'query', async (sql: string, values?: unknown[]) => {
     const result = await db.query<Record<string, unknown>>(sql, values);
-    if (sql.includes(' AS list_metadata')) databaseListRows.push(result.rows);
+    if (sql.includes(' AS taxonomy_tag_ids')) databaseListRows.push(result.rows);
     return result;
   });
   const connect = mock.method(pool, 'connect', async () => ({ query: (sql: string, values?: unknown[]) => db.query(sql, values), release() {} }));
@@ -84,7 +84,9 @@ test('note summaries exhaust stable pages and filter saved writing, types and ex
     assert.equal(envelope.success, true);
     assert.equal(databaseListRows.length, 1);
     for (const row of databaseListRows[0]!) {
-      assert.ok(!('content' in row), 'summary queries must not transfer full note bodies from the database');
+      assert.deepEqual(Object.keys(row).sort(),
+        ['id', 'created_at', 'updated_at', 'project_id', 'taxonomy_tag_ids', 'preview', 'list_metadata'].sort(),
+        'summary queries must transfer only fields used to build the list');
       assert.equal(typeof row.preview, 'string');
       assert.ok([...String(row.preview)].length <= 200, 'the database preview itself must be bounded');
     }
@@ -317,6 +319,9 @@ test('note summaries exhaust stable pages and filter saved writing, types and ex
     const completeBody = await complete.json() as { data: { items: { content: string }[] } };
     assert.ok(completeBody.data.items[0]?.content.includes('a'.repeat(300_000)),
       'full-note retrieval still supplies the complete saved body and embedded media');
+    const fullRow = databaseListRows.at(-1)?.[0];
+    assert.ok(fullRow && !('list_metadata' in fullRow) && !('preview' in fullRow) && !('tags' in fullRow),
+      'full-note queries must not compute unused summaries or return retired tags');
     await db.query('UPDATE notes SET content=$2 WHERE id=$1', [id(140), JSON.stringify({
       title: 'Large source-backed Design', contentType: 'design', contentJson: JSON.stringify([
         { type: 'paragraph', content: [{ text: emoji.repeat(150) }] },

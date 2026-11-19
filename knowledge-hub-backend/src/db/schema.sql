@@ -252,18 +252,6 @@ CREATE TABLE IF NOT EXISTS project_progress_reviews (
 CREATE INDEX IF NOT EXISTS project_progress_reviews_history
   ON project_progress_reviews(project_id, created_at DESC, id DESC);
 
--- ── Global tags (Change 007) ──────────────────────────────────────────────────
--- Canonical tag registry — grows automatically as tags are used anywhere in the
--- app (notes, projects). usage_count is incremented on each upsert so popular
--- tags float to the top of autocomplete lists.
-
-CREATE TABLE IF NOT EXISTS global_tags (
-  tag          TEXT PRIMARY KEY,
-  usage_count  INTEGER NOT NULL DEFAULT 1,
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
 -- ── Tasks (Change 008) ────────────────────────────────────────────────────────
 -- User-managed tasks that can be pushed to Microsoft To Do or GitHub Issues.
 

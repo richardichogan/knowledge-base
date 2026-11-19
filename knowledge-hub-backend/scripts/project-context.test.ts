@@ -15,7 +15,7 @@ const project: CurrentProjectContext = {
   lifecycleState: 'active', startDate: '2026-10-01', targetEndDate: '2026-12-31',
   importance: 'critical', priority: 'high', category: 'work', projectType: 'project',
   expectedOutputs: [output, 'Second output'], links: [{ label: 'Reference', url: 'https://example.com' }],
-  gitlabPaths: ['team/imagine'], githubRepos: ['team/imagine'], tags: ['Insurance'],
+  gitlabPaths: ['team/imagine'], githubRepos: ['team/imagine'],
   hasIcaDocumentCollection: true, icaDocumentCollectionName: 'IMAGINE documents', icaDocumentCollectionId: 'collection-1',
   client: null, partners: [], offeringLink: null, linkedProjects: [],
 };

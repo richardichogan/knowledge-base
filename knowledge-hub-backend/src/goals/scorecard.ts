@@ -303,7 +303,7 @@ async function convertDecision(db: Pool, item: TidyItem, action: Exclude<Decisio
     created = { type: 'task', id };
   } else if (action === 'note') {
     const title = text.length > NOTE_TITLE_LIMIT ? `${text.slice(0, NOTE_TITLE_LIMIT - 1).trimEnd()}…` : text;
-    const note = await createNoteRecord(db, { projectId: projectId ?? '', tags: ['decision'],
+    const note = await createNoteRecord(db, { projectId: projectId ?? '',
       content: JSON.stringify({ title, contentType: 'note', contentJson: JSON.stringify(textToBlocks(`${text}\n\nOpen question from ${chat}: [open the chat](${chatHref(sessionId)})`)) }) });
     created = { type: 'note', id: note.id };
   } else {

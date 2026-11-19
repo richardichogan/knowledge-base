@@ -233,7 +233,6 @@ canvasRouter.post('/:id/nodes/:nodeId/to-note', (req: Request, res: Response, ne
       const { title, blocks } = cardSummaryBlocks(map, param(req, 'nodeId'), false);
       const note = await createNoteRecord(db, {
         content: JSON.stringify({ title, contentType: 'note', contentJson: JSON.stringify(blocks) }),
-        tags: [],
         ...(map.project !== null && { projectId: map.project }),
       });
       await linkNote(map.id, note.id);

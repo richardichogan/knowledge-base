@@ -157,7 +157,7 @@ async function ensureNote(db: Pool, opp: Opportunity): Promise<string> {
     const live = (await db.query<{ status: string }>('SELECT status FROM notes WHERE id=$1', [existing])).rows[0];
     if (live?.status === 'active') { await conformNote(db, opp, existing); return existing; }
   }
-  const note = await createNoteRecord(db, { projectId: opp.projectId, tags: ['deal-desk'],
+  const note = await createNoteRecord(db, { projectId: opp.projectId,
     content: JSON.stringify({ title: noteTitle(opp), contentType: 'deal-desk', contentJson: JSON.stringify(dealTemplate(noteTitle(opp), intro(opp))) }) });
   await mutateState<DeskState, void>(db, STATE_KEY, EMPTY_STATE, s => { s.notes[opp.projectId] = note.id; s.stages = { ...s.stages, [note.id]: 'Qualify' }; });
   return note.id;

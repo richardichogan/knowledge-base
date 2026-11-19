@@ -53,8 +53,8 @@ const DIRECT_FIT = 2;
 
 /** Active projects whose work Discover should serve: high importance, or high-priority work projects. */
 export async function loadFocusProjects(db: Pool): Promise<FocusProject[]> {
-  const { rows } = await db.query<{ id: string; name: string; importance: string | null; goal: string | null; description: string | null; tags: string[] | null; notes: string[] | null }>(
-    `SELECT p.id, p.name, p.importance, p.goal, p.description, p.tags,
+  const { rows } = await db.query<{ id: string; name: string; importance: string | null; goal: string | null; description: string | null; notes: string[] | null }>(
+    `SELECT p.id, p.name, p.importance, p.goal, p.description,
             (SELECT array_agg(t.title) FROM (
                SELECT ci.title FROM content_items ci
                 WHERE ci.source = 'note' AND ci.project_context = p.id AND ci.published_at > now() - interval '90 days'
@@ -71,7 +71,6 @@ export async function loadFocusProjects(db: Pool): Promise<FocusProject[]> {
     importance: r.importance === 'high' || r.importance === 'critical' ? 'high' : 'normal',
     brief: [
       r.goal ?? '', r.description ?? '',
-      (r.tags ?? []).length > 0 ? `Tags: ${(r.tags ?? []).join(', ')}` : '',
       (r.notes ?? []).length > 0 ? `Recent notes: ${(r.notes ?? []).join('; ')}` : '',
     ].filter((s) => s.trim() !== '').join(' ').slice(0, BRIEF_CHARS),
   }));

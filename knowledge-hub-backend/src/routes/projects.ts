@@ -10,7 +10,6 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/db.js';
-import { upsertTags } from '../db/tagHelpers.js';
 import { HTTP_STATUS } from '../config/constants.js';
 import { ValidationError, NotFoundError } from '../types/errors.js';
 import type { ApiSuccess } from '../types/apiResponse.js';
@@ -63,14 +62,17 @@ export interface Project extends ProjectRelations {
   icaDocumentCollectionName: string;
   icaDocumentCollectionId: string;
   links: ProjectLink[];
-  tags: string[];
   createdAt: string;
   updatedAt: string;
 }
 
 // ── Row mapper ────────────────────────────────────────────────────────────────
 
-const PROJECT_COLUMNS = `*, to_char(start_date, 'YYYY-MM-DD') AS start_date,
+const PROJECT_COLUMNS = `id, name, colour, icon, category, priority, project_type,
+  description, goal, role, ownership, lifecycle_state, importance, expected_outputs,
+  gitlab_paths, github_repos, has_ica_document_collection, ica_document_collection_name,
+  ica_document_collection_id, links, created_at, updated_at,
+  to_char(start_date, 'YYYY-MM-DD') AS start_date,
   to_char(target_end_date, 'YYYY-MM-DD') AS target_end_date,
   (SELECT t.id FROM tags t WHERE t.project_id = projects.id) AS tag_id,
   (SELECT g.id FROM tags t JOIN tags g ON g.id = t.parent_id WHERE t.project_id = projects.id) AS group_id,
@@ -104,7 +106,6 @@ function rowToProject(row: Record<string, unknown>): Project {
     icaDocumentCollectionName: String(row['ica_document_collection_name'] ?? ''),
     icaDocumentCollectionId: String(row['ica_document_collection_id'] ?? ''),
     links:        Array.isArray(row['links']) ? row['links'] as ProjectLink[] : [],
-    tags:         row['tags'] as string[],
     createdAt:    String(row['created_at']),
     updatedAt:    String(row['updated_at']),
     ...rowToRelations(row),
@@ -313,10 +314,9 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
       validateInput(input, true);
       const relations = parseProjectRelations(input);
       const id = String(input['id'] ?? '').trim() || randomUUID();
-      const tags = Array.isArray(input['tags']) ? (input['tags'] as string[]).filter(Boolean) : [];
       const result = await db.query<Record<string, unknown>>(
-        `INSERT INTO projects (id, name, colour, icon, category, priority, project_type, description, goal, role, ownership, lifecycle_state, start_date, target_end_date, importance, expected_outputs, gitlab_paths, github_repos, has_ica_document_collection, ica_document_collection_name, ica_document_collection_id, links, tags)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+        `INSERT INTO projects (id, name, colour, icon, category, priority, project_type, description, goal, role, ownership, lifecycle_state, start_date, target_end_date, importance, expected_outputs, gitlab_paths, github_repos, has_ica_document_collection, ica_document_collection_name, ica_document_collection_id, links)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
          RETURNING id`,
         [
           id,
@@ -341,7 +341,6 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
           String(input['icaDocumentCollectionName'] ?? '').trim(),
           String(input['icaDocumentCollectionId'] ?? '').trim(),
           JSON.stringify(Array.isArray(input['links']) ? input['links'] : []),
-          tags,
         ],
       );
       const createdId = String((result.rows[0] as Record<string, unknown>)['id']);
@@ -353,10 +352,6 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
         throw error;
       }      const body: ApiSuccess<Project> = { success: true, data: await loadProject(db, createdId) };
       res.status(HTTP_STATUS.CREATED).json(body);
-      // Auto-upsert tags into global registry (fire-and-forget)
-      upsertTags(db, tags).catch((e: unknown) => {
-        console.error('[projects] Failed to upsert tags:', e);
-      });
     } catch (err) { next(err); }
   })();
 });
@@ -398,7 +393,6 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       if (input['icaDocumentCollectionName'] !== undefined) add('ica_document_collection_name', String(input['icaDocumentCollectionName']).trim());
       if (input['icaDocumentCollectionId'] !== undefined) add('ica_document_collection_id', String(input['icaDocumentCollectionId']).trim());
       if (Array.isArray(input['links']))       add('links',        JSON.stringify(input['links']));
-      if (Array.isArray(input['tags']))        add('tags',         (input['tags'] as string[]).filter(Boolean));
 
       if (fields.length === 0 && input['groupId'] === undefined && !hasRelationChanges(relations)) throw new ValidationError('no fields to update', {});
       if (input['startDate'] !== undefined || input['targetEndDate'] !== undefined) {
@@ -433,10 +427,6 @@ router.patch('/:id', (req: Request, res: Response, next: NextFunction): void => 
       const updated = await loadProject(db, id ?? '');
       const body: ApiSuccess<Project> = { success: true, data: updated };
       res.status(HTTP_STATUS.OK).json(body);
-      // Auto-upsert tags into global registry (fire-and-forget)
-      upsertTags(db, updated.tags).catch((e: unknown) => {
-        console.error('[projects] Failed to upsert tags:', e);
-      });
     } catch (err) { next(err); }
   })();
 });

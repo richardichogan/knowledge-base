@@ -1312,10 +1312,10 @@ export async function executeToolCall(
       if (turn.strictProjectId && projectId !== turn.strictProjectId) return { error: 'Source Think note is outside this conversation\'s strict workstream scope. No design created.' };
       const scope = projectId ? { projectId } : {};
       const useCase = await createNoteRecord(db, {
-        content: JSON.stringify({ title, contentType: 'use-case', contentJson: JSON.stringify(textToBlocks(markdown)) }), tags: [], ...scope,
+        content: JSON.stringify({ title, contentType: 'use-case', contentJson: JSON.stringify(textToBlocks(markdown)) }), ...scope,
       });
       const design = await createNoteRecord(db, {
-        content: JSON.stringify({ title, contentType: 'design', contentJson: '[]' }), tags: [], ...scope,
+        content: JSON.stringify({ title, contentType: 'design', contentJson: '[]' }), ...scope,
       });
       await db.query('UPDATE designs SET source_note_id=$1 WHERE parent_note_id=$2', [useCase.id, design.id]);
       return {
@@ -2863,7 +2863,7 @@ async function createNoteDraft(db: Pool, args: Record<string, unknown>): Promise
   }
   const wrapper = { title, contentType, contentJson: JSON.stringify(blocks) };
 
-  const note = await createNoteRecord(db, { content: JSON.stringify(wrapper), tags: [], projectId });
+  const note = await createNoteRecord(db, { content: JSON.stringify(wrapper), projectId });
   const linkedArticles = await linkNoteToDiscoveredArticles(db, note.id, projectId, content).catch(() => 0);
   return {
     success: true,

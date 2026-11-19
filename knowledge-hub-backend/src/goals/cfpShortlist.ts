@@ -92,7 +92,7 @@ async function processDue(db: Pool, actor: TaskActivityActor = 'athena'): Promis
   for (const s of due) {
     try {
       const a = await draftAbstract(db, s.cfpId);
-      const note = await createNoteRecord(db, { projectId: HOME_PROJECT, tags: ['cfp'],
+      const note = await createNoteRecord(db, { projectId: HOME_PROJECT,
         content: JSON.stringify({ title: a.title, contentType: 'note', contentJson: JSON.stringify(textToBlocks(a.markdown)) }) });
       const taskId = (await db.query<{ id: string }>(
         `INSERT INTO tasks (title, body, status, project_id, tags, priority, due_date) VALUES ($1,$2,'backlog',$3,'{cfp}','high',$4) RETURNING id::text`,

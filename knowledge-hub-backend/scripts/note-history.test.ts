@@ -37,7 +37,7 @@ test('isolated PostgreSQL migration and full transactional policy', async () => 
   await db.exec(`CREATE TABLE notes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(), content TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    tags TEXT[] NOT NULL DEFAULT '{}', linked_items UUID[] NOT NULL DEFAULT '{}',
+    linked_items UUID[] NOT NULL DEFAULT '{}',
     status TEXT NOT NULL DEFAULT 'active', project_id UUID);
   `);
   const migration = await readFile(new URL('../src/db/migrations/060_note_history.sql', import.meta.url), 'utf8');
@@ -70,7 +70,7 @@ test('isolated PostgreSQL migration and full transactional policy', async () => 
   let saved = await writeNote(pool, id, { content: body('Original'), expectedRevision: 0 });
   assert.equal(saved.revision, 0);
   assert.equal(await count(), 0);
-  saved = await writeNote(pool, id, { content: body('Original', 'new.md'), tags: ['keep'], expectedRevision: 0 });
+  saved = await writeNote(pool, id, { content: body('Original', 'new.md'), expectedRevision: 0 });
   assert.equal(await count(), 0, 'metadata does not checkpoint');
   saved = await writeNote(pool, id, { content: body('First edit'), expectedRevision: saved.revision });
   const original = (await listNoteVersions(pool, id))[0]!;
@@ -95,7 +95,7 @@ test('isolated PostgreSQL migration and full transactional policy', async () => 
   saved = await writeNote(pool, id, { restoreId: original.id, expectedRevision: saved.revision });
   assert.equal(JSON.parse(saved.content).title, 'Original');
   assert.equal(JSON.parse(saved.content).githubPath, 'keep-current.md');
-  assert.deepEqual(saved.tags, ['keep']);
+  assert.ok(!('tags' in saved));
   assert.equal(saved.projectId, project);
   assert.deepEqual(saved.linkedItems, [other]);
   assert.equal(await count(), 3, 'restore reuses exact latest protected checkpoint');
@@ -134,7 +134,7 @@ test('isolated PostgreSQL migration and full transactional policy', async () => 
   assert.equal(JSON.parse(saved.content).contentJson, localWriting.contentJson);
   assert.equal(JSON.parse(saved.content).githubPath, JSON.parse(beforeFailure).githubPath);
   assert.equal(saved.projectId, project);
-  assert.deepEqual(saved.tags, ['keep']);
+  assert.ok(!('tags' in saved));
   assert.deepEqual(saved.linkedItems, [other]);
   const recoveryCheckpoint = (await listNoteVersions(pool, id))[0]!;
   assert.equal(recoveryCheckpoint.reason, 'before_restore');
@@ -150,7 +150,7 @@ test('isolated PostgreSQL migration and full transactional policy', async () => 
   assert.equal(restored.restored, true);
   assert.equal(restored.note.content, saved.content);
   assert.equal(restored.note.projectId, project);
-  assert.deepEqual(restored.note.tags, ['keep']);
+  assert.ok(!('tags' in restored.note));
   assert.deepEqual(restored.note.linkedItems, [other]);
   assert.equal(restored.note.revision, saved.revision! + 1, 'Restore invalidates pre-archive writers');
   const repeated = await restoreArchivedNote(pool, id, saved.revision!);

@@ -884,7 +884,6 @@ router.post('/session/:sessionId/export-to-think', (req: Request, res: Response,
       };
       const note = await createNoteRecord(db, {
         content: JSON.stringify(wrapper),
-        tags: ['athena-export'],
         ...(projectId !== null && { projectId }),
       });
 

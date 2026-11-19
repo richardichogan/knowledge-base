@@ -27,7 +27,6 @@ import { peopleRouter } from './routes/people.js';
 import { companiesRouter } from './routes/companies.js';
 import { projectCockpitRouter } from './routes/projectCockpit.js';
 import { reviewPacketsRouter } from './routes/reviewPackets.js';
-import { tagsRouter } from './routes/tags.js';
 import { documentsRouter } from './routes/documents.js';
 import { discoverRouter } from './routes/discover.js';
 import { discoverMonitoringRouter } from './routes/discoverWatchlists.js';
@@ -164,7 +163,6 @@ export function createApp(readiness: () => RuntimePhase = () => 'starting'): exp
   app.use('/api/companies', companiesRouter);
   app.use('/api/projects', projectCockpitRouter);
   app.use('/api/projects', reviewPacketsRouter);
-  app.use('/api/tags', tagsRouter);
   app.use('/api/documents', documentsRouter);
   app.use('/api/integrations/alliance', allianceApiRouter);
   app.use('/api/memories', memoriesRouter);

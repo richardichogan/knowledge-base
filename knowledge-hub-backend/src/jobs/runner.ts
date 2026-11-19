@@ -285,7 +285,7 @@ export async function executeRun(db: Pool, run: JobRun, lease: string, delivery:
       const outputs = run.definition.outputs;
       if (outputs.includes('think')) await step(db, run, lease, 'think', async () => {
         const note = await createNoteRecord(db, { content: JSON.stringify({ title: run.definition.name, contentType: run.definition.outputs.includes('blog') ? 'blog' : 'note',
-          contentJson: JSON.stringify(textToBlocks(text(run.artifacts.markdown, 'generated output', JOB_LIMITS.markdown))) }), tags: ['scheduled-job'], projectId: run.definition.kind === 'weekly-microsoft' ? 'microsoft-cloud-blog' : 'ibm-thought-leadership' }, run.id);
+          contentJson: JSON.stringify(textToBlocks(text(run.artifacts.markdown, 'generated output', JOB_LIMITS.markdown))) }), projectId: run.definition.kind === 'weekly-microsoft' ? 'microsoft-cloud-blog' : 'ibm-thought-leadership' }, run.id);
         scheduleNoteIndexing(db, note);
         recordAiAuthoredNote(db, note.id, note.content, jobAgent(run.definition.kind));
         return { noteId: note.id, url: `/think?noteId=${note.id}` };

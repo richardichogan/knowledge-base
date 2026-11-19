@@ -74,9 +74,11 @@ export async function readImagineHarness(db: Pool, id: string): Promise<ImagineH
             pending: readiness.proposal?.findingId === finding.id, otherPending: !!readiness.proposal && readiness.proposal.findingId !== finding.id });
         }
       }
-      if (readiness.state !== 'blocked') view.blockers.push(readiness.sourceError
-        ?? (scoped && readiness.state === 'ready' ? 'The Workforce Spec assessment no longer matches the current sources.'
-          : `Specification validation is ${readiness.state}. Check readiness in the Spec tab before approving.`));
+      if (readiness.state !== 'blocked') view.blockers.push(readiness.sourceError ?? (scoped
+        ? readiness.state === 'stale' || readiness.state === 'ready'
+          ? 'The last check is out of date. Rerun Check definition completeness on the Workforce Spec tab.'
+          : 'Run Check definition completeness on the Workforce Spec tab before approving.'
+        : `Specification validation is ${readiness.state}. Check readiness in the Spec tab before approving.`));
     }
   }
   const workforce = scoped ? undefined : (await sourceSnapshot(db, design)).find(source => source.role === 'workforce');

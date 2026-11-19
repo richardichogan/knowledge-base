@@ -25,7 +25,7 @@ const initial: Note = {
         children: [{ type: 'bulletListItem', content: 'Check each handoff.' }] },
       ...Array.from({ length: 70 }, (_, i) => ({ type: 'paragraph', content: `Step ${i + 1}: demonstrate this part of the flow.` })),
     ]) }),
-  createdAt: now, updatedAt: now, tags: [], linkedItems: [], status: 'active', revision: 0,
+  createdAt: now, updatedAt: now, linkedItems: [], status: 'active', revision: 0,
 };
 if (!reader || localStorage.getItem(KEY) === null) { localStorage.setItem(KEY, JSON.stringify(initial)); localStorage.removeItem(FAIL); }
 function persisted(): Note { return JSON.parse(localStorage.getItem(KEY)!) as Note; }

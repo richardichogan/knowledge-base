@@ -1,6 +1,18 @@
 # Knowledge Hub Production Deployment Plan
 
-**Status:** Deployed
+**Status:** Pending validation (workforce definition candidate; prior release deployed)
+
+**Section 7: Validation Proof — workforce definition candidate (2026-11-19, local):**
+- `git fetch origin` and `git merge --no-edit origin/main` confirmed the base is current.
+- Backend and web `npx tsc --noEmit` and `npm run build` passed. `git diff --check` passed.
+- `node scripts/run-isolated-tests.mjs` initially reported 1,037 passed and two failed.
+  Corrected the publication and workforce-generation fixtures and the Atlas query expectation.
+  Reruns with `--test-file=designs.test.ts` (23 passed) and `--test-file=graph-atlas.test.ts`
+  (3 passed) passed. The frontend release log contained 392 passes and no failures.
+- Release remains on hold. The saved Invoice Spec has one unresolved handoff finding
+  and a pending proposal, not an approved Spec or prepared Imagine mapping. Isolated
+  generation uses a mock model and is not proof of a complete live blueprint.
+  No Azure rollout or Imagine write was performed for this candidate.
 
 **Design sections, workstream context and sidebar release (2026-11-17):**
 - User requested deployment of the completed local changes. Reuse the existing

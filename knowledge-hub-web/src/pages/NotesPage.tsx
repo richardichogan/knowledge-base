@@ -4,7 +4,7 @@
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Button, TextArea, Tile, Tag, InlineLoading,
+  Button, TextArea, Tile, InlineLoading,
   InlineNotification, IconButton,
 } from '@carbon/react';
 import { Add, TrashCan } from '@carbon/icons-react';
@@ -101,7 +101,6 @@ export const NotesPage: React.FC = () => {
             <span className="note-item__date">
               {new Date(note.createdAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
             </span>
-            {note.tags.map((tag) => <Tag key={tag} type="gray" size="sm">{tag}</Tag>)}
           </div>
         </Tile>
       ))}

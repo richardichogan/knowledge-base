@@ -27,7 +27,6 @@ interface NoteReindexRow {
   id: string;
   content: string;
   project_id: string | null;
-  tags: string[];
   updated_at: string;
   indexed_body: string | null;
   indexed_project_context: string | null;
@@ -38,7 +37,7 @@ interface NoteReindexRow {
 export async function runNoteReindexJob(db: Pool): Promise<void> {
   try {
     const { rows } = await db.query<NoteReindexRow>(
-      `SELECT n.id, n.content, n.project_id, n.tags, n.updated_at,
+      `SELECT n.id, n.content, n.project_id, n.updated_at,
               ci.body AS indexed_body, ci.project_context AS indexed_project_context,
               ci.tags AS indexed_tags
          FROM notes n
@@ -54,7 +53,6 @@ export async function runNoteReindexJob(db: Pool): Promise<void> {
           id: row.id,
           content: row.content,
           projectId: row.project_id,
-          tags: row.tags,
           updatedAt: new Date(row.updated_at).toISOString(),
         };
         const payload = await buildNoteIndexPayload(db, note);

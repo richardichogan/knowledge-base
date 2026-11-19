@@ -19,7 +19,7 @@ let persisted: Note = {
   id: 'history-note', content: JSON.stringify({ title: 'Original', contentType: 'use-case', githubPath: 'keep.md',
     contentJson: JSON.stringify([{ type: 'heading', props: { level: 1 }, content: 'Original' },
       { type: 'paragraph', content: [{ type: 'text', text: 'Rich original body', styles: { bold: true } }] }]) }),
-  createdAt: now, updatedAt: now, revision: 0, tags: ['keep'], linkedItems: [], status: 'active', projectId: 'keep-project',
+  createdAt: now, updatedAt: now, revision: 0, taxonomyTagIds: ['11111111-1111-4111-8111-111111111111'], linkedItems: [], status: 'active', projectId: 'keep-project',
 };
 let versions: NoteVersion[] = [];
 let failCheckpoint = true;
@@ -45,7 +45,7 @@ api.getTaxonomy = async () => ({ success: true, data: [] });
 api.getNoteTags = async () => ({ success: true, data: [] });
 api.getProjects = async () => ({ success: true, data: [] });
 api.getNoteGitHub = async () => ({ success: true, data: null });
-api.patchNote = async (_id, content, _tags, _project, expected) => {
+api.patchNote = async (_id, content, _project, expected) => {
   saveCount++;
   if (versions.length === 0) addVersion('automatic');
   persist(content, expected);
@@ -155,7 +155,7 @@ async function runNoteHistoryChecks(): Promise<string[]> {
   releaseRestore!();
   await waitFor(() => JSON.stringify(editor.document).includes('Unsaved before Athena') && editor.isEditable);
   check(!JSON.stringify(editor.document).includes('Athena replacement'), 'Successful restore updates live editor');
-  check(persisted.projectId === 'keep-project' && persisted.tags[0] === 'keep' && JSON.parse(persisted.content).githubPath === 'keep.md', 'Organisation preserved');
+  check(persisted.projectId === 'keep-project' && persisted.taxonomyTagIds?.[0] === '11111111-1111-4111-8111-111111111111' && JSON.parse(persisted.content).githubPath === 'keep.md', 'Organisation preserved');
   check(versions[0]!.reason === 'before_restore' && versions[0]!.writing.contentJson.includes('Unsaved immediately before restore'), 'Restore atomically preserves unsaved writing');
   const savesAfterRestore = saveCount;
   await new Promise(resolve => setTimeout(resolve, 3200));

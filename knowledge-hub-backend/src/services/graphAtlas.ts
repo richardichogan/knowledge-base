@@ -57,7 +57,10 @@ export function parseAtlasQuery(query: Record<string, unknown>): AtlasQuery {
 // Read-through projections: domain relationships stay authoritative, not copied into another graph store.
 const PROJECTION = `
 WITH RECURSIVE content_records AS MATERIALIZED (
-  SELECT c.*, CASE
+  SELECT c.id, c.source, c.title, c.tags, c.published_at, c.updated_at,
+    c.project_context, c.metadata->'categories' AS categories,
+    c.metadata->>'repo' AS repo, c.metadata->>'path' AS path,
+    c.metadata->>'publishedUrl' AS published_url, c.url, CASE
     WHEN source='discovered-article' THEN 'discover_item'
     WHEN source IN ('github-doc','github-content-store','user-upload','onedrive-document','ica-document') THEN 'document'
     WHEN source IN ('github-commit','gitlab-commit') THEN 'commit'
@@ -80,7 +83,7 @@ post_categories AS MATERIALIZED (
     tn.id AS tag_id, c.published_at, c.updated_at
   FROM content_records c
   CROSS JOIN LATERAL jsonb_array_elements_text(
-    CASE WHEN jsonb_typeof(c.metadata->'categories')='array' THEN c.metadata->'categories' ELSE '[]'::jsonb END) cat
+    CASE WHEN jsonb_typeof(c.categories)='array' THEN c.categories ELSE '[]'::jsonb END) cat
   LEFT JOIN tag_names tn ON tn.key=lower(trim(cat))
   WHERE c.source IN ('cms-blog','cms-newsletter','cms-podcast-show-notes')
     AND trim(both '-' from regexp_replace(lower(trim(cat)), '[^a-z0-9]+', '-', 'g'))<>''
@@ -94,10 +97,8 @@ live AS (
   UNION ALL SELECT 'person:'||id, id::text, 'person', name, '{}', created_at, updated_at,
     ARRAY(SELECT project_id FROM person_project_roles WHERE person_id=p.id) FROM people p
   UNION ALL SELECT 'note:'||id, id::text, 'note', COALESCE(NULLIF(note_list_metadata(content)->>'title',''),'Untitled note'),
-    ARRAY(SELECT DISTINCT name FROM (
-      SELECT unnest(n.tags) AS name
-      UNION ALL SELECT t.name FROM note_tags nt JOIN tags t ON t.id=nt.tag_id WHERE nt.note_id=n.id
-    ) names ORDER BY name), created_at, updated_at, array_remove(ARRAY[project_id],NULL) FROM notes n WHERE status='active'
+    ARRAY(SELECT DISTINCT t.name FROM note_tags nt JOIN tags t ON t.id=nt.tag_id WHERE nt.note_id=n.id ORDER BY t.name),
+    created_at, updated_at, array_remove(ARRAY[project_id],NULL) FROM notes n WHERE status='active'
   UNION ALL SELECT 'tag:'||t.id, t.id::text, 'tag', t.name, ARRAY[t.name], t.created_at,t.updated_at,'{}'::text[] FROM tags t
   UNION ALL SELECT 'category:'||slug, slug, 'category', MIN(name), ARRAY[MIN(name)], MIN(published_at), MAX(updated_at), '{}'::text[]
     FROM post_categories WHERE tag_id IS NULL GROUP BY slug
@@ -129,43 +130,41 @@ all_nodes AS MATERIALIZED (
 ),
 alias_candidates AS (
   SELECT id AS alias,id FROM all_nodes
-  UNION SELECT 'diagram:'||ref_id,id FROM all_nodes WHERE ref_type='canvas'
-  UNION SELECT 'use_case:'||ref_id,id FROM all_nodes WHERE ref_type='usecase'
-  UNION SELECT 'chat_decision:'||ref_id,id FROM all_nodes WHERE ref_type='decision'
-  UNION SELECT 'ai_session:'||ref_id,id FROM all_nodes WHERE ref_type='chat'
-  UNION SELECT 'spark:'||ref_id,id FROM all_nodes WHERE ref_type='spark_theme'
-  UNION SELECT 'source:'||id,id FROM all_nodes WHERE ref_type IN ('note','chat')
-  UNION SELECT 'content_item:'||id,ref_type||':'||id FROM content_records
-  UNION SELECT 'source:content_item:'||id,ref_type||':'||id FROM content_records
-  UNION SELECT 'article:'||id,'discover_item:'||id FROM content_records WHERE ref_type='discover_item'
-  UNION SELECT 'discover:'||id,'discover_item:'||id FROM content_records WHERE ref_type='discover_item'
-  UNION SELECT 'document:'||(metadata->>'repo')||'::'||(metadata->>'path'),ref_type||':'||id FROM content_records
-    WHERE ref_type='document' AND metadata->>'repo' IS NOT NULL AND metadata->>'path' IS NOT NULL
-  UNION SELECT 'document:'||CASE source WHEN 'user-upload' THEN 'kb-uploads' ELSE 'onedrive' END||'::'||id,
+  UNION ALL SELECT 'diagram:'||ref_id,id FROM all_nodes WHERE ref_type='canvas'
+  UNION ALL SELECT 'use_case:'||ref_id,id FROM all_nodes WHERE ref_type='usecase'
+  UNION ALL SELECT 'chat_decision:'||ref_id,id FROM all_nodes WHERE ref_type='decision'
+  UNION ALL SELECT 'ai_session:'||ref_id,id FROM all_nodes WHERE ref_type='chat'
+  UNION ALL SELECT 'spark:'||ref_id,id FROM all_nodes WHERE ref_type='spark_theme'
+  UNION ALL SELECT 'source:'||id,id FROM all_nodes WHERE ref_type IN ('note','chat')
+  UNION ALL SELECT 'content_item:'||id,ref_type||':'||id FROM content_records
+  UNION ALL SELECT 'source:content_item:'||id,ref_type||':'||id FROM content_records
+  UNION ALL SELECT 'article:'||id,'discover_item:'||id FROM content_records WHERE ref_type='discover_item'
+  UNION ALL SELECT 'discover:'||id,'discover_item:'||id FROM content_records WHERE ref_type='discover_item'
+  UNION ALL SELECT 'document:'||repo||'::'||path,ref_type||':'||id FROM content_records
+    WHERE ref_type='document' AND repo IS NOT NULL AND path IS NOT NULL
+  UNION ALL SELECT 'document:'||CASE source WHEN 'user-upload' THEN 'kb-uploads' ELSE 'onedrive' END||'::'||id,
     ref_type||':'||id FROM content_records WHERE source IN ('user-upload','onedrive-document')
-  UNION SELECT 'design:'||d.id,'note:'||d.parent_note_id FROM designs d JOIN all_nodes n ON n.id='note:'||d.parent_note_id
-  UNION SELECT 'url:'||url,ref_type||':'||id FROM content_records WHERE url ~ '^https?://'
-  UNION SELECT 'content_item:'||c.id,c.source||':'||c.source_id FROM content_items c
+  UNION ALL SELECT 'design:'||d.id,'note:'||d.parent_note_id FROM designs d JOIN all_nodes n ON n.id='note:'||d.parent_note_id
+  UNION ALL SELECT 'url:'||url,ref_type||':'||id FROM content_records WHERE url ~ '^https?://'
+  UNION ALL SELECT 'content_item:'||c.id,c.source||':'||c.source_id FROM content_items c
     JOIN all_nodes n ON n.id=c.source||':'||c.source_id WHERE c.source IN ('note','task')
-  UNION SELECT 'source:content_item:'||c.id,c.source||':'||c.source_id FROM content_items c
+  UNION ALL SELECT 'source:content_item:'||c.id,c.source||':'||c.source_id FROM content_items c
     JOIN all_nodes n ON n.id=c.source||':'||c.source_id WHERE c.source IN ('note','task')
-  UNION SELECT 'content_item:'||c.id,'note:'||p.note_id FROM content_items c
+  UNION ALL SELECT 'content_item:'||c.id,'note:'||p.note_id FROM content_items c
     JOIN note_github_publications p ON lower(p.repo)=lower(c.metadata->>'repo') AND p.path=c.metadata->>'path'
     JOIN all_nodes n ON n.id='note:'||p.note_id WHERE c.source IN ('github-doc','github-content-store')
-  UNION SELECT 'source:content_item:'||c.id,'note:'||p.note_id FROM content_items c
+  UNION ALL SELECT 'source:content_item:'||c.id,'note:'||p.note_id FROM content_items c
     JOIN note_github_publications p ON lower(p.repo)=lower(c.metadata->>'repo') AND p.path=c.metadata->>'path'
     JOIN all_nodes n ON n.id='note:'||p.note_id WHERE c.source IN ('github-doc','github-content-store')
-  UNION SELECT 'document:'||c.id,'note:'||p.note_id FROM content_items c
+  UNION ALL SELECT 'document:'||c.id,'note:'||p.note_id FROM content_items c
     JOIN note_github_publications p ON lower(p.repo)=lower(c.metadata->>'repo') AND p.path=c.metadata->>'path'
     JOIN all_nodes n ON n.id='note:'||p.note_id WHERE c.source IN ('github-doc','github-content-store')
-  UNION SELECT 'document:'||p.repo||'::'||p.path,'note:'||p.note_id FROM note_github_publications p
+  UNION ALL SELECT 'document:'||p.repo||'::'||p.path,'note:'||p.note_id FROM note_github_publications p
     JOIN all_nodes n ON n.id='note:'||p.note_id
 ),
 aliases AS MATERIALIZED (
-  SELECT DISTINCT ON (alias) alias,id FROM (
-    SELECT alias,id,MIN(id) OVER (PARTITION BY alias) AS first_id,MAX(id) OVER (PARTITION BY alias) AS last_id
-    FROM alias_candidates
-  ) unique_aliases WHERE first_id=last_id ORDER BY alias,id
+  SELECT alias,MIN(id) AS id FROM alias_candidates
+  GROUP BY alias HAVING MIN(id)=MAX(id)
 ),
 indexed_refs AS MATERIALIZED (
   SELECT n.id,a.id AS target FROM nodes n LEFT JOIN content_items c ON c.id::text=n.ref_id
@@ -306,9 +305,9 @@ raw_edges AS (
     jsonb_build_object('evidence','Saved build pull request'),NULL,'explicit' FROM build_specs WHERE final_pr_url IS NOT NULL
   UNION ALL SELECT 'build-task-pr:'||id,'build_spec:'||spec_id,'url:'||pr_url,'implements',1,
     jsonb_build_object('evidence','Saved build task pull request'),NULL,'explicit' FROM build_tasks WHERE pr_url IS NOT NULL
-  UNION ALL SELECT 'published-article:'||id,'discover_item:'||id,'url:'||(metadata->>'publishedUrl'),'developed_into',1,
+  UNION ALL SELECT 'published-article:'||id,'discover_item:'||id,'url:'||published_url,'developed_into',1,
     jsonb_build_object('evidence','Saved published article URL'),NULL,'explicit'
-    FROM content_records WHERE ref_type='discover_item' AND metadata->>'publishedUrl' IS NOT NULL
+    FROM content_records WHERE ref_type='discover_item' AND published_url IS NOT NULL
   UNION ALL SELECT 'extraction:'||id,'note:'||note_id,target_type||':'||target_id,'derived_into',1,
     jsonb_build_object('evidence','Saved passage extraction','action',action),created_at,'explicit' FROM note_extractions WHERE target_id IS NOT NULL
   UNION ALL SELECT 'recorded-in:'||id,'decision:'||id,'chat:'||session_id,'recorded_in',1,

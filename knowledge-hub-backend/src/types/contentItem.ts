@@ -88,7 +88,6 @@ export interface Note {
   content: string;
   createdAt: string;
   updatedAt: string;
-  tags: string[];
   linkedItems: string[];
   status: 'active' | 'archived';
   /** Optional FK to projects.id — null means unassigned */
@@ -99,7 +98,6 @@ export interface Note {
 
 export interface CreateNoteInput {
   content: string;
-  tags?: string[];
   /** Optional project to associate this note with */
   projectId?: string;
 }

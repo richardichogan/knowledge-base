@@ -28,7 +28,6 @@ export interface CurrentProjectContext extends ProjectRelations {
   links: Array<{ label: string; url: string }>;
   gitlabPaths: string[];
   githubRepos: string[];
-  tags: string[];
   hasIcaDocumentCollection: boolean;
   icaDocumentCollectionName: string;
   icaDocumentCollectionId: string;
@@ -43,7 +42,7 @@ export async function loadCurrentProjectContext(db: Pick<Pool, 'query'>, project
       to_char(target_end_date, 'YYYY-MM-DD') AS "targetEndDate",
       importance, priority, category, project_type AS "projectType",
       expected_outputs AS "expectedOutputs", links,
-      gitlab_paths AS "gitlabPaths", github_repos AS "githubRepos", tags,
+      gitlab_paths AS "gitlabPaths", github_repos AS "githubRepos",
       has_ica_document_collection AS "hasIcaDocumentCollection",
       ica_document_collection_name AS "icaDocumentCollectionName",
       ica_document_collection_id AS "icaDocumentCollectionId",
@@ -65,7 +64,6 @@ export async function loadCurrentProjectContext(db: Pick<Pool, 'query'>, project
     expectedOutputs: Array.isArray(project.expectedOutputs) ? project.expectedOutputs : [],
     gitlabPaths: Array.isArray(project.gitlabPaths) ? project.gitlabPaths : [],
     githubRepos: Array.isArray(project.githubRepos) ? project.githubRepos : [],
-    tags: Array.isArray(project.tags) ? project.tags : [],
   };
 }
 
@@ -90,7 +88,6 @@ export function formatCurrentProjectContext(project: CurrentProjectContext): str
     project.githubRepos.length > 0 && `GitHub repositories: ${project.githubRepos.join(', ')}`,
     project.gitlabPaths.length > 0 && `GitLab paths: ${project.gitlabPaths.join(', ')}`,
     project.links.length > 0 && `Source references (contents not retrieved by this record read):\n${project.links.map(link => `- ${link.label}: ${link.url}`).join('\n')}`,
-    project.tags.length > 0 && `Tags: ${project.tags.join(', ')}`,
     project.hasIcaDocumentCollection && `ICA document collection: ${project.icaDocumentCollectionName} (id: ${project.icaDocumentCollectionId})`,
   ].filter(Boolean).join('\n');
 }

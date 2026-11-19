@@ -295,6 +295,7 @@ export const DesignParent: React.FC<{
   });
   const jobSeconds = job ? Math.max(0, Math.round((now - Date.parse(job.startedAt ?? job.createdAt)) / 1000)) : 0;
   const jobStep = job?.progress[job.progress.length - 1];
+  const repairProposed = workforceDefinition && latestJob?.specialist === 'design-finding-fix' && latestJob.status === 'done';
   const authoritativeSpec = resolveDesignTab(design, 'spec', null).asset;
   const hasSpec = !!authoritativeSpec?.available && authoritativeSpec.hasContent !== false;
   // Every lock says why, so the Design never looks frozen.
@@ -362,9 +363,9 @@ export const DesignParent: React.FC<{
           <p>{jobStep ?? 'Waiting to start.'}</p></div>
       </div> : visualBusy || chatBusy ? <p role="status">{visualStatus ?? 'Athena is working on this Design.'}</p>
         : latestJob ? <div>
-          <strong>{latestJob.specialistName} · {latestJob.status === 'done' ? 'Completed' : 'Could not finish'}</strong>
+          <strong>{repairProposed ? 'Athena proposed a fix' : `${latestJob.specialistName} · ${latestJob.status === 'done' ? 'Completed' : 'Could not finish'}`}</strong>
           <p className={latestJob.status === 'failed' ? 'kh-design-work__error' : undefined}
-            role={latestJob.status === 'failed' ? 'alert' : undefined}>{latestJob.error ?? latestJob.summary}</p>
+            role={latestJob.status === 'failed' ? 'alert' : undefined}>{repairProposed ? 'This job did not change the Spec. See the Workforce Spec tab for the current review status.' : latestJob.error ?? latestJob.summary}</p>
           {latestJob.status === 'failed' && latestJob.specialist === 'spec-writer' && <>
             <p>{design?.imagineDemo ? 'Check the Spec tab and saved validation state before retrying; generation may have saved the spec before validation failed.' : 'The existing spec was not replaced.'}</p>
             <button type="button" className="kh-btn-ghost" disabled={busy || switching || spec.isPending || specificationType.isPending || !hasUseCase || !design?.specificationType}

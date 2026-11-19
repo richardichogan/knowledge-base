@@ -152,7 +152,7 @@ function makeClient(baseURL: string, token: string): AxiosInstance {
     const path = response.config.url ?? '';
     if (method && ['post', 'put', 'patch', 'delete'].includes(method)
       && response.data?.success === true
-      && /^\/api\/(?:notes|tasks|canvases|designs|use-cases|taxonomy|tags|people|companies|projects|sparks|documents|discover|ai|build|semantic)(?:\/|$)/.test(path)
+      && /^\/api\/(?:notes|tasks|canvases|designs|use-cases|taxonomy|people|companies|projects|sparks|documents|discover|ai|build|semantic)(?:\/|$)/.test(path)
       && !/\/(?:link-suggestions|link-preview|search|preview)(?:\/|$)/.test(path)
       && typeof window !== 'undefined') {
       window.dispatchEvent(new Event('athena-graph-changed'));
@@ -525,7 +525,6 @@ export interface Project {
   icaDocumentCollectionName: string;
   icaDocumentCollectionId: string;
   links: ProjectLink[];
-  tags: string[];
   /** Read-only relation data; change it with ProjectRelationsInput fields. */
   client?: ProjectCompanyRef | null;
   partners?: ProjectCompanyRef[];
@@ -1165,10 +1164,8 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
-  /** Updates a note. `tags` is only sent when given — omitting it leaves the stored tags untouched. */
-  async patchNote(id: string, content: string, tags?: string[], projectId?: string | null, expectedRevision?: number, passageTagsSupported = false, author?: 'athena'): Promise<ApiResponse<Note>> {
+  async patchNote(id: string, content: string, projectId?: string | null, expectedRevision?: number, passageTagsSupported = false, author?: 'athena'): Promise<ApiResponse<Note>> {
     const body: Record<string, unknown> = { content, expectedRevision, passageTagsSupported };
-    if (tags !== undefined) body['tags'] = tags;
     if (projectId !== undefined) body['projectId'] = projectId;
     if (author !== undefined) body['author'] = author;
     const r = await this.client.patch<ApiResponse<Note>>(`/api/notes/${id}`, body);
@@ -2064,11 +2061,6 @@ export class KnowledgeHubApi {
   }
 
   // ─── Tags (Change 007) ────────────────────────────────────────────────────
-
-  async getTags(q?: string): Promise<ApiResponse<string[]>> {
-    const r = await this.client.get<ApiResponse<string[]>>('/api/tags', { params: q ? { q } : {} });
-    return r.data;
-  }
 
   // ─── IBM Calendar manual import (Change 004) ──────────────────────────────
 
@@ -3035,6 +3027,14 @@ export class KnowledgeHubApi {
   async reviewDocument(input: { document: string; selection: string; instruction: string; matchMode: 'text' | 'markdown' }): Promise<ApiResponse<{ find: string; replacement: string; summary: string }>> {
     return (await this.client.post<ApiResponse<{ find: string; replacement: string; summary: string }>>(
       '/api/ai/document-review', input, { timeout: 120_000 })).data;
+  }
+
+  async listDesigns(): Promise<ApiResponse<{ items: Design[]; hasMore: boolean }>> {
+    return (await this.client.get<ApiResponse<{ items: Design[]; hasMore: boolean }>>('/api/designs')).data;
+  }
+  async getDesign(id: string): Promise<ApiResponse<DesignDetail>> {
+    return (await this.client.get<ApiResponse<DesignDetail>>(`/api/designs/${encodeURIComponent(id)}`)).data;
+  }
   async getDesignBuilds(id: string): Promise<ApiResponse<import('../types/designs').DesignBuildSummary[]>> {
     return (await this.client.get<ApiResponse<import('../types/designs').DesignBuildSummary[]>>(`/api/designs/${encodeURIComponent(id)}/builds`)).data;
   }
@@ -3060,14 +3060,6 @@ export class KnowledgeHubApi {
   }
   async buildDesignPackage(id: string, packageId: string, publicationId: string): Promise<ApiResponse<BuildSpec>> {
     return (await this.client.post<ApiResponse<BuildSpec>>(`/api/designs/${encodeURIComponent(id)}/packages/${encodeURIComponent(packageId)}/build`, { publicationId })).data;
-  }
-  }
-
-  async listDesigns(): Promise<ApiResponse<{ items: Design[]; hasMore: boolean }>> {
-    return (await this.client.get<ApiResponse<{ items: Design[]; hasMore: boolean }>>('/api/designs')).data;
-  }
-  async getDesign(id: string): Promise<ApiResponse<DesignDetail>> {
-    return (await this.client.get<ApiResponse<DesignDetail>>(`/api/designs/${encodeURIComponent(id)}`)).data;
   }
   async createDesignSection(id: string, role: 'use_case' | 'spec' | 'architecture' | 'diagram', expectedRevision: number): Promise<ApiResponse<DesignDetail>> {
     return (await this.client.post<ApiResponse<DesignDetail>>(`/api/designs/${encodeURIComponent(id)}/sections`, { role, expectedRevision })).data;

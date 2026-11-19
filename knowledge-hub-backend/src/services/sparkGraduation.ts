@@ -61,7 +61,7 @@ async function outlineMarkdown(theme: SparkTheme): Promise<string> {
 async function toNote(db: Pool, theme: SparkTheme): Promise<SparkOutput> {
   const markdown = await outlineMarkdown(theme);
   const wrapper = { title: theme.theme, contentType: 'note', contentJson: JSON.stringify(textToBlocks(markdown)) };
-  const note = await createNoteRecord(db, { content: JSON.stringify(wrapper), tags: [] });
+  const note = await createNoteRecord(db, { content: JSON.stringify(wrapper) });
   return { type: 'note', ref: note.id, title: theme.theme, url: `/think?noteId=${note.id}` };
 }
 

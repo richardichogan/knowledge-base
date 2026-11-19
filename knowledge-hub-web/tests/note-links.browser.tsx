@@ -22,7 +22,7 @@ let failCreate = false;
 let persisted: Note = {
   id: id(99), content: JSON.stringify({ title: 'Link fixture', contentType: 'note',
     contentJson: JSON.stringify([{ type: 'heading', content: 'Link fixture' }, { type: 'paragraph', content: '' }]) }),
-  createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tags: [], linkedItems: [],
+  createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), linkedItems: [],
   status: 'active', projectId: 'source-project', revision: 0,
 };
 api.getTaxonomy = async () => ({ success: true, data: [] });
@@ -46,7 +46,7 @@ api.createNote = async input => {
   targets.push(target);
   return { success: true, data: { ...persisted, id: target.id, content: input.content } };
 };
-api.patchNote = async (_id, content, _tags, _project, expected) => {
+api.patchNote = async (_id, content, _project, expected) => {
   if (expected !== persisted.revision) throw new Error('Fixture revision conflict');
   persisted = { ...persisted, content, revision: (persisted.revision ?? 0) + 1 };
   return { success: true, data: persisted };

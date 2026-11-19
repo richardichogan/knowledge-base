@@ -21,7 +21,7 @@ import { AiError, ConflictError, ValidationError } from '../types/errors.js';
 import type { Note } from '../types/index.js';
 import { demoSpecificationForm, demoSpecificationResponseSchema, renderDemoSpecification, validateDemoSpecificationPart, DEMO_SPECIFICATION_VERSION, MAX_DEMO_SPECIFICATION_CHARS, type DemoSpecificationPart } from '../ai/demoSpecification.js';
 import { loadProjectGenerationContext, lockProjectGenerationContext, WORKSTREAM_CONTEXT_GUIDANCE } from '../ai/projectContext.js';
-import { ARCHITECTURE_CONTRACT_VERSION, readImagineArchitectureBaseline, recommendImagineArchitecture } from './imagineArchitecture.js';
+import { ARCHITECTURE_CONTRACT_VERSION, WORKFORCE_ARCHITECTURE_CONTRACT_VERSION, readImagineArchitectureBaseline, recommendImagineArchitecture } from './imagineArchitecture.js';
 import { reconcileWorkforceDrafts } from './workforceConsistency.js';
 import {
   generateWorkforceSpecification, validateConfirmedDecisions, validateWorkforceSpecificationMarkdown,
@@ -357,7 +357,7 @@ async function writeDesignSpecInner(
   let architectureBlocks: unknown[] | null = null;
   if (baseline) {
     const checkpointIdentity = definitionOnly
-      ? { version: ARCHITECTURE_CONTRACT_VERSION, consistency: 1, scope: design.imagineScope, profileVersion: WORKFORCE_DEFINITION_VERSION,
+      ? { version: WORKFORCE_ARCHITECTURE_CONTRACT_VERSION, consistency: 1, scope: design.imagineScope, profileVersion: WORKFORCE_DEFINITION_VERSION,
         confirmedDecisions: scopedDecisions ?? [], baseline, markdown, sources, projectContext }
       : { version: ARCHITECTURE_CONTRACT_VERSION, baseline, markdown, sources, projectContext };
     const fingerprint = createHash('sha256').update(JSON.stringify(checkpointIdentity)).digest('hex');

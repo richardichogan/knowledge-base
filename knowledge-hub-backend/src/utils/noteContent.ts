@@ -16,6 +16,26 @@ interface BlockProps { url?: string; level?: number; scriptSection?: boolean; sc
 export interface Block { id?: string; type?: string; content?: unknown; children?: Block[]; props?: BlockProps }
 interface NoteContentWrapper { title?: string; contentType?: string; contentJson?: string }
 
+export function hasNoteWriting(content: string): boolean {
+  const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
+  const blank = (value: unknown): boolean => {
+    if (!record(value) || !['paragraph', 'heading'].includes(String(value['type']))) return false;
+    const inline = value['content'];
+    const emptyInline = inline === undefined || typeof inline === 'string' && !inline.trim()
+      || Array.isArray(inline) && inline.every(item => typeof item === 'string' ? !item.trim()
+        : record(item) && (item['type'] === undefined || item['type'] === 'text') && typeof item['text'] === 'string' && !item['text'].trim());
+    const props = value['props'];
+    if (record(props) && ['url', 'scriptSection', 'scriptDirection', 'scriptVisuals', 'scriptDemo'].some(key => props[key])) return false;
+    return emptyInline && (value['children'] === undefined || Array.isArray(value['children']) && value['children'].every(blank));
+  };
+  // Only recognised blank writing is empty; opaque or malformed content must retain overwrite protection.
+  try {
+    let blocks: unknown = JSON.parse(content);
+    if (record(blocks) && typeof blocks['contentJson'] === 'string') blocks = JSON.parse(blocks['contentJson']);
+    return !Array.isArray(blocks) || !blocks.every(blank);
+  } catch { return true; }
+}
+
 /**
  * Most BlockNote blocks (paragraph, heading, list item, ...) store `content`
  * as an array of inline text spans, but structural blocks (table, column

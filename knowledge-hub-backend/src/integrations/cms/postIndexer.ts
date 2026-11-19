@@ -6,7 +6,6 @@ import type { ContentItem } from '../../types/contentItem.js';
 import type { CmsPost } from '../../types/cmsPost.js';
 import { resolveCmsContentType, resolvePostUrl } from '../../types/cmsPost.js';
 import { IntegrationError, ValidationError, BlobStorageError } from '../../types/errors.js';
-import { upsertTags } from '../../db/tagHelpers.js';
 
 const SOURCE_NAME = 'cms';
 
@@ -90,10 +89,6 @@ export async function indexAllPosts(db: Pool): Promise<{ indexed: number; errors
       if (post === null) { errors++; continue; }
       if (post.status !== 'published') continue;
       await upsertContentItem(db, postToContentItem(post));
-      // Keep global_tags in sync with every post's tags
-      if (post.tags.length > 0) {
-        await upsertTags(db, post.tags);
-      }
       indexed++;
     } catch (err) {
       errors++;
@@ -117,8 +112,5 @@ export async function reindexPost(db: Pool, postId: string): Promise<void> {
   if (post === null) throw new IntegrationError('cms', `Failed to parse post ${postId}`);
   if (post.status !== 'published') return;
   await upsertContentItem(db, postToContentItem(post));
-  if (post.tags.length > 0) {
-    await upsertTags(db, post.tags);
-  }
 }
 

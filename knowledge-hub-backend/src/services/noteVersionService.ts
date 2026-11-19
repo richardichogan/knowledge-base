@@ -17,9 +17,10 @@ export interface AthenaTaskAudit {
 export interface Writing { title: string; contentType: string; contentJson: string }
 interface NoteRow {
   id: string; content: string; created_at: Date; updated_at: Date;
-  tags: string[]; linked_items: string[]; status: Note['status']; project_id: string | null;
+  linked_items: string[]; status: Note['status']; project_id: string | null;
   revision: number; last_history_at: Date | null;
 }
+const NOTE_COLUMNS = 'id, content, created_at, updated_at, linked_items, status, project_id, revision, last_history_at';
 export interface VersionRow {
   id: string; note_id: string; writing: Writing; fingerprint: string;
   revision: number; writing_updated_at: Date; created_at: Date; reason: Reason; restored_from: string | null;
@@ -67,7 +68,7 @@ export function automaticCheckpointDue(last: Date | null, now: Date): boolean {
 }
 function note(row: NoteRow): Note {
   return { id: row.id, content: row.content, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
-    tags: row.tags, linkedItems: row.linked_items, status: row.status, revision: row.revision,
+    linkedItems: row.linked_items, status: row.status, revision: row.revision,
     ...(row.project_id !== null && { projectId: row.project_id }) };
 }
 function requireRevision(expected: number | undefined, row: NoteRow): void {
@@ -89,7 +90,7 @@ async function checkpoint(client: PoolClient, row: NoteRow, writing: Writing, re
 }
 
 export interface NoteWrite {
-  content?: string; tags?: string[]; projectId?: string | null; expectedRevision?: number | undefined;
+  content?: string; projectId?: string | null; expectedRevision?: number | undefined;
   protect?: boolean; restoreId?: string; appendBlocks?: unknown[]; importGitHub?: boolean;
   restoreWriting?: Writing;
   protectBefore?: boolean;
@@ -115,7 +116,7 @@ export async function writeNote(db: Pool, id: string, input: NoteWrite): Promise
 
 /** Caller owns commit/rollback and must schedule publication only after commit. */
 export async function writeNoteInTransaction(client: PoolClient, id: string, input: NoteWrite): Promise<{ note: Note; publish: boolean }> {
-    const current = await client.query<NoteRow>("SELECT * FROM notes WHERE id = $1 AND status = 'active' FOR UPDATE", [id]);
+    const current = await client.query<NoteRow>(`SELECT ${NOTE_COLUMNS} FROM notes WHERE id = $1 AND status = 'active' FOR UPDATE`, [id]);
     const row = current.rows[0];
     if (!row) throw new NotFoundError('Note not found or archived');
     // Internal append operations compute their changes after acquiring the lock.
@@ -179,15 +180,15 @@ export async function writeNoteInTransaction(client: PoolClient, id: string, inp
       await checkpoint(client, row, before, 'automatic');
     }
     const result = await client.query<NoteRow>(
-      `UPDATE notes SET content = $2, tags = COALESCE($3, tags),
-       project_id = CASE WHEN $4 THEN $5 ELSE project_id END,
-       revision = revision + CASE WHEN content IS DISTINCT FROM $2 OR ($3::text[] IS NOT NULL AND tags IS DISTINCT FROM $3)
-         OR ($4 AND project_id IS DISTINCT FROM $5) THEN 1 ELSE 0 END,
-       updated_at = CASE WHEN content IS DISTINCT FROM $2 OR ($3::text[] IS NOT NULL AND tags IS DISTINCT FROM $3)
-         OR ($4 AND project_id IS DISTINCT FROM $5) THEN clock_timestamp() ELSE updated_at END,
-       last_history_at = CASE WHEN $6 THEN clock_timestamp() ELSE last_history_at END
-       WHERE id = $1 RETURNING *`,
-      [id, content, input.tags ?? null, 'projectId' in input, input.projectId ?? null,
+      `UPDATE notes SET content = $2,
+       project_id = CASE WHEN $3 THEN $4 ELSE project_id END,
+       revision = revision + CASE WHEN content IS DISTINCT FROM $2
+         OR ($3 AND project_id IS DISTINCT FROM $4) THEN 1 ELSE 0 END,
+       updated_at = CASE WHEN content IS DISTINCT FROM $2
+         OR ($3 AND project_id IS DISTINCT FROM $4) THEN clock_timestamp() ELSE updated_at END,
+       last_history_at = CASE WHEN $5 THEN clock_timestamp() ELSE last_history_at END
+       WHERE id = $1 RETURNING ${NOTE_COLUMNS}`,
+      [id, content, 'projectId' in input, input.projectId ?? null,
         due && reason !== 'before_restore' && !input.protect && !input.importGitHub]);
     let publish = false;
     if (changed) {
@@ -203,7 +204,7 @@ export async function restoreArchivedNote(db: Pool, id: string, expectedRevision
   const client = await db.connect();
   try {
     await client.query('BEGIN');
-    const current = await client.query<NoteRow>('SELECT * FROM notes WHERE id = $1 FOR UPDATE', [id]);
+    const current = await client.query<NoteRow>(`SELECT ${NOTE_COLUMNS} FROM notes WHERE id = $1 FOR UPDATE`, [id]);
     const row = current.rows[0];
     if (!row) throw new NotFoundError('Note not found');
     if (row.status === 'active') {
@@ -213,7 +214,7 @@ export async function restoreArchivedNote(db: Pool, id: string, expectedRevision
     if (row.status !== 'archived') throw new ValidationError('Only archived notes can be restored');
     requireRevision(expectedRevision, row);
     const updated = await client.query<NoteRow>(
-      "UPDATE notes SET status='active',revision=revision+1,updated_at=clock_timestamp() WHERE id=$1 RETURNING *", [id],
+      `UPDATE notes SET status='active',revision=revision+1,updated_at=clock_timestamp() WHERE id=$1 RETURNING ${NOTE_COLUMNS}`, [id],
     );
     await client.query('COMMIT');
     return { note: note(updated.rows[0]!), restored: true };
