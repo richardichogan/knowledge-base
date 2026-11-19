@@ -23,9 +23,19 @@
   4,817 to 1,332 words, with three native editable tables. Read-back confirmed
   exact saved content, a recoverable prior version, unchanged Architecture,
   Use Case and Design selection. No approval or Imagine creation was performed.
-- Production rollout: ACR must build v357 from the pushed matching main revision
-  before the existing Container App update. Deploy the synced frontend build;
-  verify startup/migrations, healthy revision and the served frontend bundle.
+- Production rollout completed: ACR run `cab7` built/pushed `kh-prod-api:v357`
+  from exact main commit `8c2663a646e34181a36776d55b35117879a56222`.
+  Backend revision `kh-prod-api-vnet--0000356` is Healthy, RunningAtMaxScale,
+  latest-ready and receives 100% of production traffic. Startup confirms
+  migrations complete, database prewarm 8/8 and production workers/scheduler
+  without migration/configuration errors.
+- Static Web Apps production deployment succeeded. The served frontend at
+  https://athena.themicrosoftcloudblog.com matches the validated build
+  byte-for-byte: `/assets/index-DYCEdqrJ.js`, SHA-256
+  `82d4b01771e46275d1332d042f9070fc9ebba35c540b55d476c17c2b57a4ec18`.
+  Registry-secret image pulls and existing identity/role configuration are
+  unchanged. Subsequent Architecture corrective source edits are not part of
+  this deployed image.
 
 **Current release scope (2026-11-19):**
 - User approved shortening the Invoice Workforce Spec and deploying the existing

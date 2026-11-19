@@ -13,9 +13,6 @@ import type { DesignRole, SpecificationType } from '../../types/designs';
 import { resolveDesignTab } from './designSections';
 import { DesignVisual } from './DesignVisual';
 import { DesignHandoff } from './DesignHandoff';
-import { DesignConsistency } from './DesignConsistency';
-import { DesignReadiness } from './DesignReadiness';
-import { ImagineHarness } from './ImagineHarness';
 import { DesignWorkflow } from './DesignWorkflow';
 import { rememberAgentJob, useAgentJobFinished, useAgentJobs } from '../../services/agentJobStore';
 import type { AgentJob } from '../../types/agentJobs';
@@ -52,14 +49,10 @@ export const DesignParent: React.FC<{
   const [specStarting, setSpecStarting] = useState(false);
   const requestedSpecJob = useRef<string | null>(null);
   const [visualBusy, setVisualBusy] = useState(false);
-  const [readinessBusy, setReadinessBusy] = useState(false);
-  const [harnessBusy, setHarnessBusy] = useState(false);
   const [workflowBusy, setWorkflowBusy] = useState(false);
   const workflowDirty = useRef(false);
   const workflowBusyChange = useCallback((value: boolean) => { setWorkflowBusy(value); }, []);
   const workflowDirtyChange = useCallback((value: boolean) => { workflowDirty.current = value; }, []);
-  const harnessBusyChange = useCallback((value: boolean) => { setHarnessBusy(value); }, []);
-  const readinessBusyChange = useCallback((value: boolean) => { setReadinessBusy(value); }, []);
   const [visualStatus, setVisualStatus] = useState<string | undefined>();
   const visualBusyChange = useCallback((value: boolean, status?: string) => { setVisualBusy(value); setVisualStatus(status); }, []);
   const [chatBusy, setChatBusy] = useState(false);
@@ -89,13 +82,9 @@ export const DesignParent: React.FC<{
       setParams({ design: id, tab: 'use_case' }, { replace: true });
     }
   }, [design, workforceDefinition, tab, id, setParams]);
-  const { active: job, jobs: liveJobs } = useAgentJobs(design?.id);
-  const history = useQuery({ queryKey: ['design-agent-jobs', id], enabled: !!design,
-    queryFn: async () => requireApiData(await api.listDesignAgentJobs(design!.id)) });
-  const latestJob = job ?? [...new Map([...(history.data ?? []), ...liveJobs].map(item => [item.id, item])).values()]
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  const { active: job } = useAgentJobs(design?.id);
   const specBusy = job?.specialist === 'spec-writer';
-  const busy = visualBusy || readinessBusy || harnessBusy || workflowBusy || chatBusy || workspaceBusy || specStarting || !!job;
+  const busy = visualBusy || workflowBusy || chatBusy || workspaceBusy || specStarting || !!job;
   const sectionRole = documentRole(tab);
   const { assets, asset, noteId } = resolveDesignTab(design, sectionRole, isDocumentTab(tab) ? targetId : null);
   // Empty sections use the parent only for the existing properties/shell, never as their editable body.
@@ -151,12 +140,11 @@ export const DesignParent: React.FC<{
   const refresh = useCallback(async (): Promise<void> => {
     await qc.invalidateQueries({ queryKey: ['design-collaboration', id] });
     await qc.invalidateQueries({ queryKey: ['notes-list'] });
-    await qc.invalidateQueries({ queryKey: ['imagine-harness'] });
   }, [id, qc]);
   useEffect(() => {
     if (!design) return;
     return setDesignChatBridge(design.parentNoteId, async () => {
-      if (visualBusy || readinessBusy || harnessBusy || workflowBusy || chatBusyRef.current) throw new Error('Finish the current Design operation before sending another request.');
+      if (visualBusy || workflowBusy || chatBusyRef.current) throw new Error('Finish the current Design operation before sending another request.');
       chatBusyRef.current = true;
       setChatBusy(true);
       try { await prepare(); }
@@ -167,8 +155,6 @@ export const DesignParent: React.FC<{
             await Promise.all([
               qc.invalidateQueries({ queryKey: ['design', id] }),
               qc.invalidateQueries({ queryKey: ['design-document'] }),
-              qc.invalidateQueries({ queryKey: ['design-readiness', id] }),
-              qc.invalidateQueries({ queryKey: ['imagine-harness', design.id] }),
               qc.invalidateQueries({ queryKey: ['design-builds', design.id] }),
               qc.invalidateQueries({ queryKey: ['imagine-blueprint', design.id] }),
               qc.invalidateQueries({ queryKey: ['design-acceptance', design.id] }),
@@ -179,7 +165,7 @@ export const DesignParent: React.FC<{
         finally { chatBusyRef.current = false; setChatBusy(false); }
       };
     });
-  }, [design, id, prepare, qc, refresh, visualBusy, readinessBusy, harnessBusy, workflowBusy]);
+  }, [design, id, prepare, qc, refresh, visualBusy, workflowBusy]);
   const switchTo = async (nextTab: Tab, sourceId: string | null = null): Promise<void> => {
     if (switching || busy || (nextTab === tab && sourceId === targetId)) return;
     setSwitching(true); setError(null);
@@ -295,15 +281,12 @@ export const DesignParent: React.FC<{
   });
   const jobSeconds = job ? Math.max(0, Math.round((now - Date.parse(job.startedAt ?? job.createdAt)) / 1000)) : 0;
   const jobStep = job?.progress[job.progress.length - 1];
-  const repairProposed = workforceDefinition && latestJob?.specialist === 'design-finding-fix' && latestJob.status === 'done';
   const authoritativeSpec = resolveDesignTab(design, 'spec', null).asset;
   const hasSpec = !!authoritativeSpec?.available && authoritativeSpec.hasContent !== false;
   // Every lock says why, so the Design never looks frozen.
   const lockReason = job ? (specBusy && tab === 'use_case' ? null
     : `${job.specialistName} ${job.status === 'running' ? `is working · ${jobSeconds}s${jobStep ? ` · ${jobStep}` : ''}` : 'is waiting to start'}. Editing unlocks when it finishes, and you'll be notified.`)
     : specStarting ? 'Saving the use case and handing it to the Spec writer...'
-    : harnessBusy ? 'Saving or checking the Imagine harness. Editing unlocks when it finishes.'
-    : readinessBusy ? 'Athena is checking readiness or preparing a repair. Editing unlocks when it finishes.'
     : visualBusy ? `${visualStatus ?? 'Athena is working on the Blueprint'}. Editing unlocks when it finishes, and you'll be notified.`
       : chatBusy ? 'Athena is working on this Design in the chat. Editing unlocks when the reply finishes.'
         : workspaceBusy ? 'Opening the note…' : switching ? 'Saving and switching documents…' : null;
@@ -315,79 +298,7 @@ export const DesignParent: React.FC<{
   const hasUseCase = useCases.length === 1 || useCases.some(item => item.sourceId === design?.selections.use_case);
   const specDisabled = busy || switching || spec.isPending || specificationType.isPending || !design?.specificationType || !hasUseCase
     || !!design.imagineDemo && design.specificationType !== 'imagine';
-  const designPanel = <div className="kh-design-work">
-    <section aria-label="Design actions">
-      <h3>Actions</h3>
-      <label className="kh-design-spec-action__type">
-        <span>Specification type</span>
-        <select value={design?.specificationType ?? ''} disabled={busy || switching || spec.isPending || specificationType.isPending}
-          onChange={event => {
-            const value = event.target.value;
-            if (value === 'standard' || value === 'imagine') specificationType.mutate(value);
-          }}>
-          <option value="" disabled>Choose a type</option>
-          <option value="standard" disabled={workforceDefinition}>Standard</option>
-          <option value="imagine">IMAGINE</option>
-        </select>
-      </label>
-      {specificationType.isPending && <span className="kh-design-spec-action__saving" role="status">Saving type...</span>}
-      <button type="button" className="kh-btn-accent" disabled={specDisabled} onClick={() => { void startSpec(); }}>
-        {specStarting ? 'Starting Spec writer...' : specBusy ? 'The Spec writer is working…' : workforceDefinition ? 'Create Workforce Spec & Architecture'
-          : design?.specificationType === 'imagine' ? hasSpec ? 'Regenerate Spec & Architecture' : 'Generate Spec & Architecture'
-          : hasSpec ? 'Regenerate spec from use case' : 'Generate spec with Athena'}</button>
-      <p>{!hasUseCase ? 'Open the Use case tab and write the use case before generating a spec.'
-        : !design?.specificationType ? 'Choose a specification type. The choice is saved on this Design.'
-          : workforceDefinition ? 'Creates a new definition-only Workforce Spec and recommended Architecture. Earlier documents remain intact. Stops before execution, deployment, synthetic data and demo creation.'
-            : design.specificationType === 'imagine' ? 'Writes Spec and recommended Architecture from the use case and actual IMAGINE base sources. Both save together; existing writing is preserved until both are ready.'
-            : 'Uses the selected use case. The existing spec stays intact until the new version is ready.'}</p>
-      {error && <p role="alert" className="kh-design-work__error">{error}</p>}
-    </section>
-    {design && <ImagineHarness design={design} busy={busy || switching || specificationType.isPending || spec.isPending}
-      prepare={prepare} showSpec={() => switchTo('spec', design.selections.spec ?? null)} onBusyChange={harnessBusyChange} onChanged={updated => {
-        qc.setQueryData(['design', id], updated);
-        void refresh();
-      }} />}
-    {tab === 'spec' && design?.specificationType === 'imagine' && <DesignReadiness key={`readiness:${id}`} id={id}
-      specId={asset?.sourceId} currentSpecId={design.selections.spec ?? (assets.length === 1 ? assets[0]?.sourceId : undefined)}
-      revision={document.data?.revision} designRevision={design.revision} definitionOnly={workforceDefinition} busy={busy || switching}
-      prepare={prepare} onBusyChange={readinessBusyChange} onApplied={async () => {
-        setEditorEpoch(value => value + 1);
-        await Promise.all([qc.invalidateQueries({ queryKey: ['design-document'] }), refresh()]);
-      }} />}
-    {!workforceDefinition && <DesignConsistency key={`consistency:${id}`} id={id} busy={busy || switching} prepare={prepare} />}
-    <section aria-label="Design activity">
-      <h3>Activity</h3>
-      {specStarting && !job ? <p role="status">Saving the use case and starting the Spec writer...</p> : job ? <div role="status" className="kh-design-work__activity">
-        <AthenaRibbon size={24} mood="thinking" />
-        <div><strong>{job.specialistName} · {job.status === 'running' ? `${jobSeconds}s` : 'Queued'}</strong>
-          <p>{jobStep ?? 'Waiting to start.'}</p></div>
-      </div> : visualBusy || chatBusy ? <p role="status">{visualStatus ?? 'Athena is working on this Design.'}</p>
-        : latestJob ? <div>
-          <strong>{repairProposed ? 'Athena proposed a fix' : `${latestJob.specialistName} · ${latestJob.status === 'done' ? 'Completed' : 'Could not finish'}`}</strong>
-          <p className={latestJob.status === 'failed' ? 'kh-design-work__error' : undefined}
-            role={latestJob.status === 'failed' ? 'alert' : undefined}>{repairProposed ? 'This job did not change the Spec. See the Workforce Spec tab for the current review status.' : latestJob.error ?? latestJob.summary}</p>
-          {latestJob.status === 'failed' && latestJob.specialist === 'spec-writer' && <>
-            <p>{design?.imagineDemo ? 'Check the Spec tab and saved validation state before retrying; generation may have saved the spec before validation failed.' : 'The existing spec was not replaced.'}</p>
-            <button type="button" className="kh-btn-ghost" disabled={busy || switching || spec.isPending || specificationType.isPending || !hasUseCase || !design?.specificationType}
-              onClick={() => { void startSpec(); }}>Retry Spec writer</button>
-          </>}
-        </div> : <p>{history.isLoading ? 'Loading activity...' : 'No generation activity yet.'}</p>}
-      {history.isError && <p role="alert" className="kh-design-work__error">{describeApiError(history.error)}
-        {' '}<button type="button" className="kh-btn-ghost" onClick={() => { void history.refetch(); }}>Reload activity</button></p>}
-    </section>
-    <section aria-label="Design outputs">
-      <h3>Outputs</h3>
-      <ul className="kh-design-work__outputs">{DOCUMENT_TABS.filter(item => design?.imagineDemo || item.role !== 'workforce').map(item => {
-        const linked = design?.assets.filter(output => output.role === item.role) ?? [];
-        return <li key={item.role}><strong>{stageLabel(item.role, item.label)}</strong>
-          {!linked.length ? <p>Not written yet</p> : linked.map(output => <button key={output.sourceId} type="button"
-            className="kh-design-work__output" disabled={!output.available || busy || switching}
-            onClick={() => { void switchTo(item.role, output.sourceId); }}>{output.title}{!output.available ? ' (unavailable)' : ''}</button>)}
-        </li>;
-      })}</ul>
-      <p>Open a document, then use History to see or restore earlier versions.</p>
-    </section>
-  </div>;
+  const designPanel = <></>;
   const saved = (note: NoteDocument): void => {
     qc.setQueryData(['design-document', documentId, editorEpoch], note);
     void qc.invalidateQueries({ queryKey: ['notes-list'] });

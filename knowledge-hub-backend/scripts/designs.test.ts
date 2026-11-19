@@ -63,6 +63,20 @@ test('recommended Architecture only retains citations and quotations grounded in
   assert.throws(() => architectureDraft({ ...draft, evidence: [{ sourceId: 'BASE-1', quote: 'A deployment claim that is not in the supplied source.' }] }, baseline), /quotation absent/);
   assert.throws(() => architectureDraft({ ...draft, markdown: `${draft.markdown} [BASE-2]` }, baseline), /no verified baseline evidence/);
 });
+test('recommended Architecture verifies application citations and retains their separate pinned revision', () => {
+  const application = { repo: 'owner/client-demo', commit: 'c'.repeat(40) };
+  const source = { id: 'APP-1', path: 'owner/client-demo/docs/architecture-review.md', blob: 'd'.repeat(40),
+    url: `https://github.com/${application.repo}/blob/${application.commit}/docs/architecture-review.md`,
+    markdown: 'The application uses a Node.js Express API and Cosmos DB for operational records.' };
+  const baseline: ImagineArchitectureBaseline = { repo: 'owner/imagine-base', commit: 'a'.repeat(40), application, sources: [source] };
+  const draft = { markdown: `# Recommended Architecture\n\n${'Reuse the existing application API for proposed invoice case coordination, with persisted human waits and no commercial approval authority. '.repeat(2)}[APP-1]`,
+    evidence: [{ sourceId: source.id, quote: 'Node.js Express API and Cosmos DB' }] };
+  const saved = architectureDraft(draft, baseline);
+  assert.ok(saved.includes(source.url));
+  assert.ok(saved.includes(`Application: ${application.repo}. Reference commit: \`${application.commit}\``));
+  assert.throws(() => architectureDraft({ ...draft, markdown: `${draft.markdown} [APP-2]` }, baseline), /no verified baseline evidence/);
+  assert.throws(() => architectureDraft({ ...draft, evidence: [{ sourceId: source.id, quote: 'The invoice coordinator is already deployed.' }] }, baseline), /quotation absent/);
+});
 test('workforce specification uses only the bounded authoritative Use Case and server-authored scope structure', async () => {
   const useCase = `Northbridge Office Supplies / Pennfield Packaging.
 PO-10482 is 100 kits at £10 each (£1,000). INV-20816 is 100 kits at £12 each (£1,200).

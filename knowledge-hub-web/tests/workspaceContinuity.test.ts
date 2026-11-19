@@ -27,14 +27,15 @@ test('task previews clamp one inline flow without fixed-height paragraph croppin
   assert.match(styles, /\.kb-card__body\.kh-task-prose, \.kb-inbox-card__body\.kh-task-prose \{\s*flex: 0 0 auto/);
 });
 
-test('area navigation resumes only an exact internal root and never replaces an explicit link', () => {
+test('Think opens its root while other areas resume and explicit links stay intact', () => {
   const original = Object.getOwnPropertyDescriptor(globalThis, 'window');
-  const storage = new Map([['kh-resume:/think', '/think?noteId=one'], ['kh-resume:/plan', '//elsewhere.example/plan']]);
+  const storage = new Map([['kh-resume:/think', '/think?noteId=deleted'], ['kh-resume:/plan', '/plan?view=board'], ['kh-resume:/build', '//elsewhere.example/build']]);
   Object.defineProperty(globalThis, 'window', { configurable: true, value: { localStorage: { getItem: (key: string) => storage.get(key) ?? null } } });
   try {
-    assert.equal(resumeWorkspacePath('/think'), '/think?noteId=one');
+    assert.equal(resumeWorkspacePath('/think'), '/think');
     assert.equal(resumeWorkspacePath('/think?noteId=two'), '/think?noteId=two');
-    assert.equal(resumeWorkspacePath('/plan'), '/plan');
+    assert.equal(resumeWorkspacePath('/plan'), '/plan?view=board');
+    assert.equal(resumeWorkspacePath('/build'), '/build');
     assert.equal(resumeWorkspacePath('/health'), '/health');
   } finally { if (original) Object.defineProperty(globalThis, 'window', original); else Reflect.deleteProperty(globalThis, 'window'); }
 });

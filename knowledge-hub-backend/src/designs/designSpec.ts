@@ -276,7 +276,7 @@ async function writeDesignSpecInner(
     throw new ValidationError('The IMAGINE action regenerates both Spec and Architecture. Confirm replacement first; existing documents were not changed.');
   }
   if (imagine) progress('Retrieving the actual IMAGINE base architecture at one immutable GitHub revision');
-  const baseline = imagine ? await readImagineArchitectureBaseline(db, design.projectId, signal) : null;
+  const baseline = imagine ? await readImagineArchitectureBaseline(db, design.projectId, signal, undefined, definitionOnly) : null;
   const projectContext = await loadProjectGenerationContext(db, design.projectId);
   const context = definitionOnly ? [] : sources.filter(source => source.role === 'architecture' || source.role === 'diagram' || (source.role === 'design' && source.markdown.trim())).map(source => {
     if (source.role !== 'diagram') return `### ${source.role === 'design' ? 'Design' : 'Architecture'}: ${source.title}\n${sourceText(source.markdown, source.role === 'design' ? SOURCE_CHARS : ARCHITECTURE_CHARS)}`;

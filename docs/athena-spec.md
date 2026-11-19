@@ -620,6 +620,8 @@ The selected article's main reading pane shows **Why Athena picked it** immediat
 
 Old routes (`/tasks`, `/calendar`, `/notes`, `/documents`, `/timeline`, `/search`, `/ai`, `/blog-post`) redirect to the areas above.
 
+The main Think navigation link opens `/think`, without restoring a saved note ID or other query parameters. Explicit document deep links remain supported.
+
 Think's Notes navigation keeps the standard list in the upper two-thirds and the existing
 two-level tag hierarchy in the lower third, with independent scrolling.
 The search-row collapse button folds the whole navigation to its
@@ -1468,7 +1470,7 @@ The full IMAGINE demo template remains valid and unchanged. A Design can instead
 
 Definition scope covers member properties, governance/refusal rules, orchestration and typed handoffs/human waits, reporting hierarchy, ownership, observability-event definitions, dependencies/composition/BOM, labelled design-time coverage/maturity and eval definitions. Existing illustrative source facts are not permission to generate synthetic datasets. Future tools, permissions and platform dependencies remain requirements/proposals, not connected services. Worker/workflow implementation, runtime enforcement/results, deployment, channels, synthetic datasets and demo creation are outside this phase. Native G1 includes behavioral evidence; definition completeness does not claim that gate passed or change its evaluator.
 
-The Workforce Spec owns those behavioral details. Its Architecture is a concise decision record for platform/stack direction, system boundaries, information ownership, necessary integrations and deferred technology choices, not a second copy of the Spec. Baseline modules alone do not justify selecting product-specific services.
+The Workforce Spec owns those behavioral details. Its Architecture is a concrete proposed solution design: components and selected technologies with rationale, processing/data flow, authoritative state/evidence ownership, identity/trust boundaries, human decision enforcement, recovery and trade-offs, not a second Spec or a list of scope disclaimers. Undeployed scope does not prevent architectural recommendations. Baseline modules alone do not prove which components the application uses. Definition-only generation also retrieves the configured Imagine `client-demo` architecture review, workforce API and infrastructure at one immutable application commit, when that repository is configured; retrieval failures are explicit. Source-backed existing components are distinguished from invoice-specific additions, and unresolved integration/policy questions stay bounded. Without application evidence, proposed choices are not described as an existing application stack. The scoped Architecture checkpoint version changes with this contract; full-demo generation retains its existing contract.
 
 Workforce Specs use compact member, handoff and acceptance tables in the existing rich-text editor. Define shared rules and each packet once, keep sample facts together, and retain human authority and sender/receiver compatibility. Observability describes the required audit trail rather than exhaustive runtime schemas. Markdown remains an interchange/export format, not a separate editor.
 

@@ -15,13 +15,14 @@ function isOneShot(search: string): boolean {
 }
 
 export function resumeWorkspacePath(path: string): string {
+  if (path === '/think') return path;
   if (!AREAS.includes(path)) return path;
   const saved = readStored(`kh-resume:${path}`);
   if (!saved || !(saved === path || saved.startsWith(`${path}?`))) return path;
   return isOneShot(saved.slice(path.length)) ? path : saved;
 }
 
-/** Explicit deep links always win; only navigation to an area's root resumes it. */
+/** Explicit deep links always win; Think's menu always opens its root. */
 export function useWorkspaceContinuity(): void {
   const location = useLocation();
   const key = `${location.pathname}${location.search}`;
