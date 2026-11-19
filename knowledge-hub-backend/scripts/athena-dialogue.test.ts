@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { assembleMessages } from '../src/ai/contextBuilder.js';
+import { assembleMessages, assembleSmallTalkMessages } from '../src/ai/contextBuilder.js';
 import { DIALOGUE_POLICY_PROMPT, buildDialogueTurnPrompt, dialogueRepairInstruction, dialogueTurnMode, executionFollowThroughRepair, inViewReviewScope, isDialogueOnlyTurn, requestsOpenNoteEdit, unconfirmedNoteEditClaim } from '../src/ai/dialoguePolicy.js';
 import { DIALOGUE_SCENARIOS, SYNTHETIC_DIALOGUE_CONTEXT, dialogueFindings } from './athena-dialogue-fixtures.js';
 import type { AthenaPersona, ConversationMessage } from '../src/types/aiContext.js';
@@ -129,6 +129,15 @@ for (const persona of personas) {
     assert.equal(messages.filter(message => message.content.includes('## Dialogue turn contract')).length, 1);
     assert.ok(!messages[0]?.content.includes('it is fine to run longer'));
     assert.ok(!messages[0]?.content.includes('A missing question is not missing information'));
+    for (const prompt of [messages[0]!.content, assembleSmallTalkMessages([], latest, persona)[0]!.content]) {
+      assert.match(prompt, /Do not open with reflexive praise/);
+      assert.match(prompt, /Do not invent a connection, shared argument, causal relationship or benefit/);
+      assert.match(prompt, /without suppressing your warmth, curiosity or occasional dry wit/);
+      if (persona === 'blog_post') {
+        assert.match(prompt, /do not assume they need one overarching thesis/);
+        assert.match(prompt, /product addresses an incident without evidence/);
+      }
+    }
   });
 }
 
