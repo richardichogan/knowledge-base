@@ -3,15 +3,15 @@ import type { ChatPageContext, ConversationMessage } from '../types/aiContext.js
 import { deferredTurnTraceRecorder } from './turnTrace.js';
 
 /**
- * Shadow routing: Microsoft Decision-1 predicts which capability families a chat turn needs and
- * whether it authorises a saved change. The prediction is only recorded in the turn trace and
- * compared with the tools the main model actually used during trace review. It never alters the turn.
+ * Microsoft Decision-1 predicts capability families, long work and possible topic changes.
+ * Capability and edit predictions remain observational; topic changes are advisory to the main model.
  */
-const SHADOW_VERSION = 'decision-1-shadow-v3';
+const SHADOW_VERSION = 'decision-1-shadow-v4';
 const TIMEOUT_MS = 8_000;
 const PREDICT_THRESHOLD = 0.5;
 /** Confidence above which a turn is moved to the background straight away. */
 const LONG_TASK_THRESHOLD = 0.7;
+const TOPIC_SHIFT_THRESHOLD = 0.8;
 const MESSAGE_CHARS = 1_500;
 const HISTORY_CHARS = 500;
 
@@ -113,51 +113,67 @@ function shadowQuestions(): Record<string, unknown> {
       follow_up: 'Answers the assistant\'s previous question',
     },
   };
+  questions['topic_shift'] = {
+    type: 'noul',
+    instructions: 'Does the latest user message start a different subject or task from the recent conversation, rather than continuing, correcting, or returning to it?',
+    criteria: {
+      true: 'The current request clearly introduces a different subject or task; prior material is not its default scope',
+      false: 'A follow-up, correction, clarification, explicit reference back, or an uncertain change of subject',
+    },
+  };
   return questions;
 }
 
 interface DecisionAnswer { noul?: number; choice?: string; confidence?: number }
 
+export function topicShiftInstruction(score: unknown): string {
+  return typeof score === 'number' && Number.isFinite(score) && score >= TOPIC_SHIFT_THRESHOLD && score <= 1
+    ? 'A topic change may have occurred. Follow the latest request and its relevant context; do not carry over an older task, deliverable, or assumptions merely because they share a chat. Keep the conversation available for explicit references and follow-ups. This is an advisory prediction, not proof; interpret the request yourself.'
+    : '';
+}
+
 /**
- * Starts the shadow prediction without delaying the turn. The result is written to the turn trace
- * whenever it arrives, even after the reply has been sent.
+ * Starts the prediction alongside context preparation. The result is recorded in the turn trace;
+ * a high-confidence topic-change signal can be used as advisory context for the current turn.
  */
-export function startRoutingShadow(input: ShadowInput): void {
+export async function startRoutingShadow(input: ShadowInput): Promise<string> {
   const endpoint = env.DECISION1_ENDPOINT;
   const apiKey = env.DECISION1_API_KEY;
-  if (!endpoint || !apiKey) return;
-  const record = deferredTurnTraceRecorder() ?? (input.onLongTask ? async () => undefined : null);
-  if (!record) return;
+  if (!endpoint || !apiKey) return '';
+  const record = deferredTurnTraceRecorder();
   const startedAt = Date.now();
-  void (async () => {
-    try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
-        body: JSON.stringify({ model: env.DECISION1_DEPLOYMENT, state: shadowState(input), questions: shadowQuestions() }),
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-      });
-      const body = await response.json().catch(() => null) as { answers?: Record<string, DecisionAnswer>; usage?: unknown; error?: { message?: string } } | null;
-      if (!response.ok || !body?.answers) {
-        await record('routing.shadow', { version: SHADOW_VERSION, status: 'error', latencyMs: Date.now() - startedAt,
-          reason: body?.error?.message ?? `HTTP ${response.status}` });
-        return;
-      }
-      const families = Object.fromEntries(Object.keys(ROUTING_FAMILIES)
-        .map(family => [family, Number(body.answers?.[`needs_${family}`]?.noul ?? 0)]));
-      const longTask = Number(body.answers['long_task']?.noul ?? 0);
-      if (longTask >= LONG_TASK_THRESHOLD) input.onLongTask?.();
-      const mode = body.answers['turn_mode'];
-      await record('routing.shadow', {
-        version: SHADOW_VERSION, status: 'ok', latencyMs: Date.now() - startedAt, threshold: PREDICT_THRESHOLD,
-        families, authorisesEdit: Number(body.answers['authorises_edit']?.noul ?? 0),
-        longTask, turnMode: mode?.choice ?? null, turnModeConfidence: mode?.confidence ?? null, usage: body.usage ?? null,
-      });
-    } catch (error) {
-      await record('routing.shadow', { version: SHADOW_VERSION, status: 'error', latencyMs: Date.now() - startedAt,
-        reason: error instanceof Error ? error.message : String(error) }).catch(() => undefined);
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+      body: JSON.stringify({ model: env.DECISION1_DEPLOYMENT, state: shadowState(input), questions: shadowQuestions() }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    const body = await response.json().catch(() => null) as { answers?: Record<string, DecisionAnswer>; usage?: unknown; error?: { message?: string } } | null;
+    if (!response.ok || !body?.answers) {
+      await record?.('routing.shadow', { version: SHADOW_VERSION, status: 'error', latencyMs: Date.now() - startedAt,
+        reason: body?.error?.message ?? `HTTP ${response.status}` });
+      console.error('[routing] Decision-1 prediction failed:', body?.error?.message ?? `HTTP ${response.status}`);
+      return '';
     }
-  })();
+    const families = Object.fromEntries(Object.keys(ROUTING_FAMILIES)
+      .map(family => [family, Number(body.answers?.[`needs_${family}`]?.noul ?? 0)]));
+    const longTask = Number(body.answers['long_task']?.noul ?? 0);
+    if (longTask >= LONG_TASK_THRESHOLD) input.onLongTask?.();
+    const mode = body.answers['turn_mode'];
+    const topicShift = body.answers['topic_shift']?.noul;
+    await record?.('routing.shadow', {
+      version: SHADOW_VERSION, status: 'ok', latencyMs: Date.now() - startedAt, threshold: PREDICT_THRESHOLD,
+      families, authorisesEdit: Number(body.answers['authorises_edit']?.noul ?? 0), topicShift,
+      longTask, turnMode: mode?.choice ?? null, turnModeConfidence: mode?.confidence ?? null, usage: body.usage ?? null,
+    });
+    return input.history.length ? topicShiftInstruction(topicShift) : '';
+  } catch (error) {
+    if (record) await record('routing.shadow', { version: SHADOW_VERSION, status: 'error', latencyMs: Date.now() - startedAt,
+      reason: error instanceof Error ? error.message : String(error) }).catch(() => undefined);
+    console.error('[routing] Decision-1 prediction failed:', error);
+    return '';
+  }
 }
 
 interface ReviewEvent { sequence: number; kind: string; payload: unknown }

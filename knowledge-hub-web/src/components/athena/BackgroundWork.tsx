@@ -39,7 +39,13 @@ interface WorkItem {
   assignment?: AssignmentSummary;
   jobId?: string;
   subjectId?: string;
+  chatTurnId?: string;
 }
+
+interface ChatTask {
+  turnId: string; sessionId: string; anchor: string; startedAt: number; activity: string; stopping: boolean;
+}
+const NO_CHAT_TASKS: ChatTask[] = [];
 
 function submittedToMetis(run: JobRun | undefined): boolean {
   const capture = run?.artifacts['capture'];
@@ -47,7 +53,10 @@ function submittedToMetis(run: JobRun | undefined): boolean {
     && 'status' in capture && capture.status === 'queued';
 }
 
-export const BackgroundWork: React.FC = () => {
+export const BackgroundWork: React.FC<{
+  chatTasks?: ChatTask[];
+  onCancelChatTask?: (id: string) => void;
+}> = ({ chatTasks = NO_CHAT_TASKS, onCancelChatTask }) => {
   const { setBackgroundWork } = useAthenaContext();
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState<(typeof FILTERS)[number]['id']>('all');
@@ -114,6 +123,12 @@ export const BackgroundWork: React.FC = () => {
   for (const job of live) merged.set(job.id, job);
   const jobs = [...merged.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const items: WorkItem[] = [
+    ...chatTasks.map((task): WorkItem => ({
+      id: `chat-turn-${task.turnId}`, chatTurnId: task.turnId, subjectId: task.sessionId,
+      title: task.anchor, source: 'Athena chat', state: task.stopping ? 'Stopping' : 'Working',
+      tone: 'active', at: new Date(task.startedAt).toISOString(), message: task.activity,
+      url: `/chat?session=${encodeURIComponent(task.sessionId)}`, linkLabel: 'Open chat', updates: [],
+    })),
     ...assignmentRows.map((assignment): WorkItem => {
       const running = isActiveAssignment(assignment);
       const attention = assignment.status === 'waiting' || assignment.status === 'failed'
@@ -176,7 +191,7 @@ export const BackgroundWork: React.FC = () => {
   }
   items.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
   return { jobs, items };
-  }, [recent.data, live, assignmentRows, updates, imports.data]);
+  }, [recent.data, live, assignmentRows, updates, imports.data, chatTasks]);
   const active = jobs.filter(isActiveAgentJob);
   const unseen = items.filter(item => item.updates.some(update => !update.seen)).length;
   const filteredItems = useMemo(() => items.filter(item => filter === 'all'
@@ -204,7 +219,7 @@ export const BackgroundWork: React.FC = () => {
       document.removeEventListener('keydown', escape);
     };
   }, [open]);
-  const activeCount = active.length + activeAssignments.length;
+  const activeCount = active.length + activeAssignments.length + chatTasks.length;
   const attentionCount = items.filter(item => item.tone === 'attention').length;
   const detail = [activeCount ? `${activeCount} running or queued` : '', attentionCount ? `${attentionCount} paused for attention` : ''].filter(Boolean).join(', ');
   const status = [detail, unseen ? `${unseen} new ${unseen === 1 ? 'update' : 'updates'}` : ''].filter(Boolean).join(', ');
@@ -285,6 +300,10 @@ export const BackgroundWork: React.FC = () => {
                   {item.message && <details className="kh-background-work__details"><summary>{item.tone === 'active' ? 'Progress' : item.tone === 'attention' || item.tone === 'failed' ? 'What needs attention' : item.tone === 'information' ? 'Information details' : 'Result details'}</summary><p>{item.message}</p></details>}
                   {actionError?.id === assignment?.id && <p className="kh-background-work__error" role="alert">{actionError?.message}</p>}
                   <div className="kh-background-work__actions">
+                    {item.chatTurnId && onCancelChatTask && <button type="button"
+                      className="kh-background-work__action kh-background-work__action--cancel"
+                      disabled={chatTasks.some(task => task.turnId === item.chatTurnId && task.stopping)}
+                      onClick={() => { if (item.chatTurnId) onCancelChatTask(item.chatTurnId); }}>Cancel</button>}
                     {item.url && <Link to={specialistLink(item.url, window.location.href)} onClick={() => { acknowledge(item); setOpen(false); }}>{item.linkLabel}<ArrowRight size={14} aria-hidden="true" /></Link>}
                     {!item.url && unread && <button type="button" className="kh-background-work__action" onClick={() => { acknowledge(item); }}>Mark read</button>}
                     {assignment && (isActiveAssignment(assignment) || assignment.status === 'waiting') && <button type="button"

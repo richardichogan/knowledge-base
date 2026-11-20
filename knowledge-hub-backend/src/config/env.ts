@@ -217,6 +217,8 @@ export const env = {
   // are registered and Athena falls back to fetch_web_page + the Learn MCP
   // tools only.
   get TAVILY_API_KEY() { return credentialValue('TAVILY_API_KEY', optional('TAVILY_API_KEY')); },
+  get TAVILY_BACKUP_API_KEY() { return credentialValue('TAVILY_BACKUP_API_KEY', optional('TAVILY_BACKUP_API_KEY')); },
+  get BRAVE_SEARCH_API_KEY() { return credentialValue('BRAVE_SEARCH_API_KEY', optional('BRAVE_SEARCH_API_KEY')); },
 
   // Microsoft Decision-1 shadow routing (trace review only). Disabled unless the key is set.
   DECISION1_ENDPOINT: optionalWithDefault('DECISION1_ENDPOINT', 'https://fdy-imagine-demo.services.ai.azure.com/providers/microsoft/v1/systemone'),

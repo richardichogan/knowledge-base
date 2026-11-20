@@ -86,13 +86,15 @@ export function workerPool(): string {
 
 function toJob(row: JobRow): AgentJob {
   const result = row.result;
+  const researchTitle = row.specialist === 'chat-researcher' && typeof row.input['title'] === 'string'
+    ? row.input['title'].trim() : '';
   return {
     id: row.id,
     specialist: row.specialist,
     specialistName: getSpecialist(row.specialist)?.name ?? row.specialist,
     subjectType: row.subject_type,
     subjectId: row.subject_id,
-    subjectTitle: row.subject_title,
+    subjectTitle: researchTitle || row.subject_title,
     subjectUrl: row.subject_url,
     status: row.status,
     progress: row.progress,
@@ -535,7 +537,8 @@ async function finish(db: Pool, row: JobRow): Promise<void> {
   if (row.conversation_id && row.requested_by === 'chat' && (!row.is_step || row.status === 'failed')) {
     const data = row.result?.['data'];
     const resultUrl = data && typeof data === 'object' && 'url' in data && typeof data.url === 'string' ? data.url : row.subject_url;
-    const link = resultUrl ? `[${row.subject_title || 'Open it'}](${resultUrl})` : row.subject_title;
+    const title = job.subjectTitle.replaceAll('[', '').replaceAll(']', '');
+    const link = resultUrl ? `[${title || 'Open it'}](${resultUrl})` : title;
     const text = row.status === 'done'
       ? `${job.specialistName} has finished${link ? ` on ${link}` : ''}. ${job.summary ?? ''}`.trim()
       : `${job.specialistName} could not finish${link ? ` on ${link}` : ''}. ${row.error ?? ''}`.trim();

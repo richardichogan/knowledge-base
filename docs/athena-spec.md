@@ -76,6 +76,12 @@ Indexed searches apply source, Discover workflow state and time constraints befo
 
 Short retries and date refinements retain the latest relevant user request's collection, not an assistant's mistaken search topic or the title of an open note. Explicit subject changes replace it. This is a bounded vocabulary resolver, not a claim of arbitrary natural-language understanding: the runtime exposes applied filters, unavailable coverage and collection definitions rather than silently guessing complete coverage.
 
+Across chat personas, the current request takes precedence over an earlier task or
+chat title when the subject changes. The existing Decision-1 call can supply a
+high-confidence topic-change hint to Athena; it is advisory, never deletes or
+truncates history, and does not change permissions. If Decision-1 is unavailable
+or uncertain, ordinary conversation guidance still applies.
+
 Full document, specification and newsletter reviews use a read-checkpoint-continue pipeline rather than a whole-document character or page cap. Each bounded page is processed into private task-scoped working memory; its summary, verified excerpts, version and continuation are committed atomically before advancing. All checkpoint summaries are subsequently combined hierarchically, with bounded inputs at each level. This is derived memory, not a claim that the final chat context contains every original character or that summarisation is lossless. Exact source passages remain rereadable by offset, and checkpoint summaries can be recalled through the same source reader using the review ID and memory offset.
 
 Reading checkpoints are private to the chat, review objective, source and scope, separated between development and production; they are not user-profile memories or edits to the source. An interrupted read can resume its last committed page using `resumeReading`; source-version changes invalidate prior checkpoints. Exclusions and access scope are revalidated on every page and before using cached memory. Provider failures and cancellation never advance an unfinished page. Background turns use progress-aware inactivity deadlines so active checkpointed reading is not cut off by the ordinary turn duration. Stored-source coverage and import/extraction completeness remain separate. Supporting retrieval and ordinary manually paged reads retain bounded budgets.
@@ -86,6 +92,11 @@ off up to eight distinct public topics before reading large internal documents.
 Quick single-source lookups remain in chat. A public-query boundary check runs
 before external access: the original request must authorise the planned research,
 and private project/client details cannot appear in public topics or queries.
+The check evaluates relevance against the current request and research objective,
+does not infer a private baseline merely from a public product-availability
+question, and requires official-only domains only when that restriction is
+requested or agreed. Research job status shows the research brief's title rather
+than an older chat title, while keeping the original chat link.
 
 Each topic gets one focused search, at most three candidate URLs, and up to two
 successfully read sources. Unavailable pages are recorded explicitly; a topic with
@@ -593,6 +604,11 @@ of inventing a brief.
    - Athena records dated, evidence-backed changes and explains what they mean for the comparison. "No meaningful change" is a valid result.
    - It earns its place only if it changes a decision, exposes a weak assumption, or saves meaningful research time.
    - Spec: `docs/specs/competitor-watchlists.md`.
+   - Automatic checks are weekly and use selected company/news/analyst feeds
+     first. Only companies without fresh feed evidence receive a single public
+     search; Run now retains the broader check. The original Tavily account is
+     primary, the second Tavily account is the first fallback, and optional Brave
+     is last. Empty successful results never trigger another account.
 
 6. **Staying on top of work.** Today, Activity and Plan give one view of what is overdue, blocked, due, failing or waiting for a decision, across all connected systems.
 7. **Remembering people and context.** People holds contacts; Memory and project context let Athena answer with the right background without re-explaining.

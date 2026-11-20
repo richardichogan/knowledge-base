@@ -81,7 +81,7 @@ export function parseWatchlist(value: unknown): WatchlistInput {
   return {
     name: text(v['name'], 'name', MAX_NAME), description: text(v['description'], 'description', MAX_DESCRIPTION, true),
     question: text(v['question'], 'monitoring question', MAX_DESCRIPTION), searchContext: text(v['searchContext'] ?? '', 'search context', MAX_ENTITY_NAME, true), entities, criteria, projectIds, sourceIds,
-    baseline: { text: text(b['text'] ?? '', 'our position', MAX_BASELINE, true), links }, cadence: v['cadence'], paused: v['paused'],
+    baseline: { text: text(b['text'] ?? '', 'our position', MAX_BASELINE, true), links }, cadence: 'weekly', paused: v['paused'],
   };
 }
 interface ListRow {
@@ -328,6 +328,13 @@ Use insufficient-evidence with a specific explanation when context cannot suppor
   }
 };
 interface ClaimedRow { id: string; watchlist_id: string; baseline_version: number; config: WatchlistInput; started_at: Date; window_start: Date }
+export function watchlistSearchTargets<T extends { name: string }>(entities: T[], articles: Pick<ArticleRow, 'title' | 'body' | 'published_at'>[],
+  start: Date, end: Date, scheduled: boolean): T[] {
+  if (!scheduled) return entities;
+  const fresh = articles.filter(article => article.published_at >= start && article.published_at <= end);
+  return entities.filter(entity => !fresh.some(article => matchesEntity(`${article.title} ${article.body}`, entity.name)));
+}
+
 export async function runWatchlist(db: Pool, id: string, scheduled = false, analyze: WatchAnalyzer = analyzeWatchEvidence): Promise<WatchRun> {
   watchlistId(id);
   await getWatchlist(db, id);
@@ -340,7 +347,7 @@ export async function runWatchlist(db: Pool, id: string, scheduled = false, anal
      SELECT id,baseline_version,config,
        COALESCE((SELECT MAX(started_at) FROM discover_watchlist_runs r WHERE r.watchlist_id=w.id
          AND r.status IN ('changes','no_meaningful_change') AND r.baseline_version=w.baseline_version
-         AND r.config=w.config), NOW()-INTERVAL '7 days'), 'running'
+         AND (r.config-'cadence')=(w.config-'cadence')), NOW()-INTERVAL '7 days'), 'running'
      FROM discover_watchlists w WHERE id=$1 AND (config->>'paused')::boolean=false
        AND ($2::boolean=false OR next_run_at<=NOW())
        AND NOT EXISTS (SELECT 1 FROM discover_watchlist_runs r WHERE r.watchlist_id=w.id AND r.status='running')
@@ -348,13 +355,14 @@ export async function runWatchlist(db: Pool, id: string, scheduled = false, anal
   const run = claimed.rows[0];
   if (!run) throw new ConflictError('Watchlist is paused, not due, or already running.', 'WATCHLIST_NOT_RUNNABLE');
   try {
-    await refreshWatchlistProfiles(db, id, run.config, !scheduled);
+    if (!scheduled) await refreshWatchlistProfiles(db, id, run.config, true);
     const articles = await db.query<ArticleRow>(
       `SELECT id,title,body,url,published_at,metadata FROM content_items
        WHERE source='discovered-article' AND metadata->>'sourceId'=ANY($1::text[])
          AND (published_at >= $2 OR indexed_at >= $2) AND published_at <= $3 AND indexed_at <= $3
        ORDER BY published_at DESC,id LIMIT 2001`, [run.config.sourceIds, run.window_start, run.started_at]);
-    const web = await searchWatchEntities(run.config.entities, run.config.searchContext ?? '', run.window_start, run.started_at);
+    const targets = watchlistSearchTargets(run.config.entities, articles.rows, run.window_start, run.started_at, scheduled);
+    const web = await searchWatchEntities(targets, run.config.searchContext ?? '', run.window_start, run.started_at, undefined, scheduled);
     const known = new Set(articles.rows.map(a => a.url.replace(/[?#].*$/, '').replace(/\/$/, '').toLowerCase()));
     const webNew = web.articles.filter(a => !known.has(a.url.replace(/[?#].*$/, '').replace(/\/$/, '').toLowerCase()));
     const matching = [...articles.rows, ...webNew].filter(a => run.config.entities.some(e => matchesEntity(`${a.title} ${a.body}`, e.name)));
@@ -395,8 +403,7 @@ export async function runWatchlist(db: Pool, id: string, scheduled = false, anal
         evidence=$5::jsonb,completed_at=NOW() WHERE id=$1 AND status='running' RETURNING watchlist_id,config),
        findings AS (INSERT INTO discover_watchlist_findings(run_id,finding)
         SELECT $1,value FROM jsonb_array_elements($6::jsonb) WHERE EXISTS(SELECT 1 FROM finished))
-       UPDATE discover_watchlists w SET next_run_at=NOW()+
-         CASE WHEN w.config->>'cadence'='daily' THEN INTERVAL '1 day' ELSE INTERVAL '7 days' END
+       UPDATE discover_watchlists w SET next_run_at=NOW()+INTERVAL '7 days'
        FROM finished WHERE w.id=finished.watchlist_id AND w.config=finished.config`, [run.id, status, summary, JSON.stringify(coverage), JSON.stringify(evidence), JSON.stringify(analysis.findings)]);
   } catch (error) {
     console.error('[Watchlists] Analysis failed:', error);
@@ -406,8 +413,8 @@ export async function runWatchlist(db: Pool, id: string, scheduled = false, anal
     await db.query(`WITH failed AS (UPDATE discover_watchlist_runs SET status='failed', completed_at=NOW(),
       summary=$2
       WHERE id=$1 AND status='running' RETURNING watchlist_id,config)
-      UPDATE discover_watchlists w SET next_run_at=NOW()+INTERVAL '1 hour'
-      FROM failed WHERE w.id=failed.watchlist_id AND w.config=failed.config`, [run.id, failureSummary]);
+      UPDATE discover_watchlists w SET next_run_at=NOW()+INTERVAL '7 days'
+      FROM failed WHERE w.id=failed.watchlist_id AND w.config=failed.config AND $3::boolean`, [run.id, failureSummary, scheduled]);
   }
   return (await watchlistHistory(db, id)).find(r => r.id === run.id)!;
 }

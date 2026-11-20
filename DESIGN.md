@@ -473,6 +473,13 @@ The supplied custom element is served locally from `/athena/athena-mark.js`;
 its four-quarter animation maths are retained unchanged. See
 `docs/athena-mark.md` for the integration and intentional streaming adaptations.
 
+Long-running chat work uses the existing Athena ribbon with inline progress
+and cancellation rather than a status card. The user-approved Iris pilot uses
+three abstract violet ribbons that fan apart and align around a cool lit seam
+("Evidence Fold"), only when runtime metadata identifies Iris. It retains
+reduced-motion and offscreen/hidden pausing. Standalone chat reuses the main
+Updates bell and panel, including long-running chat turns.
+
 **Dialogs and images.** Shared dialogs are normally up to 480px wide (660px for
 the wide variant), constrained to the viewport. Image viewing has its own
 full-screen surface with zoom, fit, copy and close actions. Preserve authenticated

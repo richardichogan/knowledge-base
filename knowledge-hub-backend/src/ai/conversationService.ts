@@ -283,7 +283,7 @@ async function conversationTurn(
   if (recordDeferred) hooks.traceBackground?.(event => { void recordDeferred('turn.background', event); });
   hooks.signal?.throwIfAborted();
   if (isLightSmallTalk(userMessage, hooks)) return smallTalkTurn(db, history, userMessage, model, persona, sessionId, hooks);
-  startRoutingShadow({ userMessage, history, pageContext, persona, onLongTask: hooks.promoteToBackground });
+  const routingPrediction = startRoutingShadow({ userMessage, history, pageContext, persona, onLongTask: hooks.promoteToBackground });
   const workforceRequestId = randomUUID();
   hooks.signal?.throwIfAborted();
   hooks.onActivity?.('Loading context');
@@ -428,7 +428,9 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
   const insightsBlock = toolContext.noteId !== undefined && (pageContext?.type === 'note' || pageContext?.type === 'document')
     ? await noteInsightsContextBlock(db, toolContext.noteId).catch((err: unknown) => { console.error('[note-insights] context failed:', err); return ''; })
     : '';
-  const systemExtras = [RETRIEVAL_DICTIONARY, reviewBlock, designBlock, podcastBlock, actionBlock, hooks.noOutputsPanel === true && !design && !toolContext.podcastOwner ? NO_OUTPUTS_PANEL_NOTE : '', hooks.referenceBlock ?? '', standingBlock, peopleBlock, dateBlock, mapBlock, insightsBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
+  const topicShift = history.length ? await routingPrediction : '';
+  hooks.signal?.throwIfAborted();
+  const systemExtras = [RETRIEVAL_DICTIONARY, topicShift, reviewBlock, designBlock, podcastBlock, actionBlock, hooks.noOutputsPanel === true && !design && !toolContext.podcastOwner ? NO_OUTPUTS_PANEL_NOTE : '', hooks.referenceBlock ?? '', standingBlock, peopleBlock, dateBlock, mapBlock, insightsBlock, decisionsBlock, outputsBlock, screensBlock, sheetsBlock, localFilesPrompt(localFolders)].filter((b) => b !== '').join('\n\n---\n\n');
   const safeHistory = await scrubExcludedHistory(db, history, excluded).catch(() => history.filter((m) => m.role !== 'assistant'));
   const baseMessages = await assembleMessages(context, safeHistory, userMessage, persona, pageContext, systemExtras);
   hooks.signal?.throwIfAborted();
@@ -767,7 +769,7 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
             continue;
           }
           // Found but never opened: read the top hit of each family before answering (once per turn).
-          if (!openedFound && retrievalRan && !deterministicRan && !wrapUp && !budget.aborted && !budget.partial && i < maxRounds - FOUND_OPEN_RESERVE_ROUNDS) {
+          if (documentReview && !openedFound && retrievalRan && !deterministicRan && !wrapUp && !budget.aborted && !budget.partial && i < maxRounds - FOUND_OPEN_RESERVE_ROUNDS) {
             const candidates = unreadFoundCandidates(ledger);
             if (candidates.length > 0) {
               openedFound = true;

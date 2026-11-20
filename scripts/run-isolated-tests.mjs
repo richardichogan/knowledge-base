@@ -108,6 +108,8 @@ const tests = frontend ? [
   'scripts/content-sync.test.ts',
   'scripts/chat-session-store.test.ts',
   'scripts/chat-research.test.ts',
+  'scripts/brave-search.test.ts',
+  'scripts/tavily-fallback.test.ts',
   'scripts/chat-references.test.ts',
   'scripts/content-tagging.test.ts',
   'scripts/daily-insights.test.ts',

@@ -163,14 +163,15 @@ const TIE_EPSILON = 1e-12;
 
 export async function searchKnowledge(request: SearchRequest, backends: SearchBackends): Promise<SearchResult> {
   const query = request.query.trim();
+  const identity = /^"([^"]+)"$/.exec(query)?.[1] ?? query;
   const limit = Math.min(Math.max(1, request.limit ?? SEARCH_MAX_RESULTS), SEARCH_MAX_RESULTS);
   const timeoutMs = request.timeoutMs ?? SEARCH_BACKEND_TIMEOUT_MS;
   if (query === '' && (backends.browse === undefined || request.filter?.sources === undefined)) return { status: 'ok', hits: [], issues: [] };
 
   const [exact, lexical, semantic] = await Promise.all([
-    query === '' ? Promise.resolve<Guarded<SearchRecord[]>>({ ok: true, value: [] }) : guarded(s => backends.exact(query, s), timeoutMs, request.signal),
+    query === '' ? Promise.resolve<Guarded<SearchRecord[]>>({ ok: true, value: [] }) : guarded(s => backends.exact(identity, s), timeoutMs, request.signal),
     guarded(s => query === '' ? backends.browse!(SEARCH_BACKEND_CANDIDATES, s) : backends.lexical(query, SEARCH_BACKEND_CANDIDATES, s), timeoutMs, request.signal),
-    backends.semantic === undefined || query === ''
+    backends.semantic === undefined || query === '' || identity !== query
       ? Promise.resolve<Guarded<SearchRecord[]>>({ ok: false })
       : guarded(s => backends.semantic!(query, SEARCH_BACKEND_CANDIDATES, s), timeoutMs, request.signal),
   ]);
@@ -178,7 +179,7 @@ export async function searchKnowledge(request: SearchRequest, backends: SearchBa
   const issues: SearchIssue[] = [];
   if (!lexical.ok) issues.push('lexical_unavailable');
   if (backends.semantic === undefined) issues.push('semantic_not_configured');
-  else if (query !== '' && !semantic.ok) issues.push('semantic_unavailable');
+  else if (query !== '' && identity === query && !semantic.ok) issues.push('semantic_unavailable');
 
   const semanticDown = backends.semantic === undefined || !semantic.ok;
   if (!lexical.ok && semanticDown) return { status: 'unavailable', hits: [], issues };
@@ -361,15 +362,14 @@ export function createDbSearchBackends(options: DbBackendOptions): SearchBackend
     async lexical(query, limit, signal) {
       const terms = queryTerms(query);
       if (terms.length === 0) return [];
-      const values: unknown[] = [terms.join(' | '), terms.join(' '), limit];
+      const values: unknown[] = [query, limit];
       const where = scoped(values);
       const { rows } = await queryFor(signal).query<Row>(
-        `SELECT ${columns} FROM content_items ci, to_tsquery('english', $1) any_q, plainto_tsquery('english', $2) all_q
-          WHERE ci.search_vector @@ any_q AND ${where}
-          ORDER BY ts_rank_cd(ci.search_vector, any_q)
-                   * CASE WHEN ci.search_vector @@ all_q THEN 2 ELSE 1 END
+        `SELECT ${columns} FROM content_items ci, websearch_to_tsquery('english', $1) search_q
+          WHERE ci.search_vector @@ search_q AND ${where}
+          ORDER BY ts_rank_cd(ci.search_vector, search_q)
                    * CASE WHEN ci.source IN ${NOISY_SOURCES} THEN 0.5 ELSE 1 END DESC, ci.id::text
-          LIMIT $3`, values);
+          LIMIT $2`, values);
       return rows.map(toSearchRecord);
     },
     async browse(limit, signal) {

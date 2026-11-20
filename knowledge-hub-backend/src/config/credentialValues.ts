@@ -8,6 +8,8 @@ export const connectionCredentials = [
   { id: 'ica', name: 'IBM ICA', envKey: 'ICA_API_KEY', detail: 'Coding-agent API key for ICA chat.' },
   { id: 'ica-consulting', name: 'IBM ICA consulting', envKey: 'ICA_CONSULTING_KEY', detail: 'Consulting API key for ICA document collections and files.' },
   { id: 'tavily', name: 'Tavily web search', envKey: 'TAVILY_API_KEY', detail: 'API key for internet search.', helpUrl: 'https://app.tavily.com/' },
+  { id: 'tavily-backup', name: 'Tavily backup account', envKey: 'TAVILY_BACKUP_API_KEY', detail: 'Second Tavily account, used only when the primary account cannot complete the request.', helpUrl: 'https://app.tavily.com/' },
+  { id: 'brave-search', name: 'Brave Search backup', envKey: 'BRAVE_SEARCH_API_KEY', detail: 'Optional API key for public search when Tavily is unavailable.', helpUrl: 'https://api-dashboard.search.brave.com/' },
   { id: 'azure-openai', name: 'Azure OpenAI', envKey: 'AZURE_OPENAI_API_KEY', detail: 'API key for the main Azure OpenAI resource.' },
   { id: 'azure-reasoning', name: 'Azure OpenAI reasoning', envKey: 'AZURE_OPENAI_API_KEY_GPT54', detail: 'API key for the separate reasoning-model resource.', requiresKey: 'AZURE_OPENAI_ENDPOINT_GPT54' },
   { id: 'azure-speech', name: 'Azure Voice Live', envKey: 'AZURE_SPEECH_KEY', detail: 'Optional separate key for Azure Voice Live.', fallbackKey: 'AZURE_OPENAI_API_KEY', fallbackName: 'Azure OpenAI key' },

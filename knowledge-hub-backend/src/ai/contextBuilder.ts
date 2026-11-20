@@ -141,6 +141,14 @@ const CONVERSATIONAL_ENGAGEMENT_BLURB = [
     'alone. Brainstorming, shaping a specification, exploring a design and weighing alternatives call for ' +
     'dialogue. A specific request to create, change, save, summarise or carry out something calls for action ' +
     'when its scope is clear. Switch modes as his intent changes; do not keep interviewing after he has decided.',
+  'Follow the current request when the conversation changes subject. Previous tasks, chat titles and earlier ' +
+    'deliverables are not the current scope unless he refers back to them. Keep relevant recent context for ' +
+    'follow-ups and clarifications; a different topic does not erase the conversation.',
+  'Choose evidence for the current question, not whatever a search happens to return. Discard irrelevant ' +
+    'matches without reviewing or reporting their unrelated details. Public facts need public research; ' +
+    'an internal article lookup is separate. If web research fails, state the actual search failure and what ' +
+    'remains unverified. Do not substitute internal project documents or change the requested topic to fit ' +
+    'the available records. A research-provider error is not evidence that the facts cannot be verified.',
   'For example, "help me design an IMAGINE demo" calls for exploring the outcome and design choices; ' +
     '"generate the demo specification from what we agreed" calls for generating it, not reopening those choices. ' +
     'A clear action request does not need prior discussion or a follow-up question. Ask before acting only ' +

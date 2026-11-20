@@ -143,6 +143,24 @@ Implementation direction:
 - Extend Discover for collection and monitoring.
 - Reuse existing Discover ingestion rather than build a second article ingestion system.
 - Use RSS where available, with targeted page checks or searches elsewhere.
+- Automatic checks run weekly. They use fresh, relevant evidence from the selected
+  Discover feeds first, then make one public news search per uncovered company.
+  **Run now** keeps the broader search and company-background refresh. RSS polling
+  is independent of the Watchlist schedule.
+- Tavily remains the primary search provider. An optional `TAVILY_BACKUP_API_KEY`
+  uses a second account only after the primary reports a quota, authentication,
+  rate-limit, service or connection failure. Identical keys are not retried.
+  Empty successful results and invalid requests do not consume the backup.
+  Both keys can be managed through the existing connection credential store.
+  Set `BRAVE_SEARCH_API_KEY` through
+  the server credential store (Connections) or secret-backed environment to use
+  Brave as a backup for provider failures. Empty successful searches do not
+  trigger another search.
+- The shared Watchlist source suite includes InfoQ, The Register, Computer Weekly,
+  CIO Dive, HFS Research and RedMonk. Matching Watchlists also use existing AWS and
+  OpenAI feeds plus Google Cloud and MCP feeds. Existing selections are retained.
+  Corporate feeds for other monitored companies remain gaps unless verified and
+  added explicitly; a website is not presented as an RSS feed.
 - Allow the same organisation or product to appear in multiple watchlists without duplicating underlying source material.
 - Keep public competitive evidence separate from confidential internal comparisons, especially where the analysis may inform public writing.
 

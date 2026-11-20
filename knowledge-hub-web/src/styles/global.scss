@@ -17384,30 +17384,45 @@ fieldset.proj-modal-body {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  margin: 0.25rem 0 0.75rem auto;
+  margin: 0.25rem 0 0.75rem;
   max-width: min(100%, 32rem);
-  padding: 0.5rem 0.5rem 0.5rem 0.75rem;
-  background: var(--cds-layer-01);
-  border: 1px solid var(--cds-border-subtle-01);
-  border-left: 3px solid var(--kh-accent);
-  border-radius: var(--kh-radius-md);
+  padding: 0.5rem 0;
   font-size: var(--kh-text-body);
 }
 
-.ai-task-card__pulse {
-  flex: none;
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-  background: var(--kh-accent);
-  animation: ai-task-card-pulse 1.6s ease-in-out infinite;
+.ai-work-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  flex: 0 0 64px;
+  svg { width: 100%; overflow: visible; }
+  &__fold { transform-box: view-box; transform-origin: 50% 50%; }
+  &__back { animation: iris-fold-back 4.8s ease-in-out infinite; }
+  &__front { animation: iris-fold-front 4.8s ease-in-out infinite; }
+  &__seam { animation: iris-fold-seam 4.8s ease-in-out infinite; }
+  &--paused * { animation-play-state: paused; }
 
-  @media (prefers-reduced-motion: reduce) { animation: none; }
+  @media (prefers-reduced-motion: reduce) {
+    &__fold, &__seam { animation: none; }
+    &__back { transform: translate(-4px, -5px); }
+    &__front { transform: translate(4px, 5px); }
+    &__seam { opacity: 0.9; }
+  }
 }
 
-@keyframes ai-task-card-pulse {
-  0%, 100% { opacity: 0.35; }
-  50% { opacity: 1; }
+@keyframes iris-fold-back {
+  0%, 100% { transform: translate(-13px, -20px) rotate(-7deg); }
+  38%, 62% { transform: translate(-4px, -5px); }
+}
+@keyframes iris-fold-front {
+  0%, 100% { transform: translate(13px, 20px) rotate(7deg); }
+  38%, 62% { transform: translate(4px, 5px); }
+}
+@keyframes iris-fold-seam {
+  0%, 18%, 82%, 100% { opacity: 0; }
+  40%, 60% { opacity: 0.9; }
 }
 
 .ai-task-card__body { display: flex; flex-direction: column; gap: 0.125rem; flex: 1 1 auto; min-width: 0; }
@@ -17421,6 +17436,7 @@ fieldset.proj-modal-body {
 
 .ai-task-card__cancel {
   flex: none;
+  min-height: 32px;
   padding: 0.25rem 0.625rem;
   border: 1px solid var(--cds-border-subtle-01);
   border-radius: var(--kh-radius-md);
@@ -17432,6 +17448,22 @@ fieldset.proj-modal-body {
   &:hover:not(:disabled) { background: var(--cds-layer-hover-01); color: var(--cds-text-primary); }
   &:focus-visible { outline: 2px solid var(--kh-accent); outline-offset: 2px; }
   &:disabled { cursor: default; opacity: 0.6; }
+}
+
+.ai-chat-standalone__updates {
+  flex: none;
+  .kh-header__utility--work { min-height: 44px; min-width: 44px; }
+  .kh-background-work { z-index: 1000; top: calc(64px + env(safe-area-inset-top)); }
+}
+
+@media (max-width: 640px) {
+  .ai-task-card__cancel { min-height: 44px; }
+  .ai-chat-standalone__updates {
+    .kh-background-work__indicator { padding-inline: 2px; }
+    .kh-background-work__indicator > span { display: none; }
+    .kh-background-work__indicator ~ .kh-background-work__indicator { display: none; }
+    .kh-background-work { right: 12px; }
+  }
 }
 
 // ── Athena chat side panel: Outputs and Decisions ───────────────────────────

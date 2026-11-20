@@ -27,6 +27,9 @@ import { DataNotice } from '../components/DataNotice';
 import { renderAssistantMessage, handleCodeCopyClick } from '../components/athena/renderReply';
 import { LiveReply, ThinkingReply } from '../components/athena/LiveReply';
 import { BackgroundTaskCard } from '../components/athena/BackgroundTaskCard';
+import { BackgroundWork } from '../components/athena/BackgroundWork';
+import { useBackgroundJobs } from '../services/agentJobStore';
+import { isActiveAgentJob } from '../types/agentJobs';
 import { AthenaPresence } from '../components/athena/AthenaPresence';
 import { AthenaRibbon } from '../components/athena/AthenaRibbon';
 import { ComposerSuggestion, composerSuggestions } from '../components/athena/ComposerSuggestion';
@@ -518,6 +521,7 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
   const liveTurnIdRef = useRef<string | null>(null);
   const turnRunRef = useRef(0);
   const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
+  const specialistJobs = useBackgroundJobs();
   const backgroundFollowersRef = useRef(new Map<string, AbortController>());
   const latestMessagesRef = useRef(messages);
   latestMessagesRef.current = messages;
@@ -2647,6 +2651,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               {actionButtons}
             </div>
           )}
+          <div className="ai-chat-standalone__updates">
+            <BackgroundWork chatTasks={backgroundTasks} onCancelChatTask={cancelBackgroundTask} />
+          </div>
         </div>
       )}
       {showMobileMore && (
@@ -2915,6 +2922,9 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
             </React.Fragment>
           ))}
           {unanchoredTasks.map(renderTaskCard)}
+          {specialistJobs.filter(job => job.conversationId === sessionId && isActiveAgentJob(job) && (!job.isStep || job.status === 'running'))
+            .map(job => <BackgroundTaskCard key={job.id} activity={job.progress.at(-1) ?? 'Waiting for a worker'}
+              startedAt={Date.parse(job.startedAt ?? job.createdAt)} stopping={false} specialistName={job.specialistName} />)}
           {chatMutation.isPending && replyArrival?.complete !== true && (liveTurn !== null ? (
             <LiveReply activity={liveTurn.activity} startedAt={liveTurn.startedAt} thinkerRef={setPresenceThinker} />
           ) : (

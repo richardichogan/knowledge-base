@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { parseChatResearchInput, parseResearchBrief, parseResearchCheckpoint, researchSearchUrls } from '../src/work/chatResearch.js';
+import { parseChatResearchInput, parseResearchBrief, parseResearchCheckpoint, researchSearchUrls, runChatResearch } from '../src/work/chatResearch.js';
+import { FoundryClient } from '../src/ai/foundryClient.js';
 import { modelReadingSteps } from '../src/ai/knowledge/documentReading.js';
+import { listAgentJobs } from '../src/agents/engine.js';
+import { Pool } from 'pg';
+import { mock } from 'node:test';
 
 test('research reading produces cited synthesis without optional quotation extraction', async () => {
   const steps = modelReadingSteps({ chatBulk: async (_messages, _tokens, _timeout, _reasoning, schema) => {
@@ -27,6 +31,54 @@ const source = {
   reviewId: '11111111-1111-4111-8111-111111111111', chars: 20_000,
   summary: 'Bases provides property-based views.', excerpts: ['Bases'],
 };
+
+test('research checks only outgoing topics, never private instructions or the internal comparison', async t => {
+  const db = new Pool();
+  t.mock.method(db, 'query', async () => ({ rows: [], rowCount: 0 }));
+  let checkpointReached = false;
+  t.mock.method(db, 'connect', async () => { checkpointReached = true; throw new Error('Public query accepted; checkpoint reached'); });
+  let allow = true;
+  const topics = [{ title: 'Work IQ', query: 'Microsoft Work IQ Copilot outage dependencies Ignite' }];
+  const chat = t.mock.method(FoundryClient.prototype, 'chat', async (_model, messages) => {
+    assert.deepEqual(JSON.parse(String(messages[1]?.content)), { topics });
+    return JSON.stringify({ allowed: allow, reason: allow ? 'Public product research' : 'Outgoing fixture disclosure' });
+  });
+  const context = {
+    db, jobId: '11111111-1111-4111-8111-111111111111', subjectId: '22222222-2222-4222-8222-222222222222',
+    attempt: 1, signal: new AbortController().signal, progress: () => {},
+    input: { ...input, topics, objective: 'Compare against the confidential internal architecture', request: 'Private internal instructions' },
+  };
+  try {
+    await assert.rejects(runChatResearch(context), /Public query accepted; checkpoint reached/);
+    assert.equal(checkpointReached, true);
+    allow = false;
+    checkpointReached = false;
+    await assert.rejects(runChatResearch(context), /No public query was sent: Outgoing fixture disclosure/);
+    assert.equal(checkpointReached, false);
+    assert.equal(chat.mock.callCount(), 2);
+  } finally { await db.end(); }
+});
+
+test('research jobs display the current brief rather than the older chat title', async () => {
+  const db = new Pool();
+  const now = new Date();
+  const query = mock.method(db, 'query', async () => ({ rows: [
+    { id: 'one', specialist: 'chat-researcher', subject_type: 'chat', subject_id: 'chat',
+      subject_title: 'Old design conversation', subject_url: '/chat', input: { title: 'Public outage research' },
+      status: 'failed', progress: [], result: null, error: 'Failed', depends_on: null, is_step: false,
+      conversation_id: 'chat', requested_by: 'chat', acknowledged_at: null, created_at: now, started_at: null, finished_at: now },
+    { id: 'two', specialist: 'another-specialist', subject_type: 'design', subject_id: 'design',
+      subject_title: 'Existing subject', subject_url: '/think', input: { title: 'Different title' },
+      status: 'queued', progress: [], result: null, error: null, depends_on: null, is_step: false,
+      conversation_id: null, requested_by: 'app', acknowledged_at: null, created_at: now, started_at: null, finished_at: null },
+  ] }));
+  try {
+    const jobs = await listAgentJobs(db, {});
+    assert.equal(jobs[0]?.subjectTitle, 'Public outage research');
+    assert.equal(jobs[0]?.subjectUrl, '/chat');
+    assert.equal(jobs[1]?.subjectTitle, 'Existing subject');
+  } finally { query.mock.restore(); await db.end(); }
+});
 
 test('research briefs require explicit scope and small distinct public topics', () => {
   assert.deepEqual(parseResearchBrief(brief), brief);

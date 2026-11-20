@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { mock, test } from 'node:test';
 import { assembleMessages, assembleSmallTalkMessages } from '../src/ai/contextBuilder.js';
+import { startRoutingShadow, topicShiftInstruction } from '../src/ai/routingShadow.js';
+import { env } from '../src/config/env.js';
 import { DIALOGUE_POLICY_PROMPT, buildDialogueTurnPrompt, dialogueRepairInstruction, dialogueTurnMode, executionFollowThroughRepair, inViewReviewScope, isDialogueOnlyTurn, requestsOpenNoteEdit, unconfirmedNoteEditClaim } from '../src/ai/dialoguePolicy.js';
 import { DIALOGUE_SCENARIOS, SYNTHETIC_DIALOGUE_CONTEXT, dialogueFindings } from './athena-dialogue-fixtures.js';
 import type { AthenaPersona, ConversationMessage } from '../src/types/aiContext.js';
@@ -9,6 +11,49 @@ const personas: AthenaPersona[] = [
   'general', 'brainstorming', 'copilot_coach', 'blog_post', 'demo_designer',
   'web_designer', 'podcast_prep', 'podcast_show_notes',
 ];
+
+test('a topic-change prediction is advisory and preserves the conversation', async () => {
+  for (const score of [undefined, null, NaN, -1, 0.79, 1.1, '0.9']) {
+    assert.equal(topicShiftInstruction(score), '');
+  }
+  const guidance = topicShiftInstruction(0.9);
+  assert.match(guidance, /advisory prediction, not proof/);
+  const history: ConversationMessage[] = [
+    { role: 'user', content: 'Let us work on a design.' },
+    { role: 'assistant', content: 'What should it do?' },
+  ];
+  const messages = await assembleMessages(SYNTHETIC_DIALOGUE_CONTEXT, history, 'Now research a public outage.', 'general', undefined, guidance);
+  assert.ok(messages[0]?.content.includes(guidance));
+  assert.deepEqual(messages.slice(1, -2), history);
+  assert.equal(messages.at(-1)?.content, 'Now research a public outage.');
+});
+
+test('Decision-1 topic prediction uses the latest turn and preserves long-task promotion', async () => {
+  const previousEndpoint = env.DECISION1_ENDPOINT;
+  const previousKey = env.DECISION1_API_KEY;
+  env.DECISION1_ENDPOINT = 'https://decision.example.invalid';
+  env.DECISION1_API_KEY = 'test-key';
+  let promoted = false;
+  const fetch = mock.method(globalThis, 'fetch', async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    assert.ok(body.questions.topic_shift);
+    assert.equal(body.state.includes('A different topic'), true);
+    return new Response(JSON.stringify({ answers: { topic_shift: { noul: 0.9 }, long_task: { noul: 0.9 } } }), { status: 200 });
+  });
+  try {
+    const result = await startRoutingShadow({
+      userMessage: 'A different topic',
+      history: [{ role: 'user', content: 'Earlier design work' }],
+      onLongTask: () => { promoted = true; },
+    });
+    assert.match(result, /topic change may have occurred/i);
+    assert.equal(promoted, true);
+  } finally {
+    fetch.mock.restore();
+    env.DECISION1_ENDPOINT = previousEndpoint;
+    env.DECISION1_API_KEY = previousKey;
+  }
+});
 
 test('requested note updates cannot be replaced by prose or an unsupported save claim', () => {
   assert.equal(requestsOpenNoteEdit([], 'Re-write/amend the actual note!!!'), true);

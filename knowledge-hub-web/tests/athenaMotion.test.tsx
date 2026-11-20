@@ -9,9 +9,28 @@ import { AthenaMark } from '../src/components/athena/AthenaMark';
 import { ThinkingReply } from '../src/components/athena/LiveReply';
 import { ChatBubble } from '../src/components/athena/ChatBubble';
 import { AthenaPresence } from '../src/components/athena/AthenaPresence';
+import { BackgroundTaskCard } from '../src/components/athena/BackgroundTaskCard';
 import { ComposerSuggestion, composerSuggestions, SUGGESTION_ROTATION_MS } from '../src/components/athena/ComposerSuggestion';
 
 const idle: AthenaMotionState = { pending: false, activity: '', recording: false, transcribing: false, summarizing: false };
+
+test('background work keeps progress and cancel while Iris identity comes only from specialist metadata', () => {
+  const props = { activity: 'Reading public sources', startedAt: Date.now(), stopping: false, onCancel: () => {} };
+  const general = renderToStaticMarkup(<BackgroundTaskCard {...props} />);
+  assert.match(general, /<athena-ribbon[^>]*mood="thinking"/);
+  assert.match(general, /Reading public sources/);
+  assert.match(general, />Cancel<\/button>/);
+  assert.doesNotMatch(general, /ai-work-mark__fold/);
+  const iris = renderToStaticMarkup(<><BackgroundTaskCard {...props} specialistName="Iris — Researcher" />
+    <BackgroundTaskCard {...props} specialistName="Iris — Document compiler" stopping /></>);
+  assert.match(iris, /Iris — Researcher is working/);
+  assert.match(iris, /ai-work-mark__fold/);
+  assert.match(iris, /disabled=""/);
+  const gradients = [...iris.matchAll(/<linearGradient id="([^"]+)"/g)].map(match => match[1]);
+  assert.equal(gradients.length, 4);
+  assert.equal(new Set(gradients).size, gradients.length);
+  assert.doesNotMatch(iris, /<athena-ribbon/);
+});
 
 test('notes and restored replies without follow-ups still have context-appropriate composer suggestions', () => {
   assert.deepEqual(composerSuggestions(['  Inspect linked notes ', '', 'Inspect linked notes'], 'note', []), ['Inspect linked notes']);

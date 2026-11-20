@@ -117,7 +117,7 @@ export function agentToolDefinitions(): LlmToolDefinition[] {
                   type: 'object', additionalProperties: false, properties: {
                     title: { type: 'string', maxLength: 160 },
                     query: { type: 'string', maxLength: 500, description: 'One focused public query, preferably official documentation. No private context.' },
-                    allowedDomains: { type: 'array', minItems: 1, maxItems: 3, items: { type: 'string' }, description: 'Required when official sources are requested: actual official product/documentation hostnames, e.g. obsidian.md or notion.com. Enforced on search results and redirects. Keep the query short; do not simulate domain restrictions with malformed site operators.' },
+                    allowedDomains: { type: 'array', minItems: 1, maxItems: 3, items: { type: 'string' }, description: 'Required for every topic when official-only sources are requested or agreed: actual official product/documentation hostnames, e.g. obsidian.md or notion.com. Enforced on search results and redirects. Dated incident evidence alone does not require official-only sources. Keep the query short; do not simulate domain restrictions with malformed site operators.' },
                   }, required: ['title', 'query'],
                 } },
               }, required: ['title', 'objective', 'compareInternally', 'topics'],

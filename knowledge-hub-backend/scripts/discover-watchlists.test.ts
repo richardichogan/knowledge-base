@@ -10,7 +10,8 @@ import { discoverRouter } from '../src/routes/discover.js';
 import { errorHandler } from '../src/middleware/errorHandler.js';
 import { getToolDefinitions, executeToolCall } from '../src/ai/chatTools.js';
 import { listWatchlists, saveWatchlist, runWatchlist, watchlistHistory, parseWatchlist, parseWatchAnalysis,
-  evidenceGroups, runDueWatchlists, retrieveWatchlistRecords, matchesEntity, analyzeWatchEvidence, watchlistCompanyKnowledge } from '../src/services/discoverWatchlists.js';
+  evidenceGroups, runDueWatchlists, retrieveWatchlistRecords, matchesEntity, analyzeWatchEvidence, watchlistCompanyKnowledge,
+  watchlistSearchTargets } from '../src/services/discoverWatchlists.js';
 import { loadWatchlistProfiles, refreshWatchlistProfiles } from '../src/services/watchlistProfiles.js';
 import { profileSources } from '../src/services/watchlistSearch.js';
 import { FoundryClient } from '../src/ai/foundryClient.js';
@@ -27,6 +28,19 @@ const config = (): WatchlistInput => ({
   entities: [{ name: 'Example Product', relationship: 'competitor' }],
   criteria: ['Availability', 'Target buyer'], baseline: { text: 'CONFIDENTIAL baseline proposition', links: ['https://app.example/think?noteId=mine'] },
   sourceIds: [sourceId], projectIds: ['project-a'], cadence: 'weekly', paused: false,
+});
+
+test('scheduled Watchlists search only gaps in fresh selected-feed evidence; Run now still searches all entities', () => {
+  const entities = ['AWS', 'Google Cloud', 'OpenAI'].map(name => ({ name }));
+  const start = new Date('2026-11-13T00:00:00Z');
+  const end = new Date('2026-11-20T00:00:00Z');
+  const articles = [
+    { title: 'AWS adds an option', body: 'Announcement', published_at: new Date('2026-11-18T00:00:00Z') },
+    { title: 'OpenAI announces a feature', body: 'Old article', published_at: new Date('2026-11-08T00:00:00Z') },
+  ];
+  assert.deepEqual(watchlistSearchTargets(entities, articles, start, end, true), entities.slice(1));
+  assert.deepEqual(watchlistSearchTargets(entities, articles, start, end, false), entities);
+  assert.equal(parseWatchlist({ ...config(), cadence: 'daily' }).cadence, 'weekly');
 });
 const finding = (id = articleId): WatchFinding => ({
   entity: 'Example Product', criterion: 'Availability', kind: 'announced-capability', changed: 'Newly observed product announcement',
@@ -76,6 +90,41 @@ async function article(pg: PGlite, id = articleId, title = 'Example Product anno
     id, title, body, `https://news.example/${id}`, JSON.stringify({ sourceId, sourceTitle: 'Test source' }),
   ]);
 }
+
+test('weekly feed enrollment retains selections and baselines without rewriting past runs', async () => {
+  const { pg, db } = await fixture();
+  try {
+    await pg.exec(`ALTER TABLE discovery_sources ALTER COLUMN id SET DEFAULT gen_random_uuid();
+      ALTER TABLE discovery_sources ALTER COLUMN is_active SET DEFAULT true;
+      ALTER TABLE discovery_sources ADD COLUMN feed_url TEXT UNIQUE;
+      ALTER TABLE discovery_sources ADD COLUMN group_name TEXT DEFAULT 'Other';`);
+    const w = await saveWatchlist(db, { ...config(), entities: [{ name: 'Google Cloud', relationship: 'competitor' }] });
+    await pg.query(`UPDATE discover_watchlists SET config=jsonb_set(config,'{cadence}','"daily"'),next_run_at=NOW() WHERE id=$1`, [w.id]);
+    await pg.query(`INSERT INTO discover_watchlist_runs(watchlist_id,baseline_version,config,window_start,started_at,status)
+      SELECT id,baseline_version,config,NOW()-INTERVAL '8 days',NOW()-INTERVAL '1 day','no_meaningful_change'
+      FROM discover_watchlists WHERE id=$1`, [w.id]);
+    const weekly = await readFile(new URL('../src/db/migrations/164_watchlists_weekly.sql', import.meta.url), 'utf8');
+    const feeds = await readFile(new URL('../src/db/migrations/165_watchlist_feed_coverage.sql', import.meta.url), 'utf8');
+    await pg.exec(weekly);
+    await pg.exec(feeds);
+    const after = await pg.query<{ config: WatchlistInput; revision: number; baseline_version: number; delayed: boolean }>(
+      `SELECT *,next_run_at>NOW()+INTERVAL '5 days' AS delayed FROM discover_watchlists WHERE id=$1`, [w.id]);
+    const saved = after.rows[0]!;
+    assert.equal(saved.config.cadence, 'weekly');
+    assert.equal(saved.delayed, true);
+    assert.ok(saved.config.sourceIds.includes(sourceId));
+    assert.equal(saved.config.sourceIds.length, 6);
+    assert.equal(saved.baseline_version, w.baselineVersion);
+    assert.deepEqual(saved.config.baseline, w.config.baseline);
+    const history = await pg.query<{ config: WatchlistInput }>('SELECT config FROM discover_watchlist_runs WHERE watchlist_id=$1', [w.id]);
+    assert.equal(history.rows[0]!.config.cadence, 'daily');
+    assert.deepEqual(history.rows[0]!.config.sourceIds, [sourceId]);
+    await pg.exec(weekly);
+    await pg.exec(feeds);
+    const repeated = await pg.query<{ revision: number }>('SELECT revision FROM discover_watchlists WHERE id=$1', [w.id]);
+    assert.equal(repeated.rows[0]!.revision, saved.revision);
+  } finally { await pg.close(); }
+});
 
 test('watchlist inputs require explicit user choices and strict bounded typed analysis', () => {
   assert.deepEqual(parseWatchlist(config()), config());

@@ -122,7 +122,7 @@ test('SRC-10 exclusion filtering fails closed', async () => {
   assert.ok(failed.issues.includes('exclusion_unavailable'));
 });
 
-test('SRC-11 default Postgres backends: OR terms, all-term boost, noisy-source weight, canonical filter', async () => {
+test('SRC-11 default Postgres backends require all search terms, retain noisy-source weight and canonical filtering', async () => {
   const db = await phase2Db();
   await insertContent(db, { sourceId: 'n1', title: 'Budget approval process', body: 'how budget approval works' });
   await insertContent(db, { sourceId: 'n2', title: 'Budget notes', body: 'only one term' });
@@ -132,11 +132,25 @@ test('SRC-11 default Postgres backends: OR terms, all-term boost, noisy-source w
   await db.query(`INSERT INTO note_github_publications (repo, path) VALUES ('o/r', 'a.md')`);
   const result = await searchKnowledge({ query: 'budget approval' }, createDbSearchBackends({ db, admission: createAdmission() }));
   const titles = result.hits.map(h => h.title);
-  assert.deepEqual(titles, ['Budget approval process', 'Budget approval commit', 'Budget notes']);
+  assert.deepEqual(titles, ['Budget approval process', 'Budget approval commit']);
   assert.equal(result.status, 'ok');
   const exact = await searchKnowledge({ query: 'budget notes' }, createDbSearchBackends({ db, admission: createAdmission() }));
   assert.equal(exact.hits[0]!.matchKind === 'exact' || exact.hits[0]!.title === 'Budget notes', true);
   assert.equal(exact.hits[0]!.title, 'Budget notes');
+});
+
+test('quoted article titles cannot expand into unrelated semantic matches or common-word matches', async () => {
+  const db = await phase2Db();
+  await insertContent(db, { sourceId: 'article', title: 'When the Cloud Goes Dark', body: 'Cloud resilience' });
+  await insertContent(db, { sourceId: 'unrelated', title: 'Finance transformation', body: 'Go to the cloud and dark mode' });
+  let semanticCalls = 0;
+  const result = await searchKnowledge({ query: '"when the cloud goes dark"' }, createDbSearchBackends({
+    db, admission: createAdmission(), retrieveIds: async () => { semanticCalls++; return []; },
+  }));
+  assert.deepEqual(result.hits.map(hit => hit.title), ['When the Cloud Goes Dark']);
+  assert.equal(semanticCalls, 0);
+  const missing = await searchKnowledge({ query: '"cloud goes missing"' }, createDbSearchBackends({ db, admission: createAdmission() }));
+  assert.equal(missing.hits.length, 0);
 });
 
 test('SRC-12 semantic ids hydrate only live canonical rows and keep rank order', async () => {

@@ -18,7 +18,7 @@ export async function loadWatchlistProfiles(db: Pool, id: string): Promise<Map<s
   }]));
 }
 
-/** Manual checks refresh profiles; scheduled checks initialise or repair missing background. */
+/** Refresh profiles on demand, or initialise missing background without replacing existing sources. */
 export async function refreshWatchlistProfiles(db: Pool, id: string, config: WatchlistInput, refresh: boolean,
   research: typeof searchCompanyProfile = searchCompanyProfile): Promise<void> {
   const saved = await loadWatchlistProfiles(db, id);

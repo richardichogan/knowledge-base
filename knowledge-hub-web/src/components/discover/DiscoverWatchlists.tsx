@@ -177,7 +177,7 @@ const WatchlistForm: React.FC<{ existing: Watchlist | null; onClose: () => void;
       {existing && <p className="dw-hint">Current baseline: v{existing.baselineVersion}. Editing the baseline or its links creates a new version. Existing runs keep their original version.</p>}
       <label className="dw-field">Links to supporting material (one http(s) URL per line, optional)<textarea rows={2} spellCheck={false} value={links} onChange={e => setLinks(e.target.value)} /></label>
       <fieldset className="dw-fieldset"><legend>Extra Discover sources (optional)</legend>
-        <p className="dw-hint">Not required: each run already searches the web for every monitored name. Tick feeds only to also include articles Discover has collected.</p>
+        <p className="dw-hint">Weekly checks use these feeds first, then search the web only for monitored names without fresh feed evidence. Run now performs a broader check.</p>
         {sources.isLoading && <p className="dw-hint">Loading sources…</p>}
         {sources.isError && <DataNotice title="Sources unavailable" error={sources.error} />}
                 {sources.data?.map(s => <label key={s.id} className="dw-check"><input type="checkbox" checked={config.sourceIds.includes(s.id)}
@@ -193,9 +193,6 @@ const WatchlistForm: React.FC<{ existing: Watchlist | null; onClose: () => void;
             onChange={e => patch({ projectIds: e.target.checked ? [...config.projectIds, p.id] : config.projectIds.filter(id => id !== p.id) })} />{p.name}</label>)}
         </fieldset>)}
       </fieldset>
-      <label className="dw-field">Cadence<select value={config.cadence} onChange={e => patch({ cadence: e.target.value as WatchlistInput['cadence'] })}>
-        <option value="daily">Daily</option><option value="weekly">Weekly</option>
-      </select></label>
       <label className="dw-check"><input type="checkbox" checked={config.paused} onChange={e => patch({ paused: e.target.checked })} />Paused</label>
       {validation && <p className="dw-hint" role="status">{validation}</p>}
     </form>

@@ -2,6 +2,59 @@
 
 **Status:** Validated
 
+**Current release — Athena research, Discover usage and chat status (2026-11-20 UTC)**
+
+- User approved completing all discussed changes, including Iris animation and
+  the standalone Updates toolbar, followed by deployment to the existing targets.
+- Current-query context and strict quoted-article retrieval replace unrelated
+  internal matches. Iris checks actual outgoing search topics, not the internal
+  brief, and does not invent a domain-allowlist requirement.
+- The original Tavily account remains primary; the encrypted second account is
+  the first fallback. Optional Brave remains unconfigured, with no paid plan.
+- Automatic Watchlists run weekly, use selected feeds first and search once per
+  company with an evidence gap. Manual Run now retains broader research.
+  Migrations retain historical runs and add verified company/news/analyst feeds.
+- Chat working status reuses Athena's ribbon and the approved Iris Evidence Fold.
+  Standalone chat reuses Updates, including active general chat turns and cancel.
+- Application-only AZCLI release. No infrastructure, identity or RBAC changes.
+  The existing developer database firewall rule was refreshed; local direct
+  database access still times out, so production database checks use the existing
+  Container App shell instead.
+
+**All validation checks pass — current release:**
+- [x] Azure CLI authentication, existing targets and ingress 3000 verified.
+- [x] Fetched/merged origin/main; both application TypeScript checks passed.
+- [x] Existing Bicep compiles; zero applicable resource-group policy assignments.
+- [x] Backend and frontend isolated release suites, including new regressions.
+- [x] Both production builds.
+- [x] Record current proof and verify the next image tag before deployment.
+- Template validation/what-if and provisioning are not applicable: no
+  infrastructure change is being submitted. The ACR Docker build must succeed
+  before updating the Container App. Registry-secret image pulls are unchanged.
+
+**Section 7: Validation Proof — Athena research release (2026-11-20 UTC):**
+- `git fetch origin && git merge --no-edit origin/main` reported already current.
+  Both packages passed `npm run typecheck` and `npm run build`; `git diff --check`
+  passed. The frontend build is retained unchanged for production deployment.
+- Ran each full isolated release suite once. Frontend: 413 checks passed, zero
+  failures. Backend: 1,129 reported, one quiet-week coverage regression found.
+  Restored the existing healthy-feed/prior-coverage behavior; all 15 Watchlist
+  checks then passed. Repeated only the affected backend typecheck/build.
+- All declared affected checks were reported: dialogue 14, research 7,
+  Watchlists 15, focused context 22, knowledge search 16, Brave 2, Tavily
+  fallback 1. This includes strict quoted-title retrieval, topics-only research
+  disclosure checking, quota/empty/invalid-request fallback behavior, and
+  idempotent weekly/feed migration preserving baselines and historical runs.
+  Frontend checks include metadata-bound Iris identity and retained cancellation.
+- `az bicep build --file infra/main.bicep --stdout` passed. Azure confirms the
+  existing subscription/targets, port 3000, registry-secret pulls, backend v358,
+  unused v359 image tag and zero resource-group policy assignments. No dependency,
+  Dockerfile, infrastructure, role or identity changes are being deployed.
+- Existing production shell read-back confirmed canonical AWS, Google Cloud,
+  OpenAI, InfoQ and The Register source records. Local PostgreSQL network access
+  remains unavailable. No browser was launched; live animation/layout behavior
+  has not been browser-verified.
+
 **Section 7: Validation Proof — Athena editorial judgment release (2026-11-19 UTC):**
 - The user approved deploying the Athena persona changes together with the
   existing Design panel, Think navigation and architecture changes.
