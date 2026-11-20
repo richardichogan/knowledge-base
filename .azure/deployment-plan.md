@@ -37,6 +37,12 @@
   and image tag v360 is unused. Infrastructure and RBAC are unchanged.
 - The user declined browser verification. Actual browser presentation and a
   resumed research run are not verified; no failed research job was restarted.
+- Production source `62905dcf` was pushed to the release branch and main. ACR
+  run `cabb` built `kh-prod-api:v360` from main. Revision
+  `kh-prod-api-vnet--0000359` is Healthy, RunningAtMaxScale and receives 100%
+  of traffic. Startup applied migration 166 and completed migrations.
+- Static Web Apps production deployment succeeded; the custom domain serves
+  the built frontend bundle `/assets/index-CSeCPAdO.js`.
 
 **Previous release — Athena research, Discover usage and chat status (2026-11-20 UTC)**
 
