@@ -54,6 +54,22 @@
   OpenAI, InfoQ and The Register source records. Local PostgreSQL network access
   remains unavailable. No browser was launched; live animation/layout behavior
   has not been browser-verified.
+- Production rollout completed from source `5da4eb5eabc1eb01b61dd399d8eb7386b2aca6c8`.
+  ACR run `cab9` successfully built/pushed `kh-prod-api:v359`. Revision
+  `kh-prod-api-vnet--0000358` is Healthy, RunningAtMaxScale, latest-ready and
+  receives 100% of production traffic. Startup applied migrations 164 and 165,
+  completed migration successfully and prewarmed 8/8 database connections.
+- Production read-back confirms both Watchlists are weekly, none remain daily,
+  and every Watchlist has at least six selected feeds. All six newly registered
+  feeds are active. Both Tavily credentials decrypt/load successfully. One
+  bounded real public query failed on the primary account, fell back to the
+  second, and returned a result. The exact quoted article lookup returns no
+  matches rather than unrelated finance/SDLC documents.
+- Static Web Apps production deployment succeeded. The served frontend at
+  https://athena.themicrosoftcloudblog.com matches the validated build
+  byte-for-byte: `/assets/index-CZtbTceL.js`, SHA-256
+  `1a579308f9c77e28185a4c62e0d1fa1bb9a285a7e00a9b72e14e0ed4b6c48b15`.
+  Live identity/role configuration is unchanged; no role assignments were added.
 
 **Section 7: Validation Proof — Athena editorial judgment release (2026-11-19 UTC):**
 - The user approved deploying the Athena persona changes together with the
