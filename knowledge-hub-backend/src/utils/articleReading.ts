@@ -8,8 +8,14 @@ const HALF = 0.5;
 const MIN_REGION_CHARS = 800;
 const ARTICLE_BODY_CAPTURE_GROUP = 2;
 
+export interface ArticleSection { heading: string; start: number; end: number }
+
 /** Strip navigation before extracting prose; never mistake metadata for the article. */
 export function articleProse(html: string, url?: string): string {
+  return articleDocument(html, url).text;
+}
+
+export function articleDocument(html: string, url?: string): { text: string; sections: ArticleSection[] } {
   if (url && new URL(url).hostname === 'techcommunity.microsoft.com') {
     const pageData = /<script\b[^>]*\bid=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i.exec(html);
     if (!pageData) throw new Error('Tech Community page does not contain __NEXT_DATA__ article data');
@@ -23,16 +29,45 @@ export function articleProse(html: string, url?: string): string {
     if (typeof article.body !== 'string' || !article.body.trim()) {
       throw new Error('Tech Community page data does not contain the requested article body');
     }
-    return articleProse(article.body);
+    return articleDocument(article.body);
   }
   const cleaned = html.replace(/<(script|style|nav|header|footer|aside)\b[^>]*>[\s\S]*?<\/\1>/gi, ' ')
     .replace(/<!--[\s\S]*?-->/g, ' ');
   const prose = (fragment: string): string => decodeEntities(fragment.replace(/<\/(?:p|div|li|h[1-6]|tr)>|<br\s*\/?>/gi, '\n')
     .replace(/<[^>]*>/g, ' ')).replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n\n').trim();
   // Pages often contain several <article>/<main> elements (headers, bylines, cards); use the longest body.
-  const regions = [...cleaned.matchAll(/<(article|main)\b[^>]*>([\s\S]*?)<\/\1>/gi)].map((m) => prose(m[ARTICLE_BODY_CAPTURE_GROUP] ?? ''));
-  const best = regions.reduce((a, b) => (b.length > a.length ? b : a), '');
-  return best.length >= MIN_REGION_CHARS ? best : prose(cleaned);
+  const regions = [...cleaned.matchAll(/<(article|main)\b[^>]*>([\s\S]*?)<\/\1>/gi)]
+    .map(m => ({ fragment: m[ARTICLE_BODY_CAPTURE_GROUP] ?? '', text: prose(m[ARTICLE_BODY_CAPTURE_GROUP] ?? '') }));
+  const best = regions.reduce((a, b) => (b.text.length > a.text.length ? b : a), { fragment: '', text: '' });
+  const fragment = best.text.length >= MIN_REGION_CHARS ? best.fragment : cleaned;
+  const text = best.text.length >= MIN_REGION_CHARS ? best.text : prose(cleaned);
+  const markerStart = '\uE000';
+  const markerEnd = '\uE001';
+  if (fragment.includes(markerStart) || fragment.includes(markerEnd)) return { text, sections: [] };
+  const titles = [...fragment.matchAll(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1\s*>/gi)].map(match => prose(match[2] ?? ''));
+  let markerId = 0;
+  const marked = prose(fragment.replace(/<h([1-6])\b[^>]*>/gi, tag => `${tag}${markerStart}${markerId++}${markerEnd}`));
+  const markerPattern = /\uE000(\d+)\uE001/g;
+  const offsets: Array<{ id: number; offset: number }> = [];
+  let plain = '';
+  let cursor = 0;
+  for (const match of marked.matchAll(markerPattern)) {
+    plain += marked.slice(cursor, match.index);
+    offsets.push({ id: Number(match[1]), offset: plain.length });
+    cursor = match.index + match[0].length;
+  }
+  plain += marked.slice(cursor);
+  if (plain !== text || offsets.length !== titles.length) return { text, sections: [] };
+  const headings: Array<{ heading: string; start: number }> = [];
+  for (const { id, offset } of offsets) {
+    const heading = titles[id];
+    if (!heading || heading.length > 300 || heading.includes('\n')) return { text, sections: [] };
+    const start = text.indexOf(heading, offset);
+    if (start < 0 || text.slice(offset, start).trim()) return { text, sections: [] };
+    headings.push({ heading, start });
+  }
+  const sections = headings.map((heading, i) => ({ ...heading, end: headings[i + 1]?.start ?? text.length }));
+  return { text, sections };
 }
 
 /** Include the middle and conclusion of long writing, not just its opening. */
@@ -47,7 +82,7 @@ export function readingExcerpt(text: string, maxChars = MAX_READING_CHARS): { te
 }
 
 /** Shared public-page read for article Sparks and chat; redirects and byte buffering are bounded. */
-export async function readPublicPage(url: string): Promise<{ title: string; text: string; finalUrl?: string }> {
+export async function readPublicPage(url: string): Promise<{ title: string; text: string; sections: ArticleSection[]; finalUrl?: string }> {
   const response = await fetchPublic(url, {
     headers: { 'User-Agent': 'AthenaArticleReader/1.0', Accept: 'text/html, text/plain, application/json, application/xml, text/xml' }, timeoutMs: PAGE_TIMEOUT_MS,
   });
@@ -69,6 +104,7 @@ export async function readPublicPage(url: string): Promise<{ title: string; text
     raw += decoder.decode();
   } finally { await reader.cancel(); }
   const html = /text\/html/i.test(type);
+  const document = html ? articleDocument(raw, response.url || url) : { text: raw.trim(), sections: [] };
   return { title: html ? decodeEntities(/<title[^>]*>([^<]*)<\/title>/i.exec(raw)?.[1] ?? new URL(url).hostname) : new URL(url).hostname,
-    text: html ? articleProse(raw, response.url || url) : raw.trim(), finalUrl: response.url || url };
+    ...document, finalUrl: response.url || url };
 }

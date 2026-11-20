@@ -30,6 +30,10 @@ test('background work keeps progress and cancel while Iris identity comes only f
   assert.equal(gradients.length, 4);
   assert.equal(new Set(gradients).size, gradients.length);
   assert.doesNotMatch(iris, /<athena-ribbon/);
+  const subordinate = renderToStaticMarkup(<BackgroundTaskCard {...props} specialistName="Iris — Researcher" subordinate />);
+  assert.match(subordinate, /ai-task-card--subordinate/);
+  assert.match(subordinate, /Reading public sources/);
+  assert.doesNotMatch(general, /ai-task-card--subordinate/);
 });
 
 test('notes and restored replies without follow-ups still have context-appropriate composer suggestions', () => {

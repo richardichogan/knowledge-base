@@ -155,6 +155,8 @@ async function fixture(t: TestContext) {
   for (const name of ['027_ai_chat_sessions.sql', '038_ai_chat_pins_titles_sources.sql', '124_workforce_chat_notices.sql', '124_workforce_chat_notices.sql', '125_workforce_notice_acknowledgement.sql', '125_workforce_notice_acknowledgement.sql', '126_workforce_blog_revisions.sql', '126_workforce_blog_revisions.sql']) {
     await pg.exec(await readFile(new URL(`../src/db/migrations/${name}`, import.meta.url), 'utf8'));
   }
+  await pg.exec(await readFile(new URL('../src/db/migrations/134_ai_turn_traces.sql', import.meta.url), 'utf8'));
+  await pg.exec(await readFile(new URL('../src/db/migrations/166_agent_job_chat_origin.sql', import.meta.url), 'utf8'));
   await pg.exec('CREATE TABLE ai_usage_log(id UUID PRIMARY KEY,ok BOOLEAN,error TEXT,feature TEXT)');
   await pg.exec(await readFile(new URL('../src/db/migrations/117_ai_workflow_attribution.sql', import.meta.url), 'utf8'));
   await pg.exec(await readFile(new URL('../src/db/migrations/145_ai_workflow_failure_diagnostics.sql', import.meta.url), 'utf8'));
@@ -182,6 +184,43 @@ async function fixture(t: TestContext) {
   };
   return { pg, db, profileId, options, fault, advisoryLocks };
 }
+
+test('chat job origin backfill only links an exact, unambiguous handoff in its conversation', async t => {
+  const { pg } = await fixture(t);
+  const chat = randomUUID();
+  const otherChat = randomUUID();
+  const exact = randomUUID();
+  const ambiguous = randomUUID();
+  const missing = randomUUID();
+  await pg.query('INSERT INTO ai_chat_sessions(id) VALUES($1),($2)', [chat, otherChat]);
+  const messages = await pg.query<{ id: string }>(
+    `INSERT INTO ai_chat_messages(session_id,role,content) VALUES
+      ($1,'assistant','First reply'),($1,'assistant','Second reply'),($2,'assistant','Other reply') RETURNING id::text`, [chat, otherChat]);
+  for (const id of [exact, ambiguous, missing]) {
+    await pg.query(`INSERT INTO agent_jobs(id,specialist,subject_type,subject_id,conversation_id,requested_by,status,worker_pool)
+      VALUES($1,'chat-researcher','chat',$2,$2,'chat','running','fixture-pool')`, [id, chat]);
+  }
+  const events = [
+    { session: chat, message: messages.rows[0]!.id, job: exact },
+    { session: chat, message: messages.rows[0]!.id, job: ambiguous },
+    { session: chat, message: messages.rows[1]!.id, job: ambiguous },
+    { session: otherChat, message: messages.rows[2]!.id, job: missing },
+  ];
+  for (const event of events) {
+    const trace = randomUUID();
+    await pg.query(`INSERT INTO ai_turn_traces(id,session_id,assistant_message_id,environment,status)
+      VALUES($1,$2,$3,'prod','completed')`, [trace, event.session, event.message]);
+    await pg.query(`INSERT INTO ai_turn_trace_events(trace_id,sequence,kind,payload) VALUES($1,1,'tool.result',$2::jsonb)`,
+      [trace, JSON.stringify({ name: 'hand_off_to_specialist', content: JSON.stringify({ jobId: event.job }) })]);
+  }
+  await pg.exec(await readFile(new URL('../src/db/migrations/166_agent_job_chat_origin.sql', import.meta.url), 'utf8'));
+  const result = await pg.query<{ id: string; origin: string | null }>(
+    'SELECT id,origin_message_id::text AS origin FROM agent_jobs WHERE id=ANY($1::uuid[])', [[exact, ambiguous, missing]]);
+  const origins = new Map(result.rows.map(row => [row.id, row.origin]));
+  assert.equal(origins.get(exact), messages.rows[0]!.id);
+  assert.equal(origins.get(ambiguous), null);
+  assert.equal(origins.get(missing), null);
+});
 
 test('assignment chat notice and outbox receipt commit once, in the originating conversation and worker pool', async t => {
   const { pg, db, profileId, options } = await fixture(t);

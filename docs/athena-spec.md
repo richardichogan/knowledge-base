@@ -101,8 +101,12 @@ than an older chat title, while keeping the original chat link.
 Each topic gets one focused search, at most three candidate URLs, and up to two
 successfully read sources. Unavailable pages are recorded explicitly; a topic with
 no read source blocks completion. External reading has no internal documents,
-profile or chat history in its context. Extracted source text is processed in
-8,000-character pages through the existing durable, validated reading checkpoints.
+profile or chat history in its context. For long structured pages, Iris screens
+headings and section openings against the research question, reads the selected
+sections and identifies the remaining text as skimmed only in the report. Ambiguous structure
+or a request for exhaustive coverage falls back to the full extracted text.
+Selected or full text is processed through durable, validated reading checkpoints,
+with adjacent 8,000-character pages combined into token-bounded model calls.
 When official sources are requested, each topic supplies explicit public source
 domains, enforced on search candidates and redirects. Bounded candidate snippets
 are screened for relevance before reading; snippets are never treated as evidence.
@@ -117,6 +121,9 @@ condensation attempt rather than rereading sources. Completed topics are saved
 between worker passes. Provider rate limits remain explicit, with saved progress
 retained for manual resumption rather than automatic retry loops.
 Provider failures, cancellation and five-minute topic deadlines do not erase them.
+Timeouts automatically continue from saved research and reading checkpoints up
+to three times per topic or report stage, then report a clear resumable failure.
+Saved search candidates and page selections are reused rather than searched again.
 
 Only after all external topics are complete does Athena perform any requested
 internal comparison. This stage cannot search the web or mutate existing records.

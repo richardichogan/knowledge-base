@@ -53,10 +53,14 @@ export function backgroundWorkContextBlock(input: unknown): string {
       }
       if (item.subjectId !== undefined && !text(item.subjectId, BACKGROUND_SUBJECT_CHARS)) throw new ValidationError('Invalid background work subject.');
     }
+    if (item.originMessageId !== undefined && (typeof item.originMessageId !== 'string' || !/^[1-9]\d{0,18}$/.test(item.originMessageId))) {
+      throw new ValidationError('Invalid commissioning message identifier.');
+    }
     return { id: item.id, title: item.title, status: item.status, summary: item.summary, unread: item.unread,
       ...(typeof item.jobId === 'string' ? { jobId: item.jobId } : {}),
       ...(typeof item.assignmentId === 'string' ? { assignmentId: item.assignmentId } : {}),
-      ...(typeof item.subjectId === 'string' ? { subjectId: item.subjectId } : {}) };
+      ...(typeof item.subjectId === 'string' ? { subjectId: item.subjectId } : {}),
+      ...(typeof item.originMessageId === 'string' ? { originMessageId: item.originMessageId } : {}) };
   });
   const state: BackgroundWorkContext = { panelOpen: input.panelOpen, activeCount: input.activeCount,
     ...(activeFilter !== undefined ? { activeFilter } : {}),
@@ -169,6 +173,7 @@ export function agentToolDefinitions(): LlmToolDefinition[] {
 
 const brief = (job: AgentJob): Record<string, unknown> => ({
   jobId: job.id, specialist: job.specialistName, subject: job.subjectTitle, link: job.subjectUrl || undefined, status: job.status,
+  originMessageId: job.originMessageId ?? undefined,
   latestProgress: job.progress.at(-1), summary: job.summary ?? undefined, error: job.error ?? undefined,
   prerequisiteStep: job.isStep || undefined, startedAt: job.startedAt ?? undefined, finishedAt: job.finishedAt ?? undefined,
   ...(job.specialist === 'daedalus' && job.status === 'done' || job.specialist === CHAT_RESEARCH_SPECIALIST || job.specialist === DOCUMENT_COMPILER_SPECIALIST ? { result: job.result } : {}),

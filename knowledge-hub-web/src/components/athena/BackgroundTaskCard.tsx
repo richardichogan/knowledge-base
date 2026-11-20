@@ -12,6 +12,7 @@ interface BackgroundTaskCardProps {
   startedAt: number;
   stopping: boolean;
   specialistName?: string;
+  subordinate?: boolean;
   onCancel?: () => void;
 }
 
@@ -21,7 +22,7 @@ function elapsed(seconds: number): string {
   return `${m.toString()}m ${(seconds % 60).toString().padStart(2, '0')}s`;
 }
 
-export const BackgroundTaskCard: React.FC<BackgroundTaskCardProps> = ({ activity, startedAt, stopping, specialistName, onCancel }) => {
+export const BackgroundTaskCard: React.FC<BackgroundTaskCardProps> = ({ activity, startedAt, stopping, specialistName, subordinate = false, onCancel }) => {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const timer = window.setInterval(() => { setNow(Date.now()); }, 1000);
@@ -29,7 +30,7 @@ export const BackgroundTaskCard: React.FC<BackgroundTaskCardProps> = ({ activity
   }, []);
   const seconds = Math.max(0, Math.round((now - startedAt) / 1000));
   return (
-    <div className="ai-task-card" aria-busy="true">
+    <div className={`ai-task-card${subordinate ? ' ai-task-card--subordinate' : ''}`} aria-busy="true">
       <BackgroundActivityMark iris={specialistName?.startsWith('Iris') === true} />
       <div className="ai-task-card__body">
         <span className="ai-task-card__title" role="status">{stopping ? 'Stopping this one…' : specialistName ? `${specialistName} is working` : 'Athena is working in the background'}</span>

@@ -479,6 +479,9 @@ three abstract violet ribbons that fan apart and align around a cool lit seam
 ("Evidence Fold"), only when runtime metadata identifies Iris. It retains
 reduced-motion and offscreen/hidden pausing. Standalone chat reuses the main
 Updates bell and panel, including long-running chat turns.
+When Iris is linked to the Athena reply that commissioned her, her smaller
+status is indented beneath that reply with a subtle connector. If that reply
+is unavailable, show the status separately without implying a connection.
 
 **Dialogs and images.** Shared dialogs are normally up to 480px wide (660px for
 the wide variant), constrained to the viewport. Image viewing has its own

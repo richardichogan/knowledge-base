@@ -80,6 +80,9 @@ function claim(id: string): boolean {
 
 function receive(job: AgentJob): void {
   const previous = jobs.get(job.id);
+  if (!job.originMessageId && previous?.originMessageId && previous.conversationId === job.conversationId) {
+    job = { ...job, originMessageId: previous.originMessageId };
+  }
   jobs.set(job.id, job);
   changed();
   if (job.subjectType === 'task' && (previous?.status !== job.status

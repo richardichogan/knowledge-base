@@ -38,6 +38,7 @@ interface WorkItem {
   updates: JobUpdate[];
   assignment?: AssignmentSummary;
   jobId?: string;
+  originMessageId?: string;
   subjectId?: string;
   chatTurnId?: string;
 }
@@ -150,6 +151,7 @@ export const BackgroundWork: React.FC<{
     }),
     ...jobs.filter(job => !job.isStep || isActiveAgentJob(job) || job.status === 'failed').map((job): WorkItem => ({
       id: job.id, jobId: job.id, subjectId: job.subjectId, title: job.subjectTitle || 'Untitled work',
+      ...(job.originMessageId ? { originMessageId: job.originMessageId } : {}),
       source: job.specialistName.replaceAll('-', ' ').replace(/^./, letter => letter.toUpperCase()),
       state: job.status === 'done' ? 'Completed' : job.status === 'failed' ? 'Could not finish' : job.status === 'running' ? 'Working' : 'Queued',
       tone: isActiveAgentJob(job) ? 'active' : job.status === 'failed' ? 'failed' : 'done',
@@ -244,6 +246,7 @@ export const BackgroundWork: React.FC<{
     truncated: filteredItems.length > 10 || filteredItems.some(item => item.title.length > 200 || item.message.length > 800),
     items: filteredItems.slice(0, 10).map(item => ({
       id: item.id, ...(item.jobId ? { jobId: item.jobId } : {}),
+      ...(item.originMessageId ? { originMessageId: item.originMessageId } : {}),
       ...(item.subjectId ? { subjectId: item.subjectId } : {}),
       ...(item.assignment ? { assignmentId: item.assignment.id } : {}),
       title: item.title.slice(0, 200), status: item.state, summary: item.message.slice(0, 800),

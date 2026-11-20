@@ -1736,6 +1736,20 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
     <BackgroundTaskCard key={task.turnId} activity={task.activity} startedAt={task.startedAt} stopping={task.stopping}
       onCancel={() => { cancelBackgroundTask(task.turnId); }} />
   );
+  const activeSpecialists = specialistJobs.filter(job => sessionId !== null && job.conversationId === sessionId
+    && isActiveAgentJob(job) && (!job.isStep || job.status === 'running'));
+  const specialistByMessage = new Map<string, typeof activeSpecialists>();
+  const unanchoredSpecialists = activeSpecialists.filter(job => {
+    if (!job.specialistName.startsWith('Iris') || !job.originMessageId
+      || !messages.some(message => message.role === 'assistant' && message.id === job.originMessageId)) return true;
+    specialistByMessage.set(job.originMessageId, [...(specialistByMessage.get(job.originMessageId) ?? []), job]);
+    return false;
+  });
+  const renderSpecialist = (job: (typeof activeSpecialists)[number], subordinate = false): React.ReactElement => (
+    <BackgroundTaskCard key={job.id} activity={job.progress.at(-1) ?? 'Waiting for a worker'}
+      startedAt={Date.parse(job.startedAt ?? job.createdAt)} stopping={false} specialistName={job.specialistName}
+      subordinate={subordinate} />
+  );
 
   // Size the room below the thread to just what keeps his last prompt at the top of
   // the view — it shrinks to nothing as the reply fills the screen.
@@ -2918,13 +2932,12 @@ export const AIChatPage: React.FC<AIChatPageProps> = ({
               </div>
               {msg.role === 'assistant' && i === lastAssistantIndex && !chatMutation.isPending && responsePresence}
             </ChatBubble>
+            {msg.role === 'assistant' && msg.id && specialistByMessage.get(msg.id)?.map(job => renderSpecialist(job, true))}
             {tasksByMessage.get(i)?.map(renderTaskCard)}
             </React.Fragment>
           ))}
           {unanchoredTasks.map(renderTaskCard)}
-          {specialistJobs.filter(job => job.conversationId === sessionId && isActiveAgentJob(job) && (!job.isStep || job.status === 'running'))
-            .map(job => <BackgroundTaskCard key={job.id} activity={job.progress.at(-1) ?? 'Waiting for a worker'}
-              startedAt={Date.parse(job.startedAt ?? job.createdAt)} stopping={false} specialistName={job.specialistName} />)}
+          {unanchoredSpecialists.map(job => renderSpecialist(job))}
           {chatMutation.isPending && replyArrival?.complete !== true && (liveTurn !== null ? (
             <LiveReply activity={liveTurn.activity} startedAt={liveTurn.startedAt} thinkerRef={setPresenceThinker} />
           ) : (

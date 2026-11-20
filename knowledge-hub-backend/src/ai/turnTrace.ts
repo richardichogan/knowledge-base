@@ -32,6 +32,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SECRET_KEY = /(?:password|passwd|secret|authorization|cookie|api[-_]?key|access[-_]?token|refresh[-_]?token|client[-_]?assertion|connection[-_]?string|private[-_]?key|database_url|^sig$|^token$|accountkey)/i;
 const MASK = '[REDACTED]';
 
+export function currentTurnTraceId(): string | null {
+  const trace = activeTrace.getStore();
+  return trace && !trace.closed ? trace.id : null;
+}
+
 export async function withTurnSpan<T>(
   name: string, kind: string, run: () => Promise<T>, attributes: Record<string, unknown> = {},
 ): Promise<T> {

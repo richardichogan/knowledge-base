@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { parseChatResearchInput, parseResearchBrief, parseResearchCheckpoint, researchSearchUrls, runChatResearch } from '../src/work/chatResearch.js';
+import { parseChatResearchInput, parseResearchBrief, parseResearchCheckpoint, researchSearchUrls, runChatResearch, selectPageSections } from '../src/work/chatResearch.js';
 import { FoundryClient } from '../src/ai/foundryClient.js';
 import { modelReadingSteps } from '../src/ai/knowledge/documentReading.js';
+import { articleDocument } from '../src/utils/articleReading.js';
 import { listAgentJobs } from '../src/agents/engine.js';
 import { Pool } from 'pg';
 import { mock } from 'node:test';
@@ -111,6 +112,79 @@ test('a resumed source batch cannot count missing or unrelated pages as complete
   assert.throws(() => parseResearchCheckpoint({ ...checkpoint, current: { ...checkpoint.current, next: 0 } }, input), /coverage/);
   assert.throws(() => parseResearchCheckpoint({ ...checkpoint, current: { ...checkpoint.current, urls: ['https://notion.com/'] } }, input), /coverage/);
   assert.throws(() => parseResearchCheckpoint({ ...checkpoint, current: { ...checkpoint.current, next: 2 } }, input), /continuation/);
+});
+
+test('research checkpoints retain screened candidates and selected-section coverage', () => {
+  const checkpoint = { ...parseResearchCheckpoint(undefined, input), publicQueriesChecked: true,
+    searchCandidates: [{ url: source.url, title: 'Bases', excerpt: 'A search lead, not evidence.' }],
+    timeoutContinuations: 2 };
+  assert.deepEqual(parseResearchCheckpoint(checkpoint, input), checkpoint);
+  assert.throws(() => parseResearchCheckpoint({ ...checkpoint, timeoutContinuations: 4 }, input), /timeout continuation/);
+  assert.throws(() => parseResearchCheckpoint({ ...checkpoint, current: { urls: [source.url], next: 0, sources: [], failures: [] } }, input), /candidates/);
+  const selected = { ...source, coverage: 'selected', totalChars: 50_000, sections: ['Bases'] };
+  const current = { ...checkpoint, searchCandidates: undefined, current: {
+    urls: [source.url], next: 1, sources: [selected], failures: [],
+  } };
+  assert.deepEqual(parseResearchCheckpoint(current, input).current, current.current);
+  assert.throws(() => parseResearchCheckpoint({ ...current, current: { ...current.current,
+    sources: [{ ...selected, sections: [] }] } }, input), /section details/);
+});
+
+test('section offsets follow actual headings, not an earlier matching phrase', () => {
+  const document = articleDocument(`<main><p>${'Opening mentions Copilot. '.repeat(40)}</p>
+    <h2>Copilot</h2><p>Relevant announcement.</p><h2>Other</h2><p>Different topic.</p></main>`);
+  assert.equal(document.sections.length, 2);
+  assert.match(document.text.slice(document.sections[0]!.start, document.sections[0]!.end), /^Copilot\s+Relevant announcement/);
+  assert.match(document.text.slice(document.sections[1]!.start, document.sections[1]!.end), /^Other\s+Different topic/);
+  assert.deepEqual(articleDocument('<p>No structured headings.</p>').sections, []);
+});
+
+test('long structured sources select relevant sections or explicitly fall back to a full read', async t => {
+  const first = 'Copilot\n' + 'Relevant detail. '.repeat(2_000);
+  const second = 'Other\n' + 'Other detail. '.repeat(1_000);
+  const page = { title: 'Announcements', text: first + second, sections: [
+    { heading: 'Copilot', start: 0, end: first.length },
+    { heading: 'Other', start: first.length, end: first.length + second.length },
+  ] };
+  let response = { fullRead: false, indexes: [0] };
+  const chat = t.mock.method(FoundryClient.prototype, 'chat', async () => JSON.stringify(response));
+  assert.deepEqual(await selectPageSections(page, input, input.topics[0]!, new AbortController().signal), [0]);
+  response = { fullRead: true, indexes: [] };
+  assert.equal(await selectPageSections(page, input, input.topics[0]!, new AbortController().signal), undefined);
+  response = { fullRead: false, indexes: [4] };
+  await assert.rejects(selectPageSections(page, input, input.topics[0]!, new AbortController().signal), /invalid section/);
+  assert.equal(chat.mock.callCount(), 3);
+});
+
+test('research timeouts continue saved candidates, then stop after bounded retries', async t => {
+  const db = new Pool();
+  t.mock.method(db, 'query', async () => ({ rows: [], rowCount: 0 }));
+  const saved: unknown[] = [];
+  t.mock.method(db, 'connect', async () => ({
+    query: async (sql: string, values?: unknown[]) => {
+      if (sql.includes('UPDATE agent_jobs')) saved.push(JSON.parse(String(values?.[2])));
+      return { rows: [{ id: 'job' }], rowCount: 1 };
+    },
+    release: () => {},
+  }));
+  const timeout = new AbortController();
+  timeout.abort(new DOMException('Time limit reached', 'TimeoutError'));
+  t.mock.method(AbortSignal, 'timeout', () => timeout.signal);
+  const checkpoint = { ...parseResearchCheckpoint(undefined, input), publicQueriesChecked: true,
+    searchCandidates: [{ url: source.url, title: 'Bases', excerpt: 'A search lead.' }] };
+  const context = { db, jobId: '11111111-1111-4111-8111-111111111111', subjectId: '22222222-2222-4222-8222-222222222222',
+    attempt: 1, signal: new AbortController().signal, progress: () => {}, input: { ...input, researchCheckpoint: checkpoint } };
+  try {
+    const outcome = await runChatResearch(context);
+    assert.equal(outcome.continueAfterMs, 1_000);
+    assert.deepEqual(saved[0], { ...checkpoint, timeoutContinuations: 1 });
+    const exhausted = { ...context, input: { ...input, researchCheckpoint: { ...checkpoint, timeoutContinuations: 3 } } };
+    await assert.rejects(runChatResearch(exhausted), /time limit repeatedly.*checkpoints are retained/);
+    assert.equal(saved.length, 1);
+    const cancelled = new AbortController();
+    cancelled.abort(new Error('Cancelled by user'));
+    await assert.rejects(runChatResearch({ ...context, signal: cancelled.signal }), /Cancelled by user/);
+  } finally { await db.end(); }
 });
 
 test('public search candidates are explicit URLs, not search snippets masquerading as evidence', () => {

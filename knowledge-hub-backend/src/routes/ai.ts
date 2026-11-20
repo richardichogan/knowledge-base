@@ -47,6 +47,7 @@ import type { DesignTurnState } from '../ai/designTools.js';
 import type { BuildTurnState } from '../ai/buildTools.js';
 import type { UseCaseTurnState } from '../ai/useCaseTools.js';
 import { linkTraceMessage, linkTraceSession, listTurnTraces, readTurnTrace, recordTurnTrace, withTurnTrace, withTurnSpan } from '../ai/turnTrace.js';
+import { linkChatHandoffs } from '../agents/engine.js';
 
 const router = Router();
 const MAX_MENTION_QUERY_CHARS = 200;
@@ -332,6 +333,8 @@ export async function runChatTurn(reqBody: Record<string, unknown>, hooks: TurnH
   const { assistantMessageId } = await withTurnSpan('chat.persist', 'persistence', () =>
     appendTurn(db, effectiveSessionId, historyMessage, reply, { persona, sources, contextUsed }));
   await linkTraceMessage(assistantMessageId);
+  await linkChatHandoffs(db, effectiveSessionId, assistantMessageId)
+    .catch((error: unknown) => { console.error('[agents] Could not link chat handoffs to their commissioning message:', error); });
   await recordTurnTrace('reply.saved', { assistantMessageId, contextUsed });
   if (audit.row !== undefined) {
     const row = { ...audit.row, assistantMessageId };

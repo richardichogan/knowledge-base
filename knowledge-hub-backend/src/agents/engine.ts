@@ -16,6 +16,7 @@ import type { Pool, PoolClient } from 'pg';
 import { env } from '../config/env.js';
 import { ConflictError, KnowledgeHubError, NotFoundError, ValidationError } from '../types/errors.js';
 import { appendAssistantMessage } from '../ai/chatSessionStore.js';
+import { currentTurnTraceId } from '../ai/turnTrace.js';
 import { getSpecialist, type Prerequisite } from './registry.js';
 import { withAiWorkflow } from '../ai/aiWorkflow.js';
 import { withAgentAttempt } from './attempt.js';
@@ -44,6 +45,7 @@ export interface AgentJob {
   dependsOn: string | null;
   isStep: boolean;
   conversationId: string | null;
+  originMessageId: string | null;
   requestedBy: 'app' | 'chat';
   acknowledged: boolean;
   createdAt: string;
@@ -65,6 +67,7 @@ interface JobRow {
   requested_by: 'app' | 'chat'; attempts: number; acknowledged_at: Date | null; created_at: Date;
   started_at: Date | null; finished_at: Date | null;
   lease_owner: string | null; lease_until: Date | null; assignment_id: string | null;
+  origin_message_id: string | null;
 }
 
 const CONCURRENCY = 4;
@@ -104,6 +107,7 @@ function toJob(row: JobRow): AgentJob {
     dependsOn: row.depends_on,
     isStep: row.is_step,
     conversationId: row.conversation_id,
+    originMessageId: row.origin_message_id ?? null,
     requestedBy: row.requested_by,
     acknowledged: row.acknowledged_at !== null,
     createdAt: row.created_at.toISOString(),
@@ -136,6 +140,17 @@ export async function listLiveAgentJobs(db: Pool): Promise<AgentJob[]> {
     [ACTIVE],
   );
   return rows.map(toJob);
+}
+
+export async function linkChatHandoffs(db: Pool, sessionId: string, messageId: string): Promise<void> {
+  const traceId = currentTurnTraceId();
+  if (!traceId || !messageId) return;
+  const { rows } = await db.query<JobRow>(
+    `UPDATE agent_jobs SET origin_message_id=$3
+     WHERE origin_trace_id=$1 AND conversation_id=$2 AND requested_by='chat' AND origin_message_id IS NULL
+     RETURNING *`, [traceId, sessionId, messageId],
+  );
+  rows.forEach(emit);
 }
 
 export async function listAgentJobs(db: Pool, filter: { subjectType?: string | undefined; subjectId?: string | undefined; limit?: number | undefined }): Promise<AgentJob[]> {
@@ -274,10 +289,11 @@ async function insertJob(client: PoolClient, job: {
 }): Promise<JobRow> {
   const { rows } = await client.query<JobRow>(
     `INSERT INTO agent_jobs (id, specialist, subject_type, subject_id, subject_title, subject_url, input,
-       depends_on, is_step, conversation_id, requested_by, worker_pool, protocol_version)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 2) RETURNING *`,
+       depends_on, is_step, conversation_id, requested_by, worker_pool, protocol_version, origin_trace_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 2, $13) RETURNING *`,
     [randomUUID(), job.specialist, job.subjectType, job.subject.id, job.subject.title, job.subject.url,
-      JSON.stringify(job.input), job.dependsOn, job.isStep, job.request.conversationId ?? null, job.request.requestedBy, job.pool],
+      JSON.stringify(job.input), job.dependsOn, job.isStep, job.request.conversationId ?? null, job.request.requestedBy, job.pool,
+      job.request.requestedBy === 'chat' && job.request.conversationId ? currentTurnTraceId() : null],
   );
   return rows[0]!;
 }

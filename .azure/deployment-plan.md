@@ -2,7 +2,43 @@
 
 **Status:** Validated
 
-**Current release — Athena research, Discover usage and chat status (2026-11-20 UTC)**
+**Current release — Iris research continuation, targeted reading and chat hierarchy**
+
+- Reuse the existing production subscription, backend container app and static
+  web app; no infrastructure, dependency, identity or RBAC changes.
+- Preserve research checkpoints across bounded timeout continuations, reuse
+  saved search results and batch reads. Structured long pages can be skimmed
+  before reading relevant sections; full reads remain the fallback.
+- Persist the exact commissioning message for chat handoffs; display linked
+  Iris activity beneath that message and leave unlinked activity separate.
+- Apply migration 166 and deploy backend and frontend from the synchronized
+  source. No failed research job is resumed as part of this deployment.
+
+**All validation checks pass — current release:**
+- [x] Azure CLI authentication, existing targets and ingress 3000 verified.
+- [x] Fetch/merge origin/main; both application TypeScript checks pass.
+- [x] Existing Bicep compiles; policy assignments checked.
+- [x] Both isolated release suites, including affected regression cases.
+- [x] Both production builds.
+- [x] Record current proof and verify the next image tag before deployment.
+- Template validation/what-if and provisioning do not apply to this
+  application-only release; the ACR build must succeed before the app update.
+
+**Section 7: Validation Proof — Iris research and chat hierarchy (2026-11-20T03:43Z):**
+- `git fetch origin && git merge origin/main` reported already current.
+  `npx tsc --noEmit` passed in both packages; `git diff --check` passed.
+- Both `npm run test:isolated` release suites passed: backend 1,111 reported,
+  frontend 418 reported, zero failures. All cases in the affected research,
+  workforce, article-reading and Athena-motion files appeared in the output.
+- Both `npm run build` commands passed. Docker was unavailable locally; ACR
+  run `caba` built the current backend context with `--no-push` successfully.
+- Azure CLI confirmed the existing subscription, app targets and port 3000;
+  Bicep compiled, resource-group policy assignments were zero, v359 is active,
+  and image tag v360 is unused. Infrastructure and RBAC are unchanged.
+- The user declined browser verification. Actual browser presentation and a
+  resumed research run are not verified; no failed research job was restarted.
+
+**Previous release — Athena research, Discover usage and chat status (2026-11-20 UTC)**
 
 - User approved completing all discussed changes, including Iris animation and
   the standalone Updates toolbar, followed by deployment to the existing targets.

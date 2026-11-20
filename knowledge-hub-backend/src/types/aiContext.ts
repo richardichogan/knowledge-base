@@ -65,7 +65,7 @@ export interface BackgroundWorkContext {
   incomplete: boolean;
   truncated: boolean;
   items: Array<{
-    id: string; jobId?: string; assignmentId?: string; subjectId?: string;
+    id: string; jobId?: string; assignmentId?: string; subjectId?: string; originMessageId?: string;
     title: string; status: string; unread: boolean; summary: string;
   }>;
 }
