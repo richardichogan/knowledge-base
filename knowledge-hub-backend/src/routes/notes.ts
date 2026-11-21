@@ -30,7 +30,7 @@ import { DESIGN_NOTE_MEMBERSHIPS_SQL } from '../designs/designStore.js';
 import { checkPublication, listRepositoryFolders, listWritableRepositories, publicationRow, publicationView, publishNote, remoteNote, scheduleGitHubPublish, startPublication } from '../services/noteGitHubService.js';
 import { githubMarkdownBlocks } from '../services/noteMarkdown.js';
 import { GitHubClient } from '../integrations/github/githubClient.js';
-import { ConflictError } from '../types/errors.js';
+import { ConflictError, UnauthorisedError } from '../types/errors.js';
 import { positiveInteger } from '../utils/queryValidation.js';
 import { noteLinksRouter } from './noteLinks.js';
 import { linkNamedReferences } from '../services/noteLinks.js';
@@ -42,6 +42,7 @@ import { ensureNoteInsights, dismissNoteInsight } from '../ai/noteInsights.js';
 import { assertBlogNote, loadNoteBlogPackage } from '../services/noteBlogPackage.js';
 import { parsePublishBody, sendToBlog } from '../services/blogPublisher.js';
 import { dealStages, setDealStage } from '../goals/dealDesk.js';
+import { setNoteEditorPresence } from '../services/noteEditorPresence.js';
 
 const router = Router();
 // Any note write can add, edit or remove a definition Athena relies on.
@@ -53,6 +54,18 @@ const PASSAGE_SEARCH_MAX_RESULTS = 100;
 const FOLLOWUP_PASSAGE_MAX_LENGTH = 3000;
 const FOLLOWUP_TITLE_MAX_LENGTH = 300;
 const FOLLOWUP_BODY_MAX_LENGTH = 5000;
+
+router.post('/:id/editor-presence', (req, res, next) => {
+  void (async (): Promise<void> => {
+    try {
+      if (!('userId' in req) || typeof req.userId !== 'string' || !req.userId) throw new UnauthorisedError();
+      const body = req.body as { editorId?: unknown; registrationId?: unknown; open?: unknown };
+      if (typeof body?.editorId !== 'string' || typeof body.registrationId !== 'string' || typeof body.open !== 'boolean') throw new ValidationError('Editor identity, registration and open state are required.');
+      await setNoteEditorPresence(getDb(), req.params['id'] ?? '', body.editorId, body.registrationId, req.userId, body.open);
+      res.json({ success: true, data: { registered: body.open } });
+    } catch (error) { next(error); }
+  })();
+});
 
 function parseTagIds(value: unknown, name = 'tagIds'): string[] {
   if (value === undefined || value === '') return [];

@@ -68,6 +68,7 @@ import { passageTagKeys } from './passageTagModel';
 import { notifyPastedPassages } from '../utils/activeBlockNoteEditor';
 import { ungroupScriptSections } from '../../../knowledge-hub-backend/src/utils/scriptSections';
 import { preserveScriptSelection } from './scriptSectionSelection';
+import { acquireEditorIdentities } from './noteEditorPresence';
 
 interface NoteEditorProps {
   hideProperties?: boolean;
@@ -272,6 +273,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   const workEnabled = contentType === 'deliverable-brief' || contentType === 'email-draft';
   const workSaveNote = useRef<() => Promise<boolean>>(async () => false);
   const work = useWorkContent(doc.id, workEnabled, () => workSaveNote.current());
+  const workPendingRef = useRef(false);
+  workPendingRef.current = workEnabled && (work.dirty || work.busy || work.recoveryConflict);
   const reloadWork = work.reload;
   const workMetadataSave = useRef(work.saveMetadata);
   workMetadataSave.current = work.saveMetadata;
@@ -402,6 +405,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
     try { return noteDraftIdentity.epoch(); } catch { return null; }
   });
   const [draftId] = useState(() => crypto.randomUUID());
+  const [presenceReady, setPresenceReady] = useState(false);
+  const presenceReadyRef = useRef(false);
   const [draftError, setDraftError] = useState<string | null>(null);
   const localDraftRef = useRef<{ draft: NoteDraft; raw: string } | null>(null);
   useEffect(() => { editorRef.current = editor; }, [editor]);
@@ -603,6 +608,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   }, [draftIdentity, draftEpoch, draftId, liveDocument]);
 
   const doSave = useCallback(async () => {
+    if (!presenceReadyRef.current) return false;
     if (historyBusyRef.current || conflictRef.current) return false;
     while (saveInFlightRef.current !== null) {
       if (!await saveInFlightRef.current) return false;
@@ -673,6 +679,80 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
     return ok;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   workSaveNote.current = doSave;
+
+  useEffect(() => {
+    let active = true;
+    let identities: Awaited<ReturnType<typeof acquireEditorIdentities>> = [];
+    const registered = new Map<string, () => Promise<boolean>>();
+    const start = (async (): Promise<void> => {
+      if (!draftIdentity) throw new Error('The original signed-in identity is required.');
+      identities = await acquireEditorIdentities(doc.id, draftIdentity, draftId);
+      for (const identity of identities) {
+        const registration = await api.setNoteEditorPresence(doc.id, identity.id, identity.registrationId, true);
+        if (!registration.success) throw new Error(registration.error.message);
+        registered.set(identity.id, await api.prepareNoteEditorClose(doc.id, identity.id, identity.registrationId));
+      }
+      const current = await api.getNote(doc.id);
+      if (!current.success) throw new Error(current.error.message);
+      if (!active) return;
+      const accepted = fromApiNote(current.data);
+      if ((accepted.revision ?? 0) > (savedDocRef.current.revision ?? 0)) {
+        if (isDirtyRef.current || saveInFlightRef.current) throw new Error('Pending writing must be reviewed before loading the latest saved note.');
+        suppressChangesRef.current = true;
+        try {
+          const blocks = JSON.parse(accepted.contentJson) as PartialBlock[];
+          editorRef.current.replaceBlocks(editorRef.current.document, blocks.length ? blocks : [{ type: 'paragraph', content: '' }]);
+          savedDocRef.current = accepted;
+          restoredBodyRef.current = JSON.stringify(editorRef.current.document);
+          contentTypeRef.current = accepted.contentType; setContentType(accepted.contentType);
+          projectIdRef.current = accepted.projectId ?? ''; setProjectId(projectIdRef.current);
+          githubPathRef.current = accepted.githubPath; setGithubPath(accepted.githubPath);
+          onSavedRef.current(accepted);
+          setHistoryRefresh(value => value + 1);
+        } finally { suppressChangesRef.current = false; }
+      }
+      presenceReadyRef.current = true;
+      setPresenceReady(true);
+    })().catch((error: unknown) => {
+      console.error('[Think] Could not register note editor:', error);
+      if (active) setNotification({ kind: 'error', msg: `This note cannot be opened for editing: ${describeApiError(error)}. Reopen it to try again.` });
+    });
+    const onPageHide = (event: PageTransitionEvent): void => {
+      if (event.persisted || isDirtyRef.current || saveInFlightRef.current || historyBusyRef.current || conflictRef.current || workPendingRef.current) return;
+      for (const identity of identities) {
+        try {
+          if (!identity.hasRecovery()) {
+            const close = registered.get(identity.id);
+            if (close) void close().then(closed => { if (closed) identity.release(true); });
+          }
+        }
+        catch (error) { console.error('[Think] Could not inspect local recovery:', error); }
+      }
+    };
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      active = false;
+      window.removeEventListener('pagehide', onPageHide);
+      void start.then(async () => {
+        let saved = presenceReadyRef.current ? await doSave() : !isDirtyRef.current && !saveInFlightRef.current;
+        while (saved && isDirtyRef.current) saved = await doSave();
+        for (const identity of identities) {
+          try {
+            if (!saved || !registered.has(identity.id) || identity.hasRecovery()) { identity.release(false); continue; }
+            const closed = await api.setNoteEditorPresence(doc.id, identity.id, identity.registrationId, false);
+            if (!closed.success) throw new Error(closed.error.message);
+            identity.release(true);
+          } catch (error) {
+            identity.release(false);
+            console.error('[Think] Could not confirm note editor closure:', error);
+          }
+        }
+      }).catch((error: unknown) => {
+        identities.forEach(identity => identity.release(false));
+        console.error('[Think] Could not confirm note editor closure:', error);
+      });
+    };
+  }, [doc.id, doSave, draftId, draftIdentity]);
 
   // A background Athena task saved edits on the server: show them, unless he's typing.
   useEffect(() => setNoteReloadBridge(doc.id, async () => {
@@ -784,6 +864,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   }, [doc]);
 
   const runExclusive = useCallback(async (work: () => Promise<void>, allowReviewedConflict = false): Promise<void> => {
+    if (!presenceReadyRef.current) throw new Error('The note editor has not yet been registered. No changes were applied.');
     if (historyBusyRef.current) throw new Error('A note operation is already running. Please wait.');
     if (conflictRef.current && !allowReviewedConflict) throw new Error('The saved note changed elsewhere. Copy your draft before reopening the saved note.');
     historyBusyRef.current = true;
@@ -1196,13 +1277,13 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
   const identity = useIdentity();
   const metadata: MetadataPanelProps = {
     workContext: work.data,
-    ...(workEnabled ? { workProperties: <WorkContentProperties work={work} disabled={historyBusy || externalBusy} /> }
-      : contentType === 'deal-desk' ? { workProperties: <DealStageProperties noteId={doc.id} disabled={historyBusy || externalBusy} /> } : {}),
+    ...(workEnabled ? { workProperties: <WorkContentProperties work={work} disabled={historyBusy || externalBusy || !presenceReady} /> }
+      : contentType === 'deal-desk' ? { workProperties: <DealStageProperties noteId={doc.id} disabled={historyBusy || externalBusy || !presenceReady} /> } : {}),
     designPanel,
     ...(designPanelLabel !== undefined && { designPanelLabel }),
     onSaveBeforeCampaign: doSave,
     campaignRequest,
-    writingBusy: historyBusy || externalBusy, doc, onShowEditor, contentType,
+    writingBusy: historyBusy || externalBusy || !presenceReady, doc, onShowEditor, contentType,
     onContentTypeChange: value => {
       setContentType(value); contentTypeRef.current = value; isDirtyRef.current = true;
       if (value === 'use-case') applyUseCaseTemplate();
@@ -1436,9 +1517,10 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
 
   return (
     <div className="notes-editor-panel">
-      <fieldset className="notes-editor-lock" disabled={historyBusy || externalBusy} aria-label="Think note" aria-busy={historyBusy || externalBusy}>
+      <fieldset className="notes-editor-lock" disabled={historyBusy || externalBusy || !presenceReady} aria-label="Think note" aria-busy={historyBusy || externalBusy || !presenceReady}>
       <div className="notes-editor-centre">
         {!hostedEditor && portalInto(actionsSlot, actions)}
+        {!presenceReady && notification === null && <span role="status" className="notes-save-status">Connecting editor…</span>}
         {notification !== null && (
           <span role={notification.kind === 'error' ? 'alert' : 'status'}
             className={`notes-save-status notes-save-status--${notification.kind}${notification.kind === 'success' && notification.msg === 'Saved' ? ' notes-save-status--confirmation' : ''}`}>
@@ -1498,7 +1580,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({ doc, onSaved, onDelete, 
             <BlockNoteViewWrapper
               editor={editor}
               theme={BLOCKNOTE_G100_THEME}
-              editable={bodyContent === undefined && !historyBusy && !externalBusy && !(contentType === 'email-draft' && work.data?.status === 'sent')}
+              editable={presenceReady && bodyContent === undefined && !historyBusy && !externalBusy && !(contentType === 'email-draft' && work.data?.status === 'sent')}
             >
               <PassageTagManager editor={editor} noteId={doc.id} save={doSave} onError={passageError}
                 githubPublished={publication !== null} />

@@ -1112,6 +1112,7 @@ export async function executeToolCall(
     workforceRequestId?: string | undefined;
     readOnly?: boolean | undefined;
     userMessage?: string | undefined;
+    researchDraft?: { noteId: string; instructions: string } | undefined;
     sessionId?: string | undefined; noteId?: string | undefined; designOwner?: string | undefined; designState?: DesignTurnState; noteEdits?: NoteEditProposal[];
     podcastOwner?: string | undefined; podcastState?: PodcastTurnState;
     workState?: WorkTurnState | undefined;

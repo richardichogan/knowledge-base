@@ -21,6 +21,7 @@ export interface AgentToolContext extends TrustedChatBlogAction {
   designOwner?: string | undefined;
   noteId?: string | undefined;
   retrievalScope?: RetrievalScope | undefined;
+  researchDraft?: { noteId: string; instructions: string } | undefined;
 }
 
 export const AGENT_TOOL_NAMES = new Set(['hand_off_to_specialist', 'check_specialist_jobs', 'check_workforce_assignments', 'apply_diagram_candidate']);
@@ -92,8 +93,9 @@ export function agentToolDefinitions(): LlmToolDefinition[] {
             referenceDiagramIds: { type: 'array', maxItems: 3, items: { type: 'string' }, description: 'Ariadne: selected saved diagrams to use as layout examples, not business content. Otherwise suitable permitted examples are retrieved.' },
             screenIds: { type: 'array', maxItems: 2, items: { type: 'string' }, description: 'Ariadne: reference screenshot IDs from this chat’s Screens context. The specialist receives the actual images.' },
             confirmed: { type: 'boolean', description: 'He agreed to a plan that replaces existing work.' },
-            researchAction: { type: 'string', enum: ['start', 'resume', 'cancel'], description: 'Iris chat research only; defaults to start. Resume retains completed evidence. Cancel stops further work.' },
-            jobId: { type: 'string', description: 'Iris chat research job ID, required for resume or cancel.' },
+            researchAction: { type: 'string', enum: ['start', 'resume', 'cancel', 'release_editors'], description: 'Iris chat research only; defaults to start. Resume retains evidence. Cancel stops work. release_editors is only for the exact editor-closure confirmation requested in this chat; supply that research jobId.' },
+            updateDraftAfterResearch: { type: 'boolean', description: 'Iris only: always specify this for a start. True when the user requested a written draft using this research; Athena updates the authorised working note after research and after all editors close. False for research-only or chat-only requests.' },
+            jobId: { type: 'string', description: 'Iris chat research job ID, required for resume, cancel or editor confirmation.' },
             compileBrief: {
               type: 'object', additionalProperties: false,
               description: 'document-compiler only. The Library documents to combine into one new Think note.',

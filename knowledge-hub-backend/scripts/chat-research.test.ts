@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { parseChatResearchInput, parseResearchBrief, parseResearchCheckpoint, researchSearchUrls, runChatResearch, selectPageSections } from '../src/work/chatResearch.js';
+import { commissionChatResearch, parseChatResearchInput, parseResearchBrief, parseResearchCheckpoint, researchSearchUrls, runChatResearch, selectPageSections } from '../src/work/chatResearch.js';
 import { FoundryClient } from '../src/ai/foundryClient.js';
 import { modelReadingSteps } from '../src/ai/knowledge/documentReading.js';
 import { articleDocument } from '../src/utils/articleReading.js';
@@ -103,6 +103,96 @@ test('saved research is bound to the exact brief and preserves completed topics'
   assert.throws(() => parseResearchCheckpoint({ ...checkpoint, draft: 'Premature finished report' }, input), /unfinished/);
   assert.throws(() => parseResearchCheckpoint({ ...checkpoint, findings: [{ ...checkpoint.findings[0], sources: [] }] }, input), /successfully read/);
   assert.throws(() => parseResearchCheckpoint({ ...checkpoint, findings: [{ ...checkpoint.findings[0], title: 'Wrong topic' }] }, input), /commissioned topics/);
+});
+
+test('draft handoff is bound to its destination without changing older research inputs', () => {
+  const draft = { noteId: '33333333-3333-4333-8333-333333333333', instructions: 'Draft the newsletter', excludedIds: [] };
+  const withDraft = parseChatResearchInput({ ...input, draft });
+  assert.deepEqual(withDraft.draft, draft);
+  const checkpoint = parseResearchCheckpoint(undefined, withDraft);
+  assert.throws(() => parseResearchCheckpoint(checkpoint, { ...withDraft, draft: { ...draft, noteId: '44444444-4444-4444-8444-444444444444' } }), /brief changed/);
+  assert.throws(() => parseChatResearchInput({ ...input, draft: { ...draft, noteId: 'not-a-note' } }), /valid draft note ID/);
+  assert.deepEqual(parseChatResearchInput(input), input);
+});
+
+test('research cannot silently omit or invent the authorised draft destination', async () => {
+  const db = new Pool();
+  const turn = { userId: 'owner', sessionId: '22222222-2222-4222-8222-222222222222', workforceRequestId: 'request',
+    userMessage: 'Research and draft the newsletter', readOnly: false, exclusionsFailed: false,
+    excludedIds: new Set<string>(), strictProjectId: null };
+  try {
+    await assert.rejects(commissionChatResearch(db, { researchBrief: brief, updateDraftAfterResearch: true }, turn), /No authorised working draft/);
+    await assert.rejects(commissionChatResearch(db, { researchBrief: brief }, {
+      ...turn, researchDraft: { noteId: '33333333-3333-4333-8333-333333333333', instructions: 'Draft the newsletter' },
+    }), /Specify whether/);
+  } finally { await db.end(); }
+});
+
+test('completed research draft writes are not repeated after a worker restart', async t => {
+  const db = new Pool();
+  const query = t.mock.method(db, 'query', async () => ({ rows: [{ id: '11111111-1111-4111-8111-111111111111' }], rowCount: 1 }));
+  const noteId = '33333333-3333-4333-8333-333333333333';
+  try {
+    const outcome = await runChatResearch({
+      db, jobId: '11111111-1111-4111-8111-111111111111', subjectId: '22222222-2222-4222-8222-222222222222',
+      attempt: 2, signal: new AbortController().signal, progress: () => {},
+      input: { ...input, draft: { noteId, instructions: 'Draft the newsletter', excludedIds: [] }, draftCompletion: { noteId, revision: 1 } },
+    });
+    assert.equal(outcome.data['noteId'], noteId);
+    assert.equal(query.mock.callCount(), 1);
+  } finally { await db.end(); }
+});
+
+test('completed research waits without generating a draft while an editor is open', async t => {
+  const db = new Pool();
+  t.mock.method(db, 'query', async (sql: string) => sql.includes('excluded_sources')
+    ? { rows: [{ excluded_sources: [] }], rowCount: 1 }
+    : { rows: [{ id: '11111111-1111-4111-8111-111111111111' }], rowCount: 1 });
+  t.mock.method(db, 'connect', async () => ({ query: async (sql: string) =>
+    sql.includes('SELECT input FROM agent_jobs') ? { rows: [{ input: { editorReleaseRequest: { token: '44444444-4444-4444-8444-444444444444' } } }], rowCount: 1 }
+      : { rows: [{}], rowCount: 1 }, release() {} }));
+  const chat = t.mock.method(FoundryClient.prototype, 'chat', async () => { throw new Error('Must not generate while the note is open'); });
+  const noteId = '33333333-3333-4333-8333-333333333333';
+  try {
+    const outcome = await runChatResearch({
+      db, jobId: '11111111-1111-4111-8111-111111111111', subjectId: '22222222-2222-4222-8222-222222222222',
+      attempt: 2, signal: new AbortController().signal, progress: () => {},
+      input: { ...input, draft: { noteId, instructions: 'Draft the newsletter', excludedIds: [] } },
+    });
+    assert.equal(outcome.data['phase'], 'waiting_for_editor');
+    assert.equal(outcome.continueAfterMs, 60_000);
+    assert.equal(chat.mock.callCount(), 0);
+  } finally { await db.end(); }
+});
+
+test('editor release requires the exact user confirmation and only releases the captured registrations', async t => {
+  const db = new Pool();
+  const noteId = '33333333-3333-4333-8333-333333333333';
+  const jobId = '11111111-1111-4111-8111-111111111111';
+  const token = '44444444-4444-4444-8444-444444444444';
+  const editorId = '55555555-5555-4555-8555-555555555555';
+  const registrationId = '66666666-6666-4666-8666-666666666666';
+  const statements: Array<{ sql: string; args: unknown[] }> = [];
+  t.mock.method(db, 'connect', async () => ({ query: async (sql: string, args: unknown[] = []) => {
+    statements.push({ sql, args });
+    if (sql.includes('SELECT input FROM agent_jobs')) return { rows: [{ input: {
+      ...input, draft: { noteId, instructions: 'Draft the newsletter', excludedIds: [] },
+      editorReleaseRequest: { token, registrations: [{ editorId, registrationId }] },
+    } }], rowCount: 1 };
+    if (sql.includes('SELECT 1 FROM note_editor_presence')) return { rows: [{}], rowCount: 1 };
+    return { rows: [], rowCount: 1 };
+  }, release() {} }));
+  const turn = { userId: 'owner', sessionId: '22222222-2222-4222-8222-222222222222', workforceRequestId: 'request',
+    userMessage: 'yes', readOnly: false, exclusionsFailed: false, excludedIds: new Set<string>(), strictProjectId: null };
+  try {
+    await assert.rejects(commissionChatResearch(db, { researchAction: 'release_editors', jobId }, turn), /exact confirmation/);
+    assert.equal(statements.some(item => item.sql.includes('DELETE FROM note_editor_presence')), false);
+    const result = await commissionChatResearch(db, { researchAction: 'release_editors', jobId },
+      { ...turn, userMessage: `I confirm all editors are saved and closed: ${token}` });
+    assert.deepEqual(statements.find(item => item.sql.includes('DELETE FROM note_editor_presence'))?.args,
+      [noteId, 'owner', editorId, registrationId]);
+    assert.equal((result as { waitingForOtherEditors: boolean }).waitingForOtherEditors, true);
+  } finally { await db.end(); }
 });
 
 test('a resumed source batch cannot count missing or unrelated pages as completed', () => {

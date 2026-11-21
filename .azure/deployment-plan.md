@@ -2,7 +2,42 @@
 
 **Status:** Validated
 
-**Current release — Iris research continuation, targeted reading and chat hierarchy**
+**Current release — research-to-draft handoff**
+
+- Reuse the existing production subscription, container app, registry and
+  static web app; no infrastructure, dependency, identity or RBAC changes.
+- After Iris saves research, Athena updates the authorised original writing
+  draft only after registered editors have saved and closed. A lost editor
+  registration requires the user's explicit, registration-bound confirmation.
+- Apply migration 167. The user confirmed all existing Think editors are saved
+  and closed; older clients must refresh before editing after deployment.
+
+**All validation checks pass — current release:**
+- [x] Azure CLI, production targets, ingress and next image tag checked.
+- [x] Fetched/merged origin/main; both TypeScript checks and builds passed.
+- [x] Bicep compiled, policy assignments checked and existing roles reviewed.
+- [x] Both isolated release suites and affected regression cases passed.
+- [x] Backend Docker context verified by an ACR no-push build.
+
+**Section 7: Validation Proof — research-to-draft handoff (2026-11-21T03:42Z):**
+- `git fetch origin && git merge --no-edit origin/main` was current; a second
+  fetch after validation confirmed main had not advanced. Both `npx tsc
+  --noEmit` checks, both `npm run build` commands and `git diff --check` passed.
+- Backend `npm run test:isolated` reported 1,136 passing, including all 16
+  research cases. The frontend release suite reported 403 passing, including
+  all four note-recovery cases.
+- `az bicep build --file infra/main.bicep --stdout` passed. No infrastructure or
+  role definitions changed, and there are no resource-group policy assignments.
+  Existing production storage and registry use their configured secret
+  references. Backend v360 is active, and v361 was not already present.
+- ACR no-push build `cabc` succeeded. The existing Dockerfile includes numbered
+  database migrations. Local `dist/index.html` references
+  `/assets/index-DxsRsBZB.js`.
+- The user confirmed all existing Think editors are saved and closed. Browser
+  verification was declined; the live research-to-draft handoff remains
+  unverified. No existing research job was restarted.
+
+**Previous release — Iris research continuation, targeted reading and chat hierarchy**
 
 - Reuse the existing production subscription, backend container app and static
   web app; no infrastructure, dependency, identity or RBAC changes.

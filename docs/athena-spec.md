@@ -144,12 +144,26 @@ This does not repeat searches or reads, extend the stage deadline, or bypass a
 failed review. This is a model check, not a guarantee of factual correctness.
 
 The final report is a new native Think research note, readable and editable through
-the existing note tools/editor. Completion links appear in the original chat and
+the existing note tools/editor. When research is commissioned for an explicitly
+requested written draft, Athena also retains the authorised draft identity and
+original instructions. After research is saved, she uses that report and the latest
+saved draft to prepare edits without repeating research. She waits for every
+registered editor to save and close; a lost connection stays pending until the
+editor reconnects. If it cannot reconnect, Athena offers an explicit,
+job-specific confirmation after the user saves or recovers the work and closes
+all copies. Confirmation releases only the registrations listed when she asked;
+registrations made later still block the write. A device-local recovery copy must be reviewed before its
+editor can close. The write checks both revisions and source exclusions, retains
+a restorable previous version, and records completion atomically with the write.
+Draft edits and a readiness review use the saved evidence, with at most one
+correction; they do not repeat the research. Unsupported or unsafe edits leave the
+original unchanged and report a failure.
+Research-only requests do not update a draft. Completion links appear in the original chat and
 Background work. `check_specialist_jobs` exposes its status and result note ID.
 The research handoff supports explicit resume/cancel actions in the originating
 authenticated chat. Resume retains completed topics and source checkpoints;
-cancel invalidates the worker lease, prevents the final note write and retains
-source checkpoints already processed. In-flight model/network work stops cooperatively.
+cancel invalidates the worker lease, prevents outstanding writes and retains
+source checkpoints and any already-saved report. In-flight model/network work stops cooperatively.
 Explicit collection/date/project restrictions are not widened into this path.
 
 Health exposes conversation retrieval signals as well as provider usage: measured scope, prevented cross-collection attempts, inherited scope, possible deferred retries, temporal/default-window use, unread search hits, unverified quotes, budget exhaustion and tool errors. Deferred retries are heuristic review flags, not proven failures. Audit storage contains categories/counts only, never prompts or source text. Legacy rows without scope/environment attribution stay separate and unmeasured. No-retrieval can be correct for conversation, provider success is not task success, and these signals are not an accuracy score. Health's selected dates are UTC and environment/persona/feature filters apply; deployment-attributed turn quality is explicitly unavailable.

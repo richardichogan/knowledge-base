@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { captureNoteDraft, clearAllNoteDrafts, listNoteDrafts, noteDraftKey, parseNoteDraft, removeNoteDraftIfUnchanged, storeNoteDraft } from '../src/notes/noteDraftStorage';
 import type { NoteDocument } from '../src/notes/types';
+import { acquireEditorIdentities } from '../src/notes/noteEditorPresence';
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>();
@@ -74,4 +75,42 @@ test('malformed/versioned/oversized drafts and storage failures are explicit; si
   assert.equal(storage.getItem('kh-athena-session-id-standalone'), 'keep chat recovery');
   storage.setItem = () => { throw new Error('Device storage full'); };
   assert.throws(() => storeNoteDraft(storage, draft), /Device storage full/);
+});
+
+test('editor identities isolate open tabs and retain unresolved recovery after reconnect', async () => {
+  const storage = new MemoryStorage();
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const locks = new Set<string>();
+  const lockManager = {
+    async request(name: string, _options: unknown, callback: (lock: object | null) => Promise<void>): Promise<void> {
+      if (locks.has(name)) return callback(null);
+      locks.add(name);
+      try { await callback({}); } finally { locks.delete(name); }
+    },
+  };
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: storage });
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { locks: lockManager } });
+  try {
+    const first = await acquireEditorIdentities(doc.id, 'owner-a', id(1));
+    storeNoteDraft(storage, captureNoteDraft('owner-a', id(1), doc));
+    const second = await acquireEditorIdentities(doc.id, 'owner-a', id(2));
+    assert.equal(first.length, 1);
+    assert.equal(second.length, 1);
+    assert.notEqual(first[0]?.id, second[0]?.id);
+    first[0]?.release(false);
+    await new Promise<void>(resolve => setImmediate(resolve));
+    const reconnected = await acquireEditorIdentities(doc.id, 'owner-a', id(3));
+    const recovered = reconnected.find(item => item.id === first[0]?.id);
+    assert.equal(recovered?.hasRecovery(), true);
+    storage.removeItem(noteDraftKey('owner-a', doc.id, id(1)));
+    assert.equal(recovered?.hasRecovery(), false);
+    reconnected.forEach(item => item.release(true));
+    second.forEach(item => item.release(true));
+  } finally {
+    if (previousStorage) Object.defineProperty(globalThis, 'localStorage', previousStorage);
+    else Reflect.deleteProperty(globalThis, 'localStorage');
+    if (previousNavigator) Object.defineProperty(globalThis, 'navigator', previousNavigator);
+    else Reflect.deleteProperty(globalThis, 'navigator');
+  }
 });

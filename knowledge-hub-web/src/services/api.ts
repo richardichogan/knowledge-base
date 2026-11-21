@@ -1077,6 +1077,29 @@ export class KnowledgeHubApi {
     return r.data;
   }
 
+  async setNoteEditorPresence(id: string, editorId: string, registrationId: string, open: boolean): Promise<ApiResponse<{ registered: boolean }>> {
+    return (await this.client.post<ApiResponse<{ registered: boolean }>>(`/api/notes/${encodeURIComponent(id)}/editor-presence`, { editorId, registrationId, open })).data;
+  }
+
+  async prepareNoteEditorClose(id: string, editorId: string, registrationId: string): Promise<() => Promise<boolean>> {
+    const signedIn = await getApiToken();
+    const auth = signedIn !== '' ? signedIn : TOKEN;
+    return async () => {
+      try {
+        const response = await fetch(`${BASE_URL}/api/notes/${encodeURIComponent(id)}/editor-presence`, {
+        method: 'POST', keepalive: true,
+        headers: { 'Content-Type': 'application/json', ...(auth ? { Authorization: `Bearer ${auth}` } : {}) },
+        body: JSON.stringify({ editorId, registrationId, open: false }),
+        });
+        if (!response.ok) console.error('[Think] Could not close note editor presence:', response.status);
+        return response.ok;
+      } catch (error) {
+        console.error('[Think] Could not close note editor presence:', error);
+        return false;
+      }
+    };
+  }
+
   async queueScriptVisuals(noteId: string, instruction: string): Promise<ApiResponse<AgentHandOffResult>> {
     return (await this.client.post(`/api/notes/${encodeURIComponent(noteId)}/script-visuals/jobs`, { instruction })).data;
   }

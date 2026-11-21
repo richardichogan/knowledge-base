@@ -85,6 +85,11 @@ function receive(job: AgentJob): void {
   }
   jobs.set(job.id, job);
   changed();
+  if (job.conversationId && job.result?.['phase'] === 'waiting_for_editor'
+    && (previous?.result?.['phase'] !== 'waiting_for_editor'
+      || previous.result?.['editorConfirmationId'] !== job.result['editorConfirmationId'])) {
+    window.dispatchEvent(new CustomEvent('athena-conversation-updated', { detail: { sessionId: job.conversationId } }));
+  }
   if (job.subjectType === 'task' && (previous?.status !== job.status
     || previous.progress.at(-1) !== job.progress.at(-1))) {
     window.dispatchEvent(new CustomEvent('athena-task-job-updated', {

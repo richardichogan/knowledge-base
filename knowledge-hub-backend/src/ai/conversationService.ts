@@ -58,7 +58,7 @@ import { ukClock } from '../sync/ukClock.js';
 import { deferredTurnTraceRecorder, recordTurnTrace, setTraceProject, withTurnTrace, withTurnSpan } from './turnTrace.js';
 import { guardArgumentLinks, guardLinks, linkBlockedMessage, linkFixNote, linkRepairInstruction, toolEvidence, type LinkFix } from './linkFinder.js';
 import { startRoutingShadow } from './routingShadow.js';
-import { chatDraftNoteAction, executionFollowThroughRepair, isConversationalTurn, isDiscussionOnlyTurn, requestsOpenNoteEdit, requestsWholePieceRewrite, unconfirmedNoteEditClaim } from './dialoguePolicy.js';
+import { chatDraftNoteAction, executionFollowThroughRepair, isConversationalTurn, isDiscussionOnlyTurn, requestsOpenNoteEdit, requestsWholePieceRewrite, requestsWrittenContent, unconfirmedNoteEditClaim, workingDraftNoteId } from './dialoguePolicy.js';
 
 const RAG_USED_LIMIT = 10;
 const TOOL_ERROR_LOG_CHARS = 400;
@@ -500,7 +500,16 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
   const chatDraftCandidate = !noteOpen && !toolContext.noteId && mapId === undefined && !design && !toolContext.podcastOwner
     ? chatDraftNoteAction(safeHistory, userMessage) : null;
   const chatDraft = chatDraftCandidate && permittedTools.some(tool => tool.function.name === chatDraftCandidate.tool) ? chatDraftCandidate : null;
+  const explicitNewDraft = /\b(?:new|another|separate|second)\s+(?:note|document|draft|newsletter|blog|article|post|script)\b/i.test(userMessage);
+  const requestsDraftUpdate = requestsWrittenContent(userMessage) || requestsOpenNoteEdit(safeHistory, userMessage);
+  let researchDraftId = !discussionOnly && requestsDraftUpdate && !explicitNewDraft
+    ? noteOpen ? toolContext.noteId : chatDraft?.tool === 'update_note' ? chatDraft.noteId
+      : requestsOpenNoteEdit(safeHistory, userMessage) ? workingDraftNoteId(safeHistory) ?? undefined : undefined : undefined;
+  const researchDraftInstructions = JSON.stringify({ history: safeHistory.slice(-12), request: userMessage });
   if (chatDraft) catalog.load([chatDraft.tool]);
+  if (/^I confirm all editors are saved and closed: [0-9a-f-]{36}$/i.test(userMessage.trim())) {
+    catalog.loadPermitted(['hand_off_to_specialist']);
+  }
   await recordTurnTrace('capability.catalog', {
     capabilities: permittedTools.map(tool => ({ name: tool.function.name, state: catalog.state(tool.function.name), write: WRITE_TOOLS.has(tool.function.name) })),
     contextCapabilities, readOnly: hooks.readOnlyTools === true,
@@ -510,6 +519,8 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
     '## Current chat runtime capabilities (authoritative for this turn)',
     `Persona: ${persona ?? 'general'}. ${hooks.readOnlyTools === true ? 'Read-only turn: mutation tools are withheld.' : 'Only the supplied tools can perform actions.'}`,
     `Protected live-note editing: ${permittedTools.some(tool => tool.function.name === 'propose_note_edit') ? 'available; explicitly requested edits apply and save automatically through the live editor. delivery=preview only for an explicitly requested preview. The tool acceptance is not a save receipt: the editor reports save success or failure. Do not tell Richard to click Apply for ordinary edits.' : 'unavailable in this turn'}.`,
+    'When Iris is researching for an explicitly requested Think draft, create the draft first if needed, then set updateDraftAfterResearch on the Iris handoff. If the user asks for a new or separate draft, create it rather than using the open note. Athena will use the saved research to update that same draft after every editor has saved and closed. Do not enable this for research-only requests or chat-only answers. A queued handoff is not a completed draft.',
+    'When the user replies with the exact editor-closure confirmation requested in this chat, call hand_off_to_specialist with specialist chat-researcher, researchAction release_editors and the job ID from that request. Never fabricate or paraphrase the confirmation, and never claim the draft was updated merely because registrations were released.',
     `Canvas change preview: ${permittedTools.some(tool => tool.function.name === 'propose_map_changes') ? 'available; requires user application' : 'unavailable in this turn'}.`,
     discussionOnly
       ? 'Writing destination: none this turn. He asked to discuss or critique, not to change anything. Reply conversationally in chat; do not edit the note or create documents. Note editing resumes the moment he asks for a change.'
@@ -967,7 +978,8 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
               retrievalScope, strictProjectId, excludedIds: [...excluded] });
             hooks.validateToolCall?.(call.function.name, parseToolArgs(argumentsJson));
             return filterExcluded(
-              await executeToolCall(db, call.function.name, argumentsJson, activeProjectId ?? undefined, { sessionId, userMessage, ...toolContext, workforceRequestId, retrievalScope, retrievalAudit, excludedIds: excluded, exclusionsFailed, strictProjectId, signal: hooks.signal, mapAliases: mapOutlineResult?.aliases, mapCanvas: openMap ?? undefined, readOnly: hooks.readOnlyTools === true }),
+              await executeToolCall(db, call.function.name, argumentsJson, activeProjectId ?? undefined, { sessionId, userMessage, ...toolContext, workforceRequestId, retrievalScope, retrievalAudit, excludedIds: excluded, exclusionsFailed, strictProjectId, signal: hooks.signal, mapAliases: mapOutlineResult?.aliases, mapCanvas: openMap ?? undefined, readOnly: hooks.readOnlyTools === true,
+                ...(researchDraftId ? { researchDraft: { noteId: researchDraftId, instructions: researchDraftInstructions } } : {}) }),
               excluded);
             }, { callId: call.id });
           };
@@ -1098,6 +1110,10 @@ For newly prepared campaigns the publication order is Teaser, Launch, Blog Post,
         budget?.exhausted.add('source_chars');
       }
       if (call.function.name === 'read_knowledge_record') updatePendingRead(pendingReads, parseToolArgs(call.function.arguments), result);
+      if (call.function.name === 'create_note_draft' && !discussionOnly && requestsWrittenContent(userMessage)
+        && typeof result === 'object' && result !== null && 'success' in result && result.success === true
+        && 'note' in result && typeof result.note === 'object' && result.note !== null && 'id' in result.note
+        && typeof result.note.id === 'string') researchDraftId = result.note.id;
       // Only register evidence actually sent to the model, not a discarded oversized payload.
       await recordTurnTrace('tool.result', { callId: call.id, name: call.function.name, content: toolContent });
       hooks.onToolResult?.(call.function.name, result);
